@@ -11,6 +11,7 @@
 | **M4: iOS App & SwiftTerm Integration** | Xcode project, SwiftUI views, SwiftTerm integration, custom accessory keyboard | Completed | `ios-ui-dev`, `rev` |
 | **M5: Multi-Session, Lifecycle & Security Audit** | Multi-tab UI, Zero Battery Drain lifecycle, Keychain integration, Hacker audit | Completed | `ios-ui-dev`, `hacker`, `rev` |
 | **M6: Agent Control & Secure Approvals** | Host hooks, Ed25519-signed approvals, Zero-Knowledge APNs wake-up, Diff Viewer | Completed | `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker` |
+| **M7: Android Client Architecture** | UniFFI Kotlin bindings, AndroidKeyStore Ed25519, Jetpack Compose, FCM/UnifiedPush | Planned (Spec Ready) | `doc-dev`, `rust-core-dev`, `android-ui-dev`, `rev`, `hacker` |
 
 ---
 
@@ -33,5 +34,12 @@
 - **Roles**: `doc-dev`, `rust-core-dev`, `rev`, `swift-bridge-dev`, `ios-ui-dev`, `hacker`
 - **Hacker Gate**: Completed (`docs/security-findings/2026-10-06-agent-control-and-approvals-audit.md` — VERDICT: CLEAR)
 - **Status**: Implemented, Verified with `cargo test` (20/20 passed), `swift test` (3/3 passed), and `xcodebuild` (**BUILD SUCCEEDED**)
+
+### Feature 04: Android Client Architecture & Cross-Platform Support
+- **Doc**: `docs/features/04-android-support-and-architecture.md`
+- **Roles**: `doc-dev`, `rust-core-dev`, `android-ui-dev`, `rev`, `hacker`
+- **Hacker Gate**: Yes (AndroidKeyStore TEE/StrongBox, BiometricPrompt, Zero-Knowledge FCM / UnifiedPush)
+- **Status**: Specification Written (Milestone M7)
+
 
 
