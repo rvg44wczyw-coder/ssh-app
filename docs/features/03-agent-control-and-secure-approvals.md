@@ -15,7 +15,7 @@ Remote autonomous coding agents (*Claude Code*, *Google Antigravity*, *OpenAI Co
 2. **Clarification Questions**: Asking the user to pick an option or clarify architectural constraints.
 3. **Task Completion / Failure Alerts**: Notifying the user when a multi-turn task concludes.
 
-Competitors (such as *Moshi*) solve this by deploying a persistent proprietary Go daemon (`moshi-hook`) listening on local TCP ports and routing command text and session metadata through third-party cloud push gateways to Apple APNs. This violates the core privacy, battery, and zero-trust principles of our project:
+Competitors typically attempt to solve this by deploying a persistent proprietary daemon listening on local TCP/HTTP ports and routing unencrypted command text and session metadata through third-party cloud push gateways to Apple APNs. This violates the core privacy, battery, and zero-trust principles of our project:
 - **No Plaintext HTTP on Host**: Opening listening HTTP ports exposes approval endpoints to local processes and network snooping.
 - **Zero-Knowledge Privacy**: No command names, code snippets, or project paths may ever be sent to third-party cloud servers.
 - **Zero Battery Drain**: The mobile app must not keep background polling sockets open while suspended.
