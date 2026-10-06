@@ -28,14 +28,15 @@ xcuserdata/
 
 # Swift Package Manager
 .build/
-Packages/
 
 # UniFFI / Generated XCFramework artifacts
 *.xcframework/
 artifacts/
 
 # Security & Local Notes
-docs/security-findings/
 .env
 *.pem
 *.key
+scratch/
+*.zip
+1.sh
