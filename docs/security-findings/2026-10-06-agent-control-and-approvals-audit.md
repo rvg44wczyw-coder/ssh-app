@@ -21,7 +21,7 @@ All core cryptographic guarantees, zero-listening-port invariants, and zero-know
 ## 2. Threat Vector Analysis & Audit Details
 
 ### Vector 1: Host Network Exposure & Remote Attack Surface
-- **Analysis**: Competitor architectures (such as Moshi) expose unauthenticated or token-authenticated HTTP/REST servers on host loopback or LAN ports, creating cross-site scripting (DNS rebinding) and local port hijacking vectors.
+- **Analysis**: Typical competitor architectures often expose unauthenticated or token-authenticated HTTP/REST servers on host loopback or LAN ports, creating cross-site scripting (DNS rebinding) and local port hijacking vectors.
 - **Verification**: `ssh-app` introduces **ZERO** open TCP/HTTP listening sockets on the MacBook host.
 - **IPC Mechanism**: Local CLI agent hooks (e.g. Claude Code `PreToolUse`, Antigravity `beforeShellExecution`) communicate exclusively via a local Unix Domain Socket at `~/.ssh-app/run/control.sock`.
 - **Filesystem Permissions**: The socket directory is enforced at `0700` (`drwx------`) and socket at `0600` (`srw-------`), preventing unauthorized local users from intercepting or injecting approval requests.
