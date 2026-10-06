@@ -1,0 +1,12 @@
+name = "ssh-app-apns-bridge"
+main = "worker.ts"
+compatibility_date = "2024-04-01"
+
+[vars]
+APPLE_KEY_ID = "YOUR_KEY_ID"
+APPLE_TEAM_ID = "YOUR_TEAM_ID"
+APPLE_BUNDLE_ID = "com.semenov.sshapp"
+# Do NOT place APPLE_P8_PRIVATE_KEY here in plaintext!
+# Instead, add it via encrypted secret:
+# wrangler secret put APPLE_P8_PRIVATE_KEY
+# wrangler secret put AUTH_SECRET

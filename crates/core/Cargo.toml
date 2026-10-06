@@ -1,0 +1,36 @@
+[package]
+name = "ssh-core"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["lib", "staticlib", "cdylib"]
+name = "ssh_core"
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+required-features = ["cli"]
+
+[features]
+default = []
+cli = ["uniffi/cli"]
+
+[dependencies]
+russh = { version = "0.63", default-features = false, features = ["aws-lc-rs", "flate2"] }
+ssh-key = { version = "0.7.0-rc.11", features = ["ed25519", "std", "alloc", "crypto"] }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros", "io-util"] }
+async-trait = "0.1"
+thiserror = "2"
+zeroize = { version = "1", features = ["derive"] }
+rand = "0.10"
+regex = "1"
+tracing = "0.1"
+uniffi = { version = "0.32", features = ["tokio"] }
+serde = { version = "1", features = ["derive"] }
+sha2 = "0.10"
+hex = "0.4"
+ed25519-dalek = "3"
+
+[dev-dependencies]
+tempfile = "3"
