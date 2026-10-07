@@ -1,14 +1,20 @@
-# macOS
+# ==============================================================================
+# .gitignore — SSH-App (iOS + Rust Core)
+# ==============================================================================
+
+# OS & Filesystem Artifacts
 .DS_Store
 .AppleDouble
 .LSOverride
+._*
+Thumbs.db
 
-# Rust
+# Rust & Cargo
 target/
 **/*.rs.bk
 *.pdb
 
-# Xcode / Swift
+# Xcode & Swift Build Artifacts
 build/
 DerivedData/
 *.pbxuser
@@ -20,6 +26,7 @@ DerivedData/
 *.perspectivev3
 !default.perspectivev3
 xcuserdata/
+*.xcuserdatad/
 *.xccheckout
 *.moved-aside
 *.xcuserstate
@@ -28,15 +35,36 @@ xcuserdata/
 
 # Swift Package Manager
 .build/
+.swiftpm/
 
-# UniFFI / Generated XCFramework artifacts
+# UniFFI / Generated Binary Frameworks
 *.xcframework/
 artifacts/
 
-# Security & Local Notes
+# Secrets, Private Keys & Certificates
 .env
+.env.*
 *.pem
 *.key
+*.p8
+*.p12
+*.mobileprovision
+id_ed25519*
+id_rsa*
+
+# Cloudflare Worker / Node.js
+node_modules/
+.wrangler/
+wrangler.toml
+!wrangler.toml.example
+
+# Editors & IDEs
+.idea/
+.vscode/
+*.swp
+*~
+
+# Temporary & Local Scratch Files
 scratch/
 *.zip
 1.sh
