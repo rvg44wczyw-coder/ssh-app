@@ -1797,6 +1797,18 @@ public func hashCommandSha256(command: String) -> String  {
 })
 }
 /**
+ * Helper for signing canonical approval bytes on client with private key.
+ */
+public func signApprovalPayload(privateKeyOpenssh: String, canonicalBytes: Data)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_sign_approval_payload(
+        FfiConverterString.lower(privateKeyOpenssh),
+        FfiConverterData.lower(canonicalBytes),uniffiCallStatus
+    )
+})
+}
+/**
  * Verifies whether an approval decision's timestamp falls within the allowed tolerance window.
  */
 public func verifyApprovalFreshness(timestampSec: UInt64, currentTimeSec: UInt64, maxDriftSec: UInt64) -> Bool  {
@@ -1898,6 +1910,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_hash_command_sha256() != 26218) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_sign_approval_payload() != 38696) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_verify_approval_freshness() != 26260) {
