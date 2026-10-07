@@ -116,16 +116,17 @@ pub fn verify_approval_signature(
 }
 
 /// Helper for signing canonical approval bytes on client with private key.
+#[uniffi::export]
 pub fn sign_approval_payload(
-    private_key_openssh: &str,
-    canonical_bytes: &[u8],
+    private_key_openssh: String,
+    canonical_bytes: Vec<u8>,
 ) -> Result<String, SshCoreError> {
-    let priv_key = crate::keys::parse_private_key(private_key_openssh)?;
+    let priv_key = crate::keys::parse_private_key(&private_key_openssh)?;
 
     match priv_key.key_data() {
         ssh_key::private::KeypairData::Ed25519(ed_keypair) => {
             let signing_key = SigningKey::from_bytes(ed_keypair.private.as_ref());
-            let signature = signing_key.sign(canonical_bytes);
+            let signature = signing_key.sign(&canonical_bytes);
             Ok(hex::encode(signature.to_bytes()))
         }
         _ => Err(SshCoreError::ApprovalVerificationError {
@@ -193,8 +194,9 @@ mod tests {
             true,
         );
 
-        let signature_hex = sign_approval_payload(&keypair.private_key_openssh, &canonical_bytes)
-            .expect("Signing failed");
+        let signature_hex =
+            sign_approval_payload(keypair.private_key_openssh.clone(), canonical_bytes.clone())
+                .expect("Signing failed");
         assert_eq!(signature_hex.len(), 128); // 64 bytes = 128 hex chars
 
         let valid = verify_approval_signature(

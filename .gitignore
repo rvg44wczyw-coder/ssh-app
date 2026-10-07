@@ -58,6 +58,14 @@ node_modules/
 wrangler.toml
 !wrangler.toml.example
 
+# Android & Gradle
+.gradle/
+local.properties
+*.apk
+*.aab
+android/app/src/main/jniLibs/
+*.so
+
 # Editors & IDEs
 .idea/
 .vscode/

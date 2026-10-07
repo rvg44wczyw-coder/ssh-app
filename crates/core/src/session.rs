@@ -89,10 +89,7 @@ impl SshSessionHandle {
 
     /// Sends raw user keystrokes / input bytes to the remote terminal.
     pub fn send_input(&self, data: Vec<u8>) -> Result<(), SshCoreError> {
-        eprintln!(
-            "[RustCore] send_input called with {} bytes",
-            data.len()
-        );
+        eprintln!("[RustCore] send_input called with {} bytes", data.len());
         if !self.is_connected.load(Ordering::SeqCst) {
             eprintln!("[RustCore] send_input failed: not connected");
             return Err(SshCoreError::NotConnected);

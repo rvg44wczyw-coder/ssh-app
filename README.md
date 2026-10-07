@@ -1,6 +1,6 @@
 # SSH-App (iOS + Rust Core)
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: BSL 1.1](https://img.shields.io/badge/License-BSL%201.1-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-iOS%2017%2B%20%7C%20macOS-blue.svg)](ios/)
 [![Rust Core](https://img.shields.io/badge/Rust-1.85%2B-orange.svg)](crates/core/)
 [![Zero Battery Drain](https://img.shields.io/badge/Battery-Zero%20Drain%20(0%25%20idle)-brightgreen.svg)](#key-technical-features)
@@ -88,7 +88,7 @@ ssh-app/
 │   └── roadmap.md           # Implementation milestones (M0 through M11)
 ├── .agents/skills/          # Dev-chain workflow skills
 ├── AGENTS.md                # Engineering constraints and architecture invariants
-└── LICENSE                  # MIT License
+└── LICENSE                  # Business Source License 1.1 (BSL 1.1)
 ```
 
 ---
@@ -104,7 +104,7 @@ ssh-app/
 - **Xcode**: 15.0+ or 16.0+
 - **Tailscale**: Installed and configured on your Mac and iPhone
 
-### 1. Build Rust Core & XCFramework
+### 1. Build Rust Core & XCFramework (iOS)
 Clone the repository and compile the multi-architecture framework:
 ```bash
 git clone git@github.com:rvg44wczyw-coder/ssh-app.git
@@ -117,14 +117,32 @@ This builds:
 - `aarch64-apple-darwin` (macOS / SwiftUI Previews)
 and writes `ssh_coreFFI.xcframework` into `packages/SshCoreBridge/Frameworks/`.
 
-### 2. Run the iOS App
+### 2. Build Rust Core & Android Native Libs (Android)
+Compile native libraries (`.so`) and generate UniFFI Kotlin bindings:
+```bash
+./scripts/build-android.sh
+```
+This builds:
+- `arm64-v8a` (Physical Android devices)
+- `x86_64` (Android Emulator)
+and places native libraries in `android/app/src/main/jniLibs/`.
+
+### 3. Run the iOS App
 Open the project in Xcode:
 ```bash
 open ios/SSHApp.xcodeproj
 ```
 Select your target device or simulator and press **Cmd + R**.
 
-### 3. Deploy the Zero-Knowledge Cloudflare Worker (Optional for Wake-ups)
+### 4. Run the Android App
+Open the `android/` project in Android Studio or build debug APK via Gradle:
+```bash
+cd android
+./gradlew assembleDebug
+```
+The debug APK is generated at `android/app/build/outputs/apk/debug/app-debug.apk`.
+
+### 5. Deploy the Zero-Knowledge Cloudflare Worker (Optional for Wake-ups)
 ```bash
 cd scripts/apns-worker
 cp wrangler.toml.example wrangler.toml
@@ -133,7 +151,7 @@ npx wrangler secret put APPLE_P8_PRIVATE_KEY
 npx wrangler deploy
 ```
 
-### 4. Enable Claude Code Approval Hook
+### 6. Enable Claude Code Approval Hook
 In your Mac's `~/.claude/settings.json`:
 ```json
 {
@@ -151,7 +169,7 @@ In your Mac's `~/.claude/settings.json`:
 | :--- | :--- | :---: |
 | **M0–M5** | Core SSH engine, tmux multi-tab management, iOS UI, Zero Battery Drain | **Completed** |
 | **M6** | Cryptographic approvals, Zero-Knowledge APNs, Diff viewer, Hacker audit | **Completed** |
-| **M7** | Android Client (Jetpack Compose, AndroidKeyStore StrongBox, FCM / UnifiedPush) | **Spec Ready** |
+| **M7** | Android Client (Jetpack Compose, JNA UniFFI, Dual-Axis & Smart Scroll, Zero Drain) | **Completed** |
 | **M8** | In-App Web Preview & SSH Port Forwarding (`localhost:3000` via tunnel) | **Planned** |
 | **M9** | AI Command Prompt & Natural Language Shell Assistant | **Planned** |
 | **M10** | Structured Transcript Viewer & Dual-Mode UI (Chat $\leftrightarrow$ Terminal) | **Planned** |
@@ -171,4 +189,4 @@ All audit reports are available in [`docs/security-findings/`](docs/security-fin
 
 ## License
 
-This project is licensed under the terms of the [MIT License](LICENSE).
+This project is licensed under the terms of the [Business Source License 1.1 (BSL 1.1)](LICENSE) — free for development, testing, and personal use; commercial hosted/managed services require a separate commercial license. Converts to Apache 2.0 on 2030-01-01.
