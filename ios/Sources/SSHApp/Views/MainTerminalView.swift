@@ -19,6 +19,7 @@ public struct MainTerminalView: View {
     @State private var copiedKeyNotification: Bool = false
     @State private var activePublicKey: String? = nil
     @State private var showDiffViewer: Bool = false
+    @State private var showWebPreview: Bool = false
     @State private var pendingApproval: AgentApprovalRequest? = nil
 
     @State private var showServerPicker: Bool = false
@@ -180,6 +181,12 @@ public struct MainTerminalView: View {
                 }
                 #if os(iOS)
                 ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button(action: { showWebPreview = true }) {
+                        Image(systemName: "globe")
+                            .font(.system(size: 14))
+                    }
+                    .accessibilityLabel("In-App Web Preview")
+
                     Button(action: { showDiffViewer = true }) {
                         Image(systemName: "arrow.triangle.pull")
                             .font(.system(size: 14))
@@ -234,6 +241,11 @@ public struct MainTerminalView: View {
                     serverProfile: activeServer,
                     privateKeyOpenssh: KeychainManager.shared.getPrivateKey()
                 )
+            }
+            .sheet(isPresented: $showWebPreview) {
+                if let activeVM = tabsManager.activeViewModel {
+                    WebPreviewSheetView(viewModel: activeVM)
+                }
             }
             .confirmationDialog(
                 serverPickerContext == .startup ? "Select Server to Open" : "Open New Tab on Server",

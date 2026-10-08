@@ -10,6 +10,7 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
 
     @Published public private(set) var state: SessionState = .disconnected
     @Published public private(set) var errorMessage: String? = nil
+    @Published public private(set) var activePortForward: PortForwardHandle? = nil
 
     private var handle: SshSessionHandle?
     private var lastCols: UInt16 = 80
@@ -92,9 +93,26 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         try? handle.resize(cols: cols, rows: rows)
     }
 
+    /// Starts port forwarding to remote port.
+    public func startPortForward(remotePort: UInt16, localPort: UInt16? = nil) async throws -> PortForwardHandle {
+        guard let handle = handle, state == .connected else {
+            throw SshCoreError.NotConnected
+        }
+        let forwardHandle = try await handle.startPortForward(remotePort: remotePort, localPort: localPort)
+        self.activePortForward = forwardHandle
+        return forwardHandle
+    }
+
+    /// Stops the currently active port forward.
+    public func stopPortForward() {
+        activePortForward?.stop()
+        activePortForward = nil
+    }
+
     /// Zero Battery Drain: gracefully closes the SSH TCP socket when iOS suspends the app.
     /// tmux session on remote MacBook persists.
     public func disconnectForBackground() {
+        stopPortForward()
         guard let handle = handle else { return }
         print("[SwiftVM \(instanceId)] disconnectForBackground")
         handle.disconnect()

@@ -5,6 +5,7 @@ pub mod buffer;
 pub mod config;
 pub mod error;
 pub mod keys;
+pub mod port_forward;
 pub mod session;
 pub mod tmux;
 
@@ -15,6 +16,7 @@ pub use approval::{
 pub use config::{RemoteServerConfig, SessionConfig, SessionState, TerminalSize};
 pub use error::SshCoreError;
 pub use keys::{derive_public_key, generate_keypair, KeypairResult};
+pub use port_forward::{PortForwardHandle, PortForwardInfo};
 pub use session::{
     execute_remote_command, kill_remote_tmux_session, list_remote_tmux_sessions,
     SshSessionCallback, SshSessionHandle,

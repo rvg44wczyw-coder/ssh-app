@@ -878,9 +878,23 @@ internal object IntegrityCheckingUniffiLib {
 
     external fun uniffi_ssh_core_checksum_func_list_remote_tmux_sessions(): Int
 
+    external fun uniffi_ssh_core_checksum_method_portforwardhandle_get_active_connections(): Int
+
+    external fun uniffi_ssh_core_checksum_method_portforwardhandle_get_local_port(): Int
+
+    external fun uniffi_ssh_core_checksum_method_portforwardhandle_get_local_url(): Int
+
+    external fun uniffi_ssh_core_checksum_method_portforwardhandle_get_remote_port(): Int
+
+    external fun uniffi_ssh_core_checksum_method_portforwardhandle_is_active(): Int
+
+    external fun uniffi_ssh_core_checksum_method_portforwardhandle_stop(): Int
+
     external fun uniffi_ssh_core_checksum_method_sshsessionhandle_connect(): Int
 
     external fun uniffi_ssh_core_checksum_method_sshsessionhandle_disconnect(): Int
+
+    external fun uniffi_ssh_core_checksum_method_sshsessionhandle_get_active_port_forwards(): Int
 
     external fun uniffi_ssh_core_checksum_method_sshsessionhandle_reconnect(): Int
 
@@ -888,7 +902,11 @@ internal object IntegrityCheckingUniffiLib {
 
     external fun uniffi_ssh_core_checksum_method_sshsessionhandle_send_input(): Int
 
+    external fun uniffi_ssh_core_checksum_method_sshsessionhandle_start_port_forward(): Int
+
     external fun uniffi_ssh_core_checksum_method_sshsessionhandle_state(): Int
+
+    external fun uniffi_ssh_core_checksum_method_sshsessionhandle_stop_all_port_forwards(): Int
 
     external fun uniffi_ssh_core_checksum_constructor_sshsessionhandle_new(): Int
 
@@ -913,6 +931,46 @@ internal object UniffiLib {
     }
 
     internal fun ensureInitialized() = Unit
+
+    external fun uniffi_ssh_core_fn_clone_portforwardhandle(
+        `handle`: Long,
+        uniffi_out_err: UniffiRustCallStatus,
+    ): Long
+
+    external fun uniffi_ssh_core_fn_free_portforwardhandle(
+        `handle`: Long,
+        uniffi_out_err: UniffiRustCallStatus,
+    ): Unit
+
+    external fun uniffi_ssh_core_fn_method_portforwardhandle_get_active_connections(
+        `ptr`: Long,
+        uniffi_out_err: UniffiRustCallStatus,
+    ): Int
+
+    external fun uniffi_ssh_core_fn_method_portforwardhandle_get_local_port(
+        `ptr`: Long,
+        uniffi_out_err: UniffiRustCallStatus,
+    ): Int
+
+    external fun uniffi_ssh_core_fn_method_portforwardhandle_get_local_url(
+        `ptr`: Long,
+        uniffi_out_err: UniffiRustCallStatus,
+    ): RustBuffer.ByValue
+
+    external fun uniffi_ssh_core_fn_method_portforwardhandle_get_remote_port(
+        `ptr`: Long,
+        uniffi_out_err: UniffiRustCallStatus,
+    ): Int
+
+    external fun uniffi_ssh_core_fn_method_portforwardhandle_is_active(
+        `ptr`: Long,
+        uniffi_out_err: UniffiRustCallStatus,
+    ): Byte
+
+    external fun uniffi_ssh_core_fn_method_portforwardhandle_stop(
+        `ptr`: Long,
+        uniffi_out_err: UniffiRustCallStatus,
+    ): Unit
 
     external fun uniffi_ssh_core_fn_clone_sshsessionhandle(
         `handle`: Long,
@@ -940,6 +998,11 @@ internal object UniffiLib {
         uniffi_out_err: UniffiRustCallStatus,
     ): Unit
 
+    external fun uniffi_ssh_core_fn_method_sshsessionhandle_get_active_port_forwards(
+        `ptr`: Long,
+        uniffi_out_err: UniffiRustCallStatus,
+    ): RustBuffer.ByValue
+
     external fun uniffi_ssh_core_fn_method_sshsessionhandle_reconnect(
         `ptr`: Long,
         uniffi_out_err: UniffiRustCallStatus,
@@ -958,10 +1021,21 @@ internal object UniffiLib {
         uniffi_out_err: UniffiRustCallStatus,
     ): Unit
 
+    external fun uniffi_ssh_core_fn_method_sshsessionhandle_start_port_forward(
+        `ptr`: Long,
+        `remotePort`: Short,
+        `localPort`: RustBuffer.ByValue,
+    ): Long
+
     external fun uniffi_ssh_core_fn_method_sshsessionhandle_state(
         `ptr`: Long,
         uniffi_out_err: UniffiRustCallStatus,
     ): RustBuffer.ByValue
+
+    external fun uniffi_ssh_core_fn_method_sshsessionhandle_stop_all_port_forwards(
+        `ptr`: Long,
+        uniffi_out_err: UniffiRustCallStatus,
+    ): Unit
 
     external fun uniffi_ssh_core_fn_init_callback_vtable_sshsessioncallback(
         `vtable`: UniffiVTableCallbackInterfaceSshSessionCallback,
@@ -1269,10 +1343,31 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if ((lib.uniffi_ssh_core_checksum_func_list_remote_tmux_sessions() and 0xFFFF) != 48899) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if ((lib.uniffi_ssh_core_checksum_method_portforwardhandle_get_active_connections() and 0xFFFF) != 25377) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_ssh_core_checksum_method_portforwardhandle_get_local_port() and 0xFFFF) != 30066) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_ssh_core_checksum_method_portforwardhandle_get_local_url() and 0xFFFF) != 40705) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_ssh_core_checksum_method_portforwardhandle_get_remote_port() and 0xFFFF) != 385) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_ssh_core_checksum_method_portforwardhandle_is_active() and 0xFFFF) != 39135) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_ssh_core_checksum_method_portforwardhandle_stop() and 0xFFFF) != 35538) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_ssh_core_checksum_method_sshsessionhandle_connect() and 0xFFFF) != 11069) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if ((lib.uniffi_ssh_core_checksum_method_sshsessionhandle_disconnect() and 0xFFFF) != 50492) {
+    if ((lib.uniffi_ssh_core_checksum_method_sshsessionhandle_disconnect() and 0xFFFF) != 45557) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_ssh_core_checksum_method_sshsessionhandle_get_active_port_forwards() and 0xFFFF) != 9499) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_ssh_core_checksum_method_sshsessionhandle_reconnect() and 0xFFFF) != 62860) {
@@ -1284,7 +1379,13 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if ((lib.uniffi_ssh_core_checksum_method_sshsessionhandle_send_input() and 0xFFFF) != 51464) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if ((lib.uniffi_ssh_core_checksum_method_sshsessionhandle_start_port_forward() and 0xFFFF) != 38123) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_ssh_core_checksum_method_sshsessionhandle_state() and 0xFFFF) != 27048) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_ssh_core_checksum_method_sshsessionhandle_stop_all_port_forwards() and 0xFFFF) != 215) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_ssh_core_checksum_constructor_sshsessionhandle_new() and 0xFFFF) != 21965) {
@@ -1808,6 +1909,358 @@ public object FfiConverterByteArray : FfiConverterRustBuffer<ByteArray> {
 // [1] https://stackoverflow.com/questions/24376768/can-java-finalize-an-object-when-it-is-still-in-scope/24380219
 //
 
+/**
+ * Handle returned to Swift/Kotlin to control the lifecycle of a forwarded port.
+ */
+public interface PortForwardHandleInterface {
+    /**
+     * Returns current number of open proxied connections.
+     */
+    fun `getActiveConnections`(): kotlin.UInt
+
+    /**
+     * Returns the local port bound on 127.0.0.1.
+     */
+    fun `getLocalPort`(): kotlin.UShort
+
+    /**
+     * Returns the full local HTTP URL for the mobile WebView to load.
+     */
+    fun `getLocalUrl`(): kotlin.String
+
+    /**
+     * Returns the remote target port on the host.
+     */
+    fun `getRemotePort`(): kotlin.UShort
+
+    /**
+     * Checks if the tunnel is currently running.
+     */
+    fun `isActive`(): kotlin.Boolean
+
+    /**
+     * Stops the local listener and terminates all active TCP forward streams.
+     */
+    fun `stop`()
+
+    companion object
+}
+
+/**
+ * Handle returned to Swift/Kotlin to control the lifecycle of a forwarded port.
+ */
+open class PortForwardHandle :
+    Disposable,
+    AutoCloseable,
+    PortForwardHandleInterface {
+    /**
+     * @suppress
+     */
+    @Suppress("UNUSED_PARAMETER")
+    constructor(withHandle: UniffiWithHandle, handle: Long) {
+        this.handle = handle
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(handle))
+    }
+
+    /**
+     * @suppress
+     *
+     * This constructor can be used to instantiate a fake object. Only used for tests. Any
+     * attempt to actually use an object constructed this way will fail as there is no
+     * connected Rust object.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    constructor(noHandle: NoHandle) {
+        this.handle = 0
+        this.cleanable = null
+    }
+
+    protected val handle: Long
+    protected val cleanable: UniffiCleaner.Cleanable?
+
+    private val wasDestroyed = AtomicBoolean(false)
+    private val callCounter = AtomicLong(1)
+
+    /**
+     * Whether the current object has been destroyed and its reference is gone in the Rust side.
+     */
+    val uniffiIsDestroyed: Boolean get() = wasDestroyed.get()
+
+    override fun destroy() {
+        // Only allow a single call to this method.
+        // TODO: maybe we should log a warning if called more than once?
+        if (this.wasDestroyed.compareAndSet(false, true)) {
+            // This decrement always matches the initial count of 1 given at creation time.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable?.clean()
+            }
+        }
+    }
+
+    @Synchronized
+    override fun close() {
+        this.destroy()
+    }
+
+    internal inline fun <R> callWithHandle(block: (handle: Long) -> R): R {
+        // Check and increment the call counter, to keep the object alive.
+        // This needs a compare-and-set retry loop in case of concurrent updates.
+        do {
+            val c = this.callCounter.get()
+            if (c == 0L) {
+                throw IllegalStateException("${this.javaClass.simpleName} object has already been destroyed")
+            }
+            if (c == Long.MAX_VALUE) {
+                throw IllegalStateException("${this.javaClass.simpleName} call counter would overflow")
+            }
+        } while (!this.callCounter.compareAndSet(c, c + 1L))
+        // Now we can safely do the method call without the handle being freed concurrently.
+        try {
+            return block(this.uniffiCloneHandle())
+        } finally {
+            // This decrement always matches the increment we performed above.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable?.clean()
+            }
+        }
+    }
+
+    // Use a static inner class instead of a closure so as not to accidentally
+    // capture `this` as part of the cleanable's action.
+    private class UniffiCleanAction(
+        private val handle: Long,
+    ) : Runnable {
+        override fun run() {
+            if (handle == 0.toLong()) {
+                // Fake object created with `NoHandle`, don't try to free.
+                return
+            }
+            uniffiRustCall { status ->
+                UniffiLib.uniffi_ssh_core_fn_free_portforwardhandle(handle, status)
+            }
+        }
+    }
+
+    /**
+     * @suppress
+     */
+    fun uniffiCloneHandle(): Long {
+        if (handle == 0.toLong()) {
+            throw InternalException("uniffiCloneHandle() called on NoHandle object")
+        }
+        return uniffiRustCall { status ->
+            UniffiLib.uniffi_ssh_core_fn_clone_portforwardhandle(handle, status)
+        }
+    }
+
+    /**
+     * Returns current number of open proxied connections.
+     */
+    override fun `getActiveConnections`(): kotlin.UInt =
+        FfiConverterUInt.lift(
+            callWithHandle {
+                uniffiRustCall { _status ->
+                    UniffiLib.uniffi_ssh_core_fn_method_portforwardhandle_get_active_connections(
+                        it,
+                        _status,
+                    )
+                }
+            },
+        )
+
+    /**
+     * Returns the local port bound on 127.0.0.1.
+     */
+    override fun `getLocalPort`(): kotlin.UShort =
+        FfiConverterUShort.lift(
+            callWithHandle {
+                uniffiRustCall { _status ->
+                    UniffiLib.uniffi_ssh_core_fn_method_portforwardhandle_get_local_port(
+                        it,
+                        _status,
+                    )
+                }
+            },
+        )
+
+    /**
+     * Returns the full local HTTP URL for the mobile WebView to load.
+     */
+    override fun `getLocalUrl`(): kotlin.String =
+        FfiConverterString.lift(
+            callWithHandle {
+                uniffiRustCall { _status ->
+                    UniffiLib.uniffi_ssh_core_fn_method_portforwardhandle_get_local_url(
+                        it,
+                        _status,
+                    )
+                }
+            },
+        )
+
+    /**
+     * Returns the remote target port on the host.
+     */
+    override fun `getRemotePort`(): kotlin.UShort =
+        FfiConverterUShort.lift(
+            callWithHandle {
+                uniffiRustCall { _status ->
+                    UniffiLib.uniffi_ssh_core_fn_method_portforwardhandle_get_remote_port(
+                        it,
+                        _status,
+                    )
+                }
+            },
+        )
+
+    /**
+     * Checks if the tunnel is currently running.
+     */
+    override fun `isActive`(): kotlin.Boolean =
+        FfiConverterBoolean.lift(
+            callWithHandle {
+                uniffiRustCall { _status ->
+                    UniffiLib.uniffi_ssh_core_fn_method_portforwardhandle_is_active(
+                        it,
+                        _status,
+                    )
+                }
+            },
+        )
+
+    /**
+     * Stops the local listener and terminates all active TCP forward streams.
+     */
+    override fun `stop`() =
+        callWithHandle {
+            uniffiRustCall { _status ->
+                UniffiLib.uniffi_ssh_core_fn_method_portforwardhandle_stop(
+                    it,
+                    _status,
+                )
+            }
+        }
+
+    /**
+     * @suppress
+     */
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePortForwardHandle : FfiConverter<PortForwardHandle, Long> {
+    override fun lower(value: PortForwardHandle): Long = value.uniffiCloneHandle()
+
+    override fun lift(value: Long): PortForwardHandle = PortForwardHandle(UniffiWithHandle, value)
+
+    override fun read(buf: ByteBuffer): PortForwardHandle = lift(buf.getLong())
+
+    override fun allocationSize(value: PortForwardHandle) = 8UL
+
+    override fun write(
+        value: PortForwardHandle,
+        buf: ByteBuffer,
+    ) {
+        buf.putLong(lower(value))
+    }
+}
+
+// This template implements a class for working with a Rust struct via a handle
+// to the live Rust struct on the other side of the FFI.
+//
+// There's some subtlety here, because we have to be careful not to operate on a Rust
+// struct after it has been dropped, and because we must expose a public API for freeing
+// theq Kotlin wrapper object in lieu of reliable finalizers. The core requirements are:
+//
+//   * Each instance holds an opaque handle to the underlying Rust struct.
+//     Method calls need to read this handle from the object's state and pass it in to
+//     the Rust FFI.
+//
+//   * When an instance is no longer needed, its handle should be passed to a
+//     special destructor function provided by the Rust FFI, which will drop the
+//     underlying Rust struct.
+//
+//   * Given an instance, calling code is expected to call the special
+//     `destroy` method in order to free it after use, either by calling it explicitly
+//     or by using a higher-level helper like the `use` method. Failing to do so risks
+//     leaking the underlying Rust struct.
+//
+//   * We can't assume that calling code will do the right thing, and must be prepared
+//     to handle Kotlin method calls executing concurrently with or even after a call to
+//     `destroy`, and to handle multiple (possibly concurrent!) calls to `destroy`.
+//
+//   * We must never allow Rust code to operate on the underlying Rust struct after
+//     the destructor has been called, and must never call the destructor more than once.
+//     Doing so may trigger memory unsafety.
+//
+//   * To mitigate many of the risks of leaking memory and use-after-free unsafety, a `Cleaner`
+//     is implemented to call the destructor when the Kotlin object becomes unreachable.
+//     This is done in a background thread. This is not a panacea, and client code should be aware that
+//      1. the thread may starve if some there are objects that have poorly performing
+//     `drop` methods or do significant work in their `drop` methods.
+//      2. the thread is shared across the whole library. This can be tuned by using `android_cleaner = true`,
+//         or `android = true` in the [`kotlin` section of the `uniffi.toml` file](https://mozilla.github.io/uniffi-rs/kotlin/configuration.html).
+//
+// If we try to implement this with mutual exclusion on access to the handle, there is the
+// possibility of a race between a method call and a concurrent call to `destroy`:
+//
+//    * Thread A starts a method call, reads the value of the handle, but is interrupted
+//      before it can pass the handle over the FFI to Rust.
+//    * Thread B calls `destroy` and frees the underlying Rust struct.
+//    * Thread A resumes, passing the already-read handle value to Rust and triggering
+//      a use-after-free.
+//
+// One possible solution would be to use a `ReadWriteLock`, with each method call taking
+// a read lock (and thus allowed to run concurrently) and the special `destroy` method
+// taking a write lock (and thus blocking on live method calls). However, we aim not to
+// generate methods with any hidden blocking semantics, and a `destroy` method that might
+// block if called incorrectly seems to meet that bar.
+//
+// So, we achieve our goals by giving each instance an associated `AtomicLong` counter to track
+// the number of in-flight method calls, and an `AtomicBoolean` flag to indicate whether `destroy`
+// has been called. These are updated according to the following rules:
+//
+//    * The initial value of the counter is 1, indicating a live object with no in-flight calls.
+//      The initial value for the flag is false.
+//
+//    * At the start of each method call, we atomically check the counter.
+//      If it is 0 then the underlying Rust struct has already been destroyed and the call is aborted.
+//      If it is nonzero them we atomically increment it by 1 and proceed with the method call.
+//
+//    * At the end of each method call, we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+//    * When `destroy` is called, we atomically flip the flag from false to true.
+//      If the flag was already true we silently fail.
+//      Otherwise we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+// Astute readers may observe that this all sounds very similar to the way that Rust's `Arc<T>` works,
+// and indeed it is, with the addition of a flag to guard against multiple calls to `destroy`.
+//
+// The overall effect is that the underlying Rust struct is destroyed only when `destroy` has been
+// called *and* all in-flight method calls have completed, avoiding violating any of the expectations
+// of the underlying Rust code.
+//
+// This makes a cleaner a better alternative to _not_ calling `destroy()` as
+// and when the object is finished with, but the abstraction is not perfect: if the Rust object's `drop`
+// method is slow, and/or there are many objects to cleanup, and it's on a low end Android device, then the cleaner
+// thread may be starved, and the app will leak memory.
+//
+// In this case, `destroy`ing manually may be a better solution.
+//
+// The cleaner can live side by side with the manual calling of `destroy`. In the order of responsiveness, uniffi objects
+// with Rust peers are reclaimed:
+//
+// 1. By calling the `destroy` method of the object, which calls `rustObject.free()`. If that doesn't happen:
+// 2. When the object becomes unreachable, AND the Cleaner thread gets to call `rustObject.free()`. If the thread is starved then:
+// 3. The memory is reclaimed when the process terminates.
+//
+// [1] https://stackoverflow.com/questions/24376768/can-java-finalize-an-object-when-it-is-still-in-scope/24380219
+//
+
 public interface SshSessionHandleInterface {
     /**
      * Establishes the SSH connection, launches tmux, and starts streaming I/O.
@@ -1815,10 +2268,15 @@ public interface SshSessionHandleInterface {
     fun `connect`(`callback`: SshSessionCallback)
 
     /**
-     * Zero Battery Drain: gracefully closes the SSH channel and TCP socket.
+     * Zero Battery Drain: gracefully closes the SSH channel, port forwards, and TCP socket.
      * tmux continues running remote agent tasks detached on the MacBook.
      */
     fun `disconnect`()
+
+    /**
+     * Returns a list of all currently active port forwards.
+     */
+    fun `getActivePortForwards`(): List<PortForwardInfo>
 
     /**
      * Instant reconnection on app foreground (didBecomeActive).
@@ -1840,9 +2298,23 @@ public interface SshSessionHandleInterface {
     fun `sendInput`(`data`: kotlin.ByteArray)
 
     /**
+     * Starts local loopback port forwarding for the specified remote port on the host.
+     * If `local_port` is 0 or None, the OS allocates an available ephemeral local port on 127.0.0.1.
+     */
+    suspend fun `startPortForward`(
+        `remotePort`: kotlin.UShort,
+        `localPort`: kotlin.UShort?,
+    ): PortForwardHandle
+
+    /**
      * Returns current state.
      */
     fun `state`(): SessionState
+
+    /**
+     * Stops all running port forwards (used during teardown/backgrounding).
+     */
+    fun `stopAllPortForwards`()
 
     companion object
 }
@@ -1974,7 +2446,7 @@ open class SshSessionHandle :
         }
 
     /**
-     * Zero Battery Drain: gracefully closes the SSH channel and TCP socket.
+     * Zero Battery Drain: gracefully closes the SSH channel, port forwards, and TCP socket.
      * tmux continues running remote agent tasks detached on the MacBook.
      */
     override fun `disconnect`() =
@@ -1986,6 +2458,21 @@ open class SshSessionHandle :
                 )
             }
         }
+
+    /**
+     * Returns a list of all currently active port forwards.
+     */
+    override fun `getActivePortForwards`(): List<PortForwardInfo> =
+        FfiConverterSequenceTypePortForwardInfo.lift(
+            callWithHandle {
+                uniffiRustCall { _status ->
+                    UniffiLib.uniffi_ssh_core_fn_method_sshsessionhandle_get_active_port_forwards(
+                        it,
+                        _status,
+                    )
+                }
+            },
+        )
 
     /**
      * Instant reconnection on app foreground (didBecomeActive).
@@ -2036,6 +2523,33 @@ open class SshSessionHandle :
         }
 
     /**
+     * Starts local loopback port forwarding for the specified remote port on the host.
+     * If `local_port` is 0 or None, the OS allocates an available ephemeral local port on 127.0.0.1.
+     */
+    @Throws(SshCoreException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `startPortForward`(
+        `remotePort`: kotlin.UShort,
+        `localPort`: kotlin.UShort?,
+    ): PortForwardHandle =
+        uniffiRustCallAsync(
+            callWithHandle { uniffiHandle ->
+                UniffiLib.uniffi_ssh_core_fn_method_sshsessionhandle_start_port_forward(
+                    uniffiHandle,
+                    FfiConverterUShort.lower(`remotePort`),
+                    FfiConverterOptionalUShort.lower(`localPort`),
+                )
+            },
+            { future, callback, continuation -> UniffiLib.ffi_ssh_core_rust_future_poll_u64(future, callback, continuation) },
+            { future, continuation -> UniffiLib.ffi_ssh_core_rust_future_complete_u64(future, continuation) },
+            { future -> UniffiLib.ffi_ssh_core_rust_future_free_u64(future) },
+            // lift function
+            { FfiConverterTypePortForwardHandle.lift(it) },
+            // Error FFI converter
+            SshCoreException.ErrorHandler,
+        )
+
+    /**
      * Returns current state.
      */
     override fun `state`(): SessionState =
@@ -2049,6 +2563,19 @@ open class SshSessionHandle :
                 }
             },
         )
+
+    /**
+     * Stops all running port forwards (used during teardown/backgrounding).
+     */
+    override fun `stopAllPortForwards`() =
+        callWithHandle {
+            uniffiRustCall { _status ->
+                UniffiLib.uniffi_ssh_core_fn_method_sshsessionhandle_stop_all_port_forwards(
+                    it,
+                    _status,
+                )
+            }
+        }
 
     /**
      * @suppress
@@ -2152,6 +2679,53 @@ public object FfiConverterTypeKeypairResult : FfiConverterRustBuffer<KeypairResu
     ) {
         FfiConverterString.write(value.`publicKeyOpenssh`, buf)
         FfiConverterString.write(value.`privateKeyOpenssh`, buf)
+    }
+}
+
+/**
+ * Information about a running or requested port forward.
+ */
+data class PortForwardInfo(
+    var `remotePort`: kotlin.UShort,
+    var `localPort`: kotlin.UShort,
+    var `remoteHost`: kotlin.String,
+    var `activeConnections`: kotlin.UInt,
+    var `isRunning`: kotlin.Boolean,
+) {
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePortForwardInfo : FfiConverterRustBuffer<PortForwardInfo> {
+    override fun read(buf: ByteBuffer): PortForwardInfo =
+        PortForwardInfo(
+            FfiConverterUShort.read(buf),
+            FfiConverterUShort.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+
+    override fun allocationSize(value: PortForwardInfo) =
+        (
+            FfiConverterUShort.allocationSize(value.`remotePort`) +
+                FfiConverterUShort.allocationSize(value.`localPort`) +
+                FfiConverterString.allocationSize(value.`remoteHost`) +
+                FfiConverterUInt.allocationSize(value.`activeConnections`) +
+                FfiConverterBoolean.allocationSize(value.`isRunning`)
+        )
+
+    override fun write(
+        value: PortForwardInfo,
+        buf: ByteBuffer,
+    ) {
+        FfiConverterUShort.write(value.`remotePort`, buf)
+        FfiConverterUShort.write(value.`localPort`, buf)
+        FfiConverterString.write(value.`remoteHost`, buf)
+        FfiConverterUInt.write(value.`activeConnections`, buf)
+        FfiConverterBoolean.write(value.`isRunning`, buf)
     }
 }
 
@@ -2531,6 +3105,27 @@ sealed class SshCoreException : kotlin.Exception() {
             get() = "reason=${ `reason` }"
     }
 
+    class PortForwardFailed(
+        val `reason`: kotlin.String,
+    ) : SshCoreException() {
+        override val message
+            get() = "reason=${ `reason` }"
+    }
+
+    class LocalPortInUse(
+        val `port`: kotlin.UShort,
+    ) : SshCoreException() {
+        override val message
+            get() = "port=${ `port` }"
+    }
+
+    class RemotePortRefused(
+        val `port`: kotlin.UShort,
+    ) : SshCoreException() {
+        override val message
+            get() = "port=${ `port` }"
+    }
+
     companion object ErrorHandler : UniffiRustCallStatusErrorHandler<SshCoreException> {
         override fun lift(error_buf: RustBuffer.ByValue): SshCoreException = FfiConverterTypeSshCoreError.lift(error_buf)
     }
@@ -2607,6 +3202,24 @@ public object FfiConverterTypeSshCoreError : FfiConverterRustBuffer<SshCoreExcep
             12 -> {
                 SshCoreException.InvalidApprovalPayload(
                     FfiConverterString.read(buf),
+                )
+            }
+
+            13 -> {
+                SshCoreException.PortForwardFailed(
+                    FfiConverterString.read(buf),
+                )
+            }
+
+            14 -> {
+                SshCoreException.LocalPortInUse(
+                    FfiConverterUShort.read(buf),
+                )
+            }
+
+            15 -> {
+                SshCoreException.RemotePortRefused(
+                    FfiConverterUShort.read(buf),
                 )
             }
 
@@ -2687,6 +3300,24 @@ public object FfiConverterTypeSshCoreError : FfiConverterRustBuffer<SshCoreExcep
                 4UL +
                     FfiConverterString.allocationSize(value.`reason`)
             )
+
+            is SshCoreException.PortForwardFailed -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL +
+                    FfiConverterString.allocationSize(value.`reason`)
+            )
+
+            is SshCoreException.LocalPortInUse -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL +
+                    FfiConverterUShort.allocationSize(value.`port`)
+            )
+
+            is SshCoreException.RemotePortRefused -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL +
+                    FfiConverterUShort.allocationSize(value.`port`)
+            )
         }
 
     override fun write(
@@ -2762,6 +3393,24 @@ public object FfiConverterTypeSshCoreError : FfiConverterRustBuffer<SshCoreExcep
             is SshCoreException.InvalidApprovalPayload -> {
                 buf.putInt(12)
                 FfiConverterString.write(value.`reason`, buf)
+                Unit
+            }
+
+            is SshCoreException.PortForwardFailed -> {
+                buf.putInt(13)
+                FfiConverterString.write(value.`reason`, buf)
+                Unit
+            }
+
+            is SshCoreException.LocalPortInUse -> {
+                buf.putInt(14)
+                FfiConverterUShort.write(value.`port`, buf)
+                Unit
+            }
+
+            is SshCoreException.RemotePortRefused -> {
+                buf.putInt(15)
+                FfiConverterUShort.write(value.`port`, buf)
                 Unit
             }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
@@ -2867,6 +3516,38 @@ public object FfiConverterTypeSshSessionCallback : FfiConverterCallbackInterface
 /**
  * @suppress
  */
+public object FfiConverterOptionalUShort : FfiConverterRustBuffer<kotlin.UShort?> {
+    override fun read(buf: ByteBuffer): kotlin.UShort? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterUShort.read(buf)
+    }
+
+    override fun allocationSize(value: kotlin.UShort?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterUShort.allocationSize(value)
+        }
+    }
+
+    override fun write(
+        value: kotlin.UShort?,
+        buf: ByteBuffer,
+    ) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterUShort.write(value, buf)
+        }
+    }
+}
+
+/**
+ * @suppress
+ */
 public object FfiConverterOptionalString : FfiConverterRustBuffer<kotlin.String?> {
     override fun read(buf: ByteBuffer): kotlin.String? {
         if (buf.get().toInt() == 0) {
@@ -2892,6 +3573,34 @@ public object FfiConverterOptionalString : FfiConverterRustBuffer<kotlin.String?
         } else {
             buf.put(1)
             FfiConverterString.write(value, buf)
+        }
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypePortForwardInfo : FfiConverterRustBuffer<List<PortForwardInfo>> {
+    override fun read(buf: ByteBuffer): List<PortForwardInfo> {
+        val len = buf.getInt()
+        return List<PortForwardInfo>(len) {
+            FfiConverterTypePortForwardInfo.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<PortForwardInfo>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypePortForwardInfo.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(
+        value: List<PortForwardInfo>,
+        buf: ByteBuffer,
+    ) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypePortForwardInfo.write(it, buf)
         }
     }
 }

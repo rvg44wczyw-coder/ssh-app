@@ -74,6 +74,13 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     private val _isDiffLoading = MutableStateFlow(false)
     val isDiffLoading: StateFlow<Boolean> = _isDiffLoading.asStateFlow()
 
+    // In-App Web Preview & Port Forward State
+    private val _activePortForward = MutableStateFlow<PortForwardHandle?>(null)
+    val activePortForward: StateFlow<PortForwardHandle?> = _activePortForward.asStateFlow()
+
+    private val _isWebPreviewOpen = MutableStateFlow(false)
+    val isWebPreviewOpen: StateFlow<Boolean> = _isWebPreviewOpen.asStateFlow()
+
     // Active Rust Core session handle
     private var sessionHandle: SshSessionHandle? = null
 
@@ -215,7 +222,47 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         startActiveSession()
     }
 
+    fun openWebPreview() {
+        _isWebPreviewOpen.value = true
+    }
+
+    fun closeWebPreview() {
+        _isWebPreviewOpen.value = false
+        stopPortForward()
+    }
+
+    fun startPortForward(
+        remotePort: UShort,
+        localPort: UShort? = null,
+        onResult: ((Result<PortForwardHandle>) -> Unit)? = null
+    ) {
+        val handle = sessionHandle ?: run {
+            onResult?.invoke(Result.failure(IllegalStateException("Not connected")))
+            return
+        }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val fwd = handle.startPortForward(remotePort, localPort)
+                _activePortForward.value = fwd
+                withContext(Dispatchers.Main) {
+                    onResult?.invoke(Result.success(fwd))
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    onResult?.invoke(Result.failure(e))
+                }
+            }
+        }
+    }
+
+    fun stopPortForward() {
+        _activePortForward.value?.stop()
+        _activePortForward.value = null
+    }
+
     private fun disconnectCurrent() {
+        stopPortForward()
         try {
             sessionHandle?.disconnect()
         } catch (_: Exception) {}
