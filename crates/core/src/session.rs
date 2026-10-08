@@ -2,6 +2,7 @@ use crate::buffer::{OutputThrottler, DEFAULT_FLUSH_INTERVAL, DEFAULT_MAX_BATCH_S
 use crate::config::{RemoteServerConfig, SessionConfig, SessionState, TerminalSize};
 use crate::error::SshCoreError;
 use crate::keys::parse_private_key;
+use crate::port_forward::{PortForwardHandle, PortForwardInfo};
 use crate::tmux::{build_tmux_attach_or_create_command, TmuxSessionInfo};
 use russh::client::{self, Handler};
 use russh::keys::{PrivateKeyWithHashAlg, PublicKeyOrCertificate};
@@ -30,7 +31,7 @@ pub trait SshSessionCallback: Send + Sync {
 }
 
 #[derive(Default)]
-struct SshHandler;
+pub(crate) struct SshHandler;
 
 impl Handler for SshHandler {
     type Error = russh::Error;
@@ -58,6 +59,8 @@ pub struct SshSessionHandle {
     command_tx: Arc<Mutex<Option<mpsc::Sender<SessionCommand>>>>,
     session_task: Arc<Mutex<Option<JoinHandle<()>>>>,
     is_connected: Arc<AtomicBool>,
+    port_forwards: Arc<Mutex<Vec<Arc<PortForwardHandle>>>>,
+    ssh_client: Arc<tokio::sync::Mutex<Option<client::Handle<SshHandler>>>>,
 }
 
 #[uniffi::export]
@@ -71,6 +74,8 @@ impl SshSessionHandle {
             command_tx: Arc::new(Mutex::new(None)),
             session_task: Arc::new(Mutex::new(None)),
             is_connected: Arc::new(AtomicBool::new(false)),
+            port_forwards: Arc::new(Mutex::new(Vec::new())),
+            ssh_client: Arc::new(tokio::sync::Mutex::new(None)),
         })
     }
 
@@ -114,9 +119,11 @@ impl SshSessionHandle {
         Ok(())
     }
 
-    /// Zero Battery Drain: gracefully closes the SSH channel and TCP socket.
+    /// Zero Battery Drain: gracefully closes the SSH channel, port forwards, and TCP socket.
     /// tmux continues running remote agent tasks detached on the MacBook.
     pub fn disconnect(&self) {
+        self.stop_all_port_forwards();
+
         if let Some(tx) = self.command_tx.lock().unwrap().take() {
             let _ = tx.try_send(SessionCommand::Disconnect);
         }
@@ -145,6 +152,50 @@ impl SshSessionHandle {
     pub fn state(&self) -> SessionState {
         self.state.read().unwrap().clone()
     }
+
+    /// Starts local loopback port forwarding for the specified remote port on the host.
+    /// If `local_port` is 0 or None, the OS allocates an available ephemeral local port on 127.0.0.1.
+    pub async fn start_port_forward(
+        &self,
+        remote_port: u16,
+        local_port: Option<u16>,
+    ) -> Result<Arc<PortForwardHandle>, SshCoreError> {
+        if !self.is_connected.load(Ordering::SeqCst) {
+            return Err(SshCoreError::NotConnected);
+        }
+
+        let handle = crate::port_forward::start_port_forward_listener(
+            Arc::clone(&self.ssh_client),
+            "127.0.0.1".to_string(),
+            remote_port,
+            local_port,
+        )
+        .await?;
+
+        if let Ok(mut forwards) = self.port_forwards.lock() {
+            forwards.push(Arc::clone(&handle));
+        }
+        Ok(handle)
+    }
+
+    /// Returns a list of all currently active port forwards.
+    pub fn get_active_port_forwards(&self) -> Vec<PortForwardInfo> {
+        if let Ok(mut forwards) = self.port_forwards.lock() {
+            forwards.retain(|f| f.is_active());
+            forwards.iter().map(|f| f.to_info()).collect()
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// Stops all running port forwards (used during teardown/backgrounding).
+    pub fn stop_all_port_forwards(&self) {
+        if let Ok(mut forwards) = self.port_forwards.lock() {
+            for f in forwards.drain(..) {
+                f.stop();
+            }
+        }
+    }
 }
 
 impl SshSessionHandle {
@@ -166,6 +217,7 @@ impl SshSessionHandle {
         let callback_weak = Arc::clone(&self.callback);
         let is_connected_flag = Arc::clone(&self.is_connected);
         let state_arc = Arc::clone(&self.state);
+        let ssh_client_arc = Arc::clone(&self.ssh_client);
 
         let session_task = RUNTIME.spawn(async move {
             is_connected_flag.store(true, Ordering::SeqCst);
@@ -175,9 +227,11 @@ impl SshSessionHandle {
                 &mut cmd_rx,
                 Arc::clone(&callback_weak),
                 Arc::clone(&state_arc),
+                Arc::clone(&ssh_client_arc),
             )
             .await;
 
+            *ssh_client_arc.lock().await = None;
             is_connected_flag.store(false, Ordering::SeqCst);
 
             let final_state = match run_result {
@@ -206,6 +260,7 @@ impl SshSessionHandle {
         cmd_rx: &mut mpsc::Receiver<SessionCommand>,
         callback: Arc<RwLock<Option<Box<dyn SshSessionCallback>>>>,
         state_arc: Arc<RwLock<SessionState>>,
+        ssh_client_slot: Arc<tokio::sync::Mutex<Option<client::Handle<SshHandler>>>>,
     ) -> Result<(), SshCoreError> {
         // 1. Parse Ed25519 private key
         eprintln!(
@@ -280,6 +335,9 @@ impl SshSessionHandle {
                 .map_err(|e| SshCoreError::ChannelError {
                     reason: format!("Failed to open session channel: {e}"),
                 })?;
+
+        // 5.1 Store session handle for port forwarding
+        *ssh_client_slot.lock().await = Some(session);
 
         // 6. Request PTY with xterm-256color for TrueColor support
         channel

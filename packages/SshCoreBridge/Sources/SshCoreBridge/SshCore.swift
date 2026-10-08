@@ -607,6 +607,219 @@ fileprivate struct FfiConverterData: FfiConverterRustBuffer {
 
 
 
+/**
+ * Handle returned to Swift/Kotlin to control the lifecycle of a forwarded port.
+ */
+public protocol PortForwardHandleProtocol: AnyObject, Sendable {
+    
+    /**
+     * Returns current number of open proxied connections.
+     */
+    func getActiveConnections()  -> UInt32
+    
+    /**
+     * Returns the local port bound on 127.0.0.1.
+     */
+    func getLocalPort()  -> UInt16
+    
+    /**
+     * Returns the full local HTTP URL for the mobile WebView to load.
+     */
+    func getLocalUrl()  -> String
+    
+    /**
+     * Returns the remote target port on the host.
+     */
+    func getRemotePort()  -> UInt16
+    
+    /**
+     * Checks if the tunnel is currently running.
+     */
+    func isActive()  -> Bool
+    
+    /**
+     * Stops the local listener and terminates all active TCP forward streams.
+     */
+    func stop() 
+    
+}
+/**
+ * Handle returned to Swift/Kotlin to control the lifecycle of a forwarded port.
+ */
+open class PortForwardHandle: PortForwardHandleProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_ssh_core_fn_clone_portforwardhandle(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_ssh_core_fn_free_portforwardhandle(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * Returns current number of open proxied connections.
+     */
+open func getActiveConnections() -> UInt32  {
+    return try!  FfiConverterUInt32.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_method_portforwardhandle_get_active_connections(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * Returns the local port bound on 127.0.0.1.
+     */
+open func getLocalPort() -> UInt16  {
+    return try!  FfiConverterUInt16.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_method_portforwardhandle_get_local_port(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * Returns the full local HTTP URL for the mobile WebView to load.
+     */
+open func getLocalUrl() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_method_portforwardhandle_get_local_url(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * Returns the remote target port on the host.
+     */
+open func getRemotePort() -> UInt16  {
+    return try!  FfiConverterUInt16.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_method_portforwardhandle_get_remote_port(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * Checks if the tunnel is currently running.
+     */
+open func isActive() -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_method_portforwardhandle_is_active(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * Stops the local listener and terminates all active TCP forward streams.
+     */
+open func stop()  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_method_portforwardhandle_stop(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+}
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePortForwardHandle: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = PortForwardHandle
+
+    public static func lift(_ handle: UInt64) throws -> PortForwardHandle {
+        return PortForwardHandle(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: PortForwardHandle) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PortForwardHandle {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: PortForwardHandle, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePortForwardHandle_lift(_ handle: UInt64) throws -> PortForwardHandle {
+    return try FfiConverterTypePortForwardHandle.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePortForwardHandle_lower(_ value: PortForwardHandle) -> UInt64 {
+    return FfiConverterTypePortForwardHandle.lower(value)
+}
+
+
+
+
+
+
 public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     
     /**
@@ -615,10 +828,15 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func connect(callback: SshSessionCallback) throws 
     
     /**
-     * Zero Battery Drain: gracefully closes the SSH channel and TCP socket.
+     * Zero Battery Drain: gracefully closes the SSH channel, port forwards, and TCP socket.
      * tmux continues running remote agent tasks detached on the MacBook.
      */
     func disconnect() 
+    
+    /**
+     * Returns a list of all currently active port forwards.
+     */
+    func getActivePortForwards()  -> [PortForwardInfo]
     
     /**
      * Instant reconnection on app foreground (didBecomeActive).
@@ -637,9 +855,20 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func sendInput(data: Data) throws 
     
     /**
+     * Starts local loopback port forwarding for the specified remote port on the host.
+     * If `local_port` is 0 or None, the OS allocates an available ephemeral local port on 127.0.0.1.
+     */
+    func startPortForward(remotePort: UInt16, localPort: UInt16?) async throws  -> PortForwardHandle
+    
+    /**
      * Returns current state.
      */
     func state()  -> SessionState
+    
+    /**
+     * Stops all running port forwards (used during teardown/backgrounding).
+     */
+    func stopAllPortForwards() 
     
 }
 open class SshSessionHandle: SshSessionHandleProtocol, @unchecked Sendable {
@@ -717,7 +946,7 @@ open func connect(callback: SshSessionCallback)throws   {try rustCallWithError(F
 }
     
     /**
-     * Zero Battery Drain: gracefully closes the SSH channel and TCP socket.
+     * Zero Battery Drain: gracefully closes the SSH channel, port forwards, and TCP socket.
      * tmux continues running remote agent tasks detached on the MacBook.
      */
 open func disconnect()  {try! rustCall() {
@@ -726,6 +955,18 @@ open func disconnect()  {try! rustCall() {
             self.uniffiCloneHandle(),uniffiCallStatus
     )
 }
+}
+    
+    /**
+     * Returns a list of all currently active port forwards.
+     */
+open func getActivePortForwards() -> [PortForwardInfo]  {
+    return try!  FfiConverterSequenceTypePortForwardInfo.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_method_sshsessionhandle_get_active_port_forwards(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
 }
     
     /**
@@ -766,6 +1007,26 @@ open func sendInput(data: Data)throws   {try rustCallWithError(FfiConverterTypeS
 }
     
     /**
+     * Starts local loopback port forwarding for the specified remote port on the host.
+     * If `local_port` is 0 or None, the OS allocates an available ephemeral local port on 127.0.0.1.
+     */
+open func startPortForward(remotePort: UInt16, localPort: UInt16?)async throws  -> PortForwardHandle  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_start_port_forward(
+                        self.uniffiCloneHandle(),FfiConverterUInt16.lower(remotePort),FfiConverterOptionUInt16.lower(localPort)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_u64,
+            completeFunc: ffi_ssh_core_rust_future_complete_u64,
+            freeFunc: ffi_ssh_core_rust_future_free_u64,
+            liftFunc: FfiConverterTypePortForwardHandle_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
      * Returns current state.
      */
 open func state() -> SessionState  {
@@ -775,6 +1036,17 @@ open func state() -> SessionState  {
             self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
+}
+    
+    /**
+     * Stops all running port forwards (used during teardown/backgrounding).
+     */
+open func stopAllPortForwards()  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_method_sshsessionhandle_stop_all_port_forwards(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+}
 }
     
 
@@ -945,6 +1217,75 @@ public func FfiConverterTypeKeypairResult_lift(_ buf: RustBuffer) throws -> Keyp
 #endif
 public func FfiConverterTypeKeypairResult_lower(_ value: KeypairResult) -> RustBuffer {
     return FfiConverterTypeKeypairResult.lower(value)
+}
+
+
+/**
+ * Information about a running or requested port forward.
+ */
+public struct PortForwardInfo: Equatable, Hashable {
+    public var remotePort: UInt16
+    public var localPort: UInt16
+    public var remoteHost: String
+    public var activeConnections: UInt32
+    public var isRunning: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(remotePort: UInt16, localPort: UInt16, remoteHost: String, activeConnections: UInt32, isRunning: Bool) {
+        self.remotePort = remotePort
+        self.localPort = localPort
+        self.remoteHost = remoteHost
+        self.activeConnections = activeConnections
+        self.isRunning = isRunning
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension PortForwardInfo: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePortForwardInfo: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PortForwardInfo {
+        return
+            try PortForwardInfo(
+                remotePort: FfiConverterUInt16.read(from: &buf), 
+                localPort: FfiConverterUInt16.read(from: &buf), 
+                remoteHost: FfiConverterString.read(from: &buf), 
+                activeConnections: FfiConverterUInt32.read(from: &buf), 
+                isRunning: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: PortForwardInfo, into buf: inout [UInt8]) {
+        FfiConverterUInt16.write(value.remotePort, into: &buf)
+        FfiConverterUInt16.write(value.localPort, into: &buf)
+        FfiConverterString.write(value.remoteHost, into: &buf)
+        FfiConverterUInt32.write(value.activeConnections, into: &buf)
+        FfiConverterBool.write(value.isRunning, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePortForwardInfo_lift(_ buf: RustBuffer) throws -> PortForwardInfo {
+    return try FfiConverterTypePortForwardInfo.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePortForwardInfo_lower(_ value: PortForwardInfo) -> RustBuffer {
+    return FfiConverterTypePortForwardInfo.lower(value)
 }
 
 
@@ -1323,6 +1664,12 @@ enum SshCoreError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
     )
     case InvalidApprovalPayload(reason: String
     )
+    case PortForwardFailed(reason: String
+    )
+    case LocalPortInUse(port: UInt16
+    )
+    case RemotePortRefused(port: UInt16
+    )
 
     
 
@@ -1383,6 +1730,15 @@ public struct FfiConverterTypeSshCoreError: FfiConverterRustBuffer {
             )
         case 12: return .InvalidApprovalPayload(
             reason: try FfiConverterString.read(from: &buf)
+            )
+        case 13: return .PortForwardFailed(
+            reason: try FfiConverterString.read(from: &buf)
+            )
+        case 14: return .LocalPortInUse(
+            port: try FfiConverterUInt16.read(from: &buf)
+            )
+        case 15: return .RemotePortRefused(
+            port: try FfiConverterUInt16.read(from: &buf)
             )
 
          default: throw UniffiInternalError.unexpectedEnumCase
@@ -1453,6 +1809,21 @@ public struct FfiConverterTypeSshCoreError: FfiConverterRustBuffer {
         case let .InvalidApprovalPayload(reason):
             writeInt(&buf, Int32(12))
             FfiConverterString.write(reason, into: &buf)
+            
+        
+        case let .PortForwardFailed(reason):
+            writeInt(&buf, Int32(13))
+            FfiConverterString.write(reason, into: &buf)
+            
+        
+        case let .LocalPortInUse(port):
+            writeInt(&buf, Int32(14))
+            FfiConverterUInt16.write(port, into: &buf)
+            
+        
+        case let .RemotePortRefused(port):
+            writeInt(&buf, Int32(15))
+            FfiConverterUInt16.write(port, into: &buf)
             
         }
     }
@@ -1663,6 +2034,30 @@ public func FfiConverterCallbackInterfaceSshSessionCallback_lower(_ v: SshSessio
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionUInt16: FfiConverterRustBuffer {
+    typealias SwiftType = UInt16?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterUInt16.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterUInt16.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
     typealias SwiftType = String?
 
@@ -1681,6 +2076,31 @@ fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
         case 1: return try FfiConverterString.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypePortForwardInfo: FfiConverterRustBuffer {
+    typealias SwiftType = [PortForwardInfo]
+
+    public static func write(_ value: [PortForwardInfo], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypePortForwardInfo.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [PortForwardInfo] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [PortForwardInfo]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypePortForwardInfo.read(from: &buf))
+        }
+        return seq
     }
 }
 
@@ -1933,10 +2353,31 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_func_list_remote_tmux_sessions() != 48899) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_method_portforwardhandle_get_active_connections() != 25377) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_portforwardhandle_get_local_port() != 30066) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_portforwardhandle_get_local_url() != 40705) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_portforwardhandle_get_remote_port() != 385) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_portforwardhandle_is_active() != 39135) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_portforwardhandle_stop() != 35538) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_connect() != 11069) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_ssh_core_checksum_method_sshsessionhandle_disconnect() != 50492) {
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_disconnect() != 45557) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_get_active_port_forwards() != 9499) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_reconnect() != 62860) {
@@ -1948,7 +2389,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_send_input() != 51464) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_start_port_forward() != 38123) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_state() != 27048) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_stop_all_port_forwards() != 215) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_constructor_sshsessionhandle_new() != 21965) {

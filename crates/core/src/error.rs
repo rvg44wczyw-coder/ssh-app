@@ -35,4 +35,13 @@ pub enum SshCoreError {
 
     #[error("Invalid approval payload: {reason}")]
     InvalidApprovalPayload { reason: String },
+
+    #[error("Port forward failed: {reason}")]
+    PortForwardFailed { reason: String },
+
+    #[error("Local port {port} is already bound")]
+    LocalPortInUse { port: u16 },
+
+    #[error("Remote host refused direct-tcpip channel for port {port}")]
+    RemotePortRefused { port: u16 },
 }

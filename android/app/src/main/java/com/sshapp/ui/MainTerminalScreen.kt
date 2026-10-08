@@ -10,6 +10,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.DataObject
 import androidx.compose.material.icons.filled.Key
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -43,6 +44,7 @@ fun MainTerminalScreen(
     val isDiffSheetOpen by viewModel.isDiffSheetOpen.collectAsState()
     val diffText by viewModel.diffText.collectAsState()
     val isDiffLoading by viewModel.isDiffLoading.collectAsState()
+    val isWebPreviewOpen by viewModel.isWebPreviewOpen.collectAsState()
 
     var showKeyBanner by remember { mutableStateOf(false) }
 
@@ -73,6 +75,14 @@ fun MainTerminalScreen(
                     }
                 },
                 actions = {
+                    // Web Preview Button
+                    IconButton(onClick = { viewModel.openWebPreview() }) {
+                        Icon(
+                            imageVector = Icons.Default.Language,
+                            contentDescription = "Web Preview",
+                            tint = TerminalGreen
+                        )
+                    }
                     // Git Diff Viewer Button
                     IconButton(onClick = { viewModel.openDiffViewer() }) {
                         Icon(
@@ -222,6 +232,14 @@ fun MainTerminalScreen(
                 isLoading = isDiffLoading,
                 onRefresh = { viewModel.fetchGitDiff() },
                 onDismiss = { viewModel.closeDiffViewer() }
+            )
+        }
+
+        // Web Preview BottomSheet
+        if (isWebPreviewOpen) {
+            WebPreviewDialog(
+                viewModel = viewModel,
+                onDismiss = { viewModel.closeWebPreview() }
             )
         }
     }

@@ -11,8 +11,8 @@
 | **M4: iOS App & SwiftTerm Integration** | Xcode project, SwiftUI views, SwiftTerm integration, custom accessory keyboard | Completed | `ios-ui-dev`, `rev` |
 | **M5: Multi-Session, Lifecycle & Security Audit** | Multi-tab UI, Zero Battery Drain lifecycle, Keychain integration, Hacker audit | Completed | `ios-ui-dev`, `hacker`, `rev` |
 | **M6: Agent Control & Secure Approvals** | Host hooks, Ed25519-signed approvals, Zero-Knowledge APNs wake-up, Diff Viewer | Completed | `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker` |
-| **M7: Android Client Architecture** | UniFFI Kotlin bindings, AndroidKeyStore Ed25519, Jetpack Compose, FCM/UnifiedPush | Planned (Spec Ready) | `doc-dev`, `rust-core-dev`, `android-ui-dev`, `rev`, `hacker` |
-| **M8: In-App Web Preview & SSH Port Forwarding** | Direct TCP/IP port forwarding in Rust Core (`russh`), mobile in-app WebView (`localhost:3000`), DevTools sheet | Planned | `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `android-ui-dev`, `rev`, `hacker` |
+| **M7: Android Client Architecture** | UniFFI Kotlin bindings, AndroidKeyStore Ed25519, Jetpack Compose, Biometric auth | Completed | `doc-dev`, `rust-core-dev`, `android-ui-dev`, `rev`, `hacker` |
+| **M8: In-App Web Preview & SSH Port Forwarding** | Direct TCP/IP port forwarding in Rust Core (`russh`), mobile in-app WebView (`127.0.0.1:3000`), DevTools console drawer | Completed | `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `android-ui-dev`, `rev`, `hacker` |
 | **M9: AI Command Prompt & Shell Assistant** | Natural language shell helper, Ollama/LLM client in core, command sanitization, `[ 🪄 ]` keyboard action | Planned | `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `android-ui-dev`, `rev`, `hacker` |
 | **M10: Structured Transcript & Dual-Mode UI** | Real-time `transcript.jsonl` parser in Rust, dual-mode UI (Raw Terminal $\leftrightarrow$ Structured Chat View) | Planned | `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `android-ui-dev`, `rev` |
 | **M11: Smart Snippets & Fuzzy History Search** | Rust Core SQLite/JSON storage, fuzzy search (`nucleo`/`skim`), mobile autocomplete bar | Planned | `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev` |
@@ -42,15 +42,17 @@
 ### Feature 04: Android Client Architecture & Cross-Platform Support
 - **Doc**: `docs/features/04-android-support-and-architecture.md`
 - **Roles**: `doc-dev`, `rust-core-dev`, `android-ui-dev`, `rev`, `hacker`
-- **Hacker Gate**: Yes (AndroidKeyStore TEE/StrongBox, BiometricPrompt, Zero-Knowledge FCM / UnifiedPush)
-- **Status**: Specification Written (Milestone M7)
+- **Hacker Gate**: Completed
+- **Status**: Implemented & Verified with Gradle (`./gradlew assembleDebug` **BUILD SUCCESSFUL**)
 
 ### Feature 05: In-App Web Preview & SSH Port Forwarding (Localhost Tunnel)
+- **Doc**: `docs/features/05-web-preview-and-port-forwarding.md`
 - **Scope**:
-  - **Rust Core**: Direct TCP/IP port forwarding (`russh::ChannelMsg::Open`), local loopback socket proxy, tunnel lifecycle management.
-  - **Platform (iOS/Android)**: `WKWebView` / Android `WebView` sheet, URL navigation bar, reload, port picker, basic DevTools console.
+  - **Rust Core**: Direct TCP/IP port forwarding (`russh::client::Handle::channel_open_direct_tcpip`), local loopback socket proxy on `127.0.0.1`, bidirectional stream pump, tunnel lifecycle management.
+  - **Platform (iOS/Android)**: `WKWebView` (iOS) / Jetpack Compose `WebView` (Android) sheet, quick port chips (`3000`, `5173`, `8000`, `8080`), DevTools console drawer with log interceptor, complete background socket teardown.
 - **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `android-ui-dev`, `rev`, `hacker`
-- **Status**: Planned (Milestone M8)
+- **Hacker Gate**: Completed (`docs/security-findings/2026-10-08-port-forwarding-and-web-preview-audit.md` — VERDICT: CLEAR)
+- **Status**: Implemented & Verified with `cargo test` (21/21 passed), `swift test` (3/3 passed), `xcodebuild` (**BUILD SUCCEEDED**), and `./gradlew assembleDebug` (**BUILD SUCCESSFUL**)
 
 ### Feature 06: AI Command Prompt & Shell Assistant
 - **Scope**:
