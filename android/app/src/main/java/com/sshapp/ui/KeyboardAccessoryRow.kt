@@ -20,6 +20,7 @@ import com.sshapp.ui.theme.DangerRed
 @Composable
 fun KeyboardAccessoryRow(
     onKeyClick: (String) -> Unit,
+    onAiClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -34,6 +35,27 @@ fun KeyboardAccessoryRow(
                 .padding(horizontal = 6.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
+            // AI Shell Assistant Button
+            if (onAiClick != null) {
+                Button(
+                    onClick = onAiClick,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF9333EA).copy(alpha = 0.25f),
+                        contentColor = Color(0xFFC084FC)
+                    ),
+                    shape = RoundedCornerShape(6.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                    modifier = Modifier.height(34.dp)
+                ) {
+                    Text(
+                        text = "🪄 AI",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+            }
+
             // Quick Approval Action: ✓ y⏎
             Button(
                 onClick = { onKeyClick("y") },

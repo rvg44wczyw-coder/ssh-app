@@ -28,6 +28,7 @@
 		AA000019 /* ApprovalBannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000019 /* ApprovalBannerView.swift */; };
 		AA000022 /* DiffViewerSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000022 /* DiffViewerSheetView.swift */; };
 		AA000023 /* WebPreviewSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000023 /* WebPreviewSheetView.swift */; };
+		AA000024 /* AiAssistantSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000024 /* AiAssistantSheetView.swift */; };
 		AA000020 /* SshCoreBridge in Frameworks */ = {isa = PBXBuildFile; productRef = CC000001 /* SshCoreBridge */; };
 		AA000021 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = CC000002 /* SwiftTerm */; };
 		AA000030 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = BB000030 /* Assets.xcassets */; };
@@ -56,6 +57,7 @@
 		BB000019 /* ApprovalBannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/ApprovalBannerView.swift; sourceTree = "<group>"; };
 		BB000022 /* DiffViewerSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/DiffViewerSheetView.swift; sourceTree = "<group>"; };
 		BB000023 /* WebPreviewSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/WebPreviewSheetView.swift; sourceTree = "<group>"; };
+		BB000024 /* AiAssistantSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/AiAssistantSheetView.swift; sourceTree = "<group>"; };
 		BB000030 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -106,6 +108,7 @@
 				BB000019 /* ApprovalBannerView.swift */,
 				BB000022 /* DiffViewerSheetView.swift */,
 				BB000023 /* WebPreviewSheetView.swift */,
+				BB000024 /* AiAssistantSheetView.swift */,
 			);
 			path = Sources/SSHApp;
 			sourceTree = "<group>";
@@ -224,6 +227,7 @@
 				AA000019 /* ApprovalBannerView.swift in Sources */,
 				AA000022 /* DiffViewerSheetView.swift in Sources */,
 				AA000023 /* WebPreviewSheetView.swift in Sources */,
+				AA000024 /* AiAssistantSheetView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

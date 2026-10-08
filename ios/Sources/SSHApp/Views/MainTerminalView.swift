@@ -181,6 +181,13 @@ public struct MainTerminalView: View {
                 }
                 #if os(iOS)
                 ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button(action: { tabsManager.activeViewModel?.openAiAssistant() }) {
+                        Image(systemName: "wand.and.stars")
+                            .font(.system(size: 14))
+                            .foregroundColor(.purple)
+                    }
+                    .accessibilityLabel("AI Shell Assistant")
+
                     Button(action: { showWebPreview = true }) {
                         Image(systemName: "globe")
                             .font(.system(size: 14))
@@ -245,6 +252,16 @@ public struct MainTerminalView: View {
             .sheet(isPresented: $showWebPreview) {
                 if let activeVM = tabsManager.activeViewModel {
                     WebPreviewSheetView(viewModel: activeVM)
+                }
+            }
+            .sheet(isPresented: Binding(
+                get: { tabsManager.activeViewModel?.isAiAssistantOpen ?? false },
+                set: { isOpen in
+                    if !isOpen { tabsManager.activeViewModel?.closeAiAssistant() }
+                }
+            )) {
+                if let activeVM = tabsManager.activeViewModel {
+                    AiAssistantSheetView(viewModel: activeVM)
                 }
             }
             .confirmationDialog(
@@ -518,6 +535,9 @@ struct ActiveTerminalSessionView: View {
                 isCtrlLocked: $isCtrlLocked,
                 onSendBytes: { bytes in
                     viewModel.sendInput(Data(bytes))
+                },
+                onAiAssistantTap: {
+                    viewModel.openAiAssistant()
                 }
             )
             #endif

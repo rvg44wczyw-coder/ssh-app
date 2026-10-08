@@ -44,4 +44,10 @@ pub enum SshCoreError {
 
     #[error("Remote host refused direct-tcpip channel for port {port}")]
     RemotePortRefused { port: u16 },
+
+    #[error("AI assistant error: {reason}")]
+    AiAssistantError { reason: String },
+
+    #[error("Failed to parse AI response: {reason}")]
+    AiResponseParseError { reason: String },
 }
