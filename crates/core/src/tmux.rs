@@ -34,6 +34,11 @@ pub fn validate_session_name(name: &str) -> Result<(), SshCoreError> {
     Ok(())
 }
 
+/// Quotes a string safely for POSIX shell single-quoted parameter expansion.
+pub fn shell_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
 /// Builds the remote command to attach to an existing tmux session or create a new one.
 ///
 /// Execution details:

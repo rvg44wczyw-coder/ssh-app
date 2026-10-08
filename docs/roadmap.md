@@ -13,7 +13,7 @@
 | **M6: Agent Control & Secure Approvals** | Host hooks, Ed25519-signed approvals, Zero-Knowledge APNs wake-up, Diff Viewer | Completed | `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker` |
 | **M7: Android Client Architecture** | UniFFI Kotlin bindings, AndroidKeyStore Ed25519, Jetpack Compose, Biometric auth | Completed | `doc-dev`, `rust-core-dev`, `android-ui-dev`, `rev`, `hacker` |
 | **M8: In-App Web Preview & SSH Port Forwarding** | Direct TCP/IP port forwarding in Rust Core (`russh`), mobile in-app WebView (`127.0.0.1:3000`), DevTools console drawer | Completed | `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `android-ui-dev`, `rev`, `hacker` |
-| **M9: AI Command Prompt & Shell Assistant** | Natural language shell helper, Ollama/LLM client in core, command sanitization, `[ 🪄 ]` keyboard action | Planned | `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `android-ui-dev`, `rev`, `hacker` |
+| **M9: AI Command Prompt & Shell Assistant** | Natural language shell helper, Host Ollama client in core, command risk classifier, `[ 🪄 ]` keyboard action | Completed | `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `android-ui-dev`, `rev`, `hacker` |
 | **M10: Structured Transcript & Dual-Mode UI** | Real-time `transcript.jsonl` parser in Rust, dual-mode UI (Raw Terminal $\leftrightarrow$ Structured Chat View) | Planned | `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `android-ui-dev`, `rev` |
 | **M11: Smart Snippets & Fuzzy History Search** | Rust Core SQLite/JSON storage, fuzzy search (`nucleo`/`skim`), mobile autocomplete bar | Planned | `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev` |
 
@@ -55,11 +55,13 @@
 - **Status**: Implemented & Verified with `cargo test` (21/21 passed), `swift test` (3/3 passed), `xcodebuild` (**BUILD SUCCEEDED**), and `./gradlew assembleDebug` (**BUILD SUCCESSFUL**)
 
 ### Feature 06: AI Command Prompt & Shell Assistant
+- **Doc**: `docs/features/06-ai-command-assistant.md`
 - **Scope**:
-  - **Rust Core**: Context assembly (OS, shell, recent terminal history), LLM query (local Ollama over SSH or provider API), shell command sanitization and syntax check.
-  - **Platform (iOS/Android)**: Accessory keyboard `[ 🪄 ]` button, speech-to-text dictation via platform APIs (`SFSpeechRecognizer` / Android Speech API), interactive command confirmation dialog.
+  - **Rust Core**: Context assembly (OS detection, `$SHELL`, recent terminal history tail), Host Ollama query (`http://127.0.0.1:11434/api/generate` over SSH), deterministic AST/regex safety classifier (`AiRiskLevel`), markdown code extraction and shell command sanitization.
+  - **Platform (iOS/Android)**: Accessory keyboard `[ 🪄 ]` button, top bar assistant action, `AiAssistantSheetView` (iOS SwiftUI) / `AiAssistantDialog` (Android Compose) with risk level badges (`Safe`, `Caution`, `Elevated`, `Destructive`), quick suggestion chips, code box with copy, insert, and run actions.
 - **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `android-ui-dev`, `rev`, `hacker`
-- **Status**: Planned (Milestone M9)
+- **Hacker Gate**: Completed (`docs/security-findings/2026-10-08-ai-command-assistant-audit.md` — VERDICT: CLEAR)
+- **Status**: Implemented & Verified with `cargo test` (31/31 passed), `swift test` (3/3 passed), `xcodebuild` (**BUILD SUCCEEDED**), and `./gradlew assembleDebug` (**BUILD SUCCESSFUL**)
 
 ### Feature 07: Structured Transcript & Dual-Mode UI (Chat ↔ Terminal)
 - **Scope**:

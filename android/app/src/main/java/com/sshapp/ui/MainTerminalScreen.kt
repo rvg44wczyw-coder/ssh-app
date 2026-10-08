@@ -8,6 +8,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.DataObject
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Language
@@ -45,6 +46,7 @@ fun MainTerminalScreen(
     val diffText by viewModel.diffText.collectAsState()
     val isDiffLoading by viewModel.isDiffLoading.collectAsState()
     val isWebPreviewOpen by viewModel.isWebPreviewOpen.collectAsState()
+    val isAiAssistantOpen by viewModel.isAiAssistantOpen.collectAsState()
 
     var showKeyBanner by remember { mutableStateOf(false) }
 
@@ -75,6 +77,14 @@ fun MainTerminalScreen(
                     }
                 },
                 actions = {
+                    // AI Shell Assistant Button
+                    IconButton(onClick = { viewModel.openAiAssistant() }) {
+                        Icon(
+                            imageVector = Icons.Default.AutoAwesome,
+                            contentDescription = "AI Assistant",
+                            tint = Color(0xFFC084FC)
+                        )
+                    }
                     // Web Preview Button
                     IconButton(onClick = { viewModel.openWebPreview() }) {
                         Icon(
@@ -109,6 +119,9 @@ fun MainTerminalScreen(
             KeyboardAccessoryRow(
                 onKeyClick = { key ->
                     viewModel.sendQuickKey(key)
+                },
+                onAiClick = {
+                    viewModel.openAiAssistant()
                 }
             )
         },
@@ -240,6 +253,14 @@ fun MainTerminalScreen(
             WebPreviewDialog(
                 viewModel = viewModel,
                 onDismiss = { viewModel.closeWebPreview() }
+            )
+        }
+
+        // AI Shell Assistant BottomSheet
+        if (isAiAssistantOpen) {
+            AiAssistantDialog(
+                viewModel = viewModel,
+                onDismiss = { viewModel.closeAiAssistant() }
             )
         }
     }

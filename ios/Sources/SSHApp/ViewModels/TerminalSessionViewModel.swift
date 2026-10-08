@@ -12,6 +12,12 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     @Published public private(set) var errorMessage: String? = nil
     @Published public private(set) var activePortForward: PortForwardHandle? = nil
 
+    // AI Assistant State
+    @Published public var isAiAssistantOpen: Bool = false
+    @Published public var activeAiSuggestion: AiCommandSuggestion? = nil
+    @Published public var isAiLoading: Bool = false
+    @Published public var aiError: String? = nil
+
     private var handle: SshSessionHandle?
     private var lastCols: UInt16 = 80
     private var lastRows: UInt16 = 24
@@ -107,6 +113,75 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     public func stopPortForward() {
         activePortForward?.stop()
         activePortForward = nil
+    }
+
+    // MARK: - AI Shell Assistant
+
+    public func getRecentTerminalLines(maxLines: Int = 20) -> [String] {
+        guard let text = String(data: terminalDataBuffer, encoding: .utf8) else { return [] }
+        let lines = text.components(separatedBy: .newlines).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        return Array(lines.suffix(maxLines))
+    }
+
+    public func openAiAssistant() {
+        self.isAiAssistantOpen = true
+        self.aiError = nil
+    }
+
+    public func closeAiAssistant() {
+        self.isAiAssistantOpen = false
+    }
+
+    public func queryAiAssistant(
+        userPrompt: String,
+        modelName: String = "qwen2.5-coder:7b",
+        targetOs: String = "macOS"
+    ) async {
+        guard let handle = handle, state == .connected else {
+            self.aiError = "Session is not connected"
+            return
+        }
+
+        self.isAiLoading = true
+        self.aiError = nil
+
+        let recentLines = getRecentTerminalLines(maxLines: 20)
+        let systemPrompt = assembleAiSystemPrompt(targetOs: targetOs, shellName: "zsh", cwd: nil)
+        let request = AiCommandRequest(
+            userPrompt: userPrompt,
+            targetOs: targetOs,
+            shellName: "zsh",
+            cwd: nil,
+            terminalContext: recentLines
+        )
+        let assembledUserPrompt = assembleAiUserPrompt(request: request)
+
+        do {
+            let suggestion = try await handle.queryHostOllama(
+                model: modelName,
+                systemPrompt: systemPrompt,
+                userPrompt: assembledUserPrompt
+            )
+            self.activeAiSuggestion = suggestion
+            self.isAiLoading = false
+        } catch {
+            self.aiError = error.localizedDescription
+            self.isAiLoading = false
+        }
+    }
+
+    public func insertAiCommand(_ command: String) {
+        if let data = command.data(using: .utf8) {
+            sendInput(data)
+        }
+        self.isAiAssistantOpen = false
+    }
+
+    public func executeAiCommand(_ command: String) {
+        if let data = (command + "\r").data(using: .utf8) {
+            sendInput(data)
+        }
+        self.isAiAssistantOpen = false
     }
 
     /// Zero Battery Drain: gracefully closes the SSH TCP socket when iOS suspends the app.

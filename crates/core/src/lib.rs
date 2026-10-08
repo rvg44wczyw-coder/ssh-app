@@ -1,5 +1,6 @@
 uniffi::setup_scaffolding!();
 
+pub mod ai;
 pub mod approval;
 pub mod buffer;
 pub mod config;
@@ -9,6 +10,11 @@ pub mod port_forward;
 pub mod session;
 pub mod tmux;
 
+pub use ai::{
+    assemble_ai_system_prompt, assemble_ai_user_prompt, classify_command_risk, parse_ai_response,
+    parse_ollama_generate_response, sanitize_shell_command, AiCommandRequest, AiCommandSuggestion,
+    AiRiskAssessment, AiRiskLevel,
+};
 pub use approval::{
     create_canonical_signing_bytes, hash_command_sha256, verify_approval_freshness,
     verify_approval_signature, CanonicalSigningPayload,

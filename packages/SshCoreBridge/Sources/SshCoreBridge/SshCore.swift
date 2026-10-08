@@ -834,9 +834,20 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func disconnect() 
     
     /**
+     * Executes a command on the remote host over the currently active SSH session (ephemeral channel).
+     */
+    func executeCommandOnActiveSession(command: String) async throws  -> String
+    
+    /**
      * Returns a list of all currently active port forwards.
      */
     func getActivePortForwards()  -> [PortForwardInfo]
+    
+    /**
+     * Queries Ollama running locally on the remote host (http://127.0.0.1:11434/api/generate)
+     * through the active SSH session and returns the generated command suggestion.
+     */
+    func queryHostOllama(model: String, systemPrompt: String, userPrompt: String) async throws  -> AiCommandSuggestion
     
     /**
      * Instant reconnection on app foreground (didBecomeActive).
@@ -958,6 +969,25 @@ open func disconnect()  {try! rustCall() {
 }
     
     /**
+     * Executes a command on the remote host over the currently active SSH session (ephemeral channel).
+     */
+open func executeCommandOnActiveSession(command: String)async throws  -> String  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_execute_command_on_active_session(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(command)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterString.lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
      * Returns a list of all currently active port forwards.
      */
 open func getActivePortForwards() -> [PortForwardInfo]  {
@@ -967,6 +997,26 @@ open func getActivePortForwards() -> [PortForwardInfo]  {
             self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
+}
+    
+    /**
+     * Queries Ollama running locally on the remote host (http://127.0.0.1:11434/api/generate)
+     * through the active SSH session and returns the generated command suggestion.
+     */
+open func queryHostOllama(model: String, systemPrompt: String, userPrompt: String)async throws  -> AiCommandSuggestion  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_query_host_ollama(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(model),FfiConverterString.lower(systemPrompt),FfiConverterString.lower(userPrompt)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeAiCommandSuggestion_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
 }
     
     /**
@@ -1095,6 +1145,251 @@ public func FfiConverterTypeSshSessionHandle_lower(_ value: SshSessionHandle) ->
 }
 
 
+
+
+/**
+ * Request parameters for generating a shell command.
+ */
+public struct AiCommandRequest: Equatable, Hashable {
+    /**
+     * Natural language prompt from the user (e.g. "find all files modified today").
+     */
+    public var userPrompt: String
+    /**
+     * Operating system of the remote host ("macOS", "Linux", "Unknown").
+     */
+    public var targetOs: String
+    /**
+     * Remote login shell ("zsh", "bash", "fish", "sh").
+     */
+    public var shellName: String
+    /**
+     * Current working directory if known (e.g. "~/projects/backend").
+     */
+    public var cwd: String?
+    /**
+     * Recent terminal output lines to provide context (max 30 lines).
+     */
+    public var terminalContext: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Natural language prompt from the user (e.g. "find all files modified today").
+         */userPrompt: String, 
+        /**
+         * Operating system of the remote host ("macOS", "Linux", "Unknown").
+         */targetOs: String, 
+        /**
+         * Remote login shell ("zsh", "bash", "fish", "sh").
+         */shellName: String, 
+        /**
+         * Current working directory if known (e.g. "~/projects/backend").
+         */cwd: String?, 
+        /**
+         * Recent terminal output lines to provide context (max 30 lines).
+         */terminalContext: [String]) {
+        self.userPrompt = userPrompt
+        self.targetOs = targetOs
+        self.shellName = shellName
+        self.cwd = cwd
+        self.terminalContext = terminalContext
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension AiCommandRequest: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAiCommandRequest: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AiCommandRequest {
+        return
+            try AiCommandRequest(
+                userPrompt: FfiConverterString.read(from: &buf), 
+                targetOs: FfiConverterString.read(from: &buf), 
+                shellName: FfiConverterString.read(from: &buf), 
+                cwd: FfiConverterOptionString.read(from: &buf), 
+                terminalContext: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AiCommandRequest, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.userPrompt, into: &buf)
+        FfiConverterString.write(value.targetOs, into: &buf)
+        FfiConverterString.write(value.shellName, into: &buf)
+        FfiConverterOptionString.write(value.cwd, into: &buf)
+        FfiConverterSequenceString.write(value.terminalContext, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAiCommandRequest_lift(_ buf: RustBuffer) throws -> AiCommandRequest {
+    return try FfiConverterTypeAiCommandRequest.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAiCommandRequest_lower(_ value: AiCommandRequest) -> RustBuffer {
+    return FfiConverterTypeAiCommandRequest.lower(value)
+}
+
+
+/**
+ * Verified command suggestion returned to mobile UI.
+ */
+public struct AiCommandSuggestion: Equatable, Hashable {
+    /**
+     * Clean, ready-to-run shell command line string.
+     */
+    public var command: String
+    /**
+     * Brief explanation of how the command works and what flags mean.
+     */
+    public var explanation: String
+    /**
+     * Risk assessment level.
+     */
+    public var riskLevel: AiRiskLevel
+    /**
+     * Specific risk warnings if applicable (e.g. "Contains recursive deletion flag -r").
+     */
+    public var warnings: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Clean, ready-to-run shell command line string.
+         */command: String, 
+        /**
+         * Brief explanation of how the command works and what flags mean.
+         */explanation: String, 
+        /**
+         * Risk assessment level.
+         */riskLevel: AiRiskLevel, 
+        /**
+         * Specific risk warnings if applicable (e.g. "Contains recursive deletion flag -r").
+         */warnings: [String]) {
+        self.command = command
+        self.explanation = explanation
+        self.riskLevel = riskLevel
+        self.warnings = warnings
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension AiCommandSuggestion: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAiCommandSuggestion: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AiCommandSuggestion {
+        return
+            try AiCommandSuggestion(
+                command: FfiConverterString.read(from: &buf), 
+                explanation: FfiConverterString.read(from: &buf), 
+                riskLevel: FfiConverterTypeAiRiskLevel.read(from: &buf), 
+                warnings: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AiCommandSuggestion, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.command, into: &buf)
+        FfiConverterString.write(value.explanation, into: &buf)
+        FfiConverterTypeAiRiskLevel.write(value.riskLevel, into: &buf)
+        FfiConverterSequenceString.write(value.warnings, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAiCommandSuggestion_lift(_ buf: RustBuffer) throws -> AiCommandSuggestion {
+    return try FfiConverterTypeAiCommandSuggestion.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAiCommandSuggestion_lower(_ value: AiCommandSuggestion) -> RustBuffer {
+    return FfiConverterTypeAiCommandSuggestion.lower(value)
+}
+
+
+/**
+ * Result of deterministic command risk analysis.
+ */
+public struct AiRiskAssessment: Equatable, Hashable {
+    public var level: AiRiskLevel
+    public var warnings: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(level: AiRiskLevel, warnings: [String]) {
+        self.level = level
+        self.warnings = warnings
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension AiRiskAssessment: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAiRiskAssessment: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AiRiskAssessment {
+        return
+            try AiRiskAssessment(
+                level: FfiConverterTypeAiRiskLevel.read(from: &buf), 
+                warnings: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AiRiskAssessment, into buf: inout [UInt8]) {
+        FfiConverterTypeAiRiskLevel.write(value.level, into: &buf)
+        FfiConverterSequenceString.write(value.warnings, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAiRiskAssessment_lift(_ buf: RustBuffer) throws -> AiRiskAssessment {
+    return try FfiConverterTypeAiRiskAssessment.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAiRiskAssessment_lower(_ value: AiRiskAssessment) -> RustBuffer {
+    return FfiConverterTypeAiRiskAssessment.lower(value)
+}
 
 
 /**
@@ -1548,6 +1843,101 @@ public func FfiConverterTypeTmuxSessionInfo_lower(_ value: TmuxSessionInfo) -> R
 }
 
 
+/**
+ * Risk level classification for an AI-generated shell command.
+ */
+
+public enum AiRiskLevel: Equatable, Hashable {
+    
+    /**
+     * Read-only or benign operations (ls, grep, cat, docker ps, git status).
+     */
+    case safe
+    /**
+     * Requires elevated root/admin privileges (sudo, doas, chown, chmod).
+     */
+    case elevated
+    /**
+     * Modifies files, services, or repository state (git checkout, kill, systemctl stop).
+     */
+    case caution
+    /**
+     * High-risk or irreversible destructive operations (rm -rf, dd, mkfs, git reset --hard, dropdb).
+     */
+    case destructive
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension AiRiskLevel: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAiRiskLevel: FfiConverterRustBuffer {
+    typealias SwiftType = AiRiskLevel
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AiRiskLevel {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .safe
+        
+        case 2: return .elevated
+        
+        case 3: return .caution
+        
+        case 4: return .destructive
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: AiRiskLevel, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .safe:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .elevated:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .caution:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .destructive:
+            writeInt(&buf, Int32(4))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAiRiskLevel_lift(_ buf: RustBuffer) throws -> AiRiskLevel {
+    return try FfiConverterTypeAiRiskLevel.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAiRiskLevel_lower(_ value: AiRiskLevel) -> RustBuffer {
+    return FfiConverterTypeAiRiskLevel.lower(value)
+}
+
+
+
 
 public enum SessionState: Equatable, Hashable {
     
@@ -1670,6 +2060,10 @@ enum SshCoreError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
     )
     case RemotePortRefused(port: UInt16
     )
+    case AiAssistantError(reason: String
+    )
+    case AiResponseParseError(reason: String
+    )
 
     
 
@@ -1739,6 +2133,12 @@ public struct FfiConverterTypeSshCoreError: FfiConverterRustBuffer {
             )
         case 15: return .RemotePortRefused(
             port: try FfiConverterUInt16.read(from: &buf)
+            )
+        case 16: return .AiAssistantError(
+            reason: try FfiConverterString.read(from: &buf)
+            )
+        case 17: return .AiResponseParseError(
+            reason: try FfiConverterString.read(from: &buf)
             )
 
          default: throw UniffiInternalError.unexpectedEnumCase
@@ -1824,6 +2224,16 @@ public struct FfiConverterTypeSshCoreError: FfiConverterRustBuffer {
         case let .RemotePortRefused(port):
             writeInt(&buf, Int32(15))
             FfiConverterUInt16.write(port, into: &buf)
+            
+        
+        case let .AiAssistantError(reason):
+            writeInt(&buf, Int32(16))
+            FfiConverterString.write(reason, into: &buf)
+            
+        
+        case let .AiResponseParseError(reason):
+            writeInt(&buf, Int32(17))
+            FfiConverterString.write(reason, into: &buf)
             
         }
     }
@@ -2082,6 +2492,31 @@ fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceString: FfiConverterRustBuffer {
+    typealias SwiftType = [String]
+
+    public static func write(_ value: [String], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterString.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [String] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [String]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterString.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypePortForwardInfo: FfiConverterRustBuffer {
     typealias SwiftType = [PortForwardInfo]
 
@@ -2187,6 +2622,74 @@ public func generateSshKeypair()throws  -> KeypairResult  {
     return try  FfiConverterTypeKeypairResult_lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
         uniffiCallStatus in
     uniffi_ssh_core_fn_func_generate_ssh_keypair(uniffiCallStatus
+    )
+})
+}
+/**
+ * Assembles the system prompt instructing the LLM to output a single tailored command.
+ */
+public func assembleAiSystemPrompt(targetOs: String, shellName: String, cwd: String?) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_assemble_ai_system_prompt(
+        FfiConverterString.lower(targetOs),
+        FfiConverterString.lower(shellName),
+        FfiConverterOptionString.lower(cwd),uniffiCallStatus
+    )
+})
+}
+/**
+ * Assembles the user prompt incorporating recent terminal context if available.
+ */
+public func assembleAiUserPrompt(request: AiCommandRequest) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_assemble_ai_user_prompt(
+        FfiConverterTypeAiCommandRequest_lower(request),uniffiCallStatus
+    )
+})
+}
+/**
+ * Deterministically evaluates a shell command against safety rules and returns its risk level and warnings.
+ */
+public func classifyCommandRisk(command: String) -> AiRiskAssessment  {
+    return try!  FfiConverterTypeAiRiskAssessment_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_classify_command_risk(
+        FfiConverterString.lower(command),uniffiCallStatus
+    )
+})
+}
+/**
+ * Parses the raw LLM output into an AiCommandSuggestion with safety classification.
+ */
+public func parseAiResponse(rawLlmResponse: String)throws  -> AiCommandSuggestion  {
+    return try  FfiConverterTypeAiCommandSuggestion_lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_parse_ai_response(
+        FfiConverterString.lower(rawLlmResponse),uniffiCallStatus
+    )
+})
+}
+/**
+ * Parses the JSON response from Ollama's /api/generate endpoint.
+ */
+public func parseOllamaGenerateResponse(jsonBody: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_parse_ollama_generate_response(
+        FfiConverterString.lower(jsonBody),uniffiCallStatus
+    )
+})
+}
+/**
+ * Strips markdown fences, backticks, prompt markers ($), and whitespace from a shell command string.
+ */
+public func sanitizeShellCommand(command: String) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_sanitize_shell_command(
+        FfiConverterString.lower(command),uniffiCallStatus
     )
 })
 }
@@ -2326,6 +2829,24 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_func_generate_ssh_keypair() != 25495) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_func_assemble_ai_system_prompt() != 40691) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_assemble_ai_user_prompt() != 11531) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_classify_command_risk() != 56039) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_parse_ai_response() != 50754) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_parse_ollama_generate_response() != 49074) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_sanitize_shell_command() != 11144) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_func_create_canonical_signing_bytes() != 57755) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -2377,7 +2898,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_disconnect() != 45557) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_execute_command_on_active_session() != 4194) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_get_active_port_forwards() != 9499) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_query_host_ollama() != 61217) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_reconnect() != 62860) {

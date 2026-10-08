@@ -860,6 +860,18 @@ internal object IntegrityCheckingUniffiLib {
 
     external fun uniffi_ssh_core_checksum_func_generate_ssh_keypair(): Int
 
+    external fun uniffi_ssh_core_checksum_func_assemble_ai_system_prompt(): Int
+
+    external fun uniffi_ssh_core_checksum_func_assemble_ai_user_prompt(): Int
+
+    external fun uniffi_ssh_core_checksum_func_classify_command_risk(): Int
+
+    external fun uniffi_ssh_core_checksum_func_parse_ai_response(): Int
+
+    external fun uniffi_ssh_core_checksum_func_parse_ollama_generate_response(): Int
+
+    external fun uniffi_ssh_core_checksum_func_sanitize_shell_command(): Int
+
     external fun uniffi_ssh_core_checksum_func_create_canonical_signing_bytes(): Int
 
     external fun uniffi_ssh_core_checksum_func_hash_command_sha256(): Int
@@ -894,7 +906,11 @@ internal object IntegrityCheckingUniffiLib {
 
     external fun uniffi_ssh_core_checksum_method_sshsessionhandle_disconnect(): Int
 
+    external fun uniffi_ssh_core_checksum_method_sshsessionhandle_execute_command_on_active_session(): Int
+
     external fun uniffi_ssh_core_checksum_method_sshsessionhandle_get_active_port_forwards(): Int
+
+    external fun uniffi_ssh_core_checksum_method_sshsessionhandle_query_host_ollama(): Int
 
     external fun uniffi_ssh_core_checksum_method_sshsessionhandle_reconnect(): Int
 
@@ -998,10 +1014,22 @@ internal object UniffiLib {
         uniffi_out_err: UniffiRustCallStatus,
     ): Unit
 
+    external fun uniffi_ssh_core_fn_method_sshsessionhandle_execute_command_on_active_session(
+        `ptr`: Long,
+        `command`: RustBuffer.ByValue,
+    ): Long
+
     external fun uniffi_ssh_core_fn_method_sshsessionhandle_get_active_port_forwards(
         `ptr`: Long,
         uniffi_out_err: UniffiRustCallStatus,
     ): RustBuffer.ByValue
+
+    external fun uniffi_ssh_core_fn_method_sshsessionhandle_query_host_ollama(
+        `ptr`: Long,
+        `model`: RustBuffer.ByValue,
+        `systemPrompt`: RustBuffer.ByValue,
+        `userPrompt`: RustBuffer.ByValue,
+    ): Long
 
     external fun uniffi_ssh_core_fn_method_sshsessionhandle_reconnect(
         `ptr`: Long,
@@ -1044,6 +1072,38 @@ internal object UniffiLib {
     external fun uniffi_ssh_core_fn_func_core_version(uniffi_out_err: UniffiRustCallStatus): RustBuffer.ByValue
 
     external fun uniffi_ssh_core_fn_func_generate_ssh_keypair(uniffi_out_err: UniffiRustCallStatus): RustBuffer.ByValue
+
+    external fun uniffi_ssh_core_fn_func_assemble_ai_system_prompt(
+        `targetOs`: RustBuffer.ByValue,
+        `shellName`: RustBuffer.ByValue,
+        `cwd`: RustBuffer.ByValue,
+        uniffi_out_err: UniffiRustCallStatus,
+    ): RustBuffer.ByValue
+
+    external fun uniffi_ssh_core_fn_func_assemble_ai_user_prompt(
+        `request`: RustBuffer.ByValue,
+        uniffi_out_err: UniffiRustCallStatus,
+    ): RustBuffer.ByValue
+
+    external fun uniffi_ssh_core_fn_func_classify_command_risk(
+        `command`: RustBuffer.ByValue,
+        uniffi_out_err: UniffiRustCallStatus,
+    ): RustBuffer.ByValue
+
+    external fun uniffi_ssh_core_fn_func_parse_ai_response(
+        `rawLlmResponse`: RustBuffer.ByValue,
+        uniffi_out_err: UniffiRustCallStatus,
+    ): RustBuffer.ByValue
+
+    external fun uniffi_ssh_core_fn_func_parse_ollama_generate_response(
+        `jsonBody`: RustBuffer.ByValue,
+        uniffi_out_err: UniffiRustCallStatus,
+    ): RustBuffer.ByValue
+
+    external fun uniffi_ssh_core_fn_func_sanitize_shell_command(
+        `command`: RustBuffer.ByValue,
+        uniffi_out_err: UniffiRustCallStatus,
+    ): RustBuffer.ByValue
 
     external fun uniffi_ssh_core_fn_func_create_canonical_signing_bytes(
         `id`: RustBuffer.ByValue,
@@ -1316,6 +1376,24 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if ((lib.uniffi_ssh_core_checksum_func_generate_ssh_keypair() and 0xFFFF) != 25495) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if ((lib.uniffi_ssh_core_checksum_func_assemble_ai_system_prompt() and 0xFFFF) != 40691) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_ssh_core_checksum_func_assemble_ai_user_prompt() and 0xFFFF) != 11531) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_ssh_core_checksum_func_classify_command_risk() and 0xFFFF) != 56039) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_ssh_core_checksum_func_parse_ai_response() and 0xFFFF) != 50754) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_ssh_core_checksum_func_parse_ollama_generate_response() and 0xFFFF) != 49074) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_ssh_core_checksum_func_sanitize_shell_command() and 0xFFFF) != 11144) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_ssh_core_checksum_func_create_canonical_signing_bytes() and 0xFFFF) != 57755) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1367,7 +1445,13 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if ((lib.uniffi_ssh_core_checksum_method_sshsessionhandle_disconnect() and 0xFFFF) != 45557) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if ((lib.uniffi_ssh_core_checksum_method_sshsessionhandle_execute_command_on_active_session() and 0xFFFF) != 4194) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_ssh_core_checksum_method_sshsessionhandle_get_active_port_forwards() and 0xFFFF) != 9499) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_ssh_core_checksum_method_sshsessionhandle_query_host_ollama() and 0xFFFF) != 61217) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_ssh_core_checksum_method_sshsessionhandle_reconnect() and 0xFFFF) != 62860) {
@@ -2274,9 +2358,24 @@ public interface SshSessionHandleInterface {
     fun `disconnect`()
 
     /**
+     * Executes a command on the remote host over the currently active SSH session (ephemeral channel).
+     */
+    suspend fun `executeCommandOnActiveSession`(`command`: kotlin.String): kotlin.String
+
+    /**
      * Returns a list of all currently active port forwards.
      */
     fun `getActivePortForwards`(): List<PortForwardInfo>
+
+    /**
+     * Queries Ollama running locally on the remote host (http://127.0.0.1:11434/api/generate)
+     * through the active SSH session and returns the generated command suggestion.
+     */
+    suspend fun `queryHostOllama`(
+        `model`: kotlin.String,
+        `systemPrompt`: kotlin.String,
+        `userPrompt`: kotlin.String,
+    ): AiCommandSuggestion
 
     /**
      * Instant reconnection on app foreground (didBecomeActive).
@@ -2460,6 +2559,28 @@ open class SshSessionHandle :
         }
 
     /**
+     * Executes a command on the remote host over the currently active SSH session (ephemeral channel).
+     */
+    @Throws(SshCoreException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `executeCommandOnActiveSession`(`command`: kotlin.String): kotlin.String =
+        uniffiRustCallAsync(
+            callWithHandle { uniffiHandle ->
+                UniffiLib.uniffi_ssh_core_fn_method_sshsessionhandle_execute_command_on_active_session(
+                    uniffiHandle,
+                    FfiConverterString.lower(`command`),
+                )
+            },
+            { future, callback, continuation -> UniffiLib.ffi_ssh_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+            { future, continuation -> UniffiLib.ffi_ssh_core_rust_future_complete_rust_buffer(future, continuation) },
+            { future -> UniffiLib.ffi_ssh_core_rust_future_free_rust_buffer(future) },
+            // lift function
+            { FfiConverterString.lift(it) },
+            // Error FFI converter
+            SshCoreException.ErrorHandler,
+        )
+
+    /**
      * Returns a list of all currently active port forwards.
      */
     override fun `getActivePortForwards`(): List<PortForwardInfo> =
@@ -2472,6 +2593,35 @@ open class SshSessionHandle :
                     )
                 }
             },
+        )
+
+    /**
+     * Queries Ollama running locally on the remote host (http://127.0.0.1:11434/api/generate)
+     * through the active SSH session and returns the generated command suggestion.
+     */
+    @Throws(SshCoreException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `queryHostOllama`(
+        `model`: kotlin.String,
+        `systemPrompt`: kotlin.String,
+        `userPrompt`: kotlin.String,
+    ): AiCommandSuggestion =
+        uniffiRustCallAsync(
+            callWithHandle { uniffiHandle ->
+                UniffiLib.uniffi_ssh_core_fn_method_sshsessionhandle_query_host_ollama(
+                    uniffiHandle,
+                    FfiConverterString.lower(`model`),
+                    FfiConverterString.lower(`systemPrompt`),
+                    FfiConverterString.lower(`userPrompt`),
+                )
+            },
+            { future, callback, continuation -> UniffiLib.ffi_ssh_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+            { future, continuation -> UniffiLib.ffi_ssh_core_rust_future_complete_rust_buffer(future, continuation) },
+            { future -> UniffiLib.ffi_ssh_core_rust_future_free_rust_buffer(future) },
+            // lift function
+            { FfiConverterTypeAiCommandSuggestion.lift(it) },
+            // Error FFI converter
+            SshCoreException.ErrorHandler,
         )
 
     /**
@@ -2600,6 +2750,158 @@ public object FfiConverterTypeSshSessionHandle : FfiConverter<SshSessionHandle, 
         buf: ByteBuffer,
     ) {
         buf.putLong(lower(value))
+    }
+}
+
+/**
+ * Request parameters for generating a shell command.
+ */
+data class AiCommandRequest(
+    /**
+     * Natural language prompt from the user (e.g. "find all files modified today").
+     */
+    var `userPrompt`: kotlin.String,
+    /**
+     * Operating system of the remote host ("macOS", "Linux", "Unknown").
+     */
+    var `targetOs`: kotlin.String,
+    /**
+     * Remote login shell ("zsh", "bash", "fish", "sh").
+     */
+    var `shellName`: kotlin.String,
+    /**
+     * Current working directory if known (e.g. "~/projects/backend").
+     */
+    var `cwd`: kotlin.String?,
+    /**
+     * Recent terminal output lines to provide context (max 30 lines).
+     */
+    var `terminalContext`: List<kotlin.String>,
+) {
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeAiCommandRequest : FfiConverterRustBuffer<AiCommandRequest> {
+    override fun read(buf: ByteBuffer): AiCommandRequest =
+        AiCommandRequest(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterSequenceString.read(buf),
+        )
+
+    override fun allocationSize(value: AiCommandRequest) =
+        (
+            FfiConverterString.allocationSize(value.`userPrompt`) +
+                FfiConverterString.allocationSize(value.`targetOs`) +
+                FfiConverterString.allocationSize(value.`shellName`) +
+                FfiConverterOptionalString.allocationSize(value.`cwd`) +
+                FfiConverterSequenceString.allocationSize(value.`terminalContext`)
+        )
+
+    override fun write(
+        value: AiCommandRequest,
+        buf: ByteBuffer,
+    ) {
+        FfiConverterString.write(value.`userPrompt`, buf)
+        FfiConverterString.write(value.`targetOs`, buf)
+        FfiConverterString.write(value.`shellName`, buf)
+        FfiConverterOptionalString.write(value.`cwd`, buf)
+        FfiConverterSequenceString.write(value.`terminalContext`, buf)
+    }
+}
+
+/**
+ * Verified command suggestion returned to mobile UI.
+ */
+data class AiCommandSuggestion(
+    /**
+     * Clean, ready-to-run shell command line string.
+     */
+    var `command`: kotlin.String,
+    /**
+     * Brief explanation of how the command works and what flags mean.
+     */
+    var `explanation`: kotlin.String,
+    /**
+     * Risk assessment level.
+     */
+    var `riskLevel`: AiRiskLevel,
+    /**
+     * Specific risk warnings if applicable (e.g. "Contains recursive deletion flag -r").
+     */
+    var `warnings`: List<kotlin.String>,
+) {
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeAiCommandSuggestion : FfiConverterRustBuffer<AiCommandSuggestion> {
+    override fun read(buf: ByteBuffer): AiCommandSuggestion =
+        AiCommandSuggestion(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterTypeAiRiskLevel.read(buf),
+            FfiConverterSequenceString.read(buf),
+        )
+
+    override fun allocationSize(value: AiCommandSuggestion) =
+        (
+            FfiConverterString.allocationSize(value.`command`) +
+                FfiConverterString.allocationSize(value.`explanation`) +
+                FfiConverterTypeAiRiskLevel.allocationSize(value.`riskLevel`) +
+                FfiConverterSequenceString.allocationSize(value.`warnings`)
+        )
+
+    override fun write(
+        value: AiCommandSuggestion,
+        buf: ByteBuffer,
+    ) {
+        FfiConverterString.write(value.`command`, buf)
+        FfiConverterString.write(value.`explanation`, buf)
+        FfiConverterTypeAiRiskLevel.write(value.`riskLevel`, buf)
+        FfiConverterSequenceString.write(value.`warnings`, buf)
+    }
+}
+
+/**
+ * Result of deterministic command risk analysis.
+ */
+data class AiRiskAssessment(
+    var `level`: AiRiskLevel,
+    var `warnings`: List<kotlin.String>,
+) {
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeAiRiskAssessment : FfiConverterRustBuffer<AiRiskAssessment> {
+    override fun read(buf: ByteBuffer): AiRiskAssessment =
+        AiRiskAssessment(
+            FfiConverterTypeAiRiskLevel.read(buf),
+            FfiConverterSequenceString.read(buf),
+        )
+
+    override fun allocationSize(value: AiRiskAssessment) =
+        (
+            FfiConverterTypeAiRiskLevel.allocationSize(value.`level`) +
+                FfiConverterSequenceString.allocationSize(value.`warnings`)
+        )
+
+    override fun write(
+        value: AiRiskAssessment,
+        buf: ByteBuffer,
+    ) {
+        FfiConverterTypeAiRiskLevel.write(value.`level`, buf)
+        FfiConverterSequenceString.write(value.`warnings`, buf)
     }
 }
 
@@ -2900,6 +3202,57 @@ public object FfiConverterTypeTmuxSessionInfo : FfiConverterRustBuffer<TmuxSessi
     }
 }
 
+/**
+ * Risk level classification for an AI-generated shell command.
+ */
+
+enum class AiRiskLevel {
+    /**
+     * Read-only or benign operations (ls, grep, cat, docker ps, git status).
+     */
+    SAFE,
+
+    /**
+     * Requires elevated root/admin privileges (sudo, doas, chown, chmod).
+     */
+    ELEVATED,
+
+    /**
+     * Modifies files, services, or repository state (git checkout, kill, systemctl stop).
+     */
+    CAUTION,
+
+    /**
+     * High-risk or irreversible destructive operations (rm -rf, dd, mkfs, git reset --hard, dropdb).
+     */
+    DESTRUCTIVE,
+
+    ;
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeAiRiskLevel : FfiConverterRustBuffer<AiRiskLevel> {
+    override fun read(buf: ByteBuffer) =
+        try {
+            AiRiskLevel.values()[buf.getInt() - 1]
+        } catch (e: IndexOutOfBoundsException) {
+            throw RuntimeException("invalid enum value, something is very wrong!!", e)
+        }
+
+    override fun allocationSize(value: AiRiskLevel) = 4UL
+
+    override fun write(
+        value: AiRiskLevel,
+        buf: ByteBuffer,
+    ) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
 sealed class SessionState {
     object Disconnected : SessionState()
 
@@ -3126,6 +3479,20 @@ sealed class SshCoreException : kotlin.Exception() {
             get() = "port=${ `port` }"
     }
 
+    class AiAssistantException(
+        val `reason`: kotlin.String,
+    ) : SshCoreException() {
+        override val message
+            get() = "reason=${ `reason` }"
+    }
+
+    class AiResponseParseException(
+        val `reason`: kotlin.String,
+    ) : SshCoreException() {
+        override val message
+            get() = "reason=${ `reason` }"
+    }
+
     companion object ErrorHandler : UniffiRustCallStatusErrorHandler<SshCoreException> {
         override fun lift(error_buf: RustBuffer.ByValue): SshCoreException = FfiConverterTypeSshCoreError.lift(error_buf)
     }
@@ -3220,6 +3587,18 @@ public object FfiConverterTypeSshCoreError : FfiConverterRustBuffer<SshCoreExcep
             15 -> {
                 SshCoreException.RemotePortRefused(
                     FfiConverterUShort.read(buf),
+                )
+            }
+
+            16 -> {
+                SshCoreException.AiAssistantException(
+                    FfiConverterString.read(buf),
+                )
+            }
+
+            17 -> {
+                SshCoreException.AiResponseParseException(
+                    FfiConverterString.read(buf),
                 )
             }
 
@@ -3318,6 +3697,18 @@ public object FfiConverterTypeSshCoreError : FfiConverterRustBuffer<SshCoreExcep
                 4UL +
                     FfiConverterUShort.allocationSize(value.`port`)
             )
+
+            is SshCoreException.AiAssistantException -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL +
+                    FfiConverterString.allocationSize(value.`reason`)
+            )
+
+            is SshCoreException.AiResponseParseException -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL +
+                    FfiConverterString.allocationSize(value.`reason`)
+            )
         }
 
     override fun write(
@@ -3411,6 +3802,18 @@ public object FfiConverterTypeSshCoreError : FfiConverterRustBuffer<SshCoreExcep
             is SshCoreException.RemotePortRefused -> {
                 buf.putInt(15)
                 FfiConverterUShort.write(value.`port`, buf)
+                Unit
+            }
+
+            is SshCoreException.AiAssistantException -> {
+                buf.putInt(16)
+                FfiConverterString.write(value.`reason`, buf)
+                Unit
+            }
+
+            is SshCoreException.AiResponseParseException -> {
+                buf.putInt(17)
+                FfiConverterString.write(value.`reason`, buf)
                 Unit
             }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
@@ -3580,6 +3983,34 @@ public object FfiConverterOptionalString : FfiConverterRustBuffer<kotlin.String?
 /**
  * @suppress
  */
+public object FfiConverterSequenceString : FfiConverterRustBuffer<List<kotlin.String>> {
+    override fun read(buf: ByteBuffer): List<kotlin.String> {
+        val len = buf.getInt()
+        return List<kotlin.String>(len) {
+            FfiConverterString.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<kotlin.String>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterString.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(
+        value: List<kotlin.String>,
+        buf: ByteBuffer,
+    ) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterString.write(it, buf)
+        }
+    }
+}
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypePortForwardInfo : FfiConverterRustBuffer<List<PortForwardInfo>> {
     override fun read(buf: ByteBuffer): List<PortForwardInfo> {
         val len = buf.getInt()
@@ -3645,6 +4076,77 @@ fun `generateSshKeypair`(): KeypairResult =
     FfiConverterTypeKeypairResult.lift(
         uniffiRustCallWithError(SshCoreException) { _status ->
             UniffiLib.uniffi_ssh_core_fn_func_generate_ssh_keypair(_status)
+        },
+    )
+
+/**
+ * Assembles the system prompt instructing the LLM to output a single tailored command.
+ */
+fun `assembleAiSystemPrompt`(
+    `targetOs`: kotlin.String,
+    `shellName`: kotlin.String,
+    `cwd`: kotlin.String?,
+): kotlin.String =
+    FfiConverterString.lift(
+        uniffiRustCall { _status ->
+            UniffiLib.uniffi_ssh_core_fn_func_assemble_ai_system_prompt(
+                FfiConverterString.lower(`targetOs`),
+                FfiConverterString.lower(`shellName`),
+                FfiConverterOptionalString.lower(`cwd`),
+                _status,
+            )
+        },
+    )
+
+/**
+ * Assembles the user prompt incorporating recent terminal context if available.
+ */
+fun `assembleAiUserPrompt`(`request`: AiCommandRequest): kotlin.String =
+    FfiConverterString.lift(
+        uniffiRustCall { _status ->
+            UniffiLib.uniffi_ssh_core_fn_func_assemble_ai_user_prompt(FfiConverterTypeAiCommandRequest.lower(`request`), _status)
+        },
+    )
+
+/**
+ * Deterministically evaluates a shell command against safety rules and returns its risk level and warnings.
+ */
+fun `classifyCommandRisk`(`command`: kotlin.String): AiRiskAssessment =
+    FfiConverterTypeAiRiskAssessment.lift(
+        uniffiRustCall { _status ->
+            UniffiLib.uniffi_ssh_core_fn_func_classify_command_risk(FfiConverterString.lower(`command`), _status)
+        },
+    )
+
+/**
+ * Parses the raw LLM output into an AiCommandSuggestion with safety classification.
+ */
+@Throws(SshCoreException::class)
+fun `parseAiResponse`(`rawLlmResponse`: kotlin.String): AiCommandSuggestion =
+    FfiConverterTypeAiCommandSuggestion.lift(
+        uniffiRustCallWithError(SshCoreException) { _status ->
+            UniffiLib.uniffi_ssh_core_fn_func_parse_ai_response(FfiConverterString.lower(`rawLlmResponse`), _status)
+        },
+    )
+
+/**
+ * Parses the JSON response from Ollama's /api/generate endpoint.
+ */
+@Throws(SshCoreException::class)
+fun `parseOllamaGenerateResponse`(`jsonBody`: kotlin.String): kotlin.String =
+    FfiConverterString.lift(
+        uniffiRustCallWithError(SshCoreException) { _status ->
+            UniffiLib.uniffi_ssh_core_fn_func_parse_ollama_generate_response(FfiConverterString.lower(`jsonBody`), _status)
+        },
+    )
+
+/**
+ * Strips markdown fences, backticks, prompt markers ($), and whitespace from a shell command string.
+ */
+fun `sanitizeShellCommand`(`command`: kotlin.String): kotlin.String =
+    FfiConverterString.lift(
+        uniffiRustCall { _status ->
+            UniffiLib.uniffi_ssh_core_fn_func_sanitize_shell_command(FfiConverterString.lower(`command`), _status)
         },
     )
 

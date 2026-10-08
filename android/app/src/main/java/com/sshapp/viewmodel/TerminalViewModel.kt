@@ -81,6 +81,19 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     private val _isWebPreviewOpen = MutableStateFlow(false)
     val isWebPreviewOpen: StateFlow<Boolean> = _isWebPreviewOpen.asStateFlow()
 
+    // AI Shell Assistant State
+    private val _isAiAssistantOpen = MutableStateFlow(false)
+    val isAiAssistantOpen: StateFlow<Boolean> = _isAiAssistantOpen.asStateFlow()
+
+    private val _activeAiSuggestion = MutableStateFlow<AiCommandSuggestion?>(null)
+    val activeAiSuggestion: StateFlow<AiCommandSuggestion?> = _activeAiSuggestion.asStateFlow()
+
+    private val _isAiLoading = MutableStateFlow(false)
+    val isAiLoading: StateFlow<Boolean> = _isAiLoading.asStateFlow()
+
+    private val _aiError = MutableStateFlow<String?>(null)
+    val aiError: StateFlow<String?> = _aiError.asStateFlow()
+
     // Active Rust Core session handle
     private var sessionHandle: SshSessionHandle? = null
 
@@ -259,6 +272,70 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     fun stopPortForward() {
         _activePortForward.value?.stop()
         _activePortForward.value = null
+    }
+
+    // AI Shell Assistant Methods
+    fun openAiAssistant() {
+        _isAiAssistantOpen.value = true
+        _aiError.value = null
+    }
+
+    fun closeAiAssistant() {
+        _isAiAssistantOpen.value = false
+    }
+
+    fun queryAiAssistant(
+        userPrompt: String,
+        modelName: String = "qwen2.5-coder:7b",
+        targetOs: String = "macOS"
+    ) {
+        val handle = sessionHandle ?: run {
+            _aiError.value = "Session not connected"
+            return
+        }
+
+        _isAiLoading.value = true
+        _aiError.value = null
+
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val lines = _terminalOutput.value.lines().filter { it.isNotBlank() }.takeLast(20)
+                val systemPrompt = assembleAiSystemPrompt(targetOs, "zsh", null)
+                val request = AiCommandRequest(
+                    userPrompt = userPrompt,
+                    targetOs = targetOs,
+                    shellName = "zsh",
+                    cwd = null,
+                    terminalContext = lines
+                )
+                val assembledUserPrompt = assembleAiUserPrompt(request)
+
+                val suggestion = handle.queryHostOllama(
+                    model = modelName,
+                    systemPrompt = systemPrompt,
+                    userPrompt = assembledUserPrompt
+                )
+                withContext(Dispatchers.Main) {
+                    _activeAiSuggestion.value = suggestion
+                    _isAiLoading.value = false
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    _aiError.value = e.localizedMessage ?: "Failed to query AI assistant"
+                    _isAiLoading.value = false
+                }
+            }
+        }
+    }
+
+    fun insertAiCommand(command: String) {
+        sendText(command)
+        closeAiAssistant()
+    }
+
+    fun executeAiCommand(command: String) {
+        sendText(command + "\r")
+        closeAiAssistant()
     }
 
     private fun disconnectCurrent() {

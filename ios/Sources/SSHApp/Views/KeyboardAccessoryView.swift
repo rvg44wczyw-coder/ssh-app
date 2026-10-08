@@ -6,15 +6,31 @@ import UIKit
 public struct KeyboardAccessoryView: View {
     @Binding public var isCtrlLocked: Bool
     public let onSendBytes: ([UInt8]) -> Void
+    public let onAiAssistantTap: (() -> Void)?
 
-    public init(isCtrlLocked: Binding<Bool>, onSendBytes: @escaping ([UInt8]) -> Void) {
+    public init(
+        isCtrlLocked: Binding<Bool>,
+        onSendBytes: @escaping ([UInt8]) -> Void,
+        onAiAssistantTap: (() -> Void)? = nil
+    ) {
         self._isCtrlLocked = isCtrlLocked
         self.onSendBytes = onSendBytes
+        self.onAiAssistantTap = onAiAssistantTap
     }
 
     public var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
+                // AI Shell Assistant
+                if let onAiTap = onAiAssistantTap {
+                    AccessoryButton(label: "🪄") {
+                        triggerHaptic()
+                        onAiTap()
+                    }
+
+                    Divider().frame(height: 24)
+                }
+
                 // Modifiers
                 AccessoryButton(label: "ESC") {
                     triggerHaptic()

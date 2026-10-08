@@ -196,6 +196,74 @@ impl SshSessionHandle {
             }
         }
     }
+
+    /// Executes a command on the remote host over the currently active SSH session (ephemeral channel).
+    pub async fn execute_command_on_active_session(
+        &self,
+        command: String,
+    ) -> Result<String, SshCoreError> {
+        let mut channel =
+            {
+                let mut lock = self.ssh_client.lock().await;
+                match lock.as_mut() {
+                    Some(client) => client.channel_open_session().await.map_err(|e| {
+                        SshCoreError::ChannelError {
+                            reason: format!("Failed to open ephemeral session channel: {e}"),
+                        }
+                    })?,
+                    None => return Err(SshCoreError::NotConnected),
+                }
+            };
+
+        channel
+            .exec(true, command)
+            .await
+            .map_err(|e| SshCoreError::ChannelError {
+                reason: format!("Exec command failed: {e}"),
+            })?;
+
+        let mut output = Vec::new();
+        while let Some(msg) = channel.wait().await {
+            match msg {
+                russh::ChannelMsg::Data { ref data }
+                | russh::ChannelMsg::ExtendedData { ref data, .. } => {
+                    output.extend_from_slice(data);
+                }
+                russh::ChannelMsg::Eof | russh::ChannelMsg::Close => break,
+                _ => {}
+            }
+        }
+
+        let _ = channel.eof().await;
+        let _ = channel.close().await;
+        Ok(String::from_utf8_lossy(&output).to_string())
+    }
+
+    /// Queries Ollama running locally on the remote host (http://127.0.0.1:11434/api/generate)
+    /// through the active SSH session and returns the generated command suggestion.
+    pub async fn query_host_ollama(
+        &self,
+        model: String,
+        system_prompt: String,
+        user_prompt: String,
+    ) -> Result<crate::ai::AiCommandSuggestion, SshCoreError> {
+        let full_prompt = format!("{system_prompt}\n\n{user_prompt}");
+        let payload = serde_json::json!({
+            "model": model,
+            "prompt": full_prompt,
+            "stream": false
+        });
+        let payload_str = payload.to_string();
+
+        let curl_cmd = format!(
+            "curl -s -X POST http://127.0.0.1:11434/api/generate -H 'Content-Type: application/json' -d {}",
+            crate::tmux::shell_quote(&payload_str)
+        );
+
+        let raw_response = self.execute_command_on_active_session(curl_cmd).await?;
+        let generated_text = crate::ai::parse_ollama_generate_response(&raw_response)?;
+        crate::ai::parse_ai_response(&generated_text)
+    }
 }
 
 impl SshSessionHandle {
