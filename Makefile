@@ -4,12 +4,12 @@ SHELL := /bin/zsh
 SCHEME := SSHApp
 PROJECT := ios/SSHApp.xcodeproj
 BUNDLE_ID := com.semenov.sshapp
-CONFIGURATION ?= Debug
+CONFIGURATION ?= Release
 DERIVED_DATA := $(CURDIR)/.build/DerivedData
 APP_PATH := $(DERIVED_DATA)/Build/Products/$(CONFIGURATION)-iphoneos/$(SCHEME).app
 
 # Auto-detect the first connected physical iOS device (arm64) if DEVICE_ID is not passed
-DEVICE_ID ?= $(shell xcodebuild -project $(PROJECT) -scheme $(SCHEME) -showdestinations 2>/dev/null | grep "platform:iOS, arch:arm64, id:" | head -n 1 | sed -E 's/.*id:([^,]+),.*/\1/')
+DEVICE_ID ?= $(shell xcrun devicectl list devices 2>/dev/null | grep -E "iPhone|00008130" | head -n 1 | grep -oE "[0-9A-F]{8}-[0-9A-F]{16}")
 
 .PHONY: help iphone iphone-full xcframework ios-build ios-install ios-launch test lint clean
 
@@ -29,16 +29,12 @@ xcframework:
 	./scripts/build-xcframework.sh
 
 ios-build:
-	@if [ -z "$(DEVICE_ID)" ]; then \
-		echo "Ошибка: подключенный iPhone не найден. Подключите устройство и разблокируйте экран."; \
-		exit 1; \
-	fi
-	@echo "==> Сборка $(SCHEME) ($(CONFIGURATION)) для iPhone UDID: $(DEVICE_ID)"
+	@echo "==> Сборка и подпись $(SCHEME) ($(CONFIGURATION)) для iOS..."
 	xcodebuild \
 		-project $(PROJECT) \
 		-scheme $(SCHEME) \
 		-configuration $(CONFIGURATION) \
-		-destination "platform=iOS,id=$(DEVICE_ID)" \
+		-destination "generic/platform=iOS" \
 		-derivedDataPath $(DERIVED_DATA) \
 		-skipPackagePluginValidation \
 		-allowProvisioningUpdates \

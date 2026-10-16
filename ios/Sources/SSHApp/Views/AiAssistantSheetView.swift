@@ -3,6 +3,7 @@ import SshCoreBridge
 
 public struct AiAssistantSheetView: View {
     @ObservedObject var viewModel: TerminalSessionViewModel
+    public var onClose: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
 
     @State private var userPrompt: String = ""
@@ -25,8 +26,14 @@ public struct AiAssistantSheetView: View {
         "Revert last git commit keeping changes"
     ]
 
-    public init(viewModel: TerminalSessionViewModel) {
+    public init(viewModel: TerminalSessionViewModel, onClose: (() -> Void)? = nil) {
         self.viewModel = viewModel
+        self.onClose = onClose
+    }
+
+    private func closeSheet() {
+        onClose?()
+        dismiss()
     }
 
     public var body: some View {
@@ -57,8 +64,7 @@ public struct AiAssistantSheetView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Close") {
-                        viewModel.closeAiAssistant()
-                        dismiss()
+                        closeSheet()
                     }
                     .foregroundColor(.secondary)
                 }
@@ -68,7 +74,7 @@ public struct AiAssistantSheetView: View {
                 Button("Run Anyway", role: .destructive) {
                     if let cmd = viewModel.activeAiSuggestion?.command {
                         viewModel.executeAiCommand(cmd)
-                        dismiss()
+                        closeSheet()
                     }
                 }
             } message: {
@@ -297,7 +303,7 @@ public struct AiAssistantSheetView: View {
             HStack(spacing: 12) {
                 Button {
                     viewModel.insertAiCommand(suggestion.command)
-                    dismiss()
+                    closeSheet()
                 } label: {
                     HStack {
                         Image(systemName: "text.insert")
@@ -316,7 +322,7 @@ public struct AiAssistantSheetView: View {
                         showDestructiveConfirm = true
                     } else {
                         viewModel.executeAiCommand(suggestion.command)
-                        dismiss()
+                        closeSheet()
                     }
                 } label: {
                     HStack {

@@ -12,14 +12,22 @@ public struct MainTerminalView: View {
         case newTab
     }
 
+    private enum ActiveModalSheet: String, Identifiable {
+        case settings
+        case tmuxSessions
+        case diffViewer
+        case webPreview
+        case aiAssistant
+        case snippets
+
+        var id: String { rawValue }
+    }
+
     @State private var isCtrlLocked: Bool = false
-    @State private var showSettings: Bool = false
-    @State private var showTmuxSessions: Bool = false
+    @State private var activeSheet: ActiveModalSheet? = nil
     @State private var showPublicKeyBanner: Bool = true
     @State private var copiedKeyNotification: Bool = false
     @State private var activePublicKey: String? = nil
-    @State private var showDiffViewer: Bool = false
-    @State private var showWebPreview: Bool = false
     @State private var pendingApproval: AgentApprovalRequest? = nil
 
     @State private var showServerPicker: Bool = false
@@ -28,6 +36,20 @@ public struct MainTerminalView: View {
     @State private var isCheckingServers: Bool = false
 
     public init() {}
+
+    private func dismissKeyboard() {
+        #if canImport(UIKit)
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        #endif
+    }
+
+    private func presentSheet(_ sheet: ActiveModalSheet) {
+        dismissKeyboard()
+        if sheet == .aiAssistant {
+            tabsManager.activeViewModel?.aiError = nil
+        }
+        activeSheet = sheet
+    }
 
     public var body: some View {
         NavigationStack {
@@ -127,6 +149,12 @@ public struct MainTerminalView: View {
                         isCtrlLocked: $isCtrlLocked,
                         onRetry: {
                             ensureSessionStarted(for: tabsManager.selectedSessionId, force: true)
+                        },
+                        onOpenAiAssistant: {
+                            presentSheet(.aiAssistant)
+                        },
+                        onOpenSnippets: {
+                            presentSheet(.snippets)
                         }
                     )
                     .id(activeVM.session.id)
@@ -159,7 +187,7 @@ public struct MainTerminalView: View {
             #endif
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button(action: { showTmuxSessions = true }) {
+                    Button(action: { presentSheet(.tmuxSessions) }) {
                         Image(systemName: "rectangle.stack")
                             .font(.system(size: 13))
                     }
@@ -182,6 +210,7 @@ public struct MainTerminalView: View {
                 #if os(iOS)
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button(action: {
+                        dismissKeyboard()
                         withAnimation(.easeInOut(duration: 0.2)) {
                             tabsManager.activeViewModel?.toggleChatMode()
                         }
@@ -192,27 +221,27 @@ public struct MainTerminalView: View {
                     }
                     .accessibilityLabel("Toggle Chat and Terminal Mode")
 
-                    Button(action: { tabsManager.activeViewModel?.openAiAssistant() }) {
+                    Button(action: { presentSheet(.aiAssistant) }) {
                         Image(systemName: "wand.and.stars")
                             .font(.system(size: 14))
                             .foregroundColor(.purple)
                     }
                     .accessibilityLabel("AI Shell Assistant")
 
-                    Button(action: { tabsManager.activeViewModel?.openSnippetsSheet() }) {
+                    Button(action: { presentSheet(.snippets) }) {
                         Image(systemName: "bolt.fill")
                             .font(.system(size: 14))
                             .foregroundColor(.orange)
                     }
                     .accessibilityLabel("Smart Snippets & Fuzzy History")
 
-                    Button(action: { showWebPreview = true }) {
+                    Button(action: { presentSheet(.webPreview) }) {
                         Image(systemName: "globe")
                             .font(.system(size: 14))
                     }
                     .accessibilityLabel("In-App Web Preview")
 
-                    Button(action: { showDiffViewer = true }) {
+                    Button(action: { presentSheet(.diffViewer) }) {
                         Image(systemName: "arrow.triangle.pull")
                             .font(.system(size: 14))
                     }
@@ -231,7 +260,7 @@ public struct MainTerminalView: View {
                     }
                     .accessibilityLabel("Toggle Public Key")
 
-                    Button(action: { showSettings = true }) {
+                    Button(action: { presentSheet(.settings) }) {
                         Image(systemName: "gearshape")
                             .font(.system(size: 14))
                     }
@@ -239,57 +268,50 @@ public struct MainTerminalView: View {
                 }
                 #else
                 ToolbarItem(placement: .automatic) {
-                    Button(action: { showSettings = true }) {
+                    Button(action: { presentSheet(.settings) }) {
                         Image(systemName: "gearshape")
                     }
                 }
                 #endif
             }
-            .sheet(isPresented: $showSettings, onDismiss: {
-                activePublicKey = KeychainManager.shared.getOrDerivePublicKey()
-                ensureSessionStarted(for: tabsManager.selectedSessionId)
-            }) {
-                SettingsView(serversManager: serversManager)
-            }
-            .sheet(isPresented: $showTmuxSessions) {
-                TmuxSessionsSheetView(
-                    serversManager: serversManager,
-                    initialServerId: tabsManager.activeSession?.serverId ?? serversManager.activeProfileId
-                ) { sessionName, server in
-                    let newSession = tabsManager.openOrSwitchToSession(sessionName: sessionName, serverId: server.id)
-                    ensureSessionStarted(for: newSession.id)
-                }
-            }
-            .sheet(isPresented: $showDiffViewer) {
-                let activeServer = serversManager.profile(for: tabsManager.activeSession?.serverId) ?? serversManager.activeProfile
-                DiffViewerSheetView(
-                    serverProfile: activeServer,
-                    privateKeyOpenssh: KeychainManager.shared.getPrivateKey()
-                )
-            }
-            .sheet(isPresented: $showWebPreview) {
-                if let activeVM = tabsManager.activeViewModel {
-                    WebPreviewSheetView(viewModel: activeVM)
-                }
-            }
-            .sheet(isPresented: Binding(
-                get: { tabsManager.activeViewModel?.isAiAssistantOpen ?? false },
-                set: { isOpen in
-                    if !isOpen { tabsManager.activeViewModel?.closeAiAssistant() }
-                }
-            )) {
-                if let activeVM = tabsManager.activeViewModel {
-                    AiAssistantSheetView(viewModel: activeVM)
-                }
-            }
-            .sheet(isPresented: Binding(
-                get: { tabsManager.activeViewModel?.isSnippetsSheetOpen ?? false },
-                set: { isOpen in
-                    tabsManager.activeViewModel?.isSnippetsSheetOpen = isOpen
-                }
-            )) {
-                if let activeVM = tabsManager.activeViewModel {
-                    SnippetsSheetView(viewModel: activeVM)
+            .sheet(item: $activeSheet) { sheet in
+                switch sheet {
+                case .settings:
+                    SettingsView(serversManager: serversManager)
+                        .onDisappear {
+                            activePublicKey = KeychainManager.shared.getOrDerivePublicKey()
+                            ensureSessionStarted(for: tabsManager.selectedSessionId)
+                        }
+                case .tmuxSessions:
+                    TmuxSessionsSheetView(
+                        serversManager: serversManager,
+                        initialServerId: tabsManager.activeSession?.serverId ?? serversManager.activeProfileId
+                    ) { sessionName, server in
+                        let newSession = tabsManager.openOrSwitchToSession(sessionName: sessionName, serverId: server.id)
+                        ensureSessionStarted(for: newSession.id)
+                    }
+                case .diffViewer:
+                    let activeServer = serversManager.profile(for: tabsManager.activeSession?.serverId) ?? serversManager.activeProfile
+                    DiffViewerSheetView(
+                        serverProfile: activeServer,
+                        privateKeyOpenssh: KeychainManager.shared.getPrivateKey()
+                    )
+                case .webPreview:
+                    if let activeVM = tabsManager.activeViewModel {
+                        WebPreviewSheetView(viewModel: activeVM)
+                    }
+                case .aiAssistant:
+                    if let activeVM = tabsManager.activeViewModel {
+                        AiAssistantSheetView(viewModel: activeVM) {
+                            activeSheet = nil
+                        }
+                    }
+                case .snippets:
+                    if let activeVM = tabsManager.activeViewModel {
+                        SnippetsSheetView(viewModel: activeVM) {
+                            activeSheet = nil
+                        }
+                    }
                 }
             }
             .confirmationDialog(
@@ -402,12 +424,16 @@ public struct MainTerminalView: View {
         let server = serversManager.profile(for: session.serverId) ?? serversManager.activeProfile
         guard let s = server, !s.host.isEmpty, !s.username.isEmpty else {
             print("[MainView] No valid server profile found. Showing Settings.")
-            showSettings = true
+            if activeSheet == nil {
+                activeSheet = .settings
+            }
             return
         }
         guard let privateKey = KeychainManager.shared.getPrivateKey(), !privateKey.isEmpty else {
             print("[MainView] No private key found in Keychain. Showing Settings.")
-            showSettings = true
+            if activeSheet == nil {
+                activeSheet = .settings
+            }
             return
         }
 
@@ -471,6 +497,8 @@ struct ActiveTerminalSessionView: View {
     @ObservedObject var viewModel: TerminalSessionViewModel
     @Binding var isCtrlLocked: Bool
     let onRetry: () -> Void
+    let onOpenAiAssistant: () -> Void
+    let onOpenSnippets: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -571,10 +599,10 @@ struct ActiveTerminalSessionView: View {
                         viewModel.sendInput(Data(bytes))
                     },
                     onAiAssistantTap: {
-                        viewModel.openAiAssistant()
+                        onOpenAiAssistant()
                     },
                     onSnippetsTap: {
-                        viewModel.openSnippetsSheet()
+                        onOpenSnippets()
                     }
                 )
             }

@@ -13,7 +13,6 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     @Published public private(set) var activePortForward: PortForwardHandle? = nil
 
     // AI Assistant State
-    @Published public var isAiAssistantOpen: Bool = false
     @Published public var activeAiSuggestion: AiCommandSuggestion? = nil
     @Published public var isAiLoading: Bool = false
     @Published public var aiError: String? = nil
@@ -26,7 +25,6 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     @Published public var transcriptError: String? = nil
 
     // Smart Snippets & Fuzzy History Search State
-    @Published public var isSnippetsSheetOpen: Bool = false
     @Published public var remoteHistoryCommands: [String] = []
     @Published public var isHistoryLoading: Bool = false
 
@@ -135,15 +133,6 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         return Array(lines.suffix(maxLines))
     }
 
-    public func openAiAssistant() {
-        self.isAiAssistantOpen = true
-        self.aiError = nil
-    }
-
-    public func closeAiAssistant() {
-        self.isAiAssistantOpen = false
-    }
-
     public func queryAiAssistant(
         userPrompt: String,
         modelName: String = "qwen2.5-coder:7b",
@@ -186,14 +175,12 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         if let data = command.data(using: .utf8) {
             sendInput(data)
         }
-        self.isAiAssistantOpen = false
     }
 
     public func executeAiCommand(_ command: String) {
         if let data = (command + "\r").data(using: .utf8) {
             sendInput(data)
         }
-        self.isAiAssistantOpen = false
     }
 
     public func toggleChatMode() {
@@ -230,10 +217,6 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
                 self.isTranscriptLoading = false
             }
         }
-    }
-
-    public func openSnippetsSheet() {
-        self.isSnippetsSheetOpen = true
     }
 
     public func fetchRemoteHistory() {

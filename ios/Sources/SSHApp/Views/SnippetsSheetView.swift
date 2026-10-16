@@ -3,6 +3,7 @@ import SshCoreBridge
 
 public struct SnippetsSheetView: View {
     @ObservedObject var viewModel: TerminalSessionViewModel
+    public var onClose: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
 
     @State private var searchQuery: String = ""
@@ -24,8 +25,14 @@ public struct SnippetsSheetView: View {
     private let categories = ["All", "AI Agents", "Git", "Cargo", "System", "History", "Custom"]
     private let customSnippetsStorageKey = "ssh_app.custom_snippets.v1"
 
-    public init(viewModel: TerminalSessionViewModel) {
+    public init(viewModel: TerminalSessionViewModel, onClose: (() -> Void)? = nil) {
         self.viewModel = viewModel
+        self.onClose = onClose
+    }
+
+    private func closeSheet() {
+        onClose?()
+        dismiss()
     }
 
     private var allItems: [SnippetItem] {
@@ -227,7 +234,7 @@ public struct SnippetsSheetView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Close") {
-                        dismiss()
+                        closeSheet()
                     }
                 }
                 ToolbarItemGroup(placement: .topBarTrailing) {
@@ -273,7 +280,7 @@ public struct SnippetsSheetView: View {
         } else {
             viewModel.insertAiCommand(snippet.command)
         }
-        dismiss()
+        closeSheet()
     }
 
     private func commitPlaceholderCommand(snippet: SnippetItem) {
@@ -288,7 +295,7 @@ public struct SnippetsSheetView: View {
         } else {
             viewModel.insertAiCommand(rendered)
         }
-        dismiss()
+        closeSheet()
     }
 
     private func loadCustomSnippets() {
