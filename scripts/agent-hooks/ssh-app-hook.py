@@ -2,7 +2,7 @@
 """ssh-app agent hook (Claude Code + Google Antigravity) and approval queue (Feature 13).
 
 Usage (configured by the app, never by hand):
-    ssh-app-hook <claude|antigravity> <EventName>     agent hook (reads the hook JSON on stdin)
+    ssh-app-hook <claude|codex|antigravity|grok> <EventName>     agent hook (reads the hook JSON on stdin)
     ssh-app-hook ctl <list|decide|ack|status>          used by the app over SSH (data on stdin)
 
 An approval request is a file in ~/.ssh-app/run/pending (0700 dirs, 0600 files). The phone
@@ -274,7 +274,7 @@ def main():
     except Exception:
         data = {}
 
-    if agent == "claude":
+    if agent in ("claude", "codex"):  # Codex uses Claude's payload and PermissionRequest reply
         tool = str(data.get("tool_name", ""))
         summary = summarize(data.get("tool_input", {}))
         cwd = str(data.get("cwd", ""))
@@ -286,6 +286,11 @@ def main():
         paths = data.get("workspacePaths")
         cwd = str(paths[0]) if isinstance(paths, list) and paths else ""
         session = str(data.get("conversationId", ""))
+    elif agent == "grok":
+        tool = str(data.get("toolName", ""))
+        summary = summarize(data.get("toolInput", {}))
+        cwd = str(data.get("cwd", ""))
+        session = str(data.get("sessionId", ""))
     else:
         return 0
 
@@ -293,7 +298,13 @@ def main():
 
     if event in ("PermissionRequest", "PreToolUse"):
         approved = submit("approval", base, wait=True)
-        if agent == "claude":
+        if agent == "grok":
+            # Grok can only block: deny is explicit, everything else (including a phone approval)
+            # lets the tool continue into Grok's own flow; failures fail open on its side anyway.
+            if approved is False:
+                sys.stdout.write(json.dumps({"decision": "deny", "reason": "Denied from ssh-app on your phone"}))
+            return 0
+        if agent in ("claude", "codex"):
             if approved is None:
                 return 0  # no opinion -> Claude shows its normal permission prompt
             decision = {"behavior": "allow"} if approved else {

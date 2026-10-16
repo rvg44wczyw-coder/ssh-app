@@ -152,13 +152,15 @@ public struct SavedAgentProfile: Identifiable, Codable, Equatable, Sendable {
         let notifyOnly = hookKindRaw == "notifyOnly"
         switch agent {
         case .claudeCode: return notifyOnly ? ["Notification", "Stop"] : ["PermissionRequest", "Notification", "Stop"]
-        default: return notifyOnly ? ["Stop"] : ["PreToolUse", "Stop"]
+        case .codex: return notifyOnly ? ["Stop"] : ["PermissionRequest", "Stop"]
+        case .grok: return notifyOnly ? ["Notification", "Stop"] : ["PreToolUse", "Notification", "Stop"]
+        case .antigravity: return notifyOnly ? ["Stop"] : ["PreToolUse", "Stop"]
         }
     }
 
     public var supportsPermissions: Bool { agent == .claudeCode }
 
-    public var supportsHooks: Bool { agent == .claudeCode || agent == .antigravity }
+    public var supportsHooks: Bool { true }
 
     /// Compiled launch command, or the validation error from the core.
     public func launchCommand() -> Result<String, Error> {

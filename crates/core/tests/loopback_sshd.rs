@@ -394,7 +394,7 @@ fn agent_hooks_install_flow_against_loopback_sshd() {
             .unwrap()
             .contains("ssh-app-hook"));
 
-        // Antigravity uses hooks.json in its dir; Codex/Grok are refused.
+        // Antigravity uses hooks.json in its dir.
         let agy_dir = Some(root.join("gemini").to_str().unwrap().to_string());
         handle
             .install_agent_hooks(AgentKind::Antigravity, agy_dir.clone(), hooks.clone())
@@ -402,10 +402,39 @@ fn agent_hooks_install_flow_against_loopback_sshd() {
             .unwrap();
         let hj = std::fs::read_to_string(root.join("gemini/hooks.json")).unwrap();
         assert!(hj.contains("\"ssh-app\"") && hj.contains("run_command"));
-        assert!(handle
-            .install_agent_hooks(AgentKind::Codex, None, hooks.clone())
-            .await
-            .is_err());
+
+        // Codex (CODEX_HOME/hooks.json) and Grok (own file in its hooks dir) install and remove.
+        for (agent, dirname, file, event) in [
+            (AgentKind::Codex, "codex", "hooks.json", "PermissionRequest"),
+            (AgentKind::Grok, "grok-hooks", "ssh-app.json", "PreToolUse"),
+        ] {
+            let d = Some(root.join(dirname).to_str().unwrap().to_string());
+            handle
+                .install_agent_hooks(agent, d.clone(), hooks.clone())
+                .await
+                .unwrap();
+            let text = std::fs::read_to_string(root.join(dirname).join(file)).unwrap();
+            let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+            assert!(v["hooks"][event].is_array(), "{agent:?}: {text}");
+            assert!(
+                handle
+                    .agent_hooks_status(agent, d.clone(), hooks.clone())
+                    .await
+                    .unwrap()
+                    .hooks_installed
+            );
+            handle
+                .uninstall_agent_hooks(agent, d.clone())
+                .await
+                .unwrap();
+            assert!(
+                !handle
+                    .agent_hooks_status(agent, d, hooks.clone())
+                    .await
+                    .unwrap()
+                    .hooks_installed
+            );
+        }
     });
 
     handle.disconnect();

@@ -664,3 +664,63 @@ fn fifos_in_the_queue_cannot_hang_the_hook_or_ctl() {
     assert_eq!(out, "");
     assert!(t.elapsed() < Duration::from_secs(8), "{:?}", t.elapsed());
 }
+
+const GROK_IN: &str = r#"{"hookEventName":"PreToolUse","toolName":"Bash","toolInput":{"command":"rm -rf build"},"cwd":"/work/proj","sessionId":"g1"}"#;
+
+#[test]
+fn codex_uses_the_permission_request_reply_after_a_verified_signature() {
+    need_tools!();
+    for (approved, expect) in [(true, "allow"), (false, "deny")] {
+        let h = Host::new();
+        let hook = h.spawn_hook("codex", "PermissionRequest", CLAUDE_IN, 20);
+        let (item, now) = h.wait_item("approval");
+        assert_eq!(item["agent"], "codex");
+        assert_eq!(item["command"], "git push origin main");
+        decide_ok(&h, &h.honest(&item, now, approved));
+        let (out, code) = hook.finish();
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(code, 0);
+        assert_eq!(
+            v["hookSpecificOutput"]["hookEventName"],
+            "PermissionRequest"
+        );
+        assert_eq!(v["hookSpecificOutput"]["decision"]["behavior"], expect);
+    }
+    // No opinion: print nothing so Codex shows its normal approval prompt.
+    let h = Host::new();
+    let (out, code) = h
+        .spawn_hook("codex", "PermissionRequest", CLAUDE_IN, 1)
+        .finish();
+    assert_eq!((out.as_str(), code), ("", 0));
+}
+
+#[test]
+fn grok_only_ever_blocks_on_an_explicit_phone_deny() {
+    need_tools!();
+    let h = Host::new();
+    let hook = h.spawn_hook("grok", "PreToolUse", GROK_IN, 20);
+    let (item, now) = h.wait_item("approval");
+    assert_eq!(item["agent"], "grok");
+    assert_eq!(item["tool"], "Bash");
+    assert_eq!(item["command"], "rm -rf build");
+    assert_eq!(item["cwd"], "/work/proj");
+    decide_ok(&h, &h.honest(&item, now, false));
+    let (out, code) = hook.finish();
+    let v: Value = serde_json::from_str(&out).unwrap();
+    assert_eq!((v["decision"].as_str(), code), (Some("deny"), 0));
+
+    // Approved, and no answer at all: nothing is printed and the tool continues.
+    let h = Host::new();
+    let hook = h.spawn_hook("grok", "PreToolUse", GROK_IN, 20);
+    let (item, now) = h.wait_item("approval");
+    decide_ok(&h, &h.honest(&item, now, true));
+    assert_eq!(hook.finish(), (String::new(), 0));
+    let h = Host::new();
+    assert_eq!(
+        h.spawn_hook("grok", "PreToolUse", GROK_IN, 1).finish(),
+        (String::new(), 0)
+    );
+    // Notification is passive.
+    let (out, code) = h.spawn_hook("grok", "Notification", GROK_IN, 5).finish();
+    assert_eq!((out.as_str(), code), ("", 0));
+}

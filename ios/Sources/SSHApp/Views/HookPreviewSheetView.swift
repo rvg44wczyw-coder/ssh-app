@@ -34,6 +34,18 @@ struct HookPreviewSheetView: View {
                             .foregroundColor(.orange)
                     }
                 }
+                if profile.agent == .codex {
+                    Section {
+                        Label("Codex only runs hooks you have reviewed: after installing, open Codex on the host and trust them with /hooks. Changed hooks are skipped until reviewed again.", systemImage: "hand.raised.fill")
+                            .font(.caption).foregroundColor(.orange)
+                    }
+                }
+                if profile.agent == .grok {
+                    Section {
+                        Label("Grok hooks can only block, not approve: a phone Deny stops the tool, an Approve lets it continue into Grok's own flow. A timeout or error lets the tool run.", systemImage: "info.circle")
+                            .font(.caption).foregroundColor(.secondary)
+                    }
+                }
                 Section("Currently installed") {
                     if installed.isEmpty {
                         Text(handle == nil ? "Connect to a host to read it." : "No ssh-app hooks installed.")

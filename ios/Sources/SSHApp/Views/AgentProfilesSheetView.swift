@@ -250,7 +250,7 @@ struct AgentProfileEditorView: View {
         return ["bearer ", "token=", "password", "passwd", "secret", "apikey", "api_key", "sk-"].contains { c.contains($0) }
     }
 
-    private var supportsHooks: Bool { profile.agent == .claudeCode || profile.agent == .antigravity }
+    private var supportsHooks: Bool { profile.supportsHooks }
 
     private var hookPresetError: String? {
         guard supportsHooks else { return nil }

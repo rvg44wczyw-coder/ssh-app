@@ -183,3 +183,18 @@ Antigravity adds a top-level `"ssh-app": { "PreToolUse": [{ "matcher": "run_comm
 - Host broker: done in Feature 13.
 - Antigravity `run_command` argument key and exit-code semantics are not documented; verify on the installed `agy`.
 - Codex/Grok hook installers.
+
+
+## Addendum: Codex and Grok (M18)
+
+| | Codex | Grok |
+|---|---|---|
+| Config file | `$CODEX_HOME` (profile config dir) or `~/.codex/hooks.json`, `hooks` key | `~/.grok/hooks/ssh-app.json` (the installer owns this file), `hooks` key |
+| Approval event | `PermissionRequest`, matcher `*` (same reply as Claude, no output = normal prompt) | `PreToolUse`, matcher `Bash` by default (only blocking event) |
+| stdin | `tool_name`, `tool_input`, `cwd`, `session_id` | `toolName`, `toolInput`, `cwd`, `sessionId` |
+| Reply | Claude shape | deny: `{"decision":"deny","reason":...}`; otherwise print nothing, exit 0 |
+| Passive | `Stop` | `Notification`, `Stop` |
+| Trust | hooks are skipped until reviewed with `/hooks` (hash-bound) | project hooks need `/hooks-trust`; personal hooks: not documented |
+| Timeout | default 600 s | default 5 s (we write 130) |
+
+Named tradeoffs: Grok cannot be approved from the phone, only denied; neither agent has been run live (sources: developers.openai.com/codex/hooks, docs.x.ai/build/features/hooks).

@@ -18,6 +18,7 @@ const ANTIGRAVITY_HOOK_KEY: &str = "ssh-app";
 /// Only shell commands go to the phone by default: `PreToolUse` fires for every tool call (unlike
 /// Claude's `PermissionRequest`), so file tools would cause approval fatigue.
 const ANTIGRAVITY_TOOL_MATCHER: &str = "run_command";
+const GROK_TOOL_MATCHER: &str = "Bash";
 
 /// Env vars that can hijack the agent process or the shell; never allowed in a profile.
 const FORBIDDEN_ENV_KEYS: [&str; 6] = [
@@ -114,6 +115,7 @@ pub fn default_launch_profiles() -> Vec<AgentLaunchProfile> {
 pub fn agent_config_dir_env(agent: AgentKind) -> Option<String> {
     match agent {
         AgentKind::ClaudeCode => Some("CLAUDE_CONFIG_DIR".into()),
+        AgentKind::Codex => Some("CODEX_HOME".into()),
         _ => None,
     }
 }
@@ -290,12 +292,6 @@ pub fn parse_resolved_binary(output: String) -> Option<String> {
 // Hooks
 // ---------------------------------------------------------------------------------------------
 
-pub(crate) fn unsupported(agent: AgentKind) -> SshCoreError {
-    invalid(format!(
-        "Approval hooks are not supported for {agent:?} yet (supported: ClaudeCode, Antigravity)"
-    ))
-}
-
 #[uniffi::export]
 pub fn agent_hook_script() -> String {
     include_str!("../../../scripts/agent-hooks/ssh-app-hook.py").to_string()
@@ -332,7 +328,10 @@ pub fn agent_hooks_config_path(
     let (default_dir, file) = match agent {
         AgentKind::ClaudeCode => ("~/.claude", "settings.json"),
         AgentKind::Antigravity => ("~/.gemini/config", "hooks.json"),
-        other => return Err(unsupported(other)),
+        // Codex trusts hooks by hash (the user reviews them with /hooks); Grok reads every
+        // `*.json` in its hooks directory, so the installer owns one file there.
+        AgentKind::Codex => ("~/.codex", "hooks.json"),
+        AgentKind::Grok => ("~/.grok/hooks", "ssh-app.json"),
     };
     let dir = match config_dir
         .as_deref()
@@ -375,9 +374,8 @@ fn is_our_handler(h: &Value) -> bool {
 /// Key that holds `{event: [entries]}` in the agent's config.
 fn container_key(agent: AgentKind) -> Result<&'static str, SshCoreError> {
     match agent {
-        AgentKind::ClaudeCode => Ok("hooks"),
+        AgentKind::ClaudeCode | AgentKind::Codex | AgentKind::Grok => Ok("hooks"),
         AgentKind::Antigravity => Ok(ANTIGRAVITY_HOOK_KEY),
-        other => Err(unsupported(other)),
     }
 }
 
@@ -551,7 +549,8 @@ pub fn hook_events_for(agent: AgentKind) -> Vec<String> {
     let events: &[&str] = match agent {
         AgentKind::ClaudeCode => &["PermissionRequest", "PreToolUse", "Notification", "Stop"],
         AgentKind::Antigravity => &["PreToolUse", "Stop"],
-        _ => &[],
+        AgentKind::Codex => &["PermissionRequest", "PreToolUse", "Stop"],
+        AgentKind::Grok => &["PreToolUse", "Notification", "Stop"],
     };
     events.iter().map(|e| (*e).to_string()).collect()
 }
@@ -684,7 +683,10 @@ pub fn plan_agent_hooks(
     let (name, default_matcher) = match agent {
         AgentKind::ClaudeCode => ("claude", "*"),
         AgentKind::Antigravity => ("antigravity", ANTIGRAVITY_TOOL_MATCHER),
-        other => return Err(unsupported(other)),
+        AgentKind::Codex => ("codex", "*"),
+        // Grok has no approval prompt a hook can answer, only PreToolUse deny; shell commands
+        // are the sensible default so file reads and edits do not flood the phone.
+        AgentKind::Grok => ("grok", GROK_TOOL_MATCHER),
     };
     let planned = |event: &str, matcher: Option<&str>, command: String| PlannedHook {
         event: event.to_string(),
@@ -721,6 +723,10 @@ pub fn plan_agent_hooks(
             let defaults: &[&str] = match (agent, notify_only) {
                 (AgentKind::ClaudeCode, false) => &["PermissionRequest", "Notification", "Stop"],
                 (AgentKind::ClaudeCode, true) => &["Notification", "Stop"],
+                (AgentKind::Codex, false) => &["PermissionRequest", "Stop"],
+                (AgentKind::Codex, true) => &["Stop"],
+                (AgentKind::Grok, false) => &["PreToolUse", "Notification", "Stop"],
+                (AgentKind::Grok, true) => &["Notification", "Stop"],
                 (_, false) => &["PreToolUse", "Stop"],
                 (_, true) => &["Stop"],
             };
@@ -1082,13 +1088,58 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_agents_error() {
-        for a in [AgentKind::Codex, AgentKind::Grok] {
-            assert!(merge_agent_hooks(a, String::new(), None).is_err());
-            assert!(remove_agent_hooks(a, String::new()).is_err());
-            assert!(agent_hooks_config_path(a, None).is_err());
-            assert!(!agent_hooks_installed(a, "{}".into()));
-        }
+    fn codex_and_grok_hooks_follow_their_documented_formats() {
+        let (c, g) = (AgentKind::Codex, AgentKind::Grok);
+        assert_eq!(
+            agent_hooks_config_path(c, None).unwrap(),
+            "~/.codex/hooks.json"
+        );
+        assert_eq!(
+            agent_hooks_config_path(c, Some("~/.codex-work".into())).unwrap(),
+            "~/.codex-work/hooks.json"
+        );
+        assert_eq!(
+            agent_hooks_config_path(g, None).unwrap(),
+            "~/.grok/hooks/ssh-app.json"
+        );
+        // Codex: PermissionRequest (all tools) + Stop, grouped like Claude; user hooks survive.
+        let existing =
+            r#"{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"say done"}]}]}}"#;
+        let plan = plan_agent_hooks(c, default_hook_preset(), None).unwrap();
+        let out = merge_planned_hooks(c, existing.into(), plan).unwrap();
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["hooks"]["PermissionRequest"][0]["matcher"], "*");
+        assert!(v["hooks"]["PermissionRequest"][0]["hooks"][0]["command"]
+            .as_str()
+            .unwrap()
+            .ends_with("codex PermissionRequest"));
+        assert_eq!(v["hooks"]["Stop"].as_array().unwrap().len(), 2);
+        assert!(v["hooks"].get("Notification").is_none());
+        let removed: Value = serde_json::from_str(&remove_agent_hooks(c, out).unwrap()).unwrap();
+        assert_eq!(removed["hooks"]["Stop"].as_array().unwrap().len(), 1);
+        // Grok: PreToolUse limited to Bash by default, plus Notification and Stop.
+        let plan = plan_agent_hooks(g, default_hook_preset(), None).unwrap();
+        let out = merge_planned_hooks(g, String::new(), plan).unwrap();
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["hooks"]["PreToolUse"][0]["matcher"], "Bash");
+        assert!(v["hooks"]["Notification"].is_array() && v["hooks"]["Stop"].is_array());
+        assert_eq!(v["hooks"]["Stop"][0]["hooks"][0]["timeout"], 130);
+        let events: Vec<_> = installed_hook_entries(g, out)
+            .into_iter()
+            .map(|h| h.event)
+            .collect();
+        assert_eq!(events, ["PreToolUse", "Notification", "Stop"]);
+        // Presets: notify-only and custom events are validated per agent.
+        let mut notify = default_hook_preset();
+        notify.kind = HookPresetKind::NotifyOnly;
+        assert_eq!(plan_agent_hooks(c, notify.clone(), None).unwrap().len(), 1);
+        assert_eq!(plan_agent_hooks(g, notify, None).unwrap().len(), 2);
+        assert!(plan_agent_hooks(
+            c,
+            approval(HookPresetKind::PhoneApproval, "", &["Notification"]),
+            None
+        )
+        .is_err());
     }
 
     #[test]
@@ -1426,7 +1477,6 @@ mod tests {
         assert!(plan(custom("x", &["Stop"], "a b;")).is_err());
         let ok = plan(custom("x", &["PreToolUse"], "")).unwrap();
         assert_eq!(ok[0].matcher.as_deref(), Some("run_command"));
-        assert!(plan_agent_hooks(AgentKind::Codex, default_hook_preset(), None).is_err());
     }
 
     #[test]
@@ -1443,7 +1493,6 @@ mod tests {
         assert!(installed.iter().all(|h| h.command.contains(HOOK_MARKER)));
         assert!(!installed.iter().any(|h| h.command == "theirs"));
         assert!(installed_hook_entries(AgentKind::ClaudeCode, "not json".into()).is_empty());
-        assert!(hooks_section_of(AgentKind::Codex, "{}".into()).is_err());
     }
 
     #[test]

@@ -3,7 +3,7 @@
 //!
 //! Only those four fields are read or written; every other key is preserved and never exposed.
 
-use crate::agents::{invalid, parse_object, render, unsupported, AgentKind};
+use crate::agents::{invalid, parse_object, render, AgentKind};
 use crate::error::SshCoreError;
 use serde_json::{json, Map, Value};
 
@@ -159,7 +159,6 @@ fn require_claude(agent: AgentKind) -> Result<(), SshCoreError> {
 }
 
 fn unsupported_permissions(agent: AgentKind) -> SshCoreError {
-    let _ = unsupported; // hooks and permissions share the supported-agent concept
     invalid(format!(
         "Permission rules are only supported for ClaudeCode for now (not {agent:?})"
     ))
