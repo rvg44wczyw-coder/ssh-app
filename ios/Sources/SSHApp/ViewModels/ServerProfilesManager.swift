@@ -69,6 +69,15 @@ public final class ServerProfilesManager: ObservableObject {
         saveProfiles()
     }
 
+    /// Pins the host key seen on the first successful connection (trust on first use). A key that
+    /// is already pinned is never replaced here; that only happens by forgetting it explicitly.
+    public func pinHostKey(serverId: UUID, fingerprint: String) {
+        guard let index = profiles.firstIndex(where: { $0.id == serverId }),
+              profiles[index].hostKeyFingerprint == nil else { return }
+        profiles[index].hostKeyFingerprint = fingerprint
+        saveProfiles()
+    }
+
     public func deleteProfile(id: UUID) {
         profiles.removeAll(where: { $0.id == id })
         if activeProfileId == id {

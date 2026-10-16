@@ -133,6 +133,7 @@ fn connect(server: &Sshd) -> Arc<SshSessionHandle> {
         initial_cols: 80,
         initial_rows: 24,
         command: None,
+        pinned_host_key: None,
     });
     handle.connect(Box::new(Noop)).expect("connect");
     let deadline = Instant::now() + Duration::from_secs(15);
@@ -733,6 +734,21 @@ fn run_in(dir: &Path, prog: &str, args: &[&str]) {
     assert!(st.success(), "{prog} {args:?} failed in {}", dir.display());
 }
 
+/// tmux may still be starting the pane's shell right after `new-session`; poll briefly.
+async fn fetch_ready(
+    handle: &SshSessionHandle,
+    session: String,
+) -> Result<ssh_core::GitDiffResult, ssh_core::SshCoreError> {
+    for _ in 0..30 {
+        let r = handle.fetch_git_diff(session.clone()).await?;
+        if r.status != ssh_core::GitDiffStatus::NoSession {
+            return Ok(r);
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    handle.fetch_git_diff(session).await
+}
+
 #[test]
 fn git_diff_runs_in_the_terminals_directory_on_loopback_sshd() {
     use ssh_core::GitDiffStatus;
@@ -826,7 +842,7 @@ fn git_diff_runs_in_the_terminals_directory_on_loopback_sshd() {
     start(&sessions[3], &evil);
 
     rt.block_on(async {
-        let r = handle.fetch_git_diff(sessions[0].clone()).await.unwrap();
+        let r = fetch_ready(&handle, sessions[0].clone()).await.unwrap();
         assert_eq!(r.status, GitDiffStatus::Ok, "{r:?}");
         assert_eq!(r.repo_root.as_deref(), repo.to_str());
         assert!(r.branch.is_some());
@@ -838,16 +854,16 @@ fn git_diff_runs_in_the_terminals_directory_on_loopback_sshd() {
         assert!(!r.diff.contains("usage:"), "{}", r.diff);
         assert_eq!(r.untracked, ["new.txt"]);
 
-        let r = handle.fetch_git_diff(sessions[1].clone()).await.unwrap();
+        let r = fetch_ready(&handle, sessions[1].clone()).await.unwrap();
         assert_eq!(r.status, GitDiffStatus::NotARepo, "{r:?}");
         assert_eq!(r.directory.as_deref(), plain.to_str());
         assert!(r.diff.is_empty());
 
-        let r = handle.fetch_git_diff(sessions[2].clone()).await.unwrap();
+        let r = fetch_ready(&handle, sessions[2].clone()).await.unwrap();
         assert_eq!(r.status, GitDiffStatus::Ok, "{r:?}");
         assert!(r.diff.contains("f.txt"), "{}", r.diff);
 
-        let r = handle.fetch_git_diff(sessions[3].clone()).await.unwrap();
+        let r = fetch_ready(&handle, sessions[3].clone()).await.unwrap();
         assert_ne!(r.repo_root.as_deref(), Some("/etc"), "{r:?}");
         assert!(
             matches!(r.status, GitDiffStatus::NoSession | GitDiffStatus::NotARepo),
@@ -1084,5 +1100,154 @@ fn agent_permissions_and_hook_settings_against_loopback_sshd() {
             .await
             .is_err());
     });
+    handle.disconnect();
+}
+
+#[test]
+fn disconnect_really_closes_the_connection() {
+    let Some(server) = start_sshd() else {
+        eprintln!("SKIP: sshd/ssh-keygen/tmux unavailable");
+        return;
+    };
+    let handle = connect(&server);
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    rt.block_on(async {
+        assert!(handle
+            .execute_command_on_active_session("echo up".into())
+            .await
+            .unwrap()
+            .contains("up"));
+    });
+    handle.disconnect();
+    // Zero battery drain: after disconnect there is no live socket left to run commands on.
+    rt.block_on(async {
+        let err = handle
+            .execute_command_on_active_session("echo still-up".into())
+            .await
+            .unwrap_err();
+        assert_eq!(err, ssh_core::SshCoreError::NotConnected, "{err:?}");
+    });
+}
+
+#[test]
+fn host_key_is_pinned_and_a_changed_key_is_refused() {
+    use ssh_core::{execute_remote_command, RemoteServerConfig, SshCoreError};
+    let Some(server) = start_sshd() else {
+        eprintln!("SKIP: sshd/ssh-keygen/tmux unavailable");
+        return;
+    };
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    // The fingerprint the way an admin would read it from the host.
+    let out = Command::new("ssh-keygen")
+        .args(["-lf"])
+        .arg(server._dir.path().join("host_key.pub"))
+        .output()
+        .unwrap();
+    let real = String::from_utf8_lossy(&out.stdout)
+        .split_whitespace()
+        .nth(1)
+        .unwrap()
+        .to_string();
+    assert!(real.starts_with("SHA256:"), "{real}");
+
+    // First use: the session reports the key it saw, so the app can pin it.
+    let handle = connect(&server);
+    assert_eq!(
+        handle.host_key_fingerprint().as_deref(),
+        Some(real.as_str())
+    );
+    handle.disconnect();
+
+    let cfg = |pin: Option<&str>| RemoteServerConfig {
+        host: "127.0.0.1".into(),
+        port: server.port,
+        username: std::env::var("USER").unwrap_or_else(|_| "root".into()),
+        private_key_pem: server.private_key.clone(),
+        pinned_host_key: pin.map(str::to_string),
+    };
+    rt.block_on(async {
+        // Pinned to the right key: works.
+        let ok = execute_remote_command(cfg(Some(&real)), "echo pinned-ok".into())
+            .await
+            .unwrap();
+        assert!(ok.contains("pinned-ok"));
+        // Pinned to another key: refused before authentication, with both fingerprints named.
+        let wrong = "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+        match execute_remote_command(cfg(Some(wrong)), "echo nope".into()).await {
+            Err(SshCoreError::HostKeyChanged {
+                expected, actual, ..
+            }) => {
+                assert_eq!((expected.as_str(), actual.as_str()), (wrong, real.as_str()));
+            }
+            other => panic!("expected HostKeyChanged, got {other:?}"),
+        }
+    });
+
+    // An interactive session with a wrong pin fails and never reaches Connected.
+    let h = SshSessionHandle::new(SessionConfig {
+        host: "127.0.0.1".into(),
+        port: server.port,
+        username: std::env::var("USER").unwrap_or_else(|_| "root".into()),
+        private_key_pem: server.private_key.clone(),
+        session_name: format!("itest-{}", server.port),
+        initial_cols: 80,
+        initial_rows: 24,
+        command: None,
+        pinned_host_key: Some("SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA".into()),
+    });
+    h.connect(Box::new(Noop)).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        match h.state() {
+            SessionState::Failed { reason } => {
+                assert!(reason.contains("host key"), "{reason}");
+                break;
+            }
+            SessionState::Connected => panic!("connected despite a wrong pin"),
+            _ if Instant::now() > deadline => panic!("no failure: {:?}", h.state()),
+            _ => std::thread::sleep(Duration::from_millis(50)),
+        }
+    }
+}
+
+#[test]
+fn transcript_detection_runs_through_the_login_shell_with_its_argument() {
+    let Some(server) = start_sshd() else {
+        eprintln!("SKIP: sshd/ssh-keygen/tmux unavailable");
+        return;
+    };
+    let handle = connect(&server);
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    // The validator refuses /private/var, so the fixture lives directly under /tmp.
+    let root = PathBuf::from(format!("/tmp/ssh-app-itest-transcript-{}", server.port));
+    let dir = root.join("tdir");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("transcript.jsonl"), "{}\n").unwrap();
+    rt.block_on(async {
+        let found = handle
+            .detect_active_transcript_path(Some(dir.to_str().unwrap().to_string()))
+            .await
+            .unwrap();
+        assert_eq!(
+            found.as_deref(),
+            Some(dir.join("transcript.jsonl").to_str().unwrap())
+        );
+        // Nothing there (and the sshd's private HOME has no agent folders): no answer.
+        let none = handle
+            .detect_active_transcript_path(Some(root.to_str().unwrap().to_string()))
+            .await
+            .unwrap();
+        assert_eq!(none, None);
+    });
+    let _ = std::fs::remove_dir_all(&root);
     handle.disconnect();
 }

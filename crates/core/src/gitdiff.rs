@@ -66,16 +66,11 @@ exit 0"#;
 /// is validated and passed as `$1`, never spliced into the script.
 pub fn build_git_diff_command(session_name: &str) -> Result<String, SshCoreError> {
     validate_session_name(session_name)?;
-    let via_sh = format!(
-        "exec sh -c {} sh {}",
-        shell_quote(GIT_DIFF_SCRIPT),
-        shell_quote(session_name.trim())
-    );
-    let inner = format!(
-        "\"${{SHELL:-/bin/zsh}}\" -l -c {} </dev/null 2>&1",
-        shell_quote(&via_sh)
-    );
-    Ok(crate::hostprobe::watchdog_sh(&inner, 20))
+    Ok(crate::hostprobe::login_sh_script(
+        GIT_DIFF_SCRIPT,
+        &[shell_quote(session_name.trim())],
+        20,
+    ))
 }
 
 /// Display-safe text for a path or name: control characters reject the value, bidi/zero-width

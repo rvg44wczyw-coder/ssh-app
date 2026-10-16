@@ -24,3 +24,20 @@ pub(crate) fn watchdog_sh(command: &str, secs: u32) -> String {
     );
     format!("sh -c {}", shell_quote(&script))
 }
+
+/// Runs the POSIX `script` through the user's login shell (so `PATH` from `.zprofile` is set;
+/// never a hard-coded shell), then through `sh` (the login shell may be fish), under a host-side
+/// watchdog. `args` become `$1...` and must already be shell-quoted (or an expression such as
+/// `"$HOME"`, which the login shell expands). stderr is merged into stdout.
+pub(crate) fn login_sh_script(script: &str, args: &[String], secs: u32) -> String {
+    let mut via_sh = format!("exec sh -c {} sh", shell_quote(script));
+    for a in args {
+        via_sh.push(' ');
+        via_sh.push_str(a);
+    }
+    let inner = format!(
+        "\"${{SHELL:-/bin/zsh}}\" -l -c {} </dev/null 2>&1",
+        shell_quote(&via_sh)
+    );
+    watchdog_sh(&inner, secs)
+}

@@ -12,6 +12,13 @@ pub enum SshCoreError {
     #[error("SSH connection error: {reason}")]
     ConnectionError { reason: String },
 
+    #[error("The host key of {host} changed (pinned {expected}, server presented {actual}); refusing to connect")]
+    HostKeyChanged {
+        host: String,
+        expected: String,
+        actual: String,
+    },
+
     #[error("SSH authentication failed for user '{username}': {reason}")]
     AuthenticationError { username: String, reason: String },
 

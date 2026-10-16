@@ -7,6 +7,9 @@ public struct ServerProfile: Identifiable, Codable, Equatable, Hashable, Sendabl
     public var port: UInt16
     public var username: String
     public var isDefault: Bool
+    /// SHA-256 fingerprint of the host key pinned on first connect (`SHA256:...`); a different key
+    /// afterwards is refused by the core as a possible man-in-the-middle.
+    public var hostKeyFingerprint: String?
 
     public init(
         id: UUID = UUID(),
@@ -14,7 +17,8 @@ public struct ServerProfile: Identifiable, Codable, Equatable, Hashable, Sendabl
         host: String,
         port: UInt16 = 22,
         username: String,
-        isDefault: Bool = false
+        isDefault: Bool = false,
+        hostKeyFingerprint: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -22,5 +26,6 @@ public struct ServerProfile: Identifiable, Codable, Equatable, Hashable, Sendabl
         self.port = port
         self.username = username
         self.isDefault = isDefault
+        self.hostKeyFingerprint = hostKeyFingerprint
     }
 }

@@ -920,7 +920,9 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func disconnect() 
     
     /**
-     * Executes a command on the remote host over the currently active SSH session (ephemeral channel).
+     * Executes a command on the remote host over the currently active SSH session (ephemeral
+     * channel). Output is capped at 4 MB; a command that does not finish within two minutes
+     * fails with `Timeout`.
      */
     func executeCommandOnActiveSession(command: String) async throws  -> String
     
@@ -946,6 +948,13 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
      * Returns a list of all currently active port forwards.
      */
     func getActivePortForwards()  -> [PortForwardInfo]
+    
+    /**
+     * SHA-256 fingerprint (`SHA256:...`) of the host key the server presented on the last
+     * connection. Pin it in the server profile after the first successful connect and pass it
+     * back as `pinned_host_key`, so a changed key (possible MITM) is refused from then on.
+     */
+    func hostKeyFingerprint()  -> String?
     
     /**
      * Installs the default (phone approval) hooks; see `install_agent_hooks_with_preset`.
@@ -1285,7 +1294,9 @@ open func disconnect()  {try! rustCall() {
 }
     
     /**
-     * Executes a command on the remote host over the currently active SSH session (ephemeral channel).
+     * Executes a command on the remote host over the currently active SSH session (ephemeral
+     * channel). Output is capped at 4 MB; a command that does not finish within two minutes
+     * fails with `Timeout`.
      */
 open func executeCommandOnActiveSession(command: String)async throws  -> String  {
     return
@@ -1370,6 +1381,20 @@ open func getActivePortForwards() -> [PortForwardInfo]  {
     return try!  FfiConverterSequenceTypePortForwardInfo.lift(try! rustCall() {
         uniffiCallStatus in
     uniffi_ssh_core_fn_method_sshsessionhandle_get_active_port_forwards(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * SHA-256 fingerprint (`SHA256:...`) of the host key the server presented on the last
+     * connection. Pin it in the server profile after the first successful connect and pass it
+     * back as `pinned_host_key`, so a changed key (possible MITM) is refused from then on.
+     */
+open func hostKeyFingerprint() -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_method_sshsessionhandle_host_key_fingerprint(
             self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
@@ -3622,14 +3647,16 @@ public struct RemoteServerConfig: Equatable, Hashable {
     public var port: UInt16
     public var username: String
     public var privateKeyPem: String
+    public var pinnedHostKey: String?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(host: String, port: UInt16, username: String, privateKeyPem: String) {
+    public init(host: String, port: UInt16, username: String, privateKeyPem: String, pinnedHostKey: String?) {
         self.host = host
         self.port = port
         self.username = username
         self.privateKeyPem = privateKeyPem
+        self.pinnedHostKey = pinnedHostKey
     }
 
     
@@ -3651,7 +3678,8 @@ public struct FfiConverterTypeRemoteServerConfig: FfiConverterRustBuffer {
                 host: FfiConverterString.read(from: &buf), 
                 port: FfiConverterUInt16.read(from: &buf), 
                 username: FfiConverterString.read(from: &buf), 
-                privateKeyPem: FfiConverterString.read(from: &buf)
+                privateKeyPem: FfiConverterString.read(from: &buf), 
+                pinnedHostKey: FfiConverterOptionString.read(from: &buf)
         )
     }
 
@@ -3660,6 +3688,7 @@ public struct FfiConverterTypeRemoteServerConfig: FfiConverterRustBuffer {
         FfiConverterUInt16.write(value.port, into: &buf)
         FfiConverterString.write(value.username, into: &buf)
         FfiConverterString.write(value.privateKeyPem, into: &buf)
+        FfiConverterOptionString.write(value.pinnedHostKey, into: &buf)
     }
 }
 
@@ -3688,10 +3717,19 @@ public struct SessionConfig: Equatable, Hashable {
     public var initialCols: UInt16
     public var initialRows: UInt16
     public var command: String?
+    /**
+     * Pinned host key fingerprint (`SHA256:...`). `None` accepts the first key seen (see
+     * `SshSessionHandle::host_key_fingerprint`); `Some` refuses any other key.
+     */
+    public var pinnedHostKey: String?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(host: String, port: UInt16, username: String, privateKeyPem: String, sessionName: String, initialCols: UInt16, initialRows: UInt16, command: String?) {
+    public init(host: String, port: UInt16, username: String, privateKeyPem: String, sessionName: String, initialCols: UInt16, initialRows: UInt16, command: String?, 
+        /**
+         * Pinned host key fingerprint (`SHA256:...`). `None` accepts the first key seen (see
+         * `SshSessionHandle::host_key_fingerprint`); `Some` refuses any other key.
+         */pinnedHostKey: String?) {
         self.host = host
         self.port = port
         self.username = username
@@ -3700,6 +3738,7 @@ public struct SessionConfig: Equatable, Hashable {
         self.initialCols = initialCols
         self.initialRows = initialRows
         self.command = command
+        self.pinnedHostKey = pinnedHostKey
     }
 
     
@@ -3725,7 +3764,8 @@ public struct FfiConverterTypeSessionConfig: FfiConverterRustBuffer {
                 sessionName: FfiConverterString.read(from: &buf), 
                 initialCols: FfiConverterUInt16.read(from: &buf), 
                 initialRows: FfiConverterUInt16.read(from: &buf), 
-                command: FfiConverterOptionString.read(from: &buf)
+                command: FfiConverterOptionString.read(from: &buf), 
+                pinnedHostKey: FfiConverterOptionString.read(from: &buf)
         )
     }
 
@@ -3738,6 +3778,7 @@ public struct FfiConverterTypeSessionConfig: FfiConverterRustBuffer {
         FfiConverterUInt16.write(value.initialCols, into: &buf)
         FfiConverterUInt16.write(value.initialRows, into: &buf)
         FfiConverterOptionString.write(value.command, into: &buf)
+        FfiConverterOptionString.write(value.pinnedHostKey, into: &buf)
     }
 }
 
@@ -4719,6 +4760,8 @@ enum SshCoreError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
     )
     case ConnectionError(reason: String
     )
+    case HostKeyChanged(host: String, expected: String, actual: String
+    )
     case AuthenticationError(username: String, reason: String
     )
     case ChannelError(reason: String
@@ -4786,41 +4829,46 @@ public struct FfiConverterTypeSshCoreError: FfiConverterRustBuffer {
         case 4: return .ConnectionError(
             reason: try FfiConverterString.read(from: &buf)
             )
-        case 5: return .AuthenticationError(
+        case 5: return .HostKeyChanged(
+            host: try FfiConverterString.read(from: &buf), 
+            expected: try FfiConverterString.read(from: &buf), 
+            actual: try FfiConverterString.read(from: &buf)
+            )
+        case 6: return .AuthenticationError(
             username: try FfiConverterString.read(from: &buf), 
             reason: try FfiConverterString.read(from: &buf)
             )
-        case 6: return .ChannelError(
+        case 7: return .ChannelError(
             reason: try FfiConverterString.read(from: &buf)
             )
-        case 7: return .IoError(
+        case 8: return .IoError(
             reason: try FfiConverterString.read(from: &buf)
             )
-        case 8: return .AlreadyConnected
-        case 9: return .NotConnected
-        case 10: return .Timeout
-        case 11: return .ApprovalVerificationError(
+        case 9: return .AlreadyConnected
+        case 10: return .NotConnected
+        case 11: return .Timeout
+        case 12: return .ApprovalVerificationError(
             reason: try FfiConverterString.read(from: &buf)
             )
-        case 12: return .InvalidApprovalPayload(
+        case 13: return .InvalidApprovalPayload(
             reason: try FfiConverterString.read(from: &buf)
             )
-        case 13: return .PortForwardFailed(
+        case 14: return .PortForwardFailed(
             reason: try FfiConverterString.read(from: &buf)
             )
-        case 14: return .LocalPortInUse(
+        case 15: return .LocalPortInUse(
             port: try FfiConverterUInt16.read(from: &buf)
             )
-        case 15: return .RemotePortRefused(
+        case 16: return .RemotePortRefused(
             port: try FfiConverterUInt16.read(from: &buf)
             )
-        case 16: return .AiAssistantError(
+        case 17: return .AiAssistantError(
             reason: try FfiConverterString.read(from: &buf)
             )
-        case 17: return .AiResponseParseError(
+        case 18: return .AiResponseParseError(
             reason: try FfiConverterString.read(from: &buf)
             )
-        case 18: return .TranscriptError(
+        case 19: return .TranscriptError(
             reason: try FfiConverterString.read(from: &buf)
             )
 
@@ -4856,71 +4904,78 @@ public struct FfiConverterTypeSshCoreError: FfiConverterRustBuffer {
             FfiConverterString.write(reason, into: &buf)
             
         
-        case let .AuthenticationError(username,reason):
+        case let .HostKeyChanged(host,expected,actual):
             writeInt(&buf, Int32(5))
+            FfiConverterString.write(host, into: &buf)
+            FfiConverterString.write(expected, into: &buf)
+            FfiConverterString.write(actual, into: &buf)
+            
+        
+        case let .AuthenticationError(username,reason):
+            writeInt(&buf, Int32(6))
             FfiConverterString.write(username, into: &buf)
             FfiConverterString.write(reason, into: &buf)
             
         
         case let .ChannelError(reason):
-            writeInt(&buf, Int32(6))
-            FfiConverterString.write(reason, into: &buf)
-            
-        
-        case let .IoError(reason):
             writeInt(&buf, Int32(7))
             FfiConverterString.write(reason, into: &buf)
             
         
-        case .AlreadyConnected:
+        case let .IoError(reason):
             writeInt(&buf, Int32(8))
-        
-        
-        case .NotConnected:
-            writeInt(&buf, Int32(9))
-        
-        
-        case .Timeout:
-            writeInt(&buf, Int32(10))
-        
-        
-        case let .ApprovalVerificationError(reason):
-            writeInt(&buf, Int32(11))
             FfiConverterString.write(reason, into: &buf)
             
         
-        case let .InvalidApprovalPayload(reason):
+        case .AlreadyConnected:
+            writeInt(&buf, Int32(9))
+        
+        
+        case .NotConnected:
+            writeInt(&buf, Int32(10))
+        
+        
+        case .Timeout:
+            writeInt(&buf, Int32(11))
+        
+        
+        case let .ApprovalVerificationError(reason):
             writeInt(&buf, Int32(12))
             FfiConverterString.write(reason, into: &buf)
             
         
-        case let .PortForwardFailed(reason):
+        case let .InvalidApprovalPayload(reason):
             writeInt(&buf, Int32(13))
             FfiConverterString.write(reason, into: &buf)
             
         
-        case let .LocalPortInUse(port):
+        case let .PortForwardFailed(reason):
             writeInt(&buf, Int32(14))
-            FfiConverterUInt16.write(port, into: &buf)
+            FfiConverterString.write(reason, into: &buf)
             
         
-        case let .RemotePortRefused(port):
+        case let .LocalPortInUse(port):
             writeInt(&buf, Int32(15))
             FfiConverterUInt16.write(port, into: &buf)
             
         
-        case let .AiAssistantError(reason):
+        case let .RemotePortRefused(port):
             writeInt(&buf, Int32(16))
-            FfiConverterString.write(reason, into: &buf)
+            FfiConverterUInt16.write(port, into: &buf)
             
         
-        case let .AiResponseParseError(reason):
+        case let .AiAssistantError(reason):
             writeInt(&buf, Int32(17))
             FfiConverterString.write(reason, into: &buf)
             
         
-        case let .TranscriptError(reason):
+        case let .AiResponseParseError(reason):
             writeInt(&buf, Int32(18))
+            FfiConverterString.write(reason, into: &buf)
+            
+        
+        case let .TranscriptError(reason):
+            writeInt(&buf, Int32(19))
             FfiConverterString.write(reason, into: &buf)
             
         }
@@ -6763,7 +6818,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_disconnect() != 45557) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_ssh_core_checksum_method_sshsessionhandle_execute_command_on_active_session() != 4194) {
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_execute_command_on_active_session() != 54977) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_fetch_git_diff() != 14069) {
@@ -6776,6 +6831,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_get_active_port_forwards() != 9499) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_host_key_fingerprint() != 22331) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_install_agent_hooks() != 25424) {

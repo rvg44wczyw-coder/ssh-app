@@ -12,6 +12,7 @@ public struct AddEditServerSheetView: View {
     @State private var username: String = ""
     @State private var isDefault: Bool = false
     @State private var errorMessage: String? = nil
+    @State private var forgetHostKey = false
 
     public init(
         existingProfile: ServerProfile? = nil,
@@ -52,6 +53,20 @@ public struct AddEditServerSheetView: View {
                             .keyboardType(.numberPad)
                             #endif
                             .multilineTextAlignment(.trailing)
+                    }
+                }
+
+                if let fingerprint = existingProfile?.hostKeyFingerprint {
+                    Section(
+                        header: Text("Host key"),
+                        footer: Text("Pinned on the first connection. If the server's key changes (for example after a reinstall) connections are refused until you forget it here. Changing the host or port also forgets it.")
+                    ) {
+                        Text(verbatim: forgetHostKey ? "Will be pinned again on the next connection" : fingerprint)
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundColor(forgetHostKey ? .secondary : .primary)
+                        if !forgetHostKey {
+                            Button("Forget pinned key", role: .destructive) { forgetHostKey = true }
+                        }
                     }
                 }
 
@@ -106,10 +121,18 @@ public struct AddEditServerSheetView: View {
             host: trimmedHost,
             port: UInt16(clamping: port),
             username: trimmedUser,
-            isDefault: isDefault
+            isDefault: isDefault,
+            hostKeyFingerprint: keptHostKey(host: trimmedHost)
         )
 
         onSave(profile)
         dismiss()
+    }
+
+    /// The pin survives edits that do not change which machine it identifies.
+    private func keptHostKey(host trimmedHost: String) -> String? {
+        guard let old = existingProfile, !forgetHostKey,
+              old.host == trimmedHost, old.port == UInt16(clamping: port) else { return nil }
+        return old.hostKeyFingerprint
     }
 }

@@ -23,7 +23,8 @@ public final class TmuxSessionManagerViewModel: ObservableObject {
             host: server.host,
             port: server.port,
             username: server.username,
-            privateKeyPem: privateKey
+            privateKeyPem: privateKey,
+            pinnedHostKey: server.hostKeyFingerprint
         )
 
         Task {
@@ -43,7 +44,8 @@ public final class TmuxSessionManagerViewModel: ObservableObject {
             host: server.host,
             port: server.port,
             username: server.username,
-            privateKeyPem: privateKey
+            privateKeyPem: privateKey,
+            pinnedHostKey: server.hostKeyFingerprint
         )
 
         isLoading = true

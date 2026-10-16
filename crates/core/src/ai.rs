@@ -372,15 +372,7 @@ true"#;
 /// set) and then through POSIX `sh` (the login shell may be fish), under an 8 s host watchdog.
 #[uniffi::export]
 pub fn build_ollama_probe_command() -> String {
-    let via_sh = format!(
-        "exec sh -c {}",
-        crate::tmux::shell_quote(OLLAMA_PROBE_SCRIPT)
-    );
-    let inner = format!(
-        "\"${{SHELL:-/bin/zsh}}\" -l -c {} </dev/null 2>&1",
-        crate::tmux::shell_quote(&via_sh)
-    );
-    crate::hostprobe::watchdog_sh(&inner, 8)
+    crate::hostprobe::login_sh_script(OLLAMA_PROBE_SCRIPT, &[], 8)
 }
 
 fn is_model_name(name: &str) -> bool {

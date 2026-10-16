@@ -478,6 +478,12 @@ public struct MainTerminalView: View {
             return
         }
 
+        vm.pinnedHostKey = s.hostKeyFingerprint
+        let serverId = s.id
+        vm.onHostKeyObserved = { fingerprint in
+            serversManager.pinHostKey(serverId: serverId, fingerprint: fingerprint)
+        }
+
         print("[MainView] ensureSessionStarted(for: \(id), vmId=\(vm.instanceId), force: \(force)) server='\(s.name)' (\(s.username)@\(s.host):\(s.port))")
 
         if force {

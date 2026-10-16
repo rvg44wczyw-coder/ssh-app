@@ -1,18 +1,19 @@
 use crate::buffer::{OutputThrottler, DEFAULT_FLUSH_INTERVAL, DEFAULT_MAX_BATCH_SIZE};
 use crate::config::{RemoteServerConfig, SessionConfig, SessionState, TerminalSize};
 use crate::error::SshCoreError;
-use crate::keys::parse_private_key;
 use crate::port_forward::{PortForwardHandle, PortForwardInfo};
 use crate::tmux::{build_tmux_attach_or_create_command, TmuxSessionInfo};
-use russh::client::{self, Handler};
-use russh::keys::{PrivateKeyWithHashAlg, PublicKeyOrCertificate};
+use crate::transport::{
+    collect_output, connect_authenticated, exec_collect, exec_start, ClientHandle, Endpoint,
+    ExecOutput, DEFAULT_EXEC_TIMEOUT,
+};
 use russh::ChannelMsg;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, LazyLock, Mutex, RwLock};
+use std::sync::{Arc, LazyLock, Mutex, MutexGuard, PoisonError, RwLock};
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 static RUNTIME: LazyLock<tokio::runtime::Runtime> = LazyLock::new(|| {
     tokio::runtime::Builder::new_multi_thread()
@@ -30,18 +31,33 @@ pub trait SshSessionCallback: Send + Sync {
     fn on_error(&self, message: String);
 }
 
-#[derive(Default)]
-pub(crate) struct SshHandler;
+/// A panic in one caller (or in a foreign callback) must not poison the session for everyone
+/// else: the guarded data is always left in a consistent state, so recover the guard.
+trait LockExt<T> {
+    fn lock_ok(&self) -> MutexGuard<'_, T>;
+}
+impl<T> LockExt<T> for Mutex<T> {
+    fn lock_ok(&self) -> MutexGuard<'_, T> {
+        self.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
 
-impl Handler for SshHandler {
-    type Error = russh::Error;
+fn read_ok<T>(l: &RwLock<T>) -> std::sync::RwLockReadGuard<'_, T> {
+    l.read().unwrap_or_else(PoisonError::into_inner)
+}
 
-    async fn check_server_key(
-        &mut self,
-        _server_public_key: &PublicKeyOrCertificate,
-    ) -> Result<bool, Self::Error> {
-        // TOFU / VPN-secured host verification
-        Ok(true)
+fn write_ok<T>(l: &RwLock<T>) -> std::sync::RwLockWriteGuard<'_, T> {
+    l.write().unwrap_or_else(PoisonError::into_inner)
+}
+
+type CallbackSlot = Arc<RwLock<Option<Arc<dyn SshSessionCallback>>>>;
+
+/// Calls the callback without holding the slot's lock, so a callback that re-enters the session
+/// (e.g. to reconnect) cannot deadlock against `connect`.
+fn notify(slot: &CallbackSlot, f: impl FnOnce(&dyn SshSessionCallback)) {
+    let cb = read_ok(slot).clone();
+    if let Some(cb) = cb {
+        f(cb.as_ref());
     }
 }
 
@@ -55,12 +71,13 @@ enum SessionCommand {
 pub struct SshSessionHandle {
     config: RwLock<SessionConfig>,
     state: Arc<RwLock<SessionState>>,
-    callback: Arc<RwLock<Option<Box<dyn SshSessionCallback>>>>,
+    callback: CallbackSlot,
     command_tx: Arc<Mutex<Option<mpsc::Sender<SessionCommand>>>>,
     session_task: Arc<Mutex<Option<JoinHandle<()>>>>,
     is_connected: Arc<AtomicBool>,
     port_forwards: Arc<Mutex<Vec<Arc<PortForwardHandle>>>>,
-    ssh_client: Arc<tokio::sync::Mutex<Option<client::Handle<SshHandler>>>>,
+    ssh_client: Arc<tokio::sync::Mutex<Option<ClientHandle>>>,
+    host_key: Arc<Mutex<Option<String>>>,
 }
 
 #[uniffi::export]
@@ -76,6 +93,7 @@ impl SshSessionHandle {
             is_connected: Arc::new(AtomicBool::new(false)),
             port_forwards: Arc::new(Mutex::new(Vec::new())),
             ssh_client: Arc::new(tokio::sync::Mutex::new(None)),
+            host_key: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -85,35 +103,33 @@ impl SshSessionHandle {
             return Err(SshCoreError::AlreadyConnected);
         }
 
-        *self.callback.write().unwrap() = Some(callback);
+        *write_ok(&self.callback) = Some(Arc::from(callback));
         self.set_state(SessionState::Connecting);
 
-        let config = self.config.read().unwrap().clone();
-        self.spawn_session_loop(config, false)
+        let config = read_ok(&self.config).clone();
+        self.spawn_session_loop(config)
     }
 
     /// Sends raw user keystrokes / input bytes to the remote terminal.
     pub fn send_input(&self, data: Vec<u8>) -> Result<(), SshCoreError> {
-        eprintln!("[RustCore] send_input called with {} bytes", data.len());
         if !self.is_connected.load(Ordering::SeqCst) {
-            eprintln!("[RustCore] send_input failed: not connected");
             return Err(SshCoreError::NotConnected);
         }
-
-        if let Some(tx) = self.command_tx.lock().unwrap().as_ref() {
-            let res = tx.try_send(SessionCommand::Input(data));
-            eprintln!("[RustCore] send_input try_send result: {:?}", res.is_ok());
-            Ok(())
-        } else {
-            eprintln!("[RustCore] send_input failed: command_tx is None");
-            Err(SshCoreError::NotConnected)
+        match self.command_tx.lock_ok().as_ref() {
+            Some(tx) => {
+                tx.try_send(SessionCommand::Input(data))
+                    .map_err(|_| SshCoreError::ChannelError {
+                        reason: "Input queue is full or closed".to_string(),
+                    })
+            }
+            None => Err(SshCoreError::NotConnected),
         }
     }
 
     /// Dynamically resizes the remote terminal viewport (triggers remote SIGWINCH in tmux).
     pub fn resize(&self, cols: u16, rows: u16) -> Result<(), SshCoreError> {
         let size = TerminalSize { cols, rows };
-        if let Some(tx) = self.command_tx.lock().unwrap().as_ref() {
+        if let Some(tx) = self.command_tx.lock_ok().as_ref() {
             let _ = tx.try_send(SessionCommand::Resize(size));
         }
         Ok(())
@@ -124,15 +140,24 @@ impl SshSessionHandle {
     pub fn disconnect(&self) {
         self.stop_all_port_forwards();
 
-        if let Some(tx) = self.command_tx.lock().unwrap().take() {
+        if let Some(tx) = self.command_tx.lock_ok().take() {
             let _ = tx.try_send(SessionCommand::Disconnect);
         }
 
-        if let Some(task) = self.session_task.lock().unwrap().take() {
+        if let Some(task) = self.session_task.lock_ok().take() {
             task.abort();
         }
 
         self.is_connected.store(false, Ordering::SeqCst);
+        // The aborted task never reaches its own cleanup, and the client handle is what keeps the
+        // TCP socket (and its keepalives) alive: drop it here.
+        match self.ssh_client.try_lock() {
+            Ok(mut slot) => *slot = None,
+            Err(_) => {
+                let slot = Arc::clone(&self.ssh_client);
+                RUNTIME.spawn(async move { *slot.lock().await = None });
+            }
+        }
         self.set_state(SessionState::Disconnected);
     }
 
@@ -144,13 +169,20 @@ impl SshSessionHandle {
         }
 
         self.set_state(SessionState::Reconnecting);
-        let config = self.config.read().unwrap().clone();
-        self.spawn_session_loop(config, true)
+        let config = read_ok(&self.config).clone();
+        self.spawn_session_loop(config)
     }
 
     /// Returns current state.
     pub fn state(&self) -> SessionState {
-        self.state.read().unwrap().clone()
+        read_ok(&self.state).clone()
+    }
+
+    /// SHA-256 fingerprint (`SHA256:...`) of the host key the server presented on the last
+    /// connection. Pin it in the server profile after the first successful connect and pass it
+    /// back as `pinned_host_key`, so a changed key (possible MITM) is refused from then on.
+    pub fn host_key_fingerprint(&self) -> Option<String> {
+        self.host_key.lock_ok().clone()
     }
 
     /// Starts local loopback port forwarding for the specified remote port on the host.
@@ -197,48 +229,14 @@ impl SshSessionHandle {
         }
     }
 
-    /// Executes a command on the remote host over the currently active SSH session (ephemeral channel).
+    /// Executes a command on the remote host over the currently active SSH session (ephemeral
+    /// channel). Output is capped at 4 MB; a command that does not finish within two minutes
+    /// fails with `Timeout`.
     pub async fn execute_command_on_active_session(
         &self,
         command: String,
     ) -> Result<String, SshCoreError> {
-        let mut channel =
-            {
-                let mut lock = self.ssh_client.lock().await;
-                match lock.as_mut() {
-                    Some(client) => client.channel_open_session().await.map_err(|e| {
-                        SshCoreError::ChannelError {
-                            reason: format!("Failed to open ephemeral session channel: {e}"),
-                        }
-                    })?,
-                    None => return Err(SshCoreError::NotConnected),
-                }
-            };
-
-        channel
-            .exec(true, command)
-            .await
-            .map_err(|e| SshCoreError::ChannelError {
-                reason: format!("Exec command failed: {e}"),
-            })?;
-
-        let mut output = Vec::new();
-        while let Some(msg) = channel.wait().await {
-            match msg {
-                russh::ChannelMsg::Data { ref data }
-                | russh::ChannelMsg::ExtendedData { ref data, .. } => {
-                    if push_capped(&mut output, data) {
-                        break;
-                    }
-                }
-                russh::ChannelMsg::Eof | russh::ChannelMsg::Close => break,
-                _ => {}
-            }
-        }
-
-        let _ = channel.eof().await;
-        let _ = channel.close().await;
-        Ok(String::from_utf8_lossy(&output).to_string())
+        self.exec_with_timeout(&command, DEFAULT_EXEC_TIMEOUT).await
     }
 
     /// Queries Ollama running locally on the remote host (http://127.0.0.1:11434/api/generate)
@@ -258,11 +256,14 @@ impl SshSessionHandle {
         let payload_str = payload.to_string();
 
         let curl_cmd = format!(
-            "curl -s -X POST http://127.0.0.1:11434/api/generate -H 'Content-Type: application/json' -d {}",
+            "curl -s --max-time 290 -X POST http://127.0.0.1:11434/api/generate -H 'Content-Type: application/json' -d {}",
             crate::tmux::shell_quote(&payload_str)
         );
 
-        let raw_response = self.execute_command_on_active_session(curl_cmd).await?;
+        // Local models can be slow, but not forever.
+        let raw_response = self
+            .exec_with_timeout(&curl_cmd, Duration::from_secs(300))
+            .await?;
         let generated_text = crate::ai::parse_ollama_generate_response(&raw_response)?;
         crate::ai::parse_ai_response(&generated_text)
     }
@@ -304,34 +305,8 @@ impl SshSessionHandle {
             Some(dir) => crate::tmux::shell_quote(&dir),
             None => "\"$HOME\"".to_string(),
         };
-        let detect_script = format!(
-            r#"zsh -l -c '
-TARGET_DIR="$1"
-if [ -d "$HOME/.gemini/antigravity-cli/brain" ]; then
-  LATEST=$(ls -td "$HOME/.gemini/antigravity-cli/brain"/* 2>/dev/null | head -n 1)
-  if [ -n "$LATEST" ] && [ -f "$LATEST/.system_generated/logs/transcript.jsonl" ]; then
-    echo "$LATEST/.system_generated/logs/transcript.jsonl"
-    exit 0
-  fi
-fi
-if [ -d "$HOME/.claude/projects" ]; then
-  LATEST_CLAUDE=$(ls -td "$HOME/.claude/projects"/*/*.jsonl 2>/dev/null | head -n 1)
-  if [ -n "$LATEST_CLAUDE" ] && [ -f "$LATEST_CLAUDE" ]; then
-    echo "$LATEST_CLAUDE"
-    exit 0
-  fi
-fi
-if [ -n "$TARGET_DIR" ] && [ -f "$TARGET_DIR/.agents/transcript.jsonl" ]; then
-  echo "$TARGET_DIR/.agents/transcript.jsonl"
-  exit 0
-fi
-if [ -n "$TARGET_DIR" ] && [ -f "$TARGET_DIR/transcript.jsonl" ]; then
-  echo "$TARGET_DIR/transcript.jsonl"
-  exit 0
-fi
-' -- {}"#,
-            quoted_dir
-        );
+        let detect_script =
+            crate::hostprobe::login_sh_script(TRANSCRIPT_DETECT_SCRIPT, &[quoted_dir], 10);
 
         let output = self
             .execute_command_on_active_session(detect_script)
@@ -377,9 +352,20 @@ fi
     pub async fn kill_remote_process(&self, pid: u32, force: bool) -> Result<(), SshCoreError> {
         let safe_pid = crate::telemetry::validate_kill_pid(pid)?;
         let sig = if force { "-KILL" } else { "-TERM" };
-        let cmd = format!("kill {sig} -- {safe_pid}");
-        let _ = self.execute_command_on_active_session(cmd).await?;
-        Ok(())
+        let out = self
+            .exec_raw(&format!("kill {sig} -- {safe_pid}"), DEFAULT_EXEC_TIMEOUT)
+            .await?;
+        match out.exit_status {
+            Some(0) => Ok(()),
+            _ => Err(SshCoreError::IoError {
+                reason: format!(
+                    "kill failed on the host: {}",
+                    crate::approval_queue::display_safe(
+                        &out.text().trim().chars().take(200).collect::<String>()
+                    )
+                ),
+            }),
+        }
     }
 
     /// Lists entries in a remote directory (or active tmux pane working directory if `path` is `None`).
@@ -388,7 +374,7 @@ fi
         path: Option<String>,
         include_hidden: bool,
     ) -> Result<crate::file_browser::RemoteDirectoryListing, SshCoreError> {
-        let session_name = self.config.read().unwrap().session_name.clone();
+        let session_name = read_ok(&self.config).session_name.clone();
         let cmd =
             crate::file_browser::build_list_directory_command(path.as_deref(), &session_name)?;
         let raw_output = self.execute_command_on_active_session(cmd).await?;
@@ -453,12 +439,7 @@ fi
         hook_dir: Option<String>,
     ) -> Result<crate::agents::AgentHooksStatus, SshCoreError> {
         let config_path = crate::agents::agent_hooks_config_path(agent, config_dir)?;
-        let existing = self
-            .execute_command_on_active_session(format!(
-                "cat {} 2>/dev/null || true",
-                crate::agents::remote_path_expr(&config_path)
-            ))
-            .await?;
+        let existing = self.read_remote_config(&config_path).await?;
         let hook_dir = hook_dir.unwrap_or_else(|| crate::agents::DEFAULT_HOOK_DIR.to_string());
         let script = crate::agents::remote_script_path(&hook_dir);
         let present = self
@@ -661,7 +642,7 @@ fi
             ts,
             approved,
         );
-        let key = zeroize::Zeroizing::new(self.config.read().unwrap().private_key_pem.clone());
+        let key = zeroize::Zeroizing::new(read_ok(&self.config).private_key_pem.clone());
         let signature = sign_approval_sshsig((*key).clone(), message)?;
         let out = self
             .execute_command_on_active_session(build_decide_command(
@@ -680,7 +661,7 @@ fi
 
     /// Creates the host queue directories and trusts this device's key for approvals.
     pub async fn install_approval_key(&self) -> Result<(), SshCoreError> {
-        let key = zeroize::Zeroizing::new(self.config.read().unwrap().private_key_pem.clone());
+        let key = zeroize::Zeroizing::new(read_ok(&self.config).private_key_pem.clone());
         let public = crate::keys::derive_public_key((*key).clone())?;
         let line = crate::approval_queue::allowed_signers_line(&public)?;
         let out = self
@@ -791,34 +772,49 @@ impl SshSessionHandle {
     }
 
     fn set_state(&self, new_state: SessionState) {
-        *self.state.write().unwrap() = new_state.clone();
-        if let Some(cb) = self.callback.read().unwrap().as_ref() {
-            cb.on_state_changed(new_state);
-        }
+        *write_ok(&self.state) = new_state.clone();
+        notify(&self.callback, |cb| cb.on_state_changed(new_state));
     }
 
-    fn spawn_session_loop(
-        &self,
-        config: SessionConfig,
-        _is_reconnect: bool,
-    ) -> Result<(), SshCoreError> {
-        let (cmd_tx, mut cmd_rx) = mpsc::channel::<SessionCommand>(256);
-        *self.command_tx.lock().unwrap() = Some(cmd_tx);
+    /// Opens the channel under the connection lock (short), then reads it without the lock so
+    /// several commands can run at once and `disconnect` is never blocked behind one.
+    async fn exec_raw(&self, command: &str, limit: Duration) -> Result<ExecOutput, SshCoreError> {
+        let channel = {
+            let slot = self.ssh_client.lock().await;
+            let handle = slot.as_ref().ok_or(SshCoreError::NotConnected)?;
+            exec_start(handle, command).await?
+        };
+        collect_output(channel, limit).await
+    }
 
-        let callback_weak = Arc::clone(&self.callback);
+    async fn exec_with_timeout(
+        &self,
+        command: &str,
+        limit: Duration,
+    ) -> Result<String, SshCoreError> {
+        Ok(self.exec_raw(command, limit).await?.text())
+    }
+
+    fn spawn_session_loop(&self, config: SessionConfig) -> Result<(), SshCoreError> {
+        let (cmd_tx, mut cmd_rx) = mpsc::channel::<SessionCommand>(256);
+        *self.command_tx.lock_ok() = Some(cmd_tx);
+
+        let callback = Arc::clone(&self.callback);
         let is_connected_flag = Arc::clone(&self.is_connected);
         let state_arc = Arc::clone(&self.state);
         let ssh_client_arc = Arc::clone(&self.ssh_client);
+        let host_key = Arc::clone(&self.host_key);
 
+        // Set before the task runs so `send_input` right after `connect` is not refused.
+        self.is_connected.store(true, Ordering::SeqCst);
         let session_task = RUNTIME.spawn(async move {
-            is_connected_flag.store(true, Ordering::SeqCst);
-
-            let run_result = Self::run_ssh_connection(
+            let run_result = run_ssh_connection(
                 &config,
                 &mut cmd_rx,
-                Arc::clone(&callback_weak),
-                Arc::clone(&state_arc),
-                Arc::clone(&ssh_client_arc),
+                &callback,
+                &state_arc,
+                &ssh_client_arc,
+                &host_key,
             )
             .await;
 
@@ -829,210 +825,127 @@ impl SshSessionHandle {
                 Ok(()) => SessionState::Disconnected,
                 Err(e) => {
                     let err_msg = e.to_string();
-                    if let Some(cb) = callback_weak.read().unwrap().as_ref() {
-                        cb.on_error(err_msg.clone());
-                    }
+                    notify(&callback, |cb| cb.on_error(err_msg.clone()));
                     SessionState::Failed { reason: err_msg }
                 }
             };
 
-            *state_arc.write().unwrap() = final_state.clone();
-            if let Some(cb) = callback_weak.read().unwrap().as_ref() {
-                cb.on_state_changed(final_state);
-            }
+            *write_ok(&state_arc) = final_state.clone();
+            notify(&callback, |cb| cb.on_state_changed(final_state));
         });
 
-        *self.session_task.lock().unwrap() = Some(session_task);
-        Ok(())
-    }
-
-    async fn run_ssh_connection(
-        config: &SessionConfig,
-        cmd_rx: &mut mpsc::Receiver<SessionCommand>,
-        callback: Arc<RwLock<Option<Box<dyn SshSessionCallback>>>>,
-        state_arc: Arc<RwLock<SessionState>>,
-        ssh_client_slot: Arc<tokio::sync::Mutex<Option<client::Handle<SshHandler>>>>,
-    ) -> Result<(), SshCoreError> {
-        // 1. Parse Ed25519 private key
-        eprintln!(
-            "[RustCore] Parsing private key (len={})...",
-            config.private_key_pem.len()
-        );
-        let private_key = parse_private_key(&config.private_key_pem)?;
-        let key_pair = private_key;
-        let key_with_alg = PrivateKeyWithHashAlg::new(Arc::new(key_pair), None);
-
-        // 2. Configure SSH client with adaptive keepalive (30s)
-        let ssh_config = Arc::new(client::Config {
-            keepalive_interval: Some(Duration::from_secs(30)),
-            keepalive_max: 3,
-            ..Default::default()
-        });
-
-        // 3. Connect TCP socket with 10s timeout
-        eprintln!(
-            "[RustCore] Connecting to TCP socket {}:{}...",
-            config.host, config.port
-        );
-        let connect_future =
-            client::connect(ssh_config, (config.host.as_str(), config.port), SshHandler);
-        let mut session = tokio::time::timeout(Duration::from_secs(10), connect_future)
-            .await
-            .map_err(|_| {
-                eprintln!("[RustCore] Connection timed out after 10s!");
-                SshCoreError::Timeout
-            })?
-            .map_err(|e| {
-                eprintln!("[RustCore] Failed to connect: {e}");
-                SshCoreError::ConnectionError {
-                    reason: format!("Failed to connect to {}:{}: {e}", config.host, config.port),
-                }
-            })?;
-
-        eprintln!(
-            "[RustCore] TCP connection established! Authenticating user '{}'...",
-            config.username
-        );
-
-        // 4. Authenticate with Ed25519 public key
-        let auth_res = session
-            .authenticate_publickey(&config.username, key_with_alg)
-            .await
-            .map_err(|e| {
-                eprintln!("[RustCore] Authentication error: {e}");
-                SshCoreError::AuthenticationError {
-                    username: config.username.clone(),
-                    reason: format!("Authentication request failed: {e}"),
-                }
-            })?;
-
-        eprintln!(
-            "[RustCore] Public key authentication result: success={}",
-            auth_res.success()
-        );
-
-        if !auth_res.success() {
-            return Err(SshCoreError::AuthenticationError {
-                username: config.username.clone(),
-                reason: "Host rejected public key authentication".to_string(),
-            });
-        }
-
-        // 5. Open interactive terminal channel
-        let mut channel =
-            session
-                .channel_open_session()
-                .await
-                .map_err(|e| SshCoreError::ChannelError {
-                    reason: format!("Failed to open session channel: {e}"),
-                })?;
-
-        // 5.1 Store session handle for port forwarding
-        *ssh_client_slot.lock().await = Some(session);
-
-        // 6. Request PTY with xterm-256color for TrueColor support
-        channel
-            .request_pty(
-                false,
-                "xterm-256color",
-                config.initial_cols as u32,
-                config.initial_rows as u32,
-                0,
-                0,
-                &[],
-            )
-            .await
-            .map_err(|e| SshCoreError::ChannelError {
-                reason: format!("PTY request failed: {e}"),
-            })?;
-
-        // 7. Format dynamic login shell + tmux attach/create command
-        let tmux_cmd =
-            build_tmux_attach_or_create_command(&config.session_name, config.command.as_deref())?;
-
-        channel
-            .exec(true, tmux_cmd)
-            .await
-            .map_err(|e| SshCoreError::ChannelError {
-                reason: format!("Exec command failed: {e}"),
-            })?;
-
-        // Notify Connected state
-        *state_arc.write().unwrap() = SessionState::Connected;
-        if let Some(cb) = callback.read().unwrap().as_ref() {
-            cb.on_state_changed(SessionState::Connected);
-        }
-
-        // 8. Setup output throttler to prevent SwiftTerm UI freezing
-        let throttler_cb = Arc::clone(&callback);
-        let throttler = OutputThrottler::new(
-            DEFAULT_FLUSH_INTERVAL,
-            DEFAULT_MAX_BATCH_SIZE,
-            move |batch| {
-                if let Some(cb) = throttler_cb.read().unwrap().as_ref() {
-                    cb.on_data_received(batch);
-                }
-            },
-        );
-
-        // 9. Main I/O event loop
-        loop {
-            tokio::select! {
-                // Inbound data from remote host
-                maybe_msg = channel.wait() => {
-                    match maybe_msg {
-                        Some(ChannelMsg::Data { ref data }) => {
-                            let _ = throttler.push(data.to_vec()).await;
-                        }
-                        Some(ChannelMsg::ExtendedData { ref data, ext: _ }) => {
-                            let _ = throttler.push(data.to_vec()).await;
-                        }
-                        Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) | None => {
-                            info!("Remote channel closed or received EOF");
-                            break;
-                        }
-                        _ => {}
-                    }
-                }
-
-                // Outbound commands or user input from iOS UI
-                cmd = cmd_rx.recv() => {
-                    match cmd {
-                        Some(SessionCommand::Input(data)) => {
-                            if let Err(e) = channel.data(&data[..]).await {
-                                warn!("Failed to write input to SSH channel: {e}");
-                                break;
-                            }
-                        }
-                        Some(SessionCommand::Resize(size)) => {
-                            let _ = channel.window_change(size.cols as u32, size.rows as u32, 0, 0).await;
-                        }
-                        Some(SessionCommand::Disconnect) | None => {
-                            info!("Disconnecting session gracefully for Zero Battery Drain");
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-
-        // Graceful channel close
-        let _ = channel.eof().await;
-        let _ = channel.close().await;
-
+        *self.session_task.lock_ok() = Some(session_task);
         Ok(())
     }
 }
 
-/// Upper bound for the output of one exec call. A runaway remote command (or a hostile shell rc)
-/// must not be able to grow the client's memory until the OS kills the app.
-const MAX_EXEC_OUTPUT: usize = 4 * 1024 * 1024;
+async fn run_ssh_connection(
+    config: &SessionConfig,
+    cmd_rx: &mut mpsc::Receiver<SessionCommand>,
+    callback: &CallbackSlot,
+    state_arc: &Arc<RwLock<SessionState>>,
+    ssh_client_slot: &Arc<tokio::sync::Mutex<Option<ClientHandle>>>,
+    host_key: &Arc<Mutex<Option<String>>>,
+) -> Result<(), SshCoreError> {
+    debug!("Connecting to {}:{}", config.host, config.port);
+    let conn = connect_authenticated(
+        &Endpoint {
+            host: &config.host,
+            port: config.port,
+            username: &config.username,
+            private_key_pem: &config.private_key_pem,
+            pinned_host_key: config.pinned_host_key.as_deref(),
+        },
+        Duration::from_secs(30),
+        3,
+    )
+    .await?;
+    *host_key.lock_ok() = Some(conn.host_key.clone());
 
-/// Appends `data` up to `MAX_EXEC_OUTPUT`; returns true when the cap is reached (stop reading).
-fn push_capped(output: &mut Vec<u8>, data: &[u8]) -> bool {
-    let room = MAX_EXEC_OUTPUT.saturating_sub(output.len());
-    output.extend_from_slice(&data[..data.len().min(room)]);
-    output.len() >= MAX_EXEC_OUTPUT
+    // Open the interactive terminal channel.
+    let mut channel =
+        conn.handle
+            .channel_open_session()
+            .await
+            .map_err(|e| SshCoreError::ChannelError {
+                reason: format!("Failed to open session channel: {e}"),
+            })?;
+
+    // The handle serves port forwarding and ephemeral exec channels from here on.
+    *ssh_client_slot.lock().await = Some(conn.handle);
+
+    // PTY with xterm-256color for TrueColor support.
+    channel
+        .request_pty(
+            false,
+            "xterm-256color",
+            u32::from(config.initial_cols),
+            u32::from(config.initial_rows),
+            0,
+            0,
+            &[],
+        )
+        .await
+        .map_err(|e| SshCoreError::ChannelError {
+            reason: format!("PTY request failed: {e}"),
+        })?;
+
+    // Dynamic login shell + tmux attach/create command.
+    let tmux_cmd =
+        build_tmux_attach_or_create_command(&config.session_name, config.command.as_deref())?;
+    channel
+        .exec(true, tmux_cmd)
+        .await
+        .map_err(|e| SshCoreError::ChannelError {
+            reason: format!("Exec command failed: {e}"),
+        })?;
+
+    *write_ok(state_arc) = SessionState::Connected;
+    notify(callback, |cb| cb.on_state_changed(SessionState::Connected));
+
+    // The throttler batches output so SwiftTerm is not flooded.
+    let throttler_cb = Arc::clone(callback);
+    let throttler = OutputThrottler::new(
+        DEFAULT_FLUSH_INTERVAL,
+        DEFAULT_MAX_BATCH_SIZE,
+        move |batch| notify(&throttler_cb, |cb| cb.on_data_received(batch)),
+    );
+
+    loop {
+        tokio::select! {
+            maybe_msg = channel.wait() => match maybe_msg {
+                Some(ChannelMsg::Data { ref data } | ChannelMsg::ExtendedData { ref data, .. }) => {
+                    let _ = throttler.push(data.to_vec()).await;
+                }
+                Some(ChannelMsg::Eof | ChannelMsg::Close) | None => {
+                    info!("Remote channel closed or received EOF");
+                    break;
+                }
+                _ => {}
+            },
+            cmd = cmd_rx.recv() => match cmd {
+                Some(SessionCommand::Input(data)) => {
+                    if let Err(e) = channel.data(&data[..]).await {
+                        warn!("Failed to write input to SSH channel: {e}");
+                        break;
+                    }
+                }
+                Some(SessionCommand::Resize(size)) => {
+                    let _ = channel
+                        .window_change(u32::from(size.cols), u32::from(size.rows), 0, 0)
+                        .await;
+                }
+                Some(SessionCommand::Disconnect) | None => {
+                    info!("Disconnecting session gracefully for Zero Battery Drain");
+                    break;
+                }
+            },
+        }
+    }
+
+    let _ = channel.eof().await;
+    let _ = channel.close().await;
+    Ok(())
 }
 
 /// Connects via SSH, executes `command` without a PTY, captures stdout/stderr, and returns output.
@@ -1040,77 +953,24 @@ pub async fn execute_remote_command_internal(
     config: &RemoteServerConfig,
     command: &str,
 ) -> Result<String, SshCoreError> {
-    let private_key = parse_private_key(&config.private_key_pem)?;
-    let key_with_alg = PrivateKeyWithHashAlg::new(Arc::new(private_key), None);
-
-    let ssh_config = Arc::new(client::Config {
-        keepalive_interval: Some(Duration::from_secs(10)),
-        keepalive_max: 2,
-        ..Default::default()
-    });
-
-    let connect_future =
-        client::connect(ssh_config, (config.host.as_str(), config.port), SshHandler);
-
-    let mut session = tokio::time::timeout(Duration::from_secs(10), connect_future)
-        .await
-        .map_err(|_| SshCoreError::Timeout)?
-        .map_err(|e| SshCoreError::ConnectionError {
-            reason: format!("Failed to connect to {}:{}: {e}", config.host, config.port),
-        })?;
-
-    let auth_res = session
-        .authenticate_publickey(&config.username, key_with_alg)
-        .await
-        .map_err(|e| SshCoreError::AuthenticationError {
-            username: config.username.clone(),
-            reason: format!("Authentication request failed: {e}"),
-        })?;
-
-    if !auth_res.success() {
-        return Err(SshCoreError::AuthenticationError {
-            username: config.username.clone(),
-            reason: "Host rejected public key authentication".to_string(),
-        });
-    }
-
-    let mut channel =
-        session
-            .channel_open_session()
-            .await
-            .map_err(|e| SshCoreError::ChannelError {
-                reason: format!("Failed to open session channel: {e}"),
-            })?;
-
-    channel
-        .exec(true, command)
-        .await
-        .map_err(|e| SshCoreError::ChannelError {
-            reason: format!("Exec command failed: {e}"),
-        })?;
-
-    let mut output = Vec::new();
-    while let Some(msg) = channel.wait().await {
-        match msg {
-            ChannelMsg::Data { ref data } | ChannelMsg::ExtendedData { ref data, .. } => {
-                if push_capped(&mut output, data) {
-                    break;
-                }
-            }
-            ChannelMsg::Eof | ChannelMsg::Close => {
-                break;
-            }
-            _ => {}
-        }
-    }
-
-    let _ = channel.eof().await;
-    let _ = channel.close().await;
-    let _ = session
+    let conn = connect_authenticated(
+        &Endpoint {
+            host: &config.host,
+            port: config.port,
+            username: &config.username,
+            private_key_pem: &config.private_key_pem,
+            pinned_host_key: config.pinned_host_key.as_deref(),
+        },
+        Duration::from_secs(10),
+        2,
+    )
+    .await?;
+    let out = exec_collect(&conn.handle, command, DEFAULT_EXEC_TIMEOUT).await;
+    let _ = conn
+        .handle
         .disconnect(russh::Disconnect::ByApplication, "", "English")
         .await;
-
-    Ok(String::from_utf8_lossy(&output).to_string())
+    Ok(out?.text())
 }
 
 #[uniffi::export]
@@ -1154,6 +1014,30 @@ pub async fn kill_remote_tmux_session(
     })?
 }
 
+const TRANSCRIPT_DETECT_SCRIPT: &str = r#"TARGET_DIR="$1"
+if [ -d "$HOME/.gemini/antigravity-cli/brain" ]; then
+  LATEST=$(ls -td "$HOME/.gemini/antigravity-cli/brain"/* 2>/dev/null | head -n 1)
+  if [ -n "$LATEST" ] && [ -f "$LATEST/.system_generated/logs/transcript.jsonl" ]; then
+    echo "$LATEST/.system_generated/logs/transcript.jsonl"
+    exit 0
+  fi
+fi
+if [ -d "$HOME/.claude/projects" ]; then
+  LATEST_CLAUDE=$(ls -td "$HOME/.claude/projects"/*/*.jsonl 2>/dev/null | head -n 1)
+  if [ -n "$LATEST_CLAUDE" ] && [ -f "$LATEST_CLAUDE" ]; then
+    echo "$LATEST_CLAUDE"
+    exit 0
+  fi
+fi
+if [ -n "$TARGET_DIR" ] && [ -f "$TARGET_DIR/.agents/transcript.jsonl" ]; then
+  echo "$TARGET_DIR/.agents/transcript.jsonl"
+  exit 0
+fi
+if [ -n "$TARGET_DIR" ] && [ -f "$TARGET_DIR/transcript.jsonl" ]; then
+  echo "$TARGET_DIR/transcript.jsonl"
+  exit 0
+fi"#;
+
 /// Host command that replaces the config file only if it still holds `previous`; prints
 /// `CONFIG_WRITTEN` or `CONFIG_CHANGED` as its last line.
 pub(crate) fn build_write_config_command(path: &str, previous: &str, content: &str) -> String {
@@ -1175,16 +1059,6 @@ pub(crate) fn build_write_config_command(path: &str, previous: &str, content: &s
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn exec_output_is_capped() {
-        let mut out = Vec::new();
-        let chunk = vec![b'x'; 1024 * 1024];
-        let stops: Vec<bool> = (0..6).map(|_| push_capped(&mut out, &chunk)).collect();
-        assert_eq!(out.len(), MAX_EXEC_OUTPUT);
-        assert_eq!(stops, [false, false, false, true, true, true]);
-        assert!(push_capped(&mut Vec::new(), &vec![0; MAX_EXEC_OUTPUT + 10]));
-    }
-
     use super::*;
 
     struct DummyCallback;
@@ -1205,6 +1079,7 @@ mod tests {
             initial_cols: 80,
             initial_rows: 24,
             command: None,
+            pinned_host_key: None,
         };
 
         let handle = SshSessionHandle::new(config);
@@ -1223,6 +1098,7 @@ mod tests {
             initial_cols: 80,
             initial_rows: 24,
             command: None,
+            pinned_host_key: None,
         };
 
         let handle = SshSessionHandle::new(config);
@@ -1241,6 +1117,7 @@ mod tests {
             initial_cols: 80,
             initial_rows: 24,
             command: None,
+            pinned_host_key: None,
         };
 
         let handle = SshSessionHandle::new(config);
@@ -1259,6 +1136,7 @@ mod tests {
             initial_cols: 80,
             initial_rows: 24,
             command: None,
+            pinned_host_key: None,
         };
 
         let handle = SshSessionHandle::new(config);

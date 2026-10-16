@@ -152,7 +152,7 @@ pub async fn pump_tcp_and_ssh(
 
 /// Spawns a local loopback listener on 127.0.0.1 and proxies incoming connections to the remote host over SSH.
 pub(crate) async fn start_port_forward_listener(
-    ssh_handle: Arc<tokio::sync::Mutex<Option<russh::client::Handle<crate::session::SshHandler>>>>,
+    ssh_handle: Arc<tokio::sync::Mutex<Option<crate::transport::ClientHandle>>>,
     remote_host: String,
     remote_port: u16,
     requested_local_port: Option<u16>,

@@ -42,6 +42,10 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     private var handle: SshSessionHandle?
     /// The live core session, for host-side management actions (e.g. agent hook install).
     public var sessionHandle: SshSessionHandle? { handle }
+    /// Host key fingerprint pinned for this tab's server (nil = trust on first use).
+    public var pinnedHostKey: String?
+    /// Called once with the fingerprint seen on a first connection, so the caller can pin it.
+    public var onHostKeyObserved: ((String) -> Void)?
     private var lastCols: UInt16 = 80
     private var lastRows: UInt16 = 24
 
@@ -51,7 +55,7 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     }
 
     public func start(host: String, port: UInt16, username: String, privateKeyPEM: String) {
-        print("[SwiftVM \(instanceId)] start() host=\(host), port=\(port), user=\(username), keyLen=\(privateKeyPEM.count), state=\(state)")
+        print("[SwiftVM \(instanceId)] start() host=\(host), port=\(port), user=\(username), state=\(state)")
         guard state != .connected && state != .connecting else {
             print("[SwiftVM \(instanceId)] start() skipped: already \(state)")
             return
@@ -67,7 +71,8 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
             sessionName: session.sessionName,
             initialCols: lastCols,
             initialRows: lastRows,
-            command: session.command
+            command: session.command,
+            pinnedHostKey: pinnedHostKey
         )
 
         let sessionHandle = SshSessionHandle(config: config)
@@ -352,6 +357,10 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
             self.state = state
             if state == .connected {
                 self.errorMessage = nil
+                if self.pinnedHostKey == nil, let fp = self.handle?.hostKeyFingerprint() {
+                    self.pinnedHostKey = fp
+                    self.onHostKeyObserved?(fp)
+                }
                 if let handle = self.handle {
                     print("[SwiftVM \(self.instanceId)] Connected! Applying window size: \(self.lastCols)x\(self.lastRows)")
                     try? handle.resize(cols: self.lastCols, rows: self.lastRows)

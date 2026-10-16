@@ -122,7 +122,8 @@ public final class TerminalTabsManager: ObservableObject {
                 host: server.host,
                 port: server.port,
                 username: server.username,
-                privateKeyPem: privateKey
+                privateKeyPem: privateKey,
+                pinnedHostKey: server.hostKeyFingerprint
             )
             Task.detached {
                 print("[TabsManager] Terminating remote tmux session '\(tmuxSessionName)' on \(server.name)...")
