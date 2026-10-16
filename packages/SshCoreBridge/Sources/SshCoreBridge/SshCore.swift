@@ -919,6 +919,13 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func executeCommandOnActiveSession(command: String) async throws  -> String
     
     /**
+     * Git diff (`HEAD`) of the repository the tmux session's pane is working in. The command runs
+     * in the pane's directory: an exec channel starts in `$HOME`, where `git diff` just prints
+     * its usage text.
+     */
+    func fetchGitDiff(sessionName: String) async throws  -> GitDiffResult
+    
+    /**
      * Collects a snapshot of remote host telemetry (CPU load, RAM, Disk, Battery, and AI/dev processes).
      */
     func fetchHostTelemetry() async throws  -> HostTelemetrySnapshot
@@ -1255,6 +1262,27 @@ open func executeCommandOnActiveSession(command: String)async throws  -> String 
             completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
             freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
             liftFunc: FfiConverterString.lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Git diff (`HEAD`) of the repository the tmux session's pane is working in. The command runs
+     * in the pane's directory: an exec channel starts in `$HOME`, where `git diff` just prints
+     * its usage text.
+     */
+open func fetchGitDiff(sessionName: String)async throws  -> GitDiffResult  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_fetch_git_diff(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(sessionName)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeGitDiffResult_lift,
             errorHandler: FfiConverterTypeSshCoreError_lift
         )
 }
@@ -2446,6 +2474,98 @@ public func FfiConverterTypeFuzzyMatchResult_lift(_ buf: RustBuffer) throws -> F
 #endif
 public func FfiConverterTypeFuzzyMatchResult_lower(_ value: FuzzyMatchResult) -> RustBuffer {
     return FfiConverterTypeFuzzyMatchResult.lower(value)
+}
+
+
+public struct GitDiffResult: Equatable, Hashable {
+    public var status: GitDiffStatus
+    /**
+     * The terminal's working directory (always set when known).
+     */
+    public var directory: String?
+    public var repoRoot: String?
+    public var branch: String?
+    /**
+     * `git diff HEAD` (tracked changes, staged and unstaged), at most [`MAX_DIFF_BYTES`].
+     */
+    public var diff: String
+    public var truncated: Bool
+    /**
+     * New files git does not track yet (they are not part of `diff`).
+     */
+    public var untracked: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(status: GitDiffStatus, 
+        /**
+         * The terminal's working directory (always set when known).
+         */directory: String?, repoRoot: String?, branch: String?, 
+        /**
+         * `git diff HEAD` (tracked changes, staged and unstaged), at most [`MAX_DIFF_BYTES`].
+         */diff: String, truncated: Bool, 
+        /**
+         * New files git does not track yet (they are not part of `diff`).
+         */untracked: [String]) {
+        self.status = status
+        self.directory = directory
+        self.repoRoot = repoRoot
+        self.branch = branch
+        self.diff = diff
+        self.truncated = truncated
+        self.untracked = untracked
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension GitDiffResult: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeGitDiffResult: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> GitDiffResult {
+        return
+            try GitDiffResult(
+                status: FfiConverterTypeGitDiffStatus.read(from: &buf), 
+                directory: FfiConverterOptionString.read(from: &buf), 
+                repoRoot: FfiConverterOptionString.read(from: &buf), 
+                branch: FfiConverterOptionString.read(from: &buf), 
+                diff: FfiConverterString.read(from: &buf), 
+                truncated: FfiConverterBool.read(from: &buf), 
+                untracked: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: GitDiffResult, into buf: inout [UInt8]) {
+        FfiConverterTypeGitDiffStatus.write(value.status, into: &buf)
+        FfiConverterOptionString.write(value.directory, into: &buf)
+        FfiConverterOptionString.write(value.repoRoot, into: &buf)
+        FfiConverterOptionString.write(value.branch, into: &buf)
+        FfiConverterString.write(value.diff, into: &buf)
+        FfiConverterBool.write(value.truncated, into: &buf)
+        FfiConverterSequenceString.write(value.untracked, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGitDiffResult_lift(_ buf: RustBuffer) throws -> GitDiffResult {
+    return try FfiConverterTypeGitDiffResult.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGitDiffResult_lower(_ value: GitDiffResult) -> RustBuffer {
+    return FfiConverterTypeGitDiffResult.lower(value)
 }
 
 
@@ -3924,6 +4044,98 @@ public func FfiConverterTypeAiRiskLevel_lift(_ buf: RustBuffer) throws -> AiRisk
 #endif
 public func FfiConverterTypeAiRiskLevel_lower(_ value: AiRiskLevel) -> RustBuffer {
     return FfiConverterTypeAiRiskLevel.lower(value)
+}
+
+
+
+
+public enum GitDiffStatus: Equatable, Hashable {
+    
+    /**
+     * A repository was found and `diff` holds its changes (possibly empty = clean).
+     */
+    case ok
+    /**
+     * The terminal's directory is not inside a git repository.
+     */
+    case notARepo
+    /**
+     * The tmux session (or its pane directory) could not be found.
+     */
+    case noSession
+    /**
+     * The host answered with something unexpected.
+     */
+    case unknown
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension GitDiffStatus: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeGitDiffStatus: FfiConverterRustBuffer {
+    typealias SwiftType = GitDiffStatus
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> GitDiffStatus {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .ok
+        
+        case 2: return .notARepo
+        
+        case 3: return .noSession
+        
+        case 4: return .unknown
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: GitDiffStatus, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .ok:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .notARepo:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .noSession:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .unknown:
+            writeInt(&buf, Int32(4))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGitDiffStatus_lift(_ buf: RustBuffer) throws -> GitDiffStatus {
+    return try FfiConverterTypeGitDiffStatus.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGitDiffStatus_lower(_ value: GitDiffStatus) -> RustBuffer {
+    return FfiConverterTypeGitDiffStatus.lower(value)
 }
 
 
@@ -6200,6 +6412,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_execute_command_on_active_session() != 4194) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_fetch_git_diff() != 14069) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_fetch_host_telemetry() != 15867) {

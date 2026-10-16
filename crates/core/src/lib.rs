@@ -8,6 +8,7 @@ pub mod buffer;
 pub mod config;
 pub mod error;
 pub mod file_browser;
+pub mod gitdiff;
 pub(crate) mod hostprobe;
 pub mod keys;
 pub mod port_forward;
@@ -45,6 +46,7 @@ pub use file_browser::{
     parse_remote_directory_listing, quote_remote_path_for_shell, RemoteDirectoryListing,
     RemoteFileEntry, RemoteFileKind, RemoteFilePreview,
 };
+pub use gitdiff::{GitDiffResult, GitDiffStatus};
 pub use keys::{derive_public_key, generate_keypair, KeypairResult};
 pub use port_forward::{PortForwardHandle, PortForwardInfo};
 pub use session::{

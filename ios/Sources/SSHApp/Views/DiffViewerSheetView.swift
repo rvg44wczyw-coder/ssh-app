@@ -4,19 +4,21 @@ import SshCoreBridge
 import UIKit
 #endif
 
+/// Git diff of the repository the active terminal tab is working in (not the SSH login
+/// directory: an exec channel starts in $HOME, where `git diff` only prints its usage text).
 public struct DiffViewerSheetView: View {
     @Environment(\.dismiss) private var dismiss
-    public let serverProfile: ServerProfile?
-    public let privateKeyOpenssh: String?
+    @ObservedObject var viewModel: TerminalSessionViewModel
 
-    @State private var diffText: String = ""
+    @State private var result: GitDiffResult? = nil
     @State private var isLoading: Bool = true
     @State private var errorMessage: String? = nil
 
-    public init(serverProfile: ServerProfile?, privateKeyOpenssh: String?) {
-        self.serverProfile = serverProfile
-        self.privateKeyOpenssh = privateKeyOpenssh
+    public init(viewModel: TerminalSessionViewModel) {
+        self.viewModel = viewModel
     }
+
+    private var diffText: String { result?.diff ?? "" }
 
     public var body: some View {
         NavigationStack {
@@ -45,21 +47,27 @@ public struct DiffViewerSheetView: View {
                         .buttonStyle(.bordered)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if let r = result, r.status != .ok {
+                    statusView(r)
                 } else if diffText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     VStack(spacing: 12) {
                         Image(systemName: "checkmark.circle")
                             .font(.system(size: 36))
                             .foregroundColor(.green)
-                        Text("Working tree clean")
+                        Text("No changes to tracked files")
                             .font(.system(size: 14, weight: .semibold))
-                        Text("No uncommitted changes found in repository.")
-                            .font(.system(size: 12))
-                            .foregroundColor(.secondary)
+                        if let root = result?.repoRoot {
+                            Text(verbatim: root)
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundColor(.secondary)
+                        }
+                        untrackedList
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     ScrollView([.horizontal, .vertical]) {
                         LazyVStack(alignment: .leading, spacing: 1) {
+                            headerView
                             ForEach(Array(diffText.components(separatedBy: "\n").enumerated()), id: \.offset) { _, line in
                                 diffLineView(line)
                             }
@@ -119,33 +127,92 @@ public struct DiffViewerSheetView: View {
         }
     }
 
+    @ViewBuilder
+    private var headerView: some View {
+        if let r = result {
+            VStack(alignment: .leading, spacing: 2) {
+                if let root = r.repoRoot {
+                    Text(verbatim: "\(root)\(r.branch.map { "  (\($0))" } ?? "")")
+                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        .foregroundColor(.cyan)
+                }
+                if r.truncated {
+                    Text("Diff truncated to the first 1 MB")
+                        .font(.system(size: 11)).foregroundColor(.orange)
+                }
+                if !r.untracked.isEmpty {
+                    Text(verbatim: "Untracked (not in the diff): " + r.untracked.joined(separator: ", "))
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundColor(.secondary)
+                        .lineLimit(3)
+                }
+            }
+            .padding(.bottom, 6)
+        }
+    }
+
+    @ViewBuilder
+    private var untrackedList: some View {
+        if let r = result, !r.untracked.isEmpty {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Untracked files (not in a diff):")
+                    .font(.system(size: 12, weight: .semibold))
+                ForEach(r.untracked, id: \.self) { f in
+                    Text(verbatim: f).font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary)
+                }
+            }
+            .padding(.top, 8)
+        }
+    }
+
+    @ViewBuilder
+    private func statusView(_ r: GitDiffResult) -> some View {
+        VStack(spacing: 12) {
+            Image(systemName: "folder.badge.questionmark")
+                .font(.system(size: 34))
+                .foregroundColor(.orange)
+            switch r.status {
+            case .notARepo:
+                Text("Not a git repository")
+                    .font(.system(size: 14, weight: .semibold))
+                if let dir = r.directory {
+                    Text(verbatim: "This terminal is in \(dir). `cd` into a repository (or ask the agent to) and refresh.")
+                        .font(.system(size: 12)).foregroundColor(.secondary)
+                        .multilineTextAlignment(.center).padding(.horizontal)
+                }
+            case .noSession:
+                Text("Terminal session not found on the host")
+                    .font(.system(size: 14, weight: .semibold))
+                Text("Open the tab's tmux session first, then refresh.")
+                    .font(.system(size: 12)).foregroundColor(.secondary)
+            default:
+                Text("Unexpected answer from the host")
+                    .font(.system(size: 14, weight: .semibold))
+            }
+            Button("Refresh") { fetchDiff() }.buttonStyle(.bordered)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
     private func fetchDiff() {
-        guard let server = serverProfile, let privKey = privateKeyOpenssh, !privKey.isEmpty else {
-            self.errorMessage = "No active server profile or private key available."
+        guard viewModel.state == .connected, let handle = viewModel.sessionHandle else {
+            self.errorMessage = "The terminal is not connected. Reconnect and try again."
             self.isLoading = false
             return
         }
-
-        self.isLoading = true
-        self.errorMessage = nil
-
-        let config = RemoteServerConfig(
-            host: server.host,
-            port: server.port,
-            username: server.username,
-            privateKeyPem: privKey
-        )
-
+        isLoading = true
+        errorMessage = nil
+        let name = viewModel.session.sessionName
         Task {
             do {
-                let output = try await executeRemoteCommand(config: config, command: "git diff HEAD 2>&1")
+                let r = try await handle.fetchGitDiff(sessionName: name)
                 await MainActor.run {
-                    self.diffText = output
+                    self.result = r
                     self.isLoading = false
                 }
             } catch {
                 await MainActor.run {
-                    self.errorMessage = "Failed to run git diff: \(error.localizedDescription)"
+                    self.errorMessage = "Failed to read the git diff: \(error.localizedDescription)"
                     self.isLoading = false
                 }
             }

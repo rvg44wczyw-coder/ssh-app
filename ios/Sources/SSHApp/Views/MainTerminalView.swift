@@ -252,11 +252,9 @@ public struct MainTerminalView: View {
                         ensureSessionStarted(for: newSession.id)
                     }
                 case .diffViewer:
-                    let activeServer = serversManager.profile(for: tabsManager.activeSession?.serverId) ?? serversManager.activeProfile
-                    DiffViewerSheetView(
-                        serverProfile: activeServer,
-                        privateKeyOpenssh: KeychainManager.shared.getPrivateKey()
-                    )
+                    if let activeVM = tabsManager.activeViewModel {
+                        DiffViewerSheetView(viewModel: activeVM)
+                    }
                 case .webPreview:
                     if let activeVM = tabsManager.activeViewModel {
                         WebPreviewSheetView(viewModel: activeVM)

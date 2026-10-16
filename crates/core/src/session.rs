@@ -571,6 +571,18 @@ fi
         self.write_remote_config(&config_path, &merged).await
     }
 
+    /// Git diff (`HEAD`) of the repository the tmux session's pane is working in. The command runs
+    /// in the pane's directory: an exec channel starts in `$HOME`, where `git diff` just prints
+    /// its usage text.
+    pub async fn fetch_git_diff(
+        &self,
+        session_name: String,
+    ) -> Result<crate::gitdiff::GitDiffResult, SshCoreError> {
+        let cmd = crate::gitdiff::build_git_diff_command(&session_name)?;
+        let out = self.execute_command_on_active_session(cmd).await?;
+        Ok(crate::gitdiff::parse_git_diff_output(&out))
+    }
+
     /// Pending approval requests and notices on the host, with the host's clock. An empty list
     /// when the queue is not installed (see `approval_status`).
     pub async fn list_pending_approvals(

@@ -159,3 +159,8 @@
 - **Tests** (units only for the critical logic; the rest integration + e2e): 100 unit, 15 hook-script integration (real script + real `ssh-keygen`, forged/stale/misdirected decisions, FIFOs, floods, permissions), 5 loopback sshd incl. the end-to-end phone approval round trip (install → hook → list → sign → release for allow and deny), 6 probe tests; `approval_queue.rs` 98% line coverage.
 - **Hacker**: `docs/security-findings/2026-10-16-approval-queue-audit.md` (FIFO blocking open, ambiguous digest; both fixed; signature fuzz 0/120 accepted).
 - **Install**: the new script and the trusted key are written by "Review & install" on a profile (re-run it once after updating the app).
+
+### Fix: Git Diff screen showed git usage text
+- **Cause**: the screen ran `git diff HEAD` on a fresh SSH exec channel, which starts in `$HOME`; outside a repository git falls back to `--no-index` and prints its usage text.
+- **Fix**: `fetch_git_diff(session_name)` asks tmux for the pane's current directory and runs `git -C <repo root> diff HEAD` there (`--no-ext-diff --no-textconv`, `core.fsmonitor=false`, 1 MB cap, 20 s host watchdog; repos without a commit show staged changes; untracked files listed). The screen uses the live tab session and shows repo, branch, untracked files and clear states for "not a git repository" / "session not found".
+- **Tests**: 5 unit (marker spoofing, caps, usage text not mistaken for a diff) and a loopback sshd end-to-end test with real git + tmux (changed repo, non-repo, no-commit repo, hostile directory name, missing session).

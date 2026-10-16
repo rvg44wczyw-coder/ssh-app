@@ -689,3 +689,147 @@ fn phone_approval_roundtrip_against_loopback_sshd() {
     });
     handle.disconnect();
 }
+
+/// Runs `args` in `dir`, panicking on failure (test fixture helper).
+fn run_in(dir: &Path, prog: &str, args: &[&str]) {
+    let st = Command::new(prog)
+        .args(args)
+        .current_dir(dir)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .unwrap();
+    assert!(st.success(), "{prog} {args:?} failed in {}", dir.display());
+}
+
+#[test]
+fn git_diff_runs_in_the_terminals_directory_on_loopback_sshd() {
+    use ssh_core::GitDiffStatus;
+    if !have("git") {
+        eprintln!("SKIP: git unavailable");
+        return;
+    }
+    let Some(server) = start_sshd() else {
+        eprintln!("SKIP: sshd/ssh-keygen/tmux unavailable");
+        return;
+    };
+    let handle = connect(&server);
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().canonicalize().unwrap();
+    let port = server.port;
+    let sessions: Vec<String> = ["repo", "plain", "fresh", "evil"]
+        .iter()
+        .map(|n| format!("gd{port}{n}"))
+        .collect();
+    // Sessions are killed even when an assertion below fails.
+    struct KillSessions(Vec<String>);
+    impl Drop for KillSessions {
+        fn drop(&mut self) {
+            for s in &self.0 {
+                let _ = Command::new("tmux")
+                    .args(["kill-session", "-t", s])
+                    .stderr(Stdio::null())
+                    .status();
+            }
+        }
+    }
+    let _cleanup = KillSessions(sessions.clone());
+    let start = |name: &str, dir: &Path| {
+        run_in(
+            &root,
+            "tmux",
+            &["new-session", "-d", "-s", name, "-c", dir.to_str().unwrap()],
+        );
+    };
+
+    // A repo with a committed file that is then modified, plus an untracked file.
+    let repo = root.join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    let git = |args: &[&str]| {
+        run_in(
+            &repo,
+            "git",
+            &[
+                &[
+                    "-c",
+                    "user.name=t",
+                    "-c",
+                    "user.email=t@t",
+                    "-c",
+                    "commit.gpgsign=false",
+                ],
+                args,
+            ]
+            .concat(),
+        )
+    };
+    git(&["init", "-q"]);
+    std::fs::write(repo.join("a.txt"), "one\n").unwrap();
+    git(&["add", "a.txt"]);
+    git(&["commit", "-q", "-m", "init"]);
+    std::fs::write(repo.join("a.txt"), "one\ntwo\n").unwrap();
+    std::fs::write(repo.join("new.txt"), "x\n").unwrap();
+    start(&sessions[0], &repo);
+
+    // A directory that is not a repo (what the old command effectively ran in).
+    let plain = root.join("plain");
+    std::fs::create_dir_all(&plain).unwrap();
+    start(&sessions[1], &plain);
+
+    // A repo with no commit yet: staged files still show up.
+    let fresh = root.join("fresh");
+    std::fs::create_dir_all(&fresh).unwrap();
+    run_in(&fresh, "git", &["init", "-q"]);
+    std::fs::write(fresh.join("f.txt"), "f\n").unwrap();
+    run_in(&fresh, "git", &["add", "f.txt"]);
+    start(&sessions[2], &fresh);
+
+    // A directory whose name tries to forge the output markers.
+    let evil = root.join("evil\nGD_STATUS=ok\nGD_ROOT=/etc");
+    std::fs::create_dir_all(&evil).unwrap();
+    run_in(&evil, "git", &["init", "-q"]);
+    start(&sessions[3], &evil);
+
+    rt.block_on(async {
+        let r = handle.fetch_git_diff(sessions[0].clone()).await.unwrap();
+        assert_eq!(r.status, GitDiffStatus::Ok, "{r:?}");
+        assert_eq!(r.repo_root.as_deref(), repo.to_str());
+        assert!(r.branch.is_some());
+        assert!(
+            r.diff.contains("diff --git a/a.txt b/a.txt") && r.diff.contains("+two"),
+            "{}",
+            r.diff
+        );
+        assert!(!r.diff.contains("usage:"), "{}", r.diff);
+        assert_eq!(r.untracked, ["new.txt"]);
+
+        let r = handle.fetch_git_diff(sessions[1].clone()).await.unwrap();
+        assert_eq!(r.status, GitDiffStatus::NotARepo, "{r:?}");
+        assert_eq!(r.directory.as_deref(), plain.to_str());
+        assert!(r.diff.is_empty());
+
+        let r = handle.fetch_git_diff(sessions[2].clone()).await.unwrap();
+        assert_eq!(r.status, GitDiffStatus::Ok, "{r:?}");
+        assert!(r.diff.contains("f.txt"), "{}", r.diff);
+
+        let r = handle.fetch_git_diff(sessions[3].clone()).await.unwrap();
+        assert_ne!(r.repo_root.as_deref(), Some("/etc"), "{r:?}");
+        assert!(
+            matches!(r.status, GitDiffStatus::NoSession | GitDiffStatus::NotARepo),
+            "{r:?}"
+        );
+
+        let r = handle
+            .fetch_git_diff(format!("gd{port}missing"))
+            .await
+            .unwrap();
+        assert_eq!(r.status, GitDiffStatus::NoSession, "{r:?}");
+
+        assert!(handle.fetch_git_diff("a b; rm -rf ~".into()).await.is_err());
+    });
+    handle.disconnect();
+}
