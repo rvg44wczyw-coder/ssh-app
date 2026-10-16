@@ -18,6 +18,7 @@
 | **M11: Smart Snippets & Fuzzy History Search** | Rust Core snippet catalog & secret-scrubbed history parser, fuzzy search engine, iOS snippets & history sheet | Completed | `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker` |
 | **M12: Remote Host Telemetry & Process Monitor** | CPU/RAM/Disk/Battery/Ollama telemetry collector in Rust Core, process category classifier (`AiAgent`, `DevServer`, `System`), safe process kill (`SIGTERM`/`SIGKILL`), iOS dashboard sheet | Completed | `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker` |
 | **M13: Remote File Browser & Quick Code Viewer** | Tmux-aware directory listing, symlink-safe credential blocklist, 128 KB text preview, `cd` Here / Insert Path, iOS `FileBrowserSheetView` | Completed | `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker` |
+| **M14: Loopback sshd Integration Tests** | End-to-end tests of exec-based `SshSessionHandle` methods (telemetry, file browser incl. symlink/blocklist checks) against a throwaway `sshd` on `127.0.0.1` | Completed | `rust-core-dev`, `rev` |
 
 ---
 
@@ -119,5 +120,9 @@
 - [ ] Confirm M13 on a physical iPhone (install + launch via `make iphone`).
 - [ ] Android UI for M11–M13 (needs an `android-ui-dev` skill; none exists in `.agents/skills/` yet) and a Kotlin bindings refresh.
 - [ ] Hacker findings doc for Feature 04 (Android).
-- [ ] Integration test for the `SshSessionHandle` exec-based methods (telemetry, history, file browser) against a loopback sshd.
+- [x] Integration test for exec-based methods against a loopback sshd (M14: telemetry + file browser; `crates/core/tests/loopback_sshd.rs`). History/transcript methods still uncovered.
 - [ ] Re-verify the per-feature test counts above: Features 07 and 08 both report `cargo test` 40/40; the current suite is 53 tests.
+
+### M14: Loopback sshd Integration Tests
+- **Test**: `crates/core/tests/loopback_sshd.rs` — spawns its own `sshd` (ephemeral host key, `127.0.0.1`, ephemeral port, generated Ed25519 client key), connects `SshSessionHandle`, and exercises `fetch_host_telemetry`, `list_remote_directory` and `read_remote_file_preview` (hidden filter, binary detection, symlink-to-`.ssh` file and directory refused, missing file). Skips with a message if `sshd`/`ssh-keygen`/`tmux` are absent; cleans up sshd and its tmux session.
+- **Status**: `cargo test` (53 unit + 1 integration passed), `cargo clippy --all-targets -D warnings` clean
