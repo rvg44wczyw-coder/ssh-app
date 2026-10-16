@@ -475,6 +475,8 @@ fn strip_container(map: &mut Map<String, Value>, key: &str) {
     if let Some(Value::Object(events)) = map.get_mut(key) {
         for (_, list) in events.iter_mut() {
             if let Value::Array(items) = list {
+                // Antigravity's flat events (Stop, ...) hold handler objects directly.
+                items.retain(|item| !(item.get("hooks").is_none() && is_our_handler(item)));
                 // Only entries that *became* empty because we took our handler out are dropped.
                 let emptied: Vec<bool> = items
                     .iter_mut()
@@ -772,6 +774,11 @@ pub fn merge_planned_hooks(
             .or_insert_with(|| Value::Array(vec![]))
             .as_array_mut()
             .ok_or_else(|| invalid(format!("`{key}.{}` is not an array", h.event)))?;
+        if agent == AgentKind::Antigravity && h.matcher.is_none() {
+            // Events without a matcher are flat in hooks.json: the handler goes in directly.
+            list.push(handler(h.command.clone()));
+            continue;
+        }
         let mut entry = Map::new();
         if let Some(m) = &h.matcher {
             entry.insert("matcher".into(), json!(m));
@@ -785,6 +792,16 @@ pub fn merge_planned_hooks(
 fn entries_from(event: &str, list: &Value, out: &mut Vec<PlannedHook>) {
     let Some(items) = list.as_array() else { return };
     for item in items {
+        if item.get("hooks").is_none() && is_our_handler(item) {
+            if let Some(command) = item.get("command").and_then(Value::as_str) {
+                out.push(PlannedHook {
+                    event: event.to_string(),
+                    matcher: None,
+                    command: command.to_string(),
+                });
+            }
+            continue;
+        }
         let matcher = item
             .get("matcher")
             .and_then(Value::as_str)
@@ -1222,6 +1239,42 @@ mod tests {
             .success();
         assert!(!alive, "hung probe shell {pid} was left running");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn antigravity_flat_events_are_written_read_and_removed_as_flat_handlers() {
+        let a = AgentKind::Antigravity;
+        let existing = r#"{"mine":{"Stop":[{"command":"./mine.sh"}]}}"#;
+        let plan = plan_agent_hooks(a, default_hook_preset(), None).unwrap();
+        let out = merge_planned_hooks(a, existing.into(), plan).unwrap();
+        let v: Value = serde_json::from_str(&out).unwrap();
+        // PreToolUse is grouped with its matcher; Stop is a flat list of handlers.
+        assert_eq!(v["ssh-app"]["PreToolUse"][0]["matcher"], "run_command");
+        assert!(v["ssh-app"]["PreToolUse"][0]["hooks"][0]["command"].is_string());
+        assert!(v["ssh-app"]["Stop"][0].get("hooks").is_none());
+        assert!(v["ssh-app"]["Stop"][0]["command"]
+            .as_str()
+            .unwrap()
+            .contains("Stop"));
+        let events: Vec<_> = installed_hook_entries(a, out.clone())
+            .into_iter()
+            .map(|h| h.event)
+            .collect();
+        assert_eq!(events, ["PreToolUse", "Stop"]);
+        // Reinstall does not stack, removal keeps the user's own flat handler.
+        let plan = plan_agent_hooks(a, default_hook_preset(), None).unwrap();
+        let again = merge_planned_hooks(a, out, plan).unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&again).unwrap()["ssh-app"]["Stop"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        let removed = remove_agent_hooks(a, again).unwrap();
+        let v: Value = serde_json::from_str(&removed).unwrap();
+        assert!(v.get("ssh-app").is_none());
+        assert_eq!(v["mine"]["Stop"][0]["command"], "./mine.sh");
     }
 
     fn approval(kind: HookPresetKind, matcher: &str, events: &[&str]) -> HookPreset {

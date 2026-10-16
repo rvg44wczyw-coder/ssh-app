@@ -83,7 +83,7 @@ All of these, using **its own** copy of the request (never the values in the dec
 3. `ssh-keygen -Y verify -f ~/.ssh-app/allowed_signers -I ssh-app -n ssh-app-approval -s <sigfile>` over the canonical message built from the hook's own `id`, `command_sha256`, `nonce`, and the decision's `ts` and `approved`, exits 0. `<sigfile>` is a `0600` file inside `run/`; the message goes on stdin; the call has a 5 s timeout. Argument values are fixed strings or the validated id – no user text in argv. Before verifying, the hook checks that `allowed_signers` is a regular file owned by the euid with no group/other write (mode ≤ 0644); otherwise no opinion.
 4. An invalid decision is **ignored**: that file is deleted and the hook keeps waiting (checking every file for its id) until its timeout. The first valid decision wins. A file-writer without the phone key can therefore neither release nor deny a request; the hook just keeps waiting (§7).
 
-Result mapping (unchanged from Feature 11): valid + approved → allow; valid + denied → deny; no valid decision before the timeout, or any error → **no opinion** (Claude: no output; Antigravity: `allow` that defers to its policy). `auto_approve` is only emitted after a verified approval.
+Result mapping (unchanged from Feature 11): valid + approved → allow; valid + denied → deny; no valid decision before the timeout, or any error → **no opinion** (Claude: no output; Antigravity: `ask`, which prompts in the terminal). `allow` is only emitted after a verified approval (agy documents `allow` as auto-approve).
 
 ### 4.4 `ctl` subcommands (used by the app over an SSH exec channel)
 

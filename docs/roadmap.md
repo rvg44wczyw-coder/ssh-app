@@ -127,7 +127,7 @@
 - [ ] **Push wake-up for approvals** (APNs via the zero-knowledge Worker, Notification Service Extension, Live Activity; Feature 03 §4–5): until then approvals only reach the phone while the app is in the foreground; after 120 s the agent falls back to its native prompt.
 - [ ] Approval long-poll (streaming exec) instead of 2 s polling; approvals for profiles with a custom hook directory.
 - [ ] Codex (`hooks.json`, trust via `/hooks`) and Grok (`~/.grok/hooks`, fail-open) hook installers; verify the `grok` binary name.
-- [ ] Verify Antigravity `run_command` arg key and hook exit-code semantics on the installed `agy`.
+- [x] Verified Antigravity hooks on the installed `agy` 1.4.0 (docs shipped in `~/.gemini/antigravity-cli/builtin/skills/agy-customizations/docs/hooks.md` plus a live probe): tool `run_command`, arg `CommandLine`, `workspacePaths`; decisions are `allow` / `deny` / `ask` / `force_ask` (`allow` auto-approves; `auto_approve` does not exist); `Stop` (and other matcher-less events) are flat handler lists. Fixed: the no-opinion fallback was `allow` (auto-approved on broker failure) and approvals used the invalid `auto_approve`; `Stop` was written in the grouped form. Exit-code semantics are not needed: the contract is JSON on stdout.
 - [ ] Android UI for M11–M13 (needs an `android-ui-dev` skill; none exists in `.agents/skills/` yet) and a Kotlin bindings refresh.
 - [ ] Hacker findings doc for Feature 04 (Android).
 - [x] Integration test for exec-based methods against a loopback sshd (M14: telemetry + file browser; `crates/core/tests/loopback_sshd.rs`). History/transcript methods still uncovered.

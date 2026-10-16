@@ -239,7 +239,7 @@ fn claude_allow_and_deny_after_a_verified_signature() {
 #[test]
 fn antigravity_approve_and_deny() {
     need_tools!();
-    for (approved, expect) in [(true, "auto_approve"), (false, "deny")] {
+    for (approved, expect) in [(true, "allow"), (false, "deny")] {
         let h = Host::new();
         let hook = h.spawn_hook("antigravity", "PreToolUse", AGY_IN, 20);
         let (item, now) = h.wait_item("approval");
@@ -263,7 +263,7 @@ fn no_decision_defers_to_the_native_policy_and_cleans_up() {
         .spawn_hook("antigravity", "PreToolUse", AGY_IN, 1)
         .finish();
     assert!(
-        out.contains("\"allow\"") && !out.contains("auto_approve"),
+        out.contains("\"ask\"") && !out.contains("allow") && !out.contains("auto_approve"),
         "{out}"
     );
     assert!(std::fs::read_dir(h.pending()).unwrap().next().is_none());

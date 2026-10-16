@@ -24,11 +24,11 @@ The app starts remote commands with `$SHELL -l -c` (login, **non-interactive**):
 |---|---|---|
 | Config file | `<CLAUDE_CONFIG_DIR or ~/.claude>/settings.json` (`hooks` key; merges with project/local/managed levels) | `~/.gemini/config/hooks.json` (top-level key = hook name; also `.agents/hooks.json` per project, `~/.gemini/antigravity-cli/settings.json` CLI-only) |
 | Approval event | `PermissionRequest` (fires only when the agent would prompt; no allowlist needed) | `PreToolUse`, matcher `run_command` (file tools are opt-in: `PreToolUse` fires on every tool call, so matching them would send every edit to the phone) |
-| Passive events | `Notification`, `Stop` | `Stop` |
+| Passive events | `Notification`, `Stop` | `Stop` (flat handler list: matcher-less events hold handler objects directly, no `matcher`/`hooks` wrapper) |
 | stdin | JSON: `tool_name`, `tool_input`, `cwd`, `session_id`, `hook_event_name` | JSON: `toolCall.name/args`, `workspacePaths`, `conversationId` (**no event name** → passed as argv) |
-| Allow | `{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}` | `{"decision":"auto_approve"}` |
+| Allow | `{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}` | `{"decision":"allow"}` (the documented values are `allow`, `deny`, `ask`, `force_ask`; `auto_approve` is not one) |
 | Deny | `decision.behavior = "deny"` + `message` | `{"decision":"deny","reason":...}` |
-| No opinion | print nothing, exit 0 → native prompt | `{"decision":"allow"}` → defers to the default policy (not `ask`, which would add prompts the user's policy suppresses) |
+| No opinion | print nothing, exit 0 → native prompt | `{"decision":"ask"}` → prompts in the terminal (respects "Always Allow"). `allow` must never be used here: per the agy docs it auto-approves. Named tradeoff: `PreToolUse` fires for every `run_command`, so the fallback prompt can appear for commands the user's policy would have allowed silently |
 | Hook failure | non-blocking; exit **2** (not 1) blocks | exit-code semantics not documented → rely on JSON |
 | Timeout | default 600 s | default 30 s |
 

@@ -12,8 +12,8 @@ of the request, and only then prints the agent-specific decision JSON.
 
 Failure policy: if the queue is absent/untrusted, ssh-keygen is missing, nothing valid arrives
 in time, or anything errors, the hook has NO opinion and the agent applies its own native
-policy (Claude: no output; Antigravity: "allow", which defers to the default policy). It never
-force-approves (`auto_approve` only follows a verified phone approval); only a verified phone
+policy (Claude: no output; Antigravity: "ask", which prompts in the terminal; "allow" would auto-approve). It never
+force-approves (`allow` is only printed after a verified phone approval); only a verified phone
 "deny" blocks.
 """
 import hashlib
@@ -301,9 +301,10 @@ def main():
             out = {"hookSpecificOutput": {"hookEventName": "PermissionRequest", "decision": decision}}
         else:
             if approved is None:
-                out = {"decision": "allow", "reason": "ssh-app broker unavailable; deferring to default policy"}
+                # "allow" would auto-approve (agy docs); "ask" hands the decision back to the user.
+                out = {"decision": "ask", "reason": "ssh-app broker unavailable; asking you in the terminal"}
             elif approved:
-                out = {"decision": "auto_approve", "reason": "Approved from ssh-app"}
+                out = {"decision": "allow", "reason": "Approved from ssh-app"}
             else:
                 out = {"decision": "deny", "reason": "Denied from ssh-app on your phone"}
         sys.stdout.write(json.dumps(out))
