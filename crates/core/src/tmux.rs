@@ -39,6 +39,12 @@ pub fn shell_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
 }
 
+/// TrueColor and no alternate screen for xterm clients (SwiftTerm keeps real scrollback). It is a
+/// server-wide tmux option, so it is only appended when missing: a plain `set -a` on every attach
+/// would grow the host's option list with duplicates forever. Written for the single-quoted
+/// script of `build_tmux_attach_or_create_command`, so it must not contain single quotes.
+const TERMINAL_OVERRIDES: &str = r#"tmux show-options -sv terminal-overrides 2>/dev/null | grep -q "xterm\*:Tc" || tmux set -sa terminal-overrides "xterm*:Tc,xterm*:smcup@:rmcup@" 2>/dev/null;"#;
+
 /// Builds the remote command to attach to an existing tmux session or create a new one.
 ///
 /// Execution details:
@@ -68,7 +74,7 @@ pub fn build_tmux_attach_or_create_command(
     // If tmux is installed, configure TrueColor override, capture last 1000 lines of history if available, and attach/create session.
     // If tmux is absent, warn the user in yellow and fallback to a plain login shell.
     let full_command = format!(
-        "exec ${{SHELL:-/bin/zsh}} -l -c 'if command -v tmux >/dev/null 2>&1; then tmux set -g history-limit 10000 2>/dev/null; tmux set -ga terminal-overrides \"xterm*:Tc,xterm*:smcup@:rmcup@\" 2>/dev/null; tmux capture-pane -t {session_name} -e -p -J -S -1000 -E -1 2>/dev/null || true; {escaped_inner}; else printf \"\\033[1;33m[Warning] tmux is not installed on remote host. Falling back to plain login shell.\\033[0m\\r\\n\"; exec ${{SHELL:-/bin/zsh}} -l; fi'"
+        "exec ${{SHELL:-/bin/zsh}} -l -c 'if command -v tmux >/dev/null 2>&1; then tmux set -g history-limit 10000 2>/dev/null; {TERMINAL_OVERRIDES} tmux capture-pane -t {session_name} -e -p -J -S -1000 -E -1 2>/dev/null || true; {escaped_inner}; else printf \"\\033[1;33m[Warning] tmux is not installed on remote host. Falling back to plain login shell.\\033[0m\\r\\n\"; exec ${{SHELL:-/bin/zsh}} -l; fi'"
     );
 
     Ok(full_command)
@@ -171,7 +177,7 @@ mod tests {
             build_tmux_attach_or_create_command("claude-code", None).expect("Valid session name");
         assert!(cmd.contains("tmux new-session -A -s claude-code"));
         assert!(cmd.contains("${SHELL:-/bin/zsh} -l -c"));
-        assert!(cmd.contains("terminal-overrides \"xterm*:Tc,xterm*:smcup@:rmcup@\""));
+        assert!(cmd.contains("set -sa terminal-overrides \"xterm*:Tc,xterm*:smcup@:rmcup@\""));
         assert!(cmd.contains("capture-pane -t claude-code -e -p -J -S -1000 -E -1"));
     }
 
@@ -215,5 +221,37 @@ term-3|3|0|1728001000
     fn test_build_kill_session_command() {
         assert!(build_tmux_kill_session_command("term-1").is_ok());
         assert!(build_tmux_kill_session_command("term; rm -rf /").is_err());
+    }
+
+    #[test]
+    fn terminal_overrides_are_appended_only_once() {
+        assert!(!TERMINAL_OVERRIDES.contains('\''));
+        if std::process::Command::new("tmux")
+            .arg("-V")
+            .output()
+            .is_err()
+        {
+            eprintln!("SKIP: tmux unavailable");
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let sock = dir.path().join("sock");
+        let run = |script: &str| {
+            let out = std::process::Command::new("sh")
+                .args([
+                    "-c",
+                    &script.replace("tmux ", &format!("tmux -S {} ", sock.display())),
+                ])
+                .output()
+                .unwrap();
+            String::from_utf8_lossy(&out.stdout).to_string()
+        };
+        run("tmux new-session -d -s probe");
+        for _ in 0..3 {
+            run(TERMINAL_OVERRIDES);
+        }
+        let shown = run("tmux show-options -sv terminal-overrides");
+        run("tmux kill-server");
+        assert_eq!(shown.matches("xterm*:Tc").count(), 1, "{shown}");
     }
 }

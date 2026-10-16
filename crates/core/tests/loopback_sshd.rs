@@ -1251,3 +1251,62 @@ fn transcript_detection_runs_through_the_login_shell_with_its_argument() {
     let _ = std::fs::remove_dir_all(&root);
     handle.disconnect();
 }
+
+#[test]
+fn port_forward_proxies_through_ssh_and_releases_its_slots() {
+    use std::io::{Read, Write};
+    let Some(server) = start_sshd() else {
+        eprintln!("SKIP: sshd/ssh-keygen/tmux unavailable");
+        return;
+    };
+    let handle = connect(&server);
+    // A tiny echo server standing in for a dev server on the host.
+    let echo = TcpListener::bind("127.0.0.1:0").unwrap();
+    let echo_port = echo.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        for stream in echo.incoming() {
+            let Ok(mut s) = stream else { break };
+            std::thread::spawn(move || {
+                let mut buf = [0u8; 256];
+                while let Ok(n) = s.read(&mut buf) {
+                    if n == 0 || s.write_all(&buf[..n]).is_err() {
+                        break;
+                    }
+                }
+            });
+        }
+    });
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    rt.block_on(async {
+        let fwd = handle.start_port_forward(echo_port, None).await.unwrap();
+        assert_eq!(fwd.get_remote_port(), echo_port);
+        let local = fwd.get_local_port();
+        assert_ne!(local, 0);
+        let reply = tokio::task::spawn_blocking(move || {
+            let mut c = std::net::TcpStream::connect(("127.0.0.1", local)).unwrap();
+            c.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+            c.write_all(b"ping-through-ssh").unwrap();
+            let mut buf = [0u8; 64];
+            let n = c.read(&mut buf).unwrap();
+            buf[..n].to_vec()
+        })
+        .await
+        .unwrap();
+        assert_eq!(reply, b"ping-through-ssh");
+        // The connection is closed again, so its slot is free (guards against counter leaks).
+        for _ in 0..40 {
+            if fwd.get_active_connections() == 0 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert_eq!(fwd.get_active_connections(), 0);
+        assert_eq!(handle.get_active_port_forwards().len(), 1);
+        handle.stop_all_port_forwards();
+        assert!(!fwd.is_active());
+    });
+    handle.disconnect();
+}

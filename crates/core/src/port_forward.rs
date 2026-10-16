@@ -150,6 +150,22 @@ pub async fn pump_tcp_and_ssh(
     Ok(())
 }
 
+/// One of the (at most 32) live proxied connections; released on drop.
+struct ConnectionSlot(Arc<AtomicUsize>);
+
+impl ConnectionSlot {
+    fn take(counter: &Arc<AtomicUsize>) -> Self {
+        counter.fetch_add(1, Ordering::SeqCst);
+        Self(Arc::clone(counter))
+    }
+}
+
+impl Drop for ConnectionSlot {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
 /// Spawns a local loopback listener on 127.0.0.1 and proxies incoming connections to the remote host over SSH.
 pub(crate) async fn start_port_forward_listener(
     ssh_handle: Arc<tokio::sync::Mutex<Option<crate::transport::ClientHandle>>>,
@@ -220,19 +236,21 @@ pub(crate) async fn start_port_forward_listener(
 
                             let ssh = Arc::clone(&ssh_handle);
                             let rem_host = target_host.clone();
-                            let active_counter = Arc::clone(&active_conn_clone);
+                            // Counted before the task starts (a burst cannot overshoot the cap)
+                            // and released on every exit path, including a panic.
+                            let _slot = ConnectionSlot::take(&active_conn_clone);
 
                             tokio::spawn(async move {
-                                active_counter.fetch_add(1, Ordering::SeqCst);
-                                let peer_port = peer_addr.port() as u32;
+                                let _slot = _slot;
+                                let peer_port = u32::from(peer_addr.port());
 
                                 let channel_res: Result<russh::Channel<russh::client::Msg>, SshCoreError> = {
-                                    let mut lock = ssh.lock().await;
-                                    match lock.as_mut() {
+                                    let lock = ssh.lock().await;
+                                    match lock.as_ref() {
                                         Some(client) => client
                                             .channel_open_direct_tcpip(
                                                 &rem_host,
-                                                remote_port as u32,
+                                                u32::from(remote_port),
                                                 "127.0.0.1",
                                                 peer_port,
                                             )
@@ -255,7 +273,6 @@ pub(crate) async fn start_port_forward_listener(
                                         );
                                     }
                                 }
-                                active_counter.fetch_sub(1, Ordering::SeqCst);
                             });
                         }
                         Err(e) => {

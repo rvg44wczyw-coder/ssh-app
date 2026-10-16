@@ -9,6 +9,7 @@ pub mod config;
 pub mod error;
 pub mod file_browser;
 pub mod gitdiff;
+pub(crate) mod host_api;
 pub(crate) mod hostprobe;
 pub mod keys;
 pub mod permissions;
