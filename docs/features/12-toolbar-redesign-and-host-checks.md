@@ -137,3 +137,10 @@ Results from an older check never overwrite a newer one (each check carries a to
 - Android panel/popup/Ollama check (no `android-ui-dev` skill yet).
 - Switching a running tab's server from the title is out of scope (reconnect risk).
 - A "pin" option to keep one or two favorite actions next to "More" is deliberately not part of this change (the request is to hide all of them behind the button); revisit after use.
+
+## Addendum: customizable quick menu (M18)
+
+- The popover has an **Edit** mode (a "Customize menu" link when nothing is hidden; an "N hidden / Edit" header otherwise). In edit mode every tile is a toggle (eye / eye-slash badge, hidden tiles dimmed) and nothing runs; "Show all" resets; **Settings is locked** (`AppAction.canHide`) so the way back always exists.
+- Persistence: `@AppStorage("hidden_quick_actions")`, comma-separated action ids (`QuickMenuPrefs`). Unknown ids from another app version are ignored, non-hideable ones are dropped. Hiding is per device, applies to all tabs and servers, and only affects the menu (the features stay reachable, e.g. Files from the terminal flow).
+- Accessibility: in edit mode VoiceOver reads "<title>, shown/hidden" and "Double tap to show/hide this tile"; hardware keyboard Return/Space toggles.
+- Test: `QuickMenuPrefs` round trip, ignoring unknown ids and the Settings lock were checked with a standalone `swiftc` script (the iOS project has no test target); the layout itself is not checked on a device.

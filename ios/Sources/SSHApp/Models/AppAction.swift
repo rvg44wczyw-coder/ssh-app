@@ -104,3 +104,30 @@ public enum AppAction: String, CaseIterable, Identifiable, Sendable {
         }
     }
 }
+
+extension AppAction {
+    /// Settings is the way back to everything else, so it can never be hidden.
+    public var canHide: Bool { self != .settings }
+}
+
+/// Which quick-menu tiles the user hid, persisted as a comma-separated list of action ids
+/// (`@AppStorage("hidden_quick_actions")`). Unknown ids (from another app version) are ignored
+/// and kept out of the result, and non-hideable actions can never end up in the set.
+public enum QuickMenuPrefs {
+    public static let storageKey = "hidden_quick_actions"
+
+    public static func hidden(from raw: String) -> Set<AppAction> {
+        Set(raw.split(separator: ",").compactMap { AppAction(rawValue: String($0)) }.filter(\.canHide))
+    }
+
+    public static func raw(from hidden: Set<AppAction>) -> String {
+        AppAction.allCases.filter { hidden.contains($0) && $0.canHide }.map(\.rawValue).joined(separator: ",")
+    }
+
+    public static func toggled(_ action: AppAction, in raw: String) -> String {
+        guard action.canHide else { return raw }
+        var set = hidden(from: raw)
+        if set.contains(action) { set.remove(action) } else { set.insert(action) }
+        return Self.raw(from: set)
+    }
+}

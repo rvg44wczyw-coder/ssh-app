@@ -9,6 +9,8 @@ struct ActionPanelView: View {
     let onSelect: (AppAction) -> Void
 
     @Environment(\.dynamicTypeSize) private var typeSize
+    @AppStorage(QuickMenuPrefs.storageKey) private var hiddenRaw: String = ""
+    @State private var editing = false
     @State private var hintAction: AppAction? = nil
     @State private var hintToken = 0
 
@@ -19,16 +21,39 @@ struct ActionPanelView: View {
 
     var body: some View {
         VStack(spacing: 12) {
+            if editing || !hidden.isEmpty {
+                HStack {
+                    Text(editing ? "Tap a tile to show or hide it" : "\(hidden.count) hidden")
+                        .font(.caption).foregroundColor(.secondary)
+                    Spacer()
+                    if editing, !hidden.isEmpty {
+                        Button("Show all") { hiddenRaw = "" }.font(.caption)
+                    }
+                    Button(editing ? "Done" : "Edit") { withAnimation { editing.toggle() } }
+                        .font(.caption.bold())
+                }
+            }
             LazyVGrid(columns: columns, spacing: 14) {
-                ForEach(AppAction.allCases) { action in
+                ForEach(editing ? AppAction.allCases : AppAction.allCases.filter { !hidden.contains($0) }) { action in
                     tile(action)
                 }
             }
-            hintArea
+            if editing {
+                Text("Settings always stays, so you can get everything back.")
+                    .font(.caption2).foregroundColor(.secondary)
+            } else {
+                hintArea
+                if hidden.isEmpty {
+                    Button("Customize menu") { withAnimation { editing = true } }
+                        .font(.caption2)
+                }
+            }
         }
         .padding(16)
         .frame(minWidth: 300, idealWidth: 340)
     }
+
+    private var hidden: Set<AppAction> { QuickMenuPrefs.hidden(from: hiddenRaw) }
 
     private func enabled(_ action: AppAction) -> Bool {
         !action.requiresConnection || isConnected
@@ -36,7 +61,9 @@ struct ActionPanelView: View {
 
     @ViewBuilder
     private func tile(_ action: AppAction) -> some View {
-        let isEnabled = enabled(action)
+        let isHidden = hidden.contains(action)
+        // While customizing every tile is a toggle, never an action.
+        let isEnabled = editing ? action.canHide : enabled(action)
         let title = action.title(isChatMode: isChatMode)
         VStack(spacing: 6) {
             ZStack {
@@ -46,6 +73,16 @@ struct ActionPanelView: View {
                     .foregroundColor(isEnabled ? action.tint : .secondary)
             }
             .frame(width: 48, height: 48)
+            .overlay(alignment: .topTrailing) {
+                if editing {
+                    Image(systemName: !action.canHide ? "lock.fill" : (isHidden ? "eye.slash.fill" : "eye.fill"))
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(.white)
+                        .padding(4)
+                        .background(Circle().fill(isHidden ? Color.gray : Color.accentColor))
+                        .offset(x: 6, y: -4)
+                }
+            }
             Text(title)
                 .font(.caption)
                 .multilineTextAlignment(.center)
@@ -53,9 +90,12 @@ struct ActionPanelView: View {
                 .foregroundColor(isEnabled ? .primary : .secondary)
         }
         .frame(maxWidth: .infinity)
+        .opacity(editing && isHidden ? 0.4 : 1)
         .contentShape(Rectangle())
         .onTapGesture {
-            if isEnabled {
+            if editing {
+                if action.canHide { hiddenRaw = QuickMenuPrefs.toggled(action, in: hiddenRaw) }
+            } else if isEnabled {
                 onSelect(action)
             } else {
                 show(hint: action)
@@ -69,8 +109,8 @@ struct ActionPanelView: View {
         .onKeyPress(.return) { activate(action, isEnabled: isEnabled) }
         .onKeyPress(.space) { activate(action, isEnabled: isEnabled) }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(title)
-        .accessibilityHint(isEnabled ? action.hint : "Connect to a host first. " + action.hint)
+        .accessibilityLabel(editing ? "\(title), \(isHidden ? "hidden" : "shown")" : title)
+        .accessibilityHint(editing ? (action.canHide ? "Double tap to \(isHidden ? "show" : "hide") this tile" : "Always shown") : isEnabled ? action.hint : "Connect to a host first. " + action.hint)
         .accessibilityAddTraits(.isButton)
     }
 
@@ -96,7 +136,9 @@ struct ActionPanelView: View {
     }
 
     private func activate(_ action: AppAction, isEnabled: Bool) -> KeyPress.Result {
-        if isEnabled { onSelect(action) } else { show(hint: action) }
+        if editing {
+            if action.canHide { hiddenRaw = QuickMenuPrefs.toggled(action, in: hiddenRaw) }
+        } else if isEnabled { onSelect(action) } else { show(hint: action) }
         return .handled
     }
 
