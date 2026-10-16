@@ -557,6 +557,7 @@ fi
             ""
         };
         if uses_script {
+            self.install_approval_key().await?;
             self.execute_command_on_active_session(format!(
             "umask 077; if [ ! -d {dir_expr} ]; then mkdir -p {dir_expr} && chmod 700 {dir_expr}; fi; {lock_default_parent}{}",
             crate::agents::build_write_file_command(
@@ -568,6 +569,90 @@ fi
             .await?;
         }
         self.write_remote_config(&config_path, &merged).await
+    }
+
+    /// Pending approval requests and notices on the host, with the host's clock. An empty list
+    /// when the queue is not installed (see `approval_status`).
+    pub async fn list_pending_approvals(
+        &self,
+    ) -> Result<crate::approval_queue::ApprovalList, SshCoreError> {
+        use crate::approval_queue::{build_ctl_command, parse_approval_list, CtlSubcommand};
+        let out = self
+            .execute_command_on_active_session(build_ctl_command(CtlSubcommand::List))
+            .await?;
+        Ok(parse_approval_list(&out))
+    }
+
+    /// Signs and submits the user's decision for request `id`. The signature covers the host's
+    /// own id/hash/nonce and the host clock, so the host only honours it for that exact request.
+    pub async fn submit_approval_decision(
+        &self,
+        id: String,
+        approved: bool,
+    ) -> Result<(), SshCoreError> {
+        use crate::approval_queue::{build_decide_command, parse_ctl_result, sign_approval_sshsig};
+        let list = self.list_pending_approvals().await?;
+        let item = list
+            .items
+            .iter()
+            .find(|i| i.id == id && i.kind == "approval")
+            .filter(|i| i.expires_sec > list.host_time_sec)
+            .ok_or_else(|| SshCoreError::ApprovalVerificationError {
+                reason: "the request is gone or has expired".to_string(),
+            })?;
+        let ts = list.host_time_sec.max(item.timestamp_sec);
+        let message = crate::approval::create_canonical_signing_bytes(
+            item.id.clone(),
+            item.command_sha256.clone(),
+            item.nonce.clone(),
+            ts,
+            approved,
+        );
+        let key = zeroize::Zeroizing::new(self.config.read().unwrap().private_key_pem.clone());
+        let signature = sign_approval_sshsig((*key).clone(), message)?;
+        let out = self
+            .execute_command_on_active_session(build_decide_command(
+                &item.id, approved, ts, &signature,
+            )?)
+            .await?;
+        parse_ctl_result(&out)
+    }
+
+    /// Dismisses an informational notice on the host.
+    pub async fn acknowledge_notification(&self, id: String) -> Result<(), SshCoreError> {
+        let cmd = crate::approval_queue::build_ack_command(&id)?;
+        let out = self.execute_command_on_active_session(cmd).await?;
+        crate::approval_queue::parse_ctl_result(&out)
+    }
+
+    /// Creates the host queue directories and trusts this device's key for approvals.
+    pub async fn install_approval_key(&self) -> Result<(), SshCoreError> {
+        let key = zeroize::Zeroizing::new(self.config.read().unwrap().private_key_pem.clone());
+        let public = crate::keys::derive_public_key((*key).clone())?;
+        let line = crate::approval_queue::allowed_signers_line(&public)?;
+        let out = self
+            .execute_command_on_active_session(crate::approval_queue::build_install_key_command(
+                &line,
+            ))
+            .await?;
+        if out.trim() == "ok" {
+            Ok(())
+        } else {
+            Err(SshCoreError::IoError {
+                reason: "could not set up the approval queue on the host".to_string(),
+            })
+        }
+    }
+
+    /// Whether the host can verify phone approvals (OpenSSH `ssh-keygen`, trusted key installed).
+    pub async fn approval_status(
+        &self,
+    ) -> Result<crate::approval_queue::ApprovalStatus, SshCoreError> {
+        use crate::approval_queue::{build_ctl_command, parse_ctl_status, CtlSubcommand};
+        let out = self
+            .execute_command_on_active_session(build_ctl_command(CtlSubcommand::Status))
+            .await?;
+        Ok(parse_ctl_status(&out))
     }
 
     /// Removes only the ssh-app hook entries from the agent's config (the script is left in place).

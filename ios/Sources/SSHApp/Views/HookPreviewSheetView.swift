@@ -48,6 +48,15 @@ struct HookPreviewSheetView: View {
                     }
                 }
                 if usesScript {
+                    Section(
+                        header: Text("Also written on the host"),
+                        footer: Text("Phone approvals are verified on the host: only decisions signed by this device's key are honoured. The key is public; no secret leaves this device.")
+                    ) {
+                        Text("~/.ssh-app/allowed_signers: this device's public key, valid only for approval signatures")
+                            .font(.system(size: 11, design: .monospaced))
+                        Text("~/.ssh-app/run/: private (0700) queue folders for pending requests")
+                            .font(.system(size: 11, design: .monospaced))
+                    }
                     Section {
                         DisclosureGroup("Hook script (~/.ssh-app/bin/ssh-app-hook)", isExpanded: $showScript) {
                             Text(agentHookScript()).font(.system(size: 10, design: .monospaced)).textSelection(.enabled)

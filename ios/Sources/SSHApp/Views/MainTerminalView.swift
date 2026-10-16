@@ -32,7 +32,7 @@ public struct MainTerminalView: View {
     @State private var showPublicKeyBanner: Bool = true
     @State private var copiedKeyNotification: Bool = false
     @State private var activePublicKey: String? = nil
-    @State private var pendingApproval: AgentApprovalRequest? = nil
+    @StateObject private var approvals = ApprovalsCenter()
 
     @State private var showServerPicker: Bool = false
     @State private var showActionPanel: Bool = false
@@ -136,14 +136,19 @@ public struct MainTerminalView: View {
 
                 Divider()
 
-                if let approval = pendingApproval {
+                ForEach(approvals.notices) { notice in
+                    ApprovalNoticeView(entry: notice) {
+                        Task { await approvals.dismiss(notice) }
+                    }
+                }
+                if let approval = approvals.current {
                     ApprovalBannerView(
-                        request: approval,
-                        onApprove: { req in
-                            handleApprove(req)
-                        },
-                        onDeny: { req in
-                            handleDeny(req)
+                        entry: approval,
+                        queuedBehind: approvals.queuedBehindCurrent,
+                        isBusy: approvals.busyIds.contains(approval.id),
+                        errorMessage: approvals.errors[approval.id],
+                        onDecision: { approved in
+                            Task { await approvals.decide(approval, approved: approved) }
                         }
                     )
                 }
@@ -327,6 +332,7 @@ public struct MainTerminalView: View {
                 fflush(stdout)
                 ensureSessionStarted(for: tabsManager.selectedSessionId)
                 checkStartupServersIfMultiple()
+                startApprovalPolling()
             }
             .onChange(of: scenePhase) { _, newPhase in
                 handleScenePhaseChange(newPhase)
@@ -495,37 +501,35 @@ public struct MainTerminalView: View {
 
     // MARK: - Zero Battery Drain Lifecycle Handling
 
+    private func startApprovalPolling() {
+        approvals.start {
+            tabsManager.sessions.compactMap { session in
+                guard let vm = tabsManager.viewModel(for: session.id) else { return nil }
+                let server = serversManager.profile(for: session.serverId) ?? serversManager.activeProfile
+                return ApprovalPollTarget(
+                    serverKey: server?.id.uuidString ?? "default",
+                    serverName: server?.name ?? "Host",
+                    viewModel: vm
+                )
+            }
+        }
+    }
+
     private func handleScenePhaseChange(_ phase: ScenePhase) {
         switch phase {
         case .background:
             // Zero Battery Drain: gracefully close all TCP sockets immediately
             // tmux maintains long-running agent tasks on the MacBook.
+            approvals.stop()
             tabsManager.disconnectAllForBackground()
         case .active:
             // Fast resume: instantaneously reconnect socket and re-attach to active tmux session
             tabsManager.reconnectActiveOnForeground()
+            startApprovalPolling()
         case .inactive:
             break
         @unknown default:
             break
-        }
-    }
-
-    private func handleApprove(_ req: AgentApprovalRequest) {
-        if let vm = tabsManager.activeViewModel {
-            vm.sendInput(Data([0x79, 0x0D]))
-        }
-        withAnimation {
-            self.pendingApproval = nil
-        }
-    }
-
-    private func handleDeny(_ req: AgentApprovalRequest) {
-        if let vm = tabsManager.activeViewModel {
-            vm.sendInput(Data([0x03]))
-        }
-        withAnimation {
-            self.pendingApproval = nil
         }
     }
 }

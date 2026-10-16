@@ -22,6 +22,7 @@ impl SshSessionCallback for Noop {
 
 struct Sshd {
     child: Child,
+    home: PathBuf,
     port: u16,
     private_key: String,
     _dir: tempfile::TempDir,
@@ -81,16 +82,20 @@ fn start_sshd() -> Option<Sshd> {
         .local_addr()
         .ok()?
         .port();
+    // Sessions get a private HOME so installs never touch the developer's real ~/.ssh-app.
+    let home = dir.path().join("home");
+    std::fs::create_dir_all(&home).ok()?;
     let cfg = dir.path().join("sshd_config");
     std::fs::write(
         &cfg,
         format!(
             "Port {port}\nListenAddress 127.0.0.1\nHostKey {}\nAuthorizedKeysFile {}\n\
              PidFile {}\nUsePAM no\nStrictModes no\nPubkeyAuthentication yes\n\
-             PasswordAuthentication no\nKbdInteractiveAuthentication no\n",
+             PasswordAuthentication no\nKbdInteractiveAuthentication no\nSetEnv HOME={}\n",
             host_key.display(),
             authorized.display(),
-            dir.path().join("sshd.pid").display()
+            dir.path().join("sshd.pid").display(),
+            home.display()
         ),
     )
     .ok()?;
@@ -107,6 +112,7 @@ fn start_sshd() -> Option<Sshd> {
         if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
             return Some(Sshd {
                 child,
+                home,
                 port,
                 private_key: keys.private_key_openssh,
                 _dir: dir,
@@ -438,7 +444,7 @@ fn launch_command_executes_with_literal_env_on_loopback_sshd() {
             .execute_command_on_active_session(format!("( {cmd} ) </dev/null"))
             .await
             .unwrap();
-        let home = std::env::var("HOME").unwrap();
+        let home = server.home.display();
         assert_eq!(out.trim(), format!("{home}/.claude-personal"));
 
         // A hostile value is passed literally: nothing is executed or expanded.
@@ -584,6 +590,102 @@ fn hook_presets_preview_and_custom_install_against_loopback_sshd() {
             .await
             .unwrap();
         assert!(!Path::new("/tmp/ssh-app-pwned-preset").exists());
+    });
+    handle.disconnect();
+}
+
+#[test]
+fn phone_approval_roundtrip_against_loopback_sshd() {
+    use ssh_core::{default_hook_preset, AgentKind};
+    if !have("python3") {
+        eprintln!("SKIP: python3 unavailable");
+        return;
+    }
+    let Some(server) = start_sshd() else {
+        eprintln!("SKIP: sshd/ssh-keygen/tmux unavailable");
+        return;
+    };
+    let handle = connect(&server);
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let cfg_dir = tmp.path().canonicalize().unwrap().join("claude");
+    std::fs::create_dir_all(&cfg_dir).unwrap();
+    let cfg = Some(cfg_dir.to_str().unwrap().to_string());
+    let hook = server.home.join(".ssh-app/bin/ssh-app-hook");
+
+    rt.block_on(async {
+        // Before installation the queue does not exist: no items, status says why.
+        assert!(handle.list_pending_approvals().await.unwrap().items.is_empty());
+        let st = handle.approval_status().await.unwrap();
+        assert!(!st.allowed_signers);
+
+        // Installing the default (PhoneApproval) preset writes the script and trusts our key.
+        handle
+            .install_agent_hooks_with_preset(
+                AgentKind::ClaudeCode,
+                cfg.clone(),
+                None,
+                default_hook_preset(),
+            )
+            .await
+            .unwrap();
+        assert!(hook.exists());
+        let st = handle.approval_status().await.unwrap();
+        assert!(st.ssh_keygen && st.allowed_signers, "{st:?}");
+
+        for (approved, expect) in [(true, "allow"), (false, "deny")] {
+            let mut child = Command::new("python3")
+                .arg("-I")
+                .arg(&hook)
+                .args(["claude", "PermissionRequest"])
+                .env("SSH_APP_HOME", server.home.join(".ssh-app"))
+                .env("SSH_APP_HOOK_TIMEOUT", "30")
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap();
+            {
+                use std::io::Write;
+                let mut stdin = child.stdin.take().unwrap();
+                stdin
+                    .write_all(
+                        br#"{"tool_name":"Bash","tool_input":{"command":"git push"},"cwd":"/w","session_id":"s"}"#,
+                    )
+                    .unwrap();
+            }
+            // The phone sees it...
+            let deadline = Instant::now() + Duration::from_secs(10);
+            let item = loop {
+                let l = handle.list_pending_approvals().await.unwrap();
+                if let Some(i) = l.items.into_iter().find(|i| i.kind == "approval") {
+                    break i;
+                }
+                assert!(Instant::now() < deadline, "request never showed up");
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            };
+            assert_eq!((item.command.as_str(), item.tool.as_str()), ("git push", "Bash"));
+            // ...and its signed decision releases the hook.
+            handle
+                .submit_approval_decision(item.id.clone(), approved)
+                .await
+                .unwrap();
+            let out = child.wait_with_output().unwrap();
+            let text = String::from_utf8_lossy(&out.stdout);
+            assert!(text.contains(expect), "{text}");
+            assert!(handle.list_pending_approvals().await.unwrap().items.is_empty());
+        }
+
+        // A request that is gone yields a typed error, not a hang.
+        let err = handle
+            .submit_approval_decision("0".repeat(32), true)
+            .await
+            .unwrap_err();
+        assert!(format!("{err}").contains("gone or has expired"), "{err}");
+        assert!(handle.submit_approval_decision("../x".into(), true).await.is_err());
     });
     handle.disconnect();
 }

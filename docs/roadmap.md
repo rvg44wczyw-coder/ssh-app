@@ -21,6 +21,7 @@
 | **M14: Loopback sshd Integration Tests** | End-to-end tests of exec-based `SshSessionHandle` methods (telemetry, file browser incl. symlink/blocklist checks) against a throwaway `sshd` on `127.0.0.1` | Completed | `rust-core-dev`, `rev` |
 | **M15: Agent Hooks & Launch Profiles** | Approval/notification hooks for Claude Code (`PermissionRequest`) and Antigravity (`PreToolUse`), idempotent installer, auto-start launch profiles (work/personal `CLAUDE_CONFIG_DIR`), optional `~/.zshrc` loading + host binary check, hook presets (phone approval / notify only / custom command) with in-app preview of installed vs planned entries, iOS profile & hooks UI | Completed | `doc-dev`, `rev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker` |
 | **M16: Toolbar Redesign, Server Popup & Host Ollama Check** | One "More" button opening a labeled action panel with long-press hints (replaces 9 toolbar icons and the system overflow), server picker popup (startup, new tab, tmux sheet), host Ollama check (installed / running / models) driving the AI assistant, shared host-probe watchdog | Completed (iOS) | `doc-dev`, `rev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker` |
+| **M17: Host Approval Queue & Phone Approvals** | Hook-as-broker file queue under `~/.ssh-app/run` (no daemon, no listening socket), SSHSIG-signed Approve/Deny verified on the host with `ssh-keygen -Y verify`, `ctl list/decide/ack/status`, foreground approval card with host-clock countdown in the app, install of the trusted key, approval status in the profiles sheet | Completed (Rust + iOS; live phone test pending) | `doc-dev`, `rev`, `rust-core-dev`, `rev`, `swift-bridge-dev`, `rev`, `ios-ui-dev`, `rev`, `hacker` |
 
 ---
 
@@ -121,7 +122,9 @@
 
 - [ ] Confirm M13 on a physical iPhone (install + launch via `make iphone`).
 - [ ] **Hook install lost-update window**: install is read → merge → atomic write; compare a content hash on the host before `mv` (audit `2026-10-16-agent-hooks-presets-audit.md` item 6).
-- [ ] **Host approval broker (`ssh-app-ctl`, `control.sock`)**: specified in Feature 03 but not implemented; until it exists the M15 hooks always defer to the agents' native prompts, so no phone approvals happen yet. Implement, with Ed25519 signature verification and `0600` socket.
+- [x] **Host approval queue** (Feature 13 / M17, replaces the `control.sock` broker design): phone approvals work while the app is open.
+- [ ] **Push wake-up for approvals** (APNs via the zero-knowledge Worker, Notification Service Extension, Live Activity; Feature 03 §4–5): until then approvals only reach the phone while the app is in the foreground; after 120 s the agent falls back to its native prompt.
+- [ ] Approval long-poll (streaming exec) instead of 2 s polling; approvals for profiles with a custom hook directory.
 - [ ] Codex (`hooks.json`, trust via `/hooks`) and Grok (`~/.grok/hooks`, fail-open) hook installers; verify the `grok` binary name.
 - [ ] Verify Antigravity `run_command` arg key and hook exit-code semantics on the installed `agy`.
 - [ ] Android UI for M11–M13 (needs an `android-ui-dev` skill; none exists in `.agents/skills/` yet) and a Kotlin bindings refresh.
@@ -149,3 +152,10 @@
 - **Researched, not implemented**: Codex and Grok hooks (see backlog).
 - **Hacker Gate**: Completed twice: `docs/security-findings/2026-10-16-agent-hooks-audit.md` (1 Medium + 4 Low, fixed) and `docs/security-findings/2026-10-16-agent-hooks-presets-audit.md` (rc/probe/presets: 1 Medium + 6 Low/Info, all fixed and re-verified live except the documented read→write window)
 - **Status**: `cargo test` (82 unit + 8 hook-script + 4 loopback sshd passed), `clippy --all-targets -D warnings` clean, `xcodebuild` (**BUILD SUCCEEDED**, device target). Not yet exercised on a physical iPhone or against a real `claude`/`agy` hook invocation.
+
+### Feature 13 / M17: Host Approval Queue & Phone Approvals
+- **Doc**: `docs/features/13-host-approval-broker.md` (supersedes the `control.sock` broker of Feature 03 §3 and the socket protocol of Feature 11 §4).
+- **Scope**: `ssh-app-hook` is its own broker: a request is a `0600` file in `~/.ssh-app/run/pending`, the phone answers with an SSHSIG over `SSH_APP_APPROVAL_V1:{id}:{hash}:{nonce}:{host ts}:{approved}`, and the hook verifies it with `ssh-keygen -Y verify` against `~/.ssh-app/allowed_signers` using its own copy of the request. `ctl list|decide|ack|status` for the app; core: `list_pending_approvals`, `submit_approval_decision`, `acknowledge_notification`, `install_approval_key`, `approval_status`, `sign_approval_sshsig`; iOS: `ApprovalsCenter` (foreground polling per server), approval card with countdown, notices, profile status row.
+- **Tests** (units only for the critical logic; the rest integration + e2e): 100 unit, 15 hook-script integration (real script + real `ssh-keygen`, forged/stale/misdirected decisions, FIFOs, floods, permissions), 5 loopback sshd incl. the end-to-end phone approval round trip (install → hook → list → sign → release for allow and deny), 6 probe tests; `approval_queue.rs` 98% line coverage.
+- **Hacker**: `docs/security-findings/2026-10-16-approval-queue-audit.md` (FIFO blocking open, ambiguous digest; both fixed; signature fuzz 0/120 accepted).
+- **Install**: the new script and the trusted key are written by "Review & install" on a profile (re-run it once after updating the app).

@@ -3,6 +3,7 @@ uniffi::setup_scaffolding!();
 pub mod agents;
 pub mod ai;
 pub mod approval;
+pub mod approval_queue;
 pub mod buffer;
 pub mod config;
 pub mod error;
@@ -34,6 +35,9 @@ pub use ai::{
 pub use approval::{
     create_canonical_signing_bytes, hash_command_sha256, verify_approval_freshness,
     verify_approval_signature, CanonicalSigningPayload,
+};
+pub use approval_queue::{
+    approval_request_digest, sign_approval_sshsig, ApprovalList, ApprovalStatus, PendingApproval,
 };
 pub use config::{RemoteServerConfig, SessionConfig, SessionState, TerminalSize};
 pub use error::{SshCoreError, TranscriptError};

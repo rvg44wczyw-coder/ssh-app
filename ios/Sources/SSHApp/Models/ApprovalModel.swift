@@ -1,47 +1,37 @@
 import Foundation
 import SshCoreBridge
 
-public struct AgentApprovalRequest: Identifiable, Equatable, Sendable, Codable {
+/// One request or notice from a host's approval queue, with what is needed to show a countdown
+/// on the host's clock (the phone clock is never trusted for expiry).
+public struct ApprovalEntry: Identifiable, Sendable {
+    /// `<server key>/<request id>`: the same id can in theory exist on two hosts.
     public let id: String
-    public let agentName: String
-    public let command: String
-    public let cwd: String
-    public let timestampSec: UInt64
-    public let nonce: String
-    public let commandHashSha256: String
+    public let serverKey: String
+    public let serverName: String
+    public let item: PendingApproval
+    public let hostTimeAtFetch: UInt64
+    public let fetchedAt: Date
 
-    public init(
-        id: String,
-        agentName: String,
-        command: String,
-        cwd: String,
-        timestampSec: UInt64? = nil,
-        nonce: String? = nil
-    ) {
-        self.id = id
-        self.agentName = agentName
-        self.command = command
-        self.cwd = cwd
-        self.timestampSec = timestampSec ?? UInt64(Date().timeIntervalSince1970)
-        self.nonce = nonce ?? UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
-        self.commandHashSha256 = hashCommandSha256(command: command)
+    public var isApproval: Bool { item.kind == "approval" }
+
+    /// Seconds left before the host-side hook gives up and the agent falls back to its own prompt.
+    public func remainingSeconds(at now: Date = Date()) -> Int {
+        let hostNow = Double(hostTimeAtFetch) + now.timeIntervalSince(fetchedAt)
+        return max(0, Int(Double(item.expiresSec) - hostNow))
     }
 
-    public var canonicalBytes: Data {
-        createCanonicalSigningBytes(
-            id: id,
-            commandHashSha256: commandHashSha256,
-            nonce: nonce,
-            timestampSec: timestampSec,
-            approved: true
-        )
+    /// Last two path components, so a long working directory stays readable.
+    public var shortCwd: String {
+        let parts = item.cwd.split(separator: "/")
+        guard parts.count > 2 else { return item.cwd }
+        return "…/" + parts.suffix(2).joined(separator: "/")
     }
 }
 
-public struct SignedApprovalResult: Equatable, Sendable, Codable {
-    public let id: String
-    public let approved: Bool
-    public let signatureHex: String
-    public let publicKeyOpenssh: String
-    public let timestampSec: UInt64
+extension ApprovalEntry: Equatable {
+    /// The countdown base (`hostTimeAtFetch`/`fetchedAt`) is deliberately ignored: an unchanged
+    /// request keeps its first consistent base instead of republishing on every poll.
+    public static func == (lhs: ApprovalEntry, rhs: ApprovalEntry) -> Bool {
+        lhs.id == rhs.id && lhs.item == rhs.item && lhs.serverName == rhs.serverName
+    }
 }

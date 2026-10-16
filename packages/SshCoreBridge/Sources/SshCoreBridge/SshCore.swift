@@ -871,9 +871,19 @@ public func FfiConverterTypePortForwardHandle_lower(_ value: PortForwardHandle) 
 public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     
     /**
+     * Dismisses an informational notice on the host.
+     */
+    func acknowledgeNotification(id: String) async throws 
+    
+    /**
      * Reports whether the ssh-app hooks are present in the agent's config and the script is installed.
      */
     func agentHooksStatus(agent: AgentKind, configDir: String?, hookDir: String?) async throws  -> AgentHooksStatus
+    
+    /**
+     * Whether the host can verify phone approvals (OpenSSH `ssh-keygen`, trusted key installed).
+     */
+    func approvalStatus() async throws  -> ApprovalStatus
     
     /**
      * Resolves `binary` in a login shell and in an interactive shell (rc files loaded), so the
@@ -937,6 +947,11 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func installAgentHooksWithPreset(agent: AgentKind, configDir: String?, hookDir: String?, preset: HookPreset) async throws 
     
     /**
+     * Creates the host queue directories and trusts this device's key for approvals.
+     */
+    func installApprovalKey() async throws 
+    
+    /**
      * The ssh-app hook entries currently installed in the agent's config.
      */
     func installedAgentHooks(agent: AgentKind, configDir: String?) async throws  -> [PlannedHook]
@@ -945,6 +960,12 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
      * Safely terminates a remote process by PID (`SIGTERM` or `SIGKILL`), rejecting reserved PIDs <= 1.
      */
     func killRemoteProcess(pid: UInt32, force: Bool) async throws 
+    
+    /**
+     * Pending approval requests and notices on the host, with the host's clock. An empty list
+     * when the queue is not installed (see `approval_status`).
+     */
+    func listPendingApprovals() async throws  -> ApprovalList
     
     /**
      * Lists entries in a remote directory (or active tmux pane working directory if `path` is `None`).
@@ -1004,6 +1025,12 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
      * Stops all running port forwards (used during teardown/backgrounding).
      */
     func stopAllPortForwards() 
+    
+    /**
+     * Signs and submits the user's decision for request `id`. The signature covers the host's
+     * own id/hash/nonce and the host clock, so the host only honours it for that exact request.
+     */
+    func submitApprovalDecision(id: String, approved: Bool) async throws 
     
     /**
      * Removes only the ssh-app hook entries from the agent's config (the script is left in place).
@@ -1074,6 +1101,25 @@ public convenience init(config: SessionConfig) {
 
     
     /**
+     * Dismisses an informational notice on the host.
+     */
+open func acknowledgeNotification(id: String)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_acknowledge_notification(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(id)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_void,
+            completeFunc: ffi_ssh_core_rust_future_complete_void,
+            freeFunc: ffi_ssh_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
      * Reports whether the ssh-app hooks are present in the agent's config and the script is installed.
      */
 open func agentHooksStatus(agent: AgentKind, configDir: String?, hookDir: String?)async throws  -> AgentHooksStatus  {
@@ -1088,6 +1134,25 @@ open func agentHooksStatus(agent: AgentKind, configDir: String?, hookDir: String
             completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
             freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
             liftFunc: FfiConverterTypeAgentHooksStatus_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Whether the host can verify phone approvals (OpenSSH `ssh-keygen`, trusted key installed).
+     */
+open func approvalStatus()async throws  -> ApprovalStatus  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_approval_status(
+                        self.uniffiCloneHandle()
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeApprovalStatus_lift,
             errorHandler: FfiConverterTypeSshCoreError_lift
         )
 }
@@ -1286,6 +1351,25 @@ open func installAgentHooksWithPreset(agent: AgentKind, configDir: String?, hook
 }
     
     /**
+     * Creates the host queue directories and trusts this device's key for approvals.
+     */
+open func installApprovalKey()async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_install_approval_key(
+                        self.uniffiCloneHandle()
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_void,
+            completeFunc: ffi_ssh_core_rust_future_complete_void,
+            freeFunc: ffi_ssh_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
      * The ssh-app hook entries currently installed in the agent's config.
      */
 open func installedAgentHooks(agent: AgentKind, configDir: String?)async throws  -> [PlannedHook]  {
@@ -1319,6 +1403,26 @@ open func killRemoteProcess(pid: UInt32, force: Bool)async throws   {
             completeFunc: ffi_ssh_core_rust_future_complete_void,
             freeFunc: ffi_ssh_core_rust_future_free_void,
             liftFunc: { $0 },
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Pending approval requests and notices on the host, with the host's clock. An empty list
+     * when the queue is not installed (see `approval_status`).
+     */
+open func listPendingApprovals()async throws  -> ApprovalList  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_list_pending_approvals(
+                        self.uniffiCloneHandle()
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeApprovalList_lift,
             errorHandler: FfiConverterTypeSshCoreError_lift
         )
 }
@@ -1498,6 +1602,26 @@ open func stopAllPortForwards()  {try! rustCall() {
             self.uniffiCloneHandle(),uniffiCallStatus
     )
 }
+}
+    
+    /**
+     * Signs and submits the user's decision for request `id`. The signature covers the host's
+     * own id/hash/nonce and the host clock, so the host only honours it for that exact request.
+     */
+open func submitApprovalDecision(id: String, approved: Bool)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_submit_approval_decision(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(id),FfiConverterBool.lower(approved)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_void,
+            completeFunc: ffi_ssh_core_rust_future_complete_void,
+            freeFunc: ffi_ssh_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
 }
     
     /**
@@ -2023,6 +2147,124 @@ public func FfiConverterTypeAiRiskAssessment_lower(_ value: AiRiskAssessment) ->
 }
 
 
+public struct ApprovalList: Equatable, Hashable {
+    /**
+     * The host's clock; the decision timestamp and the countdown are derived from it.
+     */
+    public var hostTimeSec: UInt64
+    public var items: [PendingApproval]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The host's clock; the decision timestamp and the countdown are derived from it.
+         */hostTimeSec: UInt64, items: [PendingApproval]) {
+        self.hostTimeSec = hostTimeSec
+        self.items = items
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ApprovalList: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeApprovalList: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ApprovalList {
+        return
+            try ApprovalList(
+                hostTimeSec: FfiConverterUInt64.read(from: &buf), 
+                items: FfiConverterSequenceTypePendingApproval.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ApprovalList, into buf: inout [UInt8]) {
+        FfiConverterUInt64.write(value.hostTimeSec, into: &buf)
+        FfiConverterSequenceTypePendingApproval.write(value.items, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeApprovalList_lift(_ buf: RustBuffer) throws -> ApprovalList {
+    return try FfiConverterTypeApprovalList.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeApprovalList_lower(_ value: ApprovalList) -> RustBuffer {
+    return FfiConverterTypeApprovalList.lower(value)
+}
+
+
+public struct ApprovalStatus: Equatable, Hashable {
+    public var sshKeygen: Bool
+    public var allowedSigners: Bool
+    public var pending: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(sshKeygen: Bool, allowedSigners: Bool, pending: UInt32) {
+        self.sshKeygen = sshKeygen
+        self.allowedSigners = allowedSigners
+        self.pending = pending
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ApprovalStatus: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeApprovalStatus: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ApprovalStatus {
+        return
+            try ApprovalStatus(
+                sshKeygen: FfiConverterBool.read(from: &buf), 
+                allowedSigners: FfiConverterBool.read(from: &buf), 
+                pending: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ApprovalStatus, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.sshKeygen, into: &buf)
+        FfiConverterBool.write(value.allowedSigners, into: &buf)
+        FfiConverterUInt32.write(value.pending, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeApprovalStatus_lift(_ buf: RustBuffer) throws -> ApprovalStatus {
+    return try FfiConverterTypeApprovalStatus.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeApprovalStatus_lower(_ value: ApprovalStatus) -> RustBuffer {
+    return FfiConverterTypeApprovalStatus.lower(value)
+}
+
+
 /**
  * Canonical signing payload representation for agent approvals.
  */
@@ -2518,6 +2760,104 @@ public func FfiConverterTypeOllamaHostStatus_lift(_ buf: RustBuffer) throws -> O
 #endif
 public func FfiConverterTypeOllamaHostStatus_lower(_ value: OllamaHostStatus) -> RustBuffer {
     return FfiConverterTypeOllamaHostStatus.lower(value)
+}
+
+
+/**
+ * One request the host hook is waiting on (`kind == "approval"`) or an informational notice
+ * (`kind == "notify"`). All text fields are display-safe (see the module docs).
+ */
+public struct PendingApproval: Equatable, Hashable {
+    public var id: String
+    public var kind: String
+    public var agent: String
+    public var event: String
+    public var tool: String
+    public var command: String
+    public var cwd: String
+    public var session: String
+    public var timestampSec: UInt64
+    public var expiresSec: UInt64
+    public var nonce: String
+    public var commandSha256: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, kind: String, agent: String, event: String, tool: String, command: String, cwd: String, session: String, timestampSec: UInt64, expiresSec: UInt64, nonce: String, commandSha256: String) {
+        self.id = id
+        self.kind = kind
+        self.agent = agent
+        self.event = event
+        self.tool = tool
+        self.command = command
+        self.cwd = cwd
+        self.session = session
+        self.timestampSec = timestampSec
+        self.expiresSec = expiresSec
+        self.nonce = nonce
+        self.commandSha256 = commandSha256
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension PendingApproval: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePendingApproval: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PendingApproval {
+        return
+            try PendingApproval(
+                id: FfiConverterString.read(from: &buf), 
+                kind: FfiConverterString.read(from: &buf), 
+                agent: FfiConverterString.read(from: &buf), 
+                event: FfiConverterString.read(from: &buf), 
+                tool: FfiConverterString.read(from: &buf), 
+                command: FfiConverterString.read(from: &buf), 
+                cwd: FfiConverterString.read(from: &buf), 
+                session: FfiConverterString.read(from: &buf), 
+                timestampSec: FfiConverterUInt64.read(from: &buf), 
+                expiresSec: FfiConverterUInt64.read(from: &buf), 
+                nonce: FfiConverterString.read(from: &buf), 
+                commandSha256: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: PendingApproval, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.kind, into: &buf)
+        FfiConverterString.write(value.agent, into: &buf)
+        FfiConverterString.write(value.event, into: &buf)
+        FfiConverterString.write(value.tool, into: &buf)
+        FfiConverterString.write(value.command, into: &buf)
+        FfiConverterString.write(value.cwd, into: &buf)
+        FfiConverterString.write(value.session, into: &buf)
+        FfiConverterUInt64.write(value.timestampSec, into: &buf)
+        FfiConverterUInt64.write(value.expiresSec, into: &buf)
+        FfiConverterString.write(value.nonce, into: &buf)
+        FfiConverterString.write(value.commandSha256, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePendingApproval_lift(_ buf: RustBuffer) throws -> PendingApproval {
+    return try FfiConverterTypePendingApproval.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePendingApproval_lower(_ value: PendingApproval) -> RustBuffer {
+    return FfiConverterTypePendingApproval.lower(value)
 }
 
 
@@ -4833,6 +5173,31 @@ fileprivate struct FfiConverterSequenceTypeFuzzyMatchResult: FfiConverterRustBuf
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypePendingApproval: FfiConverterRustBuffer {
+    typealias SwiftType = [PendingApproval]
+
+    public static func write(_ value: [PendingApproval], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypePendingApproval.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [PendingApproval] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [PendingApproval]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypePendingApproval.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypePlannedHook: FfiConverterRustBuffer {
     typealias SwiftType = [PlannedHook]
 
@@ -5460,6 +5825,19 @@ public func verifyApprovalSignature(publicKeyOpenssh: String, canonicalBytes: Da
 })
 }
 /**
+ * Signs `message` with the session key as an OpenSSH SSHSIG (namespace `ssh-app-approval`), the
+ * format `ssh-keygen -Y verify` on the host checks.
+ */
+public func signApprovalSshsig(privateKeyOpenssh: String, message: Data)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_sign_approval_sshsig(
+        FfiConverterString.lower(privateKeyOpenssh),
+        FfiConverterData.lower(message),uniffiCallStatus
+    )
+})
+}
+/**
  * Parses the output of `build_list_directory_command` into a structured `RemoteDirectoryListing`.
  */
 public func parseRemoteDirectoryListing(rawOutput: String, includeHidden: Bool) -> RemoteDirectoryListing  {
@@ -5734,6 +6112,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_func_verify_approval_signature() != 51597) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_func_sign_approval_sshsig() != 39274) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_func_parse_remote_directory_listing() != 14774) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -5794,7 +6175,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_method_portforwardhandle_stop() != 35538) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_acknowledge_notification() != 14086) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_agent_hooks_status() != 27994) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_approval_status() != 19458) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_check_agent_environment() != 25185) {
@@ -5830,10 +6217,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_install_agent_hooks_with_preset() != 57736) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_install_approval_key() != 27232) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_installed_agent_hooks() != 22063) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_kill_remote_process() != 36526) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_list_pending_approvals() != 61038) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_list_remote_directory() != 25160) {
@@ -5867,6 +6260,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_stop_all_port_forwards() != 215) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_submit_approval_decision() != 41088) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_uninstall_agent_hooks() != 64089) {

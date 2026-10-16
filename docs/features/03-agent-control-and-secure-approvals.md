@@ -1,4 +1,4 @@
-> **Note (2026-10-16):** the real hook contracts, the hook script and installation are specified in `11-agent-hooks-and-launch-profiles.md`, which supersedes the hook details below. The host broker (`ssh-app-ctl` / `control.sock`) described here is **not yet implemented**.
+> **Note (2026-10-16):** the real hook contracts, the hook script and installation are specified in `11-agent-hooks-and-launch-profiles.md`, which supersedes the hook details below. The host broker (`ssh-app-ctl` / `control.sock`) described here was replaced by the file queue of `13-host-approval-broker.md` (implemented, M17); APNs wake-up (§4–5) is still not implemented.
 
 # Feature Specification: AI Agent Control, Cryptographic Approvals & Zero-Knowledge Wake-up Pings
 

@@ -50,7 +50,7 @@ Researched, **not implemented** (launch profiles only; hooks → error `unsuppor
 - **Tradeoff (python3 dependency)**: the script needs `python3` on the host. On a Mac without Command Line Tools `/usr/bin/python3` triggers an install dialog and the hook would time out. The long-term fix is a small native `ssh-app-ctl` that is both broker and hook; until then installation checks `python3 --version` and refuses to install if it is missing.
 - No command allowlist/bypass (the old `cat*`/`echo*` patterns allowed `cat x; rm -rf ~`).
 - `command` is truncated to 2000 chars.
-- **Known gap**: the broker (`ssh-app-ctl`, the process owning `control.sock`) is specified in Feature 03 but **not implemented** in this repo. Until then every hook falls back to the native prompt (safe, no phone approval). Tracked as a roadmap item.
+- **Broker**: implemented as the hook-owned approval queue of `13-host-approval-broker.md` (M17): the hook queues the request in `~/.ssh-app/run/pending` and waits for a decision signed by the phone; the socket protocol described above is superseded.
 
 ---
 
@@ -180,6 +180,6 @@ Antigravity adds a top-level `"ssh-app": { "PreToolUse": [{ "matcher": "run_comm
 - The custom-command editor warns when the text looks like it contains a credential (stored unencrypted on the phone, written to the agent config, visible in the host's `ps`).
 
 ## 9. Open items
-- Implement the host broker (`ssh-app-ctl`) — separate milestone.
+- Host broker: done in Feature 13.
 - Antigravity `run_command` argument key and exit-code semantics are not documented; verify on the installed `agy`.
 - Codex/Grok hook installers.

@@ -12,6 +12,7 @@ public struct AgentProfilesSheetView: View {
     @State private var hookStatus: [String: AgentHooksStatus] = [:]
     @State private var previewing: SavedAgentProfile? = nil
     @State private var message: String? = nil
+    @State private var approvalStatus: ApprovalStatus? = nil
 
     public init(
         manager: AgentProfilesManager,
@@ -43,6 +44,12 @@ public struct AgentProfilesSheetView: View {
                             Text(p.name).tag(Optional(p.id))
                         }
                     }
+                }
+                Section(
+                    header: Text("Phone approvals"),
+                    footer: Text("Needs OpenSSH (ssh-keygen) on the host and this device's key trusted there. \"Review & install\" on a profile sets both up. Requests reach the app while it is open.")
+                ) {
+                    approvalStatusRow
                 }
                 Section(header: Text("Profiles")) {
                     ForEach(manager.profiles) { profile in
@@ -120,6 +127,26 @@ public struct AgentProfilesSheetView: View {
     }
 
     @ViewBuilder
+    private var approvalStatusRow: some View {
+        if !connected {
+            Label("Connect to a host to check", systemImage: "wifi.slash").font(.caption).foregroundColor(.secondary)
+        } else if let st = approvalStatus {
+            if !st.sshKeygen {
+                Label("ssh-keygen not found on the host: phone approvals are unavailable", systemImage: "xmark.octagon")
+                    .font(.caption).foregroundColor(.red)
+            } else if !st.allowedSigners {
+                Label("Not set up yet: press Review & install on a profile", systemImage: "exclamationmark.triangle")
+                    .font(.caption).foregroundColor(.orange)
+            } else {
+                Label("Ready (\(st.pending) waiting)", systemImage: "checkmark.shield.fill")
+                    .font(.caption).foregroundColor(.green)
+            }
+        } else {
+            Label("Checking…", systemImage: "hourglass").font(.caption).foregroundColor(.secondary)
+        }
+    }
+
+    @ViewBuilder
     private func hooksRow(_ profile: SavedAgentProfile) -> some View {
         let status = hookStatus[profile.id]
         HStack {
@@ -136,6 +163,7 @@ public struct AgentProfilesSheetView: View {
 
     private func refreshAll() async {
         guard connected, let handle = viewModel.sessionHandle else { return }
+        approvalStatus = try? await handle.approvalStatus()
         for p in manager.profiles where p.supportsHooks {
             if let s = try? await handle.agentHooksStatus(agent: p.agent, configDir: p.configDir, hookDir: nil) {
                 hookStatus[p.id] = s
