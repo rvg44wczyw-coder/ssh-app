@@ -471,6 +471,22 @@ private let UNIFFI_CALLBACK_UNEXPECTED_ERROR: Int32 = 2
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterUInt8: FfiConverterPrimitive {
+    typealias FfiType = UInt8
+    typealias SwiftType = UInt8
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> UInt8 {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: UInt8, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterUInt16: FfiConverterPrimitive {
     typealias FfiType = UInt16
     typealias SwiftType = UInt16
@@ -529,6 +545,22 @@ fileprivate struct FfiConverterInt64: FfiConverterPrimitive {
 
     public static func write(_ value: Int64, into buf: inout [UInt8]) {
         writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterDouble: FfiConverterPrimitive {
+    typealias FfiType = Double
+    typealias SwiftType = Double
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Double {
+        return try lift(readDouble(&buf))
+    }
+
+    public static func write(_ value: Double, into buf: inout [UInt8]) {
+        writeDouble(&buf, lower(value))
     }
 }
 
@@ -860,6 +892,11 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func executeCommandOnActiveSession(command: String) async throws  -> String
     
     /**
+     * Collects a snapshot of remote host telemetry (CPU load, RAM, Disk, Battery, and AI/dev processes).
+     */
+    func fetchHostTelemetry() async throws  -> HostTelemetrySnapshot
+    
+    /**
      * Reads recent commands from the remote host's shell history (`~/.zsh_history` / `~/.bash_history`)
      * and scrubs sensitive credentials before returning.
      */
@@ -869,6 +906,11 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
      * Returns a list of all currently active port forwards.
      */
     func getActivePortForwards()  -> [PortForwardInfo]
+    
+    /**
+     * Safely terminates a remote process by PID (`SIGTERM` or `SIGKILL`), rejecting reserved PIDs <= 1.
+     */
+    func killRemoteProcess(pid: UInt32, force: Bool) async throws 
     
     /**
      * Queries Ollama running locally on the remote host (http://127.0.0.1:11434/api/generate)
@@ -1039,6 +1081,25 @@ open func executeCommandOnActiveSession(command: String)async throws  -> String 
 }
     
     /**
+     * Collects a snapshot of remote host telemetry (CPU load, RAM, Disk, Battery, and AI/dev processes).
+     */
+open func fetchHostTelemetry()async throws  -> HostTelemetrySnapshot  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_fetch_host_telemetry(
+                        self.uniffiCloneHandle()
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeHostTelemetrySnapshot_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
      * Reads recent commands from the remote host's shell history (`~/.zsh_history` / `~/.bash_history`)
      * and scrubs sensitive credentials before returning.
      */
@@ -1068,6 +1129,25 @@ open func getActivePortForwards() -> [PortForwardInfo]  {
             self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
+}
+    
+    /**
+     * Safely terminates a remote process by PID (`SIGTERM` or `SIGKILL`), rejecting reserved PIDs <= 1.
+     */
+open func killRemoteProcess(pid: UInt32, force: Bool)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_kill_remote_process(
+                        self.uniffiCloneHandle(),FfiConverterUInt32.lower(pid),FfiConverterBool.lower(force)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_void,
+            completeFunc: ffi_ssh_core_rust_future_complete_void,
+            freeFunc: ffi_ssh_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
 }
     
     /**
@@ -1612,6 +1692,116 @@ public func FfiConverterTypeFuzzyMatchResult_lower(_ value: FuzzyMatchResult) ->
 }
 
 
+public struct HostTelemetrySnapshot: Equatable, Hashable {
+    public var hostname: String
+    public var osName: String
+    public var cpuCores: UInt32
+    public var load1m: Double
+    public var load5m: Double
+    public var load15m: Double
+    public var memoryUsedMb: UInt64
+    public var memoryTotalMb: UInt64
+    public var memoryUsagePercent: Double
+    public var diskUsedGb: Double
+    public var diskTotalGb: Double
+    public var diskUsagePercent: Double
+    public var batteryPercent: UInt8?
+    public var isCharging: Bool?
+    public var powerSource: String?
+    public var processes: [RemoteProcessInfo]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(hostname: String, osName: String, cpuCores: UInt32, load1m: Double, load5m: Double, load15m: Double, memoryUsedMb: UInt64, memoryTotalMb: UInt64, memoryUsagePercent: Double, diskUsedGb: Double, diskTotalGb: Double, diskUsagePercent: Double, batteryPercent: UInt8?, isCharging: Bool?, powerSource: String?, processes: [RemoteProcessInfo]) {
+        self.hostname = hostname
+        self.osName = osName
+        self.cpuCores = cpuCores
+        self.load1m = load1m
+        self.load5m = load5m
+        self.load15m = load15m
+        self.memoryUsedMb = memoryUsedMb
+        self.memoryTotalMb = memoryTotalMb
+        self.memoryUsagePercent = memoryUsagePercent
+        self.diskUsedGb = diskUsedGb
+        self.diskTotalGb = diskTotalGb
+        self.diskUsagePercent = diskUsagePercent
+        self.batteryPercent = batteryPercent
+        self.isCharging = isCharging
+        self.powerSource = powerSource
+        self.processes = processes
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension HostTelemetrySnapshot: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHostTelemetrySnapshot: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HostTelemetrySnapshot {
+        return
+            try HostTelemetrySnapshot(
+                hostname: FfiConverterString.read(from: &buf), 
+                osName: FfiConverterString.read(from: &buf), 
+                cpuCores: FfiConverterUInt32.read(from: &buf), 
+                load1m: FfiConverterDouble.read(from: &buf), 
+                load5m: FfiConverterDouble.read(from: &buf), 
+                load15m: FfiConverterDouble.read(from: &buf), 
+                memoryUsedMb: FfiConverterUInt64.read(from: &buf), 
+                memoryTotalMb: FfiConverterUInt64.read(from: &buf), 
+                memoryUsagePercent: FfiConverterDouble.read(from: &buf), 
+                diskUsedGb: FfiConverterDouble.read(from: &buf), 
+                diskTotalGb: FfiConverterDouble.read(from: &buf), 
+                diskUsagePercent: FfiConverterDouble.read(from: &buf), 
+                batteryPercent: FfiConverterOptionUInt8.read(from: &buf), 
+                isCharging: FfiConverterOptionBool.read(from: &buf), 
+                powerSource: FfiConverterOptionString.read(from: &buf), 
+                processes: FfiConverterSequenceTypeRemoteProcessInfo.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: HostTelemetrySnapshot, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.hostname, into: &buf)
+        FfiConverterString.write(value.osName, into: &buf)
+        FfiConverterUInt32.write(value.cpuCores, into: &buf)
+        FfiConverterDouble.write(value.load1m, into: &buf)
+        FfiConverterDouble.write(value.load5m, into: &buf)
+        FfiConverterDouble.write(value.load15m, into: &buf)
+        FfiConverterUInt64.write(value.memoryUsedMb, into: &buf)
+        FfiConverterUInt64.write(value.memoryTotalMb, into: &buf)
+        FfiConverterDouble.write(value.memoryUsagePercent, into: &buf)
+        FfiConverterDouble.write(value.diskUsedGb, into: &buf)
+        FfiConverterDouble.write(value.diskTotalGb, into: &buf)
+        FfiConverterDouble.write(value.diskUsagePercent, into: &buf)
+        FfiConverterOptionUInt8.write(value.batteryPercent, into: &buf)
+        FfiConverterOptionBool.write(value.isCharging, into: &buf)
+        FfiConverterOptionString.write(value.powerSource, into: &buf)
+        FfiConverterSequenceTypeRemoteProcessInfo.write(value.processes, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHostTelemetrySnapshot_lift(_ buf: RustBuffer) throws -> HostTelemetrySnapshot {
+    return try FfiConverterTypeHostTelemetrySnapshot.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHostTelemetrySnapshot_lower(_ value: HostTelemetrySnapshot) -> RustBuffer {
+    return FfiConverterTypeHostTelemetrySnapshot.lower(value)
+}
+
+
 public struct KeypairResult: Equatable, Hashable {
     public var publicKeyOpenssh: String
     public var privateKeyOpenssh: String
@@ -1732,6 +1922,80 @@ public func FfiConverterTypePortForwardInfo_lift(_ buf: RustBuffer) throws -> Po
 #endif
 public func FfiConverterTypePortForwardInfo_lower(_ value: PortForwardInfo) -> RustBuffer {
     return FfiConverterTypePortForwardInfo.lower(value)
+}
+
+
+public struct RemoteProcessInfo: Equatable, Hashable {
+    public var pid: UInt32
+    public var name: String
+    public var commandLine: String
+    public var cpuPercent: Double
+    public var memPercent: Double
+    public var elapsed: String
+    public var category: ProcessCategory
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(pid: UInt32, name: String, commandLine: String, cpuPercent: Double, memPercent: Double, elapsed: String, category: ProcessCategory) {
+        self.pid = pid
+        self.name = name
+        self.commandLine = commandLine
+        self.cpuPercent = cpuPercent
+        self.memPercent = memPercent
+        self.elapsed = elapsed
+        self.category = category
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension RemoteProcessInfo: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRemoteProcessInfo: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RemoteProcessInfo {
+        return
+            try RemoteProcessInfo(
+                pid: FfiConverterUInt32.read(from: &buf), 
+                name: FfiConverterString.read(from: &buf), 
+                commandLine: FfiConverterString.read(from: &buf), 
+                cpuPercent: FfiConverterDouble.read(from: &buf), 
+                memPercent: FfiConverterDouble.read(from: &buf), 
+                elapsed: FfiConverterString.read(from: &buf), 
+                category: FfiConverterTypeProcessCategory.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: RemoteProcessInfo, into buf: inout [UInt8]) {
+        FfiConverterUInt32.write(value.pid, into: &buf)
+        FfiConverterString.write(value.name, into: &buf)
+        FfiConverterString.write(value.commandLine, into: &buf)
+        FfiConverterDouble.write(value.cpuPercent, into: &buf)
+        FfiConverterDouble.write(value.memPercent, into: &buf)
+        FfiConverterString.write(value.elapsed, into: &buf)
+        FfiConverterTypeProcessCategory.write(value.category, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRemoteProcessInfo_lift(_ buf: RustBuffer) throws -> RemoteProcessInfo {
+    return try FfiConverterTypeRemoteProcessInfo.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRemoteProcessInfo_lower(_ value: RemoteProcessInfo) -> RustBuffer {
+    return FfiConverterTypeRemoteProcessInfo.lower(value)
 }
 
 
@@ -2316,6 +2580,93 @@ public func FfiConverterTypeAiRiskLevel_lift(_ buf: RustBuffer) throws -> AiRisk
 #endif
 public func FfiConverterTypeAiRiskLevel_lower(_ value: AiRiskLevel) -> RustBuffer {
     return FfiConverterTypeAiRiskLevel.lower(value)
+}
+
+
+
+
+public enum ProcessCategory: Equatable, Hashable {
+    
+    case aiAgent
+    case localLlm
+    case buildTool
+    case runtime
+    case system
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension ProcessCategory: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeProcessCategory: FfiConverterRustBuffer {
+    typealias SwiftType = ProcessCategory
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ProcessCategory {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .aiAgent
+        
+        case 2: return .localLlm
+        
+        case 3: return .buildTool
+        
+        case 4: return .runtime
+        
+        case 5: return .system
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: ProcessCategory, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .aiAgent:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .localLlm:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .buildTool:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .runtime:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .system:
+            writeInt(&buf, Int32(5))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeProcessCategory_lift(_ buf: RustBuffer) throws -> ProcessCategory {
+    return try FfiConverterTypeProcessCategory.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeProcessCategory_lower(_ value: ProcessCategory) -> RustBuffer {
+    return FfiConverterTypeProcessCategory.lower(value)
 }
 
 
@@ -3102,6 +3453,30 @@ public func FfiConverterCallbackInterfaceSshSessionCallback_lower(_ v: SshSessio
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionUInt8: FfiConverterRustBuffer {
+    typealias SwiftType = UInt8?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterUInt8.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterUInt8.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionUInt16: FfiConverterRustBuffer {
     typealias SwiftType = UInt16?
 
@@ -3118,6 +3493,30 @@ fileprivate struct FfiConverterOptionUInt16: FfiConverterRustBuffer {
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterUInt16.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionBool: FfiConverterRustBuffer {
+    typealias SwiftType = Bool?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterBool.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterBool.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -3242,6 +3641,31 @@ fileprivate struct FfiConverterSequenceTypePortForwardInfo: FfiConverterRustBuff
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypePortForwardInfo.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeRemoteProcessInfo: FfiConverterRustBuffer {
+    typealias SwiftType = [RemoteProcessInfo]
+
+    public static func write(_ value: [RemoteProcessInfo], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeRemoteProcessInfo.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [RemoteProcessInfo] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [RemoteProcessInfo]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeRemoteProcessInfo.read(from: &buf))
         }
         return seq
     }
@@ -3636,6 +4060,22 @@ public func fuzzySearchSnippets(query: String, items: [SnippetItem], limit: UInt
     )
 })
 }
+public func classifyProcessCategory(comm: String) -> ProcessCategory  {
+    return try!  FfiConverterTypeProcessCategory_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_classify_process_category(
+        FfiConverterString.lower(comm),uniffiCallStatus
+    )
+})
+}
+public func parseHostTelemetry(rawOutput: String) -> HostTelemetrySnapshot  {
+    return try!  FfiConverterTypeHostTelemetrySnapshot_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_parse_host_telemetry(
+        FfiConverterString.lower(rawOutput),uniffiCallStatus
+    )
+})
+}
 /**
  * Parses a JSONL transcript payload into a normalized sequence of `TranscriptTurn`s.
  */
@@ -3737,6 +4177,12 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_func_fuzzy_search_snippets() != 26167) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_func_classify_process_category() != 7146) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_parse_host_telemetry() != 20873) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_func_parse_transcript_jsonl() != 20299) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -3773,10 +4219,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_execute_command_on_active_session() != 4194) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_fetch_host_telemetry() != 15867) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_fetch_remote_shell_history() != 21948) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_get_active_port_forwards() != 9499) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_kill_remote_process() != 36526) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_query_host_ollama() != 61217) {

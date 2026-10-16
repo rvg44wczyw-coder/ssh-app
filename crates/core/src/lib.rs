@@ -9,6 +9,7 @@ pub mod keys;
 pub mod port_forward;
 pub mod session;
 pub mod snippets;
+pub mod telemetry;
 pub mod tmux;
 pub mod transcript;
 
@@ -32,6 +33,10 @@ pub use session::{
 pub use snippets::{
     default_developer_snippets, extract_history_commands, extract_snippet_placeholders,
     fuzzy_search_snippets, FuzzyMatchResult, SnippetItem,
+};
+pub use telemetry::{
+    classify_process_category, parse_host_telemetry, HostTelemetrySnapshot, ProcessCategory,
+    RemoteProcessInfo,
 };
 pub use tmux::TmuxSessionInfo;
 pub use transcript::{

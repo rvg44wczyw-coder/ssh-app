@@ -19,6 +19,7 @@ public struct MainTerminalView: View {
         case webPreview
         case aiAssistant
         case snippets
+        case telemetry
 
         var id: String { rawValue }
     }
@@ -235,6 +236,13 @@ public struct MainTerminalView: View {
                     }
                     .accessibilityLabel("Smart Snippets & Fuzzy History")
 
+                    Button(action: { presentSheet(.telemetry) }) {
+                        Image(systemName: "gauge.with.dots.needle.33percent")
+                            .font(.system(size: 14))
+                            .foregroundColor(.green)
+                    }
+                    .accessibilityLabel("Host Telemetry & Process Monitor")
+
                     Button(action: { presentSheet(.webPreview) }) {
                         Image(systemName: "globe")
                             .font(.system(size: 14))
@@ -309,6 +317,12 @@ public struct MainTerminalView: View {
                 case .snippets:
                     if let activeVM = tabsManager.activeViewModel {
                         SnippetsSheetView(viewModel: activeVM) {
+                            activeSheet = nil
+                        }
+                    }
+                case .telemetry:
+                    if let activeVM = tabsManager.activeViewModel {
+                        HostTelemetrySheetView(viewModel: activeVM) {
                             activeSheet = nil
                         }
                     }

@@ -31,6 +31,7 @@
 		AA000024 /* AiAssistantSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000024 /* AiAssistantSheetView.swift */; };
 		AA000025 /* StructuredTranscriptView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000025 /* StructuredTranscriptView.swift */; };
 		AA000026 /* SnippetsSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000026 /* SnippetsSheetView.swift */; };
+		AA000027 /* HostTelemetrySheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000027 /* HostTelemetrySheetView.swift */; };
 		AA000020 /* SshCoreBridge in Frameworks */ = {isa = PBXBuildFile; productRef = CC000001 /* SshCoreBridge */; };
 		AA000021 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = CC000002 /* SwiftTerm */; };
 		AA000030 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = BB000030 /* Assets.xcassets */; };
@@ -62,6 +63,7 @@
 		BB000024 /* AiAssistantSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/AiAssistantSheetView.swift; sourceTree = "<group>"; };
 		BB000025 /* StructuredTranscriptView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/StructuredTranscriptView.swift; sourceTree = "<group>"; };
 		BB000026 /* SnippetsSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/SnippetsSheetView.swift; sourceTree = "<group>"; };
+		BB000027 /* HostTelemetrySheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/HostTelemetrySheetView.swift; sourceTree = "<group>"; };
 		BB000030 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -115,6 +117,7 @@
 				BB000024 /* AiAssistantSheetView.swift */,
 				BB000025 /* StructuredTranscriptView.swift */,
 				BB000026 /* SnippetsSheetView.swift */,
+				BB000027 /* HostTelemetrySheetView.swift */,
 			);
 			path = Sources/SSHApp;
 			sourceTree = "<group>";
@@ -236,6 +239,7 @@
 				AA000024 /* AiAssistantSheetView.swift in Sources */,
 				AA000025 /* StructuredTranscriptView.swift in Sources */,
 				AA000026 /* SnippetsSheetView.swift in Sources */,
+				AA000027 /* HostTelemetrySheetView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

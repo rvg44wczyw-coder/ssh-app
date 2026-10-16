@@ -28,6 +28,11 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     @Published public var remoteHistoryCommands: [String] = []
     @Published public var isHistoryLoading: Bool = false
 
+    // Host Telemetry & Process Monitor State
+    @Published public var telemetrySnapshot: HostTelemetrySnapshot? = nil
+    @Published public var isTelemetryLoading: Bool = false
+    @Published public var telemetryError: String? = nil
+
     private var handle: SshSessionHandle?
     private var lastCols: UInt16 = 80
     private var lastRows: UInt16 = 24
@@ -229,6 +234,37 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
                 self.isHistoryLoading = false
             } catch {
                 self.isHistoryLoading = false
+            }
+        }
+    }
+
+    public func refreshHostTelemetry() {
+        guard let handle = handle, state == .connected else {
+            self.telemetryError = "Session is not connected"
+            return
+        }
+        isTelemetryLoading = true
+        telemetryError = nil
+        Task {
+            do {
+                let snap = try await handle.fetchHostTelemetry()
+                self.telemetrySnapshot = snap
+                self.isTelemetryLoading = false
+            } catch {
+                self.telemetryError = error.localizedDescription
+                self.isTelemetryLoading = false
+            }
+        }
+    }
+
+    public func killRemoteProcess(pid: UInt32, force: Bool) {
+        guard let handle = handle, state == .connected else { return }
+        Task {
+            do {
+                try await handle.killRemoteProcess(pid: pid, force: force)
+                self.refreshHostTelemetry()
+            } catch {
+                self.telemetryError = error.localizedDescription
             }
         }
     }

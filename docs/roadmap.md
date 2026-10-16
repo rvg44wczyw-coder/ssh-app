@@ -16,6 +16,7 @@
 | **M9: AI Command Prompt & Shell Assistant** | Natural language shell helper, Host Ollama client in core, command risk classifier, `[ 🪄 ]` keyboard action | Completed | `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `android-ui-dev`, `rev`, `hacker` |
 | **M10: Structured Transcript & Dual-Mode UI** | Real-time `transcript.jsonl` parser in Rust, dual-mode UI (Raw Terminal $\leftrightarrow$ Structured Chat View) | Completed | `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker` |
 | **M11: Smart Snippets & Fuzzy History Search** | Rust Core snippet catalog & secret-scrubbed history parser, fuzzy search engine, iOS snippets & history sheet | Completed | `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker` |
+| **M12: Remote Host Telemetry & Process Monitor** | CPU/RAM/Disk/Battery/Ollama telemetry collector in Rust Core, process category classifier (`AiAgent`, `DevServer`, `System`), safe process kill (`SIGTERM`/`SIGKILL`), iOS dashboard sheet | Completed | `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker` |
 
 ---
 
@@ -80,6 +81,15 @@
 - **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
 - **Hacker Gate**: Completed (`docs/security-findings/2026-10-16-smart-snippets-audit.md` — VERDICT: CLEAR)
 - **Status**: Implemented & Verified with `cargo test` (40/40 passed), `swift test` (3/3 passed), and `xcodebuild` (**BUILD SUCCEEDED**)
+
+### Feature 09: Remote Host Telemetry & Agent Process Monitor
+- **Doc**: `docs/features/09-host-telemetry-and-process-monitor.md`
+- **Scope**:
+  - **Rust Core**: Single-shot POSIX telemetry script (`TELEMETRY_COLLECTION_SCRIPT`), cross-platform macOS (`sysctl`, `vm_stat`, `pmset -g batt`) & Linux (`/proc/loadavg`, `/proc/meminfo`) parser (`parse_host_telemetry`), process category classifier (`ProcessCategory`: `AiAgent`, `DevServer`, `System`), PID safety validator (`validate_kill_pid`), and `SshSessionHandle::fetch_host_telemetry` / `kill_remote_process`.
+  - **Platform (iOS)**: Top bar gauge button (`gauge.with.dots.needle.33percent`), `HostTelemetrySheetView` with CPU/RAM/Disk/Battery/Ollama cards, process category filter chips, and confirmation dialog for `SIGTERM` / `SIGKILL`.
+- **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
+- **Hacker Gate**: Completed (`docs/security-findings/2026-10-16-host-telemetry-audit.md` — VERDICT: CLEAR)
+- **Status**: Implemented & Verified with `cargo test` (44/44 passed), `swift test` (3/3 passed), and `xcodebuild` (**BUILD SUCCEEDED**)
 
 
 

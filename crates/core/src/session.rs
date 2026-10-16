@@ -348,10 +348,36 @@ fi
         &self,
         limit: u32,
     ) -> Result<Vec<String>, SshCoreError> {
-        let cmd = "tail -n 250 \"$HOME/.zsh_history\" \"$HOME/.bash_history\" 2>/dev/null || true"
-            .to_string();
+        let safe_limit = limit.clamp(10, 1000);
+        let cmd = format!(
+            "tail -n {} \"$HOME/.zsh_history\" \"$HOME/.bash_history\" 2>/dev/null || true",
+            safe_limit * 3
+        );
         let raw_output = self.execute_command_on_active_session(cmd).await?;
-        Ok(crate::snippets::extract_history_commands(raw_output, limit))
+        Ok(crate::snippets::extract_history_commands(
+            raw_output, safe_limit,
+        ))
+    }
+
+    /// Collects a snapshot of remote host telemetry (CPU load, RAM, Disk, Battery, and AI/dev processes).
+    pub async fn fetch_host_telemetry(
+        &self,
+    ) -> Result<crate::telemetry::HostTelemetrySnapshot, SshCoreError> {
+        let raw_output = self
+            .execute_command_on_active_session(
+                crate::telemetry::TELEMETRY_COLLECTION_SCRIPT.to_string(),
+            )
+            .await?;
+        Ok(crate::telemetry::parse_host_telemetry(raw_output))
+    }
+
+    /// Safely terminates a remote process by PID (`SIGTERM` or `SIGKILL`), rejecting reserved PIDs <= 1.
+    pub async fn kill_remote_process(&self, pid: u32, force: bool) -> Result<(), SshCoreError> {
+        let safe_pid = crate::telemetry::validate_kill_pid(pid)?;
+        let sig = if force { "-KILL" } else { "-TERM" };
+        let cmd = format!("kill {sig} -- {safe_pid}");
+        let _ = self.execute_command_on_active_session(cmd).await?;
+        Ok(())
     }
 }
 
