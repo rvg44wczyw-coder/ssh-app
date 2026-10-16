@@ -7,27 +7,39 @@ public struct KeyboardAccessoryView: View {
     @Binding public var isCtrlLocked: Bool
     public let onSendBytes: ([UInt8]) -> Void
     public let onAiAssistantTap: (() -> Void)?
+    public let onSnippetsTap: (() -> Void)?
 
     public init(
         isCtrlLocked: Binding<Bool>,
         onSendBytes: @escaping ([UInt8]) -> Void,
-        onAiAssistantTap: (() -> Void)? = nil
+        onAiAssistantTap: (() -> Void)? = nil,
+        onSnippetsTap: (() -> Void)? = nil
     ) {
         self._isCtrlLocked = isCtrlLocked
         self.onSendBytes = onSendBytes
         self.onAiAssistantTap = onAiAssistantTap
+        self.onSnippetsTap = onSnippetsTap
     }
 
     public var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
-                // AI Shell Assistant
+                // AI Shell Assistant & Smart Snippets
                 if let onAiTap = onAiAssistantTap {
                     AccessoryButton(label: "🪄") {
                         triggerHaptic()
                         onAiTap()
                     }
+                }
 
+                if let onSnippets = onSnippetsTap {
+                    AccessoryButton(label: "⚡") {
+                        triggerHaptic()
+                        onSnippets()
+                    }
+                }
+
+                if onAiAssistantTap != nil || onSnippetsTap != nil {
                     Divider().frame(height: 24)
                 }
 

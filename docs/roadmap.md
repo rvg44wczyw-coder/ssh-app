@@ -14,8 +14,8 @@
 | **M7: Android Client Architecture** | UniFFI Kotlin bindings, AndroidKeyStore Ed25519, Jetpack Compose, Biometric auth | Completed | `doc-dev`, `rust-core-dev`, `android-ui-dev`, `rev`, `hacker` |
 | **M8: In-App Web Preview & SSH Port Forwarding** | Direct TCP/IP port forwarding in Rust Core (`russh`), mobile in-app WebView (`127.0.0.1:3000`), DevTools console drawer | Completed | `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `android-ui-dev`, `rev`, `hacker` |
 | **M9: AI Command Prompt & Shell Assistant** | Natural language shell helper, Host Ollama client in core, command risk classifier, `[ 🪄 ]` keyboard action | Completed | `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `android-ui-dev`, `rev`, `hacker` |
-| **M10: Structured Transcript & Dual-Mode UI** | Real-time `transcript.jsonl` parser in Rust, dual-mode UI (Raw Terminal $\leftrightarrow$ Structured Chat View) | Planned | `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `android-ui-dev`, `rev` |
-| **M11: Smart Snippets & Fuzzy History Search** | Rust Core SQLite/JSON storage, fuzzy search (`nucleo`/`skim`), mobile autocomplete bar | Planned | `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev` |
+| **M10: Structured Transcript & Dual-Mode UI** | Real-time `transcript.jsonl` parser in Rust, dual-mode UI (Raw Terminal $\leftrightarrow$ Structured Chat View) | Completed | `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker` |
+| **M11: Smart Snippets & Fuzzy History Search** | Rust Core snippet catalog & secret-scrubbed history parser, fuzzy search engine, iOS snippets & history sheet | Completed | `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker` |
 
 ---
 
@@ -64,18 +64,23 @@
 - **Status**: Implemented & Verified with `cargo test` (31/31 passed), `swift test` (3/3 passed), `xcodebuild` (**BUILD SUCCEEDED**), and `./gradlew assembleDebug` (**BUILD SUCCESSFUL**)
 
 ### Feature 07: Structured Transcript & Dual-Mode UI (Chat ↔ Terminal)
+- **Doc**: `docs/features/07-structured-transcript-dual-mode.md`
 - **Scope**:
-  - **Rust Core**: Streaming JSONL parser for agent transcripts (Claude Code, Antigravity), structured turn/tool/approval models.
-  - **Platform (iOS/Android)**: Dual-mode UI toggle, native SwiftUI/Compose card view for agent dialogue, expandable tool call details.
-- **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `android-ui-dev`, `rev`
-- **Status**: Planned (Milestone M10)
+  - **Rust Core**: Streaming JSONL parser (`crates/core/src/transcript.rs`) for Google Antigravity and Claude Code transcripts, ANSI escape stripping, path traversal & sensitive directory protection (`validate_transcript_path`), remote detection and tailing (`detect_active_transcript_path`, `read_remote_transcript`).
+  - **Platform (iOS)**: Dual-mode segmented toggle (`Terminal` ↔ `Chat UI`), `StructuredTranscriptView` with expandable thinking blocks and tool call cards, quick prompt composer bar.
+- **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
+- **Hacker Gate**: Completed (`docs/security-findings/2026-10-16-structured-transcript-audit.md` — VERDICT: CLEAR)
+- **Status**: Implemented & Verified with `cargo test` (40/40 passed), `swift test` (3/3 passed), and `xcodebuild` (**BUILD SUCCEEDED**)
 
 ### Feature 08: Smart Snippets & Fuzzy History Search
+- **Doc**: `docs/features/08-smart-snippets-and-fuzzy-search.md`
 - **Scope**:
-  - **Rust Core**: SQLite/JSON local snippet database, fuzzy matching engine (`nucleo`/`skim`).
-  - **Platform (iOS/Android)**: Autocomplete accessory bar, snippet editor sheet, keyboard shortcut triggers.
-- **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`
-- **Status**: Planned (Milestone M11)
+  - **Rust Core**: Built-in developer snippet catalog (`default_developer_snippets`), subsequence fuzzy matcher (`fuzzy_search_snippets`), placeholder token parser (`extract_snippet_placeholders`), and secret-scrubbing remote shell history extractor (`extract_history_commands`, `fetch_remote_shell_history`).
+  - **Platform (iOS)**: `[ ⚡ ]` accessory keyboard button, top bar bolt button, `SnippetsSheetView` with fuzzy search, category filter chips, interactive `{{placeholder}}` resolution sheet, custom snippet creation (`UserDefaults`), and remote shell history search.
+- **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
+- **Hacker Gate**: Completed (`docs/security-findings/2026-10-16-smart-snippets-audit.md` — VERDICT: CLEAR)
+- **Status**: Implemented & Verified with `cargo test` (40/40 passed), `swift test` (3/3 passed), and `xcodebuild` (**BUILD SUCCEEDED**)
+
 
 
 

@@ -8,7 +8,9 @@ pub mod error;
 pub mod keys;
 pub mod port_forward;
 pub mod session;
+pub mod snippets;
 pub mod tmux;
+pub mod transcript;
 
 pub use ai::{
     assemble_ai_system_prompt, assemble_ai_user_prompt, classify_command_risk, parse_ai_response,
@@ -20,14 +22,22 @@ pub use approval::{
     verify_approval_signature, CanonicalSigningPayload,
 };
 pub use config::{RemoteServerConfig, SessionConfig, SessionState, TerminalSize};
-pub use error::SshCoreError;
+pub use error::{SshCoreError, TranscriptError};
 pub use keys::{derive_public_key, generate_keypair, KeypairResult};
 pub use port_forward::{PortForwardHandle, PortForwardInfo};
 pub use session::{
     execute_remote_command, kill_remote_tmux_session, list_remote_tmux_sessions,
     SshSessionCallback, SshSessionHandle,
 };
+pub use snippets::{
+    default_developer_snippets, extract_history_commands, extract_snippet_placeholders,
+    fuzzy_search_snippets, FuzzyMatchResult, SnippetItem,
+};
 pub use tmux::TmuxSessionInfo;
+pub use transcript::{
+    parse_transcript_jsonl, strip_ansi_codes, TranscriptStatus, TranscriptToolCall, TranscriptTurn,
+    TranscriptTurnType,
+};
 
 #[uniffi::export]
 pub fn core_version() -> String {

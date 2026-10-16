@@ -181,12 +181,30 @@ public struct MainTerminalView: View {
                 }
                 #if os(iOS)
                 ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button(action: {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            tabsManager.activeViewModel?.toggleChatMode()
+                        }
+                    }) {
+                        Image(systemName: (tabsManager.activeViewModel?.isChatMode == true) ? "terminal.fill" : "bubble.left.and.bubble.right.fill")
+                            .font(.system(size: 14))
+                            .foregroundColor((tabsManager.activeViewModel?.isChatMode == true) ? .blue : .accentColor)
+                    }
+                    .accessibilityLabel("Toggle Chat and Terminal Mode")
+
                     Button(action: { tabsManager.activeViewModel?.openAiAssistant() }) {
                         Image(systemName: "wand.and.stars")
                             .font(.system(size: 14))
                             .foregroundColor(.purple)
                     }
                     .accessibilityLabel("AI Shell Assistant")
+
+                    Button(action: { tabsManager.activeViewModel?.openSnippetsSheet() }) {
+                        Image(systemName: "bolt.fill")
+                            .font(.system(size: 14))
+                            .foregroundColor(.orange)
+                    }
+                    .accessibilityLabel("Smart Snippets & Fuzzy History")
 
                     Button(action: { showWebPreview = true }) {
                         Image(systemName: "globe")
@@ -262,6 +280,16 @@ public struct MainTerminalView: View {
             )) {
                 if let activeVM = tabsManager.activeViewModel {
                     AiAssistantSheetView(viewModel: activeVM)
+                }
+            }
+            .sheet(isPresented: Binding(
+                get: { tabsManager.activeViewModel?.isSnippetsSheetOpen ?? false },
+                set: { isOpen in
+                    tabsManager.activeViewModel?.isSnippetsSheetOpen = isOpen
+                }
+            )) {
+                if let activeVM = tabsManager.activeViewModel {
+                    SnippetsSheetView(viewModel: activeVM)
                 }
             }
             .confirmationDialog(
@@ -447,16 +475,21 @@ struct ActiveTerminalSessionView: View {
     var body: some View {
         VStack(spacing: 0) {
             ZStack(alignment: .top) {
-                #if canImport(UIKit)
-                TerminalContainerView(
-                    viewModel: viewModel,
-                    isCtrlLocked: $isCtrlLocked
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                #else
-                Text("SwiftTerm rendering is native on iOS")
+                if viewModel.isChatMode {
+                    StructuredTranscriptView(viewModel: viewModel)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    #if canImport(UIKit)
+                    TerminalContainerView(
+                        viewModel: viewModel,
+                        isCtrlLocked: $isCtrlLocked
+                    )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                #endif
+                    #else
+                    Text("SwiftTerm rendering is native on iOS")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    #endif
+                }
 
                 // Top Connection Status Banner
                 switch viewModel.state {
@@ -531,15 +564,20 @@ struct ActiveTerminalSessionView: View {
             }
 
             #if canImport(UIKit)
-            KeyboardAccessoryView(
-                isCtrlLocked: $isCtrlLocked,
-                onSendBytes: { bytes in
-                    viewModel.sendInput(Data(bytes))
-                },
-                onAiAssistantTap: {
-                    viewModel.openAiAssistant()
-                }
-            )
+            if !viewModel.isChatMode {
+                KeyboardAccessoryView(
+                    isCtrlLocked: $isCtrlLocked,
+                    onSendBytes: { bytes in
+                        viewModel.sendInput(Data(bytes))
+                    },
+                    onAiAssistantTap: {
+                        viewModel.openAiAssistant()
+                    },
+                    onSnippetsTap: {
+                        viewModel.openSnippetsSheet()
+                    }
+                )
+            }
             #endif
         }
     }

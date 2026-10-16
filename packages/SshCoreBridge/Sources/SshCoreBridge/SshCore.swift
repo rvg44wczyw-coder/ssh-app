@@ -519,6 +519,22 @@ fileprivate struct FfiConverterUInt64: FfiConverterPrimitive {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterInt64: FfiConverterPrimitive {
+    typealias FfiType = Int64
+    typealias SwiftType = Int64
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Int64 {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: Int64, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterBool : FfiConverter {
     typealias FfiType = Int8
     typealias SwiftType = Bool
@@ -828,6 +844,11 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func connect(callback: SshSessionCallback) throws 
     
     /**
+     * Automatically detects the path of the active agent transcript on the remote host.
+     */
+    func detectActiveTranscriptPath(baseDir: String?) async throws  -> String?
+    
+    /**
      * Zero Battery Drain: gracefully closes the SSH channel, port forwards, and TCP socket.
      * tmux continues running remote agent tasks detached on the MacBook.
      */
@@ -839,6 +860,12 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func executeCommandOnActiveSession(command: String) async throws  -> String
     
     /**
+     * Reads recent commands from the remote host's shell history (`~/.zsh_history` / `~/.bash_history`)
+     * and scrubs sensitive credentials before returning.
+     */
+    func fetchRemoteShellHistory(limit: UInt32) async throws  -> [String]
+    
+    /**
      * Returns a list of all currently active port forwards.
      */
     func getActivePortForwards()  -> [PortForwardInfo]
@@ -848,6 +875,11 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
      * through the active SSH session and returns the generated command suggestion.
      */
     func queryHostOllama(model: String, systemPrompt: String, userPrompt: String) async throws  -> AiCommandSuggestion
+    
+    /**
+     * Reads and parses the latest transcript from the remote host.
+     */
+    func readRemoteTranscript(remotePath: String) async throws  -> [TranscriptTurn]
     
     /**
      * Instant reconnection on app foreground (didBecomeActive).
@@ -957,6 +989,25 @@ open func connect(callback: SshSessionCallback)throws   {try rustCallWithError(F
 }
     
     /**
+     * Automatically detects the path of the active agent transcript on the remote host.
+     */
+open func detectActiveTranscriptPath(baseDir: String?)async throws  -> String?  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_detect_active_transcript_path(
+                        self.uniffiCloneHandle(),FfiConverterOptionString.lower(baseDir)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterOptionString.lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
      * Zero Battery Drain: gracefully closes the SSH channel, port forwards, and TCP socket.
      * tmux continues running remote agent tasks detached on the MacBook.
      */
@@ -983,6 +1034,26 @@ open func executeCommandOnActiveSession(command: String)async throws  -> String 
             completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
             freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
             liftFunc: FfiConverterString.lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Reads recent commands from the remote host's shell history (`~/.zsh_history` / `~/.bash_history`)
+     * and scrubs sensitive credentials before returning.
+     */
+open func fetchRemoteShellHistory(limit: UInt32)async throws  -> [String]  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_fetch_remote_shell_history(
+                        self.uniffiCloneHandle(),FfiConverterUInt32.lower(limit)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceString.lift,
             errorHandler: FfiConverterTypeSshCoreError_lift
         )
 }
@@ -1015,6 +1086,25 @@ open func queryHostOllama(model: String, systemPrompt: String, userPrompt: Strin
             completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
             freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
             liftFunc: FfiConverterTypeAiCommandSuggestion_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Reads and parses the latest transcript from the remote host.
+     */
+open func readRemoteTranscript(remotePath: String)async throws  -> [TranscriptTurn]  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_read_remote_transcript(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(remotePath)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceTypeTranscriptTurn.lift,
             errorHandler: FfiConverterTypeSshCoreError_lift
         )
 }
@@ -1461,6 +1551,67 @@ public func FfiConverterTypeCanonicalSigningPayload_lower(_ value: CanonicalSign
 }
 
 
+/**
+ * Represents a ranked fuzzy search result.
+ */
+public struct FuzzyMatchResult: Equatable, Hashable {
+    public var item: SnippetItem
+    public var score: Int64
+    public var matchedIndices: [UInt32]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(item: SnippetItem, score: Int64, matchedIndices: [UInt32]) {
+        self.item = item
+        self.score = score
+        self.matchedIndices = matchedIndices
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FuzzyMatchResult: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFuzzyMatchResult: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FuzzyMatchResult {
+        return
+            try FuzzyMatchResult(
+                item: FfiConverterTypeSnippetItem.read(from: &buf), 
+                score: FfiConverterInt64.read(from: &buf), 
+                matchedIndices: FfiConverterSequenceUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FuzzyMatchResult, into buf: inout [UInt8]) {
+        FfiConverterTypeSnippetItem.write(value.item, into: &buf)
+        FfiConverterInt64.write(value.score, into: &buf)
+        FfiConverterSequenceUInt32.write(value.matchedIndices, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFuzzyMatchResult_lift(_ buf: RustBuffer) throws -> FuzzyMatchResult {
+    return try FfiConverterTypeFuzzyMatchResult.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFuzzyMatchResult_lower(_ value: FuzzyMatchResult) -> RustBuffer {
+    return FfiConverterTypeFuzzyMatchResult.lower(value)
+}
+
+
 public struct KeypairResult: Equatable, Hashable {
     public var publicKeyOpenssh: String
     public var privateKeyOpenssh: String
@@ -1724,6 +1875,79 @@ public func FfiConverterTypeSessionConfig_lower(_ value: SessionConfig) -> RustB
 }
 
 
+/**
+ * Represents a reusable shell command snippet or history entry.
+ */
+public struct SnippetItem: Equatable, Hashable {
+    public var id: String
+    public var title: String
+    public var command: String
+    public var category: String
+    public var tags: [String]
+    public var useCount: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, title: String, command: String, category: String, tags: [String], useCount: UInt64) {
+        self.id = id
+        self.title = title
+        self.command = command
+        self.category = category
+        self.tags = tags
+        self.useCount = useCount
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension SnippetItem: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSnippetItem: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SnippetItem {
+        return
+            try SnippetItem(
+                id: FfiConverterString.read(from: &buf), 
+                title: FfiConverterString.read(from: &buf), 
+                command: FfiConverterString.read(from: &buf), 
+                category: FfiConverterString.read(from: &buf), 
+                tags: FfiConverterSequenceString.read(from: &buf), 
+                useCount: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SnippetItem, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.title, into: &buf)
+        FfiConverterString.write(value.command, into: &buf)
+        FfiConverterString.write(value.category, into: &buf)
+        FfiConverterSequenceString.write(value.tags, into: &buf)
+        FfiConverterUInt64.write(value.useCount, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSnippetItem_lift(_ buf: RustBuffer) throws -> SnippetItem {
+    return try FfiConverterTypeSnippetItem.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSnippetItem_lower(_ value: SnippetItem) -> RustBuffer {
+    return FfiConverterTypeSnippetItem.lower(value)
+}
+
+
 public struct TerminalSize: Equatable, Hashable {
     public var cols: UInt16
     public var rows: UInt16
@@ -1840,6 +2064,164 @@ public func FfiConverterTypeTmuxSessionInfo_lift(_ buf: RustBuffer) throws -> Tm
 #endif
 public func FfiConverterTypeTmuxSessionInfo_lower(_ value: TmuxSessionInfo) -> RustBuffer {
     return FfiConverterTypeTmuxSessionInfo.lower(value)
+}
+
+
+/**
+ * Represents an individual tool call executed by the agent.
+ */
+public struct TranscriptToolCall: Equatable, Hashable {
+    public var callId: String
+    public var toolName: String
+    public var argumentsSummary: String
+    public var fullArgumentsJson: String?
+    public var result: String?
+    public var isError: Bool
+    public var status: TranscriptStatus
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(callId: String, toolName: String, argumentsSummary: String, fullArgumentsJson: String?, result: String?, isError: Bool, status: TranscriptStatus) {
+        self.callId = callId
+        self.toolName = toolName
+        self.argumentsSummary = argumentsSummary
+        self.fullArgumentsJson = fullArgumentsJson
+        self.result = result
+        self.isError = isError
+        self.status = status
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension TranscriptToolCall: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTranscriptToolCall: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TranscriptToolCall {
+        return
+            try TranscriptToolCall(
+                callId: FfiConverterString.read(from: &buf), 
+                toolName: FfiConverterString.read(from: &buf), 
+                argumentsSummary: FfiConverterString.read(from: &buf), 
+                fullArgumentsJson: FfiConverterOptionString.read(from: &buf), 
+                result: FfiConverterOptionString.read(from: &buf), 
+                isError: FfiConverterBool.read(from: &buf), 
+                status: FfiConverterTypeTranscriptStatus.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: TranscriptToolCall, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.callId, into: &buf)
+        FfiConverterString.write(value.toolName, into: &buf)
+        FfiConverterString.write(value.argumentsSummary, into: &buf)
+        FfiConverterOptionString.write(value.fullArgumentsJson, into: &buf)
+        FfiConverterOptionString.write(value.result, into: &buf)
+        FfiConverterBool.write(value.isError, into: &buf)
+        FfiConverterTypeTranscriptStatus.write(value.status, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTranscriptToolCall_lift(_ buf: RustBuffer) throws -> TranscriptToolCall {
+    return try FfiConverterTypeTranscriptToolCall.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTranscriptToolCall_lower(_ value: TranscriptToolCall) -> RustBuffer {
+    return FfiConverterTypeTranscriptToolCall.lower(value)
+}
+
+
+/**
+ * Represents a single normalized conversation turn in the structured transcript.
+ */
+public struct TranscriptTurn: Equatable, Hashable {
+    public var id: String
+    public var stepIndex: UInt64
+    public var turnType: TranscriptTurnType
+    public var timestamp: String?
+    public var content: String?
+    public var thinking: String?
+    public var toolCalls: [TranscriptToolCall]
+    public var status: TranscriptStatus
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, stepIndex: UInt64, turnType: TranscriptTurnType, timestamp: String?, content: String?, thinking: String?, toolCalls: [TranscriptToolCall], status: TranscriptStatus) {
+        self.id = id
+        self.stepIndex = stepIndex
+        self.turnType = turnType
+        self.timestamp = timestamp
+        self.content = content
+        self.thinking = thinking
+        self.toolCalls = toolCalls
+        self.status = status
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension TranscriptTurn: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTranscriptTurn: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TranscriptTurn {
+        return
+            try TranscriptTurn(
+                id: FfiConverterString.read(from: &buf), 
+                stepIndex: FfiConverterUInt64.read(from: &buf), 
+                turnType: FfiConverterTypeTranscriptTurnType.read(from: &buf), 
+                timestamp: FfiConverterOptionString.read(from: &buf), 
+                content: FfiConverterOptionString.read(from: &buf), 
+                thinking: FfiConverterOptionString.read(from: &buf), 
+                toolCalls: FfiConverterSequenceTypeTranscriptToolCall.read(from: &buf), 
+                status: FfiConverterTypeTranscriptStatus.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: TranscriptTurn, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterUInt64.write(value.stepIndex, into: &buf)
+        FfiConverterTypeTranscriptTurnType.write(value.turnType, into: &buf)
+        FfiConverterOptionString.write(value.timestamp, into: &buf)
+        FfiConverterOptionString.write(value.content, into: &buf)
+        FfiConverterOptionString.write(value.thinking, into: &buf)
+        FfiConverterSequenceTypeTranscriptToolCall.write(value.toolCalls, into: &buf)
+        FfiConverterTypeTranscriptStatus.write(value.status, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTranscriptTurn_lift(_ buf: RustBuffer) throws -> TranscriptTurn {
+    return try FfiConverterTypeTranscriptTurn.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTranscriptTurn_lower(_ value: TranscriptTurn) -> RustBuffer {
+    return FfiConverterTypeTranscriptTurn.lower(value)
 }
 
 
@@ -2064,6 +2446,8 @@ enum SshCoreError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
     )
     case AiResponseParseError(reason: String
     )
+    case TranscriptError(reason: String
+    )
 
     
 
@@ -2138,6 +2522,9 @@ public struct FfiConverterTypeSshCoreError: FfiConverterRustBuffer {
             reason: try FfiConverterString.read(from: &buf)
             )
         case 17: return .AiResponseParseError(
+            reason: try FfiConverterString.read(from: &buf)
+            )
+        case 18: return .TranscriptError(
             reason: try FfiConverterString.read(from: &buf)
             )
 
@@ -2235,6 +2622,11 @@ public struct FfiConverterTypeSshCoreError: FfiConverterRustBuffer {
             writeInt(&buf, Int32(17))
             FfiConverterString.write(reason, into: &buf)
             
+        
+        case let .TranscriptError(reason):
+            writeInt(&buf, Int32(18))
+            FfiConverterString.write(reason, into: &buf)
+            
         }
     }
 }
@@ -2253,6 +2645,272 @@ public func FfiConverterTypeSshCoreError_lift(_ buf: RustBuffer) throws -> SshCo
 public func FfiConverterTypeSshCoreError_lower(_ value: SshCoreError) -> RustBuffer {
     return FfiConverterTypeSshCoreError.lower(value)
 }
+
+
+public 
+enum TranscriptError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
+
+    
+    
+    case JsonParseError(reason: String
+    )
+    case PayloadTooLarge(bytes: UInt64
+    )
+    case InvalidPath(path: String, reason: String
+    )
+    case IoError(reason: String
+    )
+
+    
+
+    
+
+    
+    public var errorDescription: String? {
+        String(reflecting: self)
+    }
+    
+}
+
+#if compiler(>=6)
+extension TranscriptError: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTranscriptError: FfiConverterRustBuffer {
+    typealias SwiftType = TranscriptError
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TranscriptError {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+
+        
+
+        
+        case 1: return .JsonParseError(
+            reason: try FfiConverterString.read(from: &buf)
+            )
+        case 2: return .PayloadTooLarge(
+            bytes: try FfiConverterUInt64.read(from: &buf)
+            )
+        case 3: return .InvalidPath(
+            path: try FfiConverterString.read(from: &buf), 
+            reason: try FfiConverterString.read(from: &buf)
+            )
+        case 4: return .IoError(
+            reason: try FfiConverterString.read(from: &buf)
+            )
+
+         default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: TranscriptError, into buf: inout [UInt8]) {
+        switch value {
+
+        
+
+        
+        
+        case let .JsonParseError(reason):
+            writeInt(&buf, Int32(1))
+            FfiConverterString.write(reason, into: &buf)
+            
+        
+        case let .PayloadTooLarge(bytes):
+            writeInt(&buf, Int32(2))
+            FfiConverterUInt64.write(bytes, into: &buf)
+            
+        
+        case let .InvalidPath(path,reason):
+            writeInt(&buf, Int32(3))
+            FfiConverterString.write(path, into: &buf)
+            FfiConverterString.write(reason, into: &buf)
+            
+        
+        case let .IoError(reason):
+            writeInt(&buf, Int32(4))
+            FfiConverterString.write(reason, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTranscriptError_lift(_ buf: RustBuffer) throws -> TranscriptError {
+    return try FfiConverterTypeTranscriptError.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTranscriptError_lower(_ value: TranscriptError) -> RustBuffer {
+    return FfiConverterTypeTranscriptError.lower(value)
+}
+
+
+/**
+ * Execution status of an agent turn or individual tool call.
+ */
+
+public enum TranscriptStatus: Equatable, Hashable {
+    
+    case running
+    case done
+    case error
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension TranscriptStatus: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTranscriptStatus: FfiConverterRustBuffer {
+    typealias SwiftType = TranscriptStatus
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TranscriptStatus {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .running
+        
+        case 2: return .done
+        
+        case 3: return .error
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: TranscriptStatus, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .running:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .done:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .error:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTranscriptStatus_lift(_ buf: RustBuffer) throws -> TranscriptStatus {
+    return try FfiConverterTypeTranscriptStatus.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTranscriptStatus_lower(_ value: TranscriptStatus) -> RustBuffer {
+    return FfiConverterTypeTranscriptStatus.lower(value)
+}
+
+
+
+/**
+ * Type of conversation turn.
+ */
+
+public enum TranscriptTurnType: Equatable, Hashable {
+    
+    case user
+    case assistant
+    case system
+    case approvalRequest
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension TranscriptTurnType: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTranscriptTurnType: FfiConverterRustBuffer {
+    typealias SwiftType = TranscriptTurnType
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TranscriptTurnType {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .user
+        
+        case 2: return .assistant
+        
+        case 3: return .system
+        
+        case 4: return .approvalRequest
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: TranscriptTurnType, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .user:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .assistant:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .system:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .approvalRequest:
+            writeInt(&buf, Int32(4))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTranscriptTurnType_lift(_ buf: RustBuffer) throws -> TranscriptTurnType {
+    return try FfiConverterTypeTranscriptTurnType.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTranscriptTurnType_lower(_ value: TranscriptTurnType) -> RustBuffer {
+    return FfiConverterTypeTranscriptTurnType.lower(value)
+}
+
 
 
 
@@ -2492,6 +3150,31 @@ fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceUInt32: FfiConverterRustBuffer {
+    typealias SwiftType = [UInt32]
+
+    public static func write(_ value: [UInt32], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterUInt32.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [UInt32] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [UInt32]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterUInt32.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceString: FfiConverterRustBuffer {
     typealias SwiftType = [String]
 
@@ -2509,6 +3192,31 @@ fileprivate struct FfiConverterSequenceString: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterString.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeFuzzyMatchResult: FfiConverterRustBuffer {
+    typealias SwiftType = [FuzzyMatchResult]
+
+    public static func write(_ value: [FuzzyMatchResult], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFuzzyMatchResult.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FuzzyMatchResult] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FuzzyMatchResult]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFuzzyMatchResult.read(from: &buf))
         }
         return seq
     }
@@ -2542,6 +3250,31 @@ fileprivate struct FfiConverterSequenceTypePortForwardInfo: FfiConverterRustBuff
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeSnippetItem: FfiConverterRustBuffer {
+    typealias SwiftType = [SnippetItem]
+
+    public static func write(_ value: [SnippetItem], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeSnippetItem.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [SnippetItem] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [SnippetItem]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeSnippetItem.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeTmuxSessionInfo: FfiConverterRustBuffer {
     typealias SwiftType = [TmuxSessionInfo]
 
@@ -2559,6 +3292,56 @@ fileprivate struct FfiConverterSequenceTypeTmuxSessionInfo: FfiConverterRustBuff
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeTmuxSessionInfo.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeTranscriptToolCall: FfiConverterRustBuffer {
+    typealias SwiftType = [TranscriptToolCall]
+
+    public static func write(_ value: [TranscriptToolCall], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeTranscriptToolCall.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [TranscriptToolCall] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [TranscriptToolCall]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeTranscriptToolCall.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeTranscriptTurn: FfiConverterRustBuffer {
+    typealias SwiftType = [TranscriptTurn]
+
+    public static func write(_ value: [TranscriptTurn], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeTranscriptTurn.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [TranscriptTurn] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [TranscriptTurn]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeTranscriptTurn.read(from: &buf))
         }
         return seq
     }
@@ -2807,6 +3590,74 @@ public func listRemoteTmuxSessions(config: RemoteServerConfig)async throws  -> [
             errorHandler: FfiConverterTypeSshCoreError_lift
         )
 }
+/**
+ * Returns the built-in catalog of developer snippets for AI agents, Git, Cargo, Tmux, and System.
+ */
+public func defaultDeveloperSnippets() -> [SnippetItem]  {
+    return try!  FfiConverterSequenceTypeSnippetItem.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_default_developer_snippets(uniffiCallStatus
+    )
+})
+}
+/**
+ * Parses raw `.zsh_history` / `.bash_history` lines, scrubs secrets, and returns unique recent commands.
+ */
+public func extractHistoryCommands(rawHistory: String, limit: UInt32) -> [String]  {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_extract_history_commands(
+        FfiConverterString.lower(rawHistory),
+        FfiConverterUInt32.lower(limit),uniffiCallStatus
+    )
+})
+}
+/**
+ * Extracts unique `{{variable}}` placeholder names in order of appearance.
+ */
+public func extractSnippetPlaceholders(command: String) -> [String]  {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_extract_snippet_placeholders(
+        FfiConverterString.lower(command),uniffiCallStatus
+    )
+})
+}
+/**
+ * Searches and ranks snippets by fuzzy matching `query` against command, title, category, and tags.
+ */
+public func fuzzySearchSnippets(query: String, items: [SnippetItem], limit: UInt32) -> [FuzzyMatchResult]  {
+    return try!  FfiConverterSequenceTypeFuzzyMatchResult.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_fuzzy_search_snippets(
+        FfiConverterString.lower(query),
+        FfiConverterSequenceTypeSnippetItem.lower(items),
+        FfiConverterUInt32.lower(limit),uniffiCallStatus
+    )
+})
+}
+/**
+ * Parses a JSONL transcript payload into a normalized sequence of `TranscriptTurn`s.
+ */
+public func parseTranscriptJsonl(rawJsonl: String)throws  -> [TranscriptTurn]  {
+    return try  FfiConverterSequenceTypeTranscriptTurn.lift(try rustCallWithError(FfiConverterTypeTranscriptError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_parse_transcript_jsonl(
+        FfiConverterString.lower(rawJsonl),uniffiCallStatus
+    )
+})
+}
+/**
+ * Strip ANSI escape codes from terminal / agent text.
+ */
+public func stripAnsiCodes(input: String) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_strip_ansi_codes(
+        FfiConverterString.lower(input),uniffiCallStatus
+    )
+})
+}
 
 private enum InitializationResult {
     case ok
@@ -2874,6 +3725,24 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_func_list_remote_tmux_sessions() != 48899) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_func_default_developer_snippets() != 46318) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_extract_history_commands() != 36510) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_extract_snippet_placeholders() != 23502) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_fuzzy_search_snippets() != 26167) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_parse_transcript_jsonl() != 20299) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_strip_ansi_codes() != 48890) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_method_portforwardhandle_get_active_connections() != 25377) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -2895,16 +3764,25 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_connect() != 11069) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_detect_active_transcript_path() != 42874) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_disconnect() != 45557) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_execute_command_on_active_session() != 4194) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_fetch_remote_shell_history() != 21948) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_get_active_port_forwards() != 9499) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_query_host_ollama() != 61217) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_read_remote_transcript() != 7170) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_reconnect() != 62860) {

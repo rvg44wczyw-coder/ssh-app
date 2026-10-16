@@ -18,6 +18,18 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     @Published public var isAiLoading: Bool = false
     @Published public var aiError: String? = nil
 
+    // Structured Transcript / Dual-Mode State
+    @Published public var isChatMode: Bool = false
+    @Published public var transcriptTurns: [TranscriptTurn] = []
+    @Published public var isTranscriptLoading: Bool = false
+    @Published public var activeTranscriptPath: String? = nil
+    @Published public var transcriptError: String? = nil
+
+    // Smart Snippets & Fuzzy History Search State
+    @Published public var isSnippetsSheetOpen: Bool = false
+    @Published public var remoteHistoryCommands: [String] = []
+    @Published public var isHistoryLoading: Bool = false
+
     private var handle: SshSessionHandle?
     private var lastCols: UInt16 = 80
     private var lastRows: UInt16 = 24
@@ -182,6 +194,60 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
             sendInput(data)
         }
         self.isAiAssistantOpen = false
+    }
+
+    public func toggleChatMode() {
+        isChatMode.toggle()
+        if isChatMode && transcriptTurns.isEmpty {
+            loadTranscript()
+        }
+    }
+
+    public func loadTranscript() {
+        guard let handle = handle, state == .connected else { return }
+        isTranscriptLoading = true
+        transcriptError = nil
+
+        Task {
+            do {
+                var path = self.activeTranscriptPath
+                if path == nil {
+                    path = try await handle.detectActiveTranscriptPath(baseDir: nil)
+                    self.activeTranscriptPath = path
+                }
+
+                guard let validPath = path else {
+                    self.transcriptError = "No active agent transcript detected"
+                    self.isTranscriptLoading = false
+                    return
+                }
+
+                let turns = try await handle.readRemoteTranscript(remotePath: validPath)
+                self.transcriptTurns = turns
+                self.isTranscriptLoading = false
+            } catch {
+                self.transcriptError = error.localizedDescription
+                self.isTranscriptLoading = false
+            }
+        }
+    }
+
+    public func openSnippetsSheet() {
+        self.isSnippetsSheetOpen = true
+    }
+
+    public func fetchRemoteHistory() {
+        guard let handle = handle, state == .connected else { return }
+        isHistoryLoading = true
+        Task {
+            do {
+                let cmds = try await handle.fetchRemoteShellHistory(limit: 80)
+                self.remoteHistoryCommands = cmds
+                self.isHistoryLoading = false
+            } catch {
+                self.isHistoryLoading = false
+            }
+        }
     }
 
     /// Zero Battery Drain: gracefully closes the SSH TCP socket when iOS suspends the app.

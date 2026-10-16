@@ -50,4 +50,22 @@ pub enum SshCoreError {
 
     #[error("Failed to parse AI response: {reason}")]
     AiResponseParseError { reason: String },
+
+    #[error("Transcript error: {reason}")]
+    TranscriptError { reason: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, uniffi::Error)]
+pub enum TranscriptError {
+    #[error("Failed to parse JSONL line: {reason}")]
+    JsonParseError { reason: String },
+
+    #[error("File size exceeds safety limit ({bytes} bytes)")]
+    PayloadTooLarge { bytes: u64 },
+
+    #[error("Invalid remote path '{path}': {reason}")]
+    InvalidPath { path: String, reason: String },
+
+    #[error("Transcript IO error: {reason}")]
+    IoError { reason: String },
 }

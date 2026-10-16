@@ -94,6 +94,22 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     private val _aiError = MutableStateFlow<String?>(null)
     val aiError: StateFlow<String?> = _aiError.asStateFlow()
 
+    // Dual-Mode UI & Structured Transcript State
+    private val _isChatMode = MutableStateFlow(false)
+    val isChatMode: StateFlow<Boolean> = _isChatMode.asStateFlow()
+
+    private val _transcriptTurns = MutableStateFlow<List<TranscriptTurn>>(emptyList())
+    val transcriptTurns: StateFlow<List<TranscriptTurn>> = _transcriptTurns.asStateFlow()
+
+    private val _isTranscriptLoading = MutableStateFlow(false)
+    val isTranscriptLoading: StateFlow<Boolean> = _isTranscriptLoading.asStateFlow()
+
+    private val _activeTranscriptPath = MutableStateFlow<String?>(null)
+    val activeTranscriptPath: StateFlow<String?> = _activeTranscriptPath.asStateFlow()
+
+    private val _transcriptError = MutableStateFlow<String?>(null)
+    val transcriptError: StateFlow<String?> = _transcriptError.asStateFlow()
+
     // Active Rust Core session handle
     private var sessionHandle: SshSessionHandle? = null
 
@@ -417,6 +433,51 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                 withContext(Dispatchers.Main) {
                     _diffText.value = "Failed to fetch git diff: ${e.localizedMessage}"
                     _isDiffLoading.value = false
+                }
+            }
+        }
+    }
+
+    // Dual-Mode UI & Structured Transcript Actions
+    fun toggleChatMode() {
+        _isChatMode.value = !_isChatMode.value
+        if (_isChatMode.value && _transcriptTurns.value.isEmpty()) {
+            loadTranscript()
+        }
+    }
+
+    fun loadTranscript() {
+        val handle = sessionHandle ?: return
+        if (_connectionState.value !is ConnectionUiState.Connected) return
+
+        _isTranscriptLoading.value = true
+        _transcriptError.value = null
+
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                var path = _activeTranscriptPath.value
+                if (path == null) {
+                    path = handle.detectActiveTranscriptPath(baseDir = null)
+                    _activeTranscriptPath.value = path
+                }
+
+                if (path == null) {
+                    withContext(Dispatchers.Main) {
+                        _transcriptError.value = "No active agent transcript detected"
+                        _isTranscriptLoading.value = false
+                    }
+                    return@launch
+                }
+
+                val turns = handle.readRemoteTranscript(path)
+                withContext(Dispatchers.Main) {
+                    _transcriptTurns.value = turns
+                    _isTranscriptLoading.value = false
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    _transcriptError.value = e.localizedMessage ?: "Failed to read transcript"
+                    _isTranscriptLoading.value = false
                 }
             }
         }

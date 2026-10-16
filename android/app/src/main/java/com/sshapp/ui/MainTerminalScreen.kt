@@ -47,6 +47,7 @@ fun MainTerminalScreen(
     val isDiffLoading by viewModel.isDiffLoading.collectAsState()
     val isWebPreviewOpen by viewModel.isWebPreviewOpen.collectAsState()
     val isAiAssistantOpen by viewModel.isAiAssistantOpen.collectAsState()
+    val isChatMode by viewModel.isChatMode.collectAsState()
 
     var showKeyBanner by remember { mutableStateOf(false) }
 
@@ -77,6 +78,14 @@ fun MainTerminalScreen(
                     }
                 },
                 actions = {
+                    // Dual-Mode Chat Toggle Button
+                    IconButton(onClick = { viewModel.toggleChatMode() }) {
+                        Icon(
+                            imageVector = if (isChatMode) Icons.Default.Terminal else Icons.Default.Forum,
+                            contentDescription = "Toggle Chat and Terminal Mode",
+                            tint = if (isChatMode) AccentBlue else Color(0xFFC084FC)
+                        )
+                    }
                     // AI Shell Assistant Button
                     IconButton(onClick = { viewModel.openAiAssistant() }) {
                         Icon(
@@ -116,14 +125,16 @@ fun MainTerminalScreen(
             )
         },
         bottomBar = {
-            KeyboardAccessoryRow(
-                onKeyClick = { key ->
-                    viewModel.sendQuickKey(key)
-                },
-                onAiClick = {
-                    viewModel.openAiAssistant()
-                }
-            )
+            if (!isChatMode) {
+                KeyboardAccessoryRow(
+                    onKeyClick = { key ->
+                        viewModel.sendQuickKey(key)
+                    },
+                    onAiClick = {
+                        viewModel.openAiAssistant()
+                    }
+                )
+            }
         },
         containerColor = DarkBackground
     ) { paddingValues ->
@@ -228,13 +239,22 @@ fun MainTerminalScreen(
                 )
             }
 
-            // Main Terminal Output Area
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-            ) {
-                TerminalView(output = terminalOutput)
+            // Main Terminal / Structured Chat Output Area
+            if (isChatMode) {
+                StructuredTranscriptScreen(
+                    viewModel = viewModel,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                ) {
+                    TerminalView(output = terminalOutput)
+                }
             }
         }
 

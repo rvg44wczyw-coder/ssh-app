@@ -890,6 +890,10 @@ internal object IntegrityCheckingUniffiLib {
 
     external fun uniffi_ssh_core_checksum_func_list_remote_tmux_sessions(): Int
 
+    external fun uniffi_ssh_core_checksum_func_parse_transcript_jsonl(): Int
+
+    external fun uniffi_ssh_core_checksum_func_strip_ansi_codes(): Int
+
     external fun uniffi_ssh_core_checksum_method_portforwardhandle_get_active_connections(): Int
 
     external fun uniffi_ssh_core_checksum_method_portforwardhandle_get_local_port(): Int
@@ -904,6 +908,8 @@ internal object IntegrityCheckingUniffiLib {
 
     external fun uniffi_ssh_core_checksum_method_sshsessionhandle_connect(): Int
 
+    external fun uniffi_ssh_core_checksum_method_sshsessionhandle_detect_active_transcript_path(): Int
+
     external fun uniffi_ssh_core_checksum_method_sshsessionhandle_disconnect(): Int
 
     external fun uniffi_ssh_core_checksum_method_sshsessionhandle_execute_command_on_active_session(): Int
@@ -911,6 +917,8 @@ internal object IntegrityCheckingUniffiLib {
     external fun uniffi_ssh_core_checksum_method_sshsessionhandle_get_active_port_forwards(): Int
 
     external fun uniffi_ssh_core_checksum_method_sshsessionhandle_query_host_ollama(): Int
+
+    external fun uniffi_ssh_core_checksum_method_sshsessionhandle_read_remote_transcript(): Int
 
     external fun uniffi_ssh_core_checksum_method_sshsessionhandle_reconnect(): Int
 
@@ -1009,6 +1017,11 @@ internal object UniffiLib {
         uniffi_out_err: UniffiRustCallStatus,
     ): Unit
 
+    external fun uniffi_ssh_core_fn_method_sshsessionhandle_detect_active_transcript_path(
+        `ptr`: Long,
+        `baseDir`: RustBuffer.ByValue,
+    ): Long
+
     external fun uniffi_ssh_core_fn_method_sshsessionhandle_disconnect(
         `ptr`: Long,
         uniffi_out_err: UniffiRustCallStatus,
@@ -1029,6 +1042,11 @@ internal object UniffiLib {
         `model`: RustBuffer.ByValue,
         `systemPrompt`: RustBuffer.ByValue,
         `userPrompt`: RustBuffer.ByValue,
+    ): Long
+
+    external fun uniffi_ssh_core_fn_method_sshsessionhandle_read_remote_transcript(
+        `ptr`: Long,
+        `remotePath`: RustBuffer.ByValue,
     ): Long
 
     external fun uniffi_ssh_core_fn_method_sshsessionhandle_reconnect(
@@ -1155,6 +1173,16 @@ internal object UniffiLib {
     ): Long
 
     external fun uniffi_ssh_core_fn_func_list_remote_tmux_sessions(`config`: RustBuffer.ByValue): Long
+
+    external fun uniffi_ssh_core_fn_func_parse_transcript_jsonl(
+        `rawJsonl`: RustBuffer.ByValue,
+        uniffi_out_err: UniffiRustCallStatus,
+    ): RustBuffer.ByValue
+
+    external fun uniffi_ssh_core_fn_func_strip_ansi_codes(
+        `input`: RustBuffer.ByValue,
+        uniffi_out_err: UniffiRustCallStatus,
+    ): RustBuffer.ByValue
 
     external fun ffi_ssh_core_rustbuffer_alloc(
         `size`: Long,
@@ -1421,6 +1449,12 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if ((lib.uniffi_ssh_core_checksum_func_list_remote_tmux_sessions() and 0xFFFF) != 48899) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if ((lib.uniffi_ssh_core_checksum_func_parse_transcript_jsonl() and 0xFFFF) != 20299) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_ssh_core_checksum_func_strip_ansi_codes() and 0xFFFF) != 48890) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_ssh_core_checksum_method_portforwardhandle_get_active_connections() and 0xFFFF) != 25377) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1442,6 +1476,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if ((lib.uniffi_ssh_core_checksum_method_sshsessionhandle_connect() and 0xFFFF) != 11069) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if ((lib.uniffi_ssh_core_checksum_method_sshsessionhandle_detect_active_transcript_path() and 0xFFFF) != 42874) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_ssh_core_checksum_method_sshsessionhandle_disconnect() and 0xFFFF) != 45557) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1452,6 +1489,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_ssh_core_checksum_method_sshsessionhandle_query_host_ollama() and 0xFFFF) != 61217) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_ssh_core_checksum_method_sshsessionhandle_read_remote_transcript() and 0xFFFF) != 7170) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_ssh_core_checksum_method_sshsessionhandle_reconnect() and 0xFFFF) != 62860) {
@@ -2352,6 +2392,11 @@ public interface SshSessionHandleInterface {
     fun `connect`(`callback`: SshSessionCallback)
 
     /**
+     * Automatically detects the path of the active agent transcript on the remote host.
+     */
+    suspend fun `detectActiveTranscriptPath`(`baseDir`: kotlin.String?): kotlin.String?
+
+    /**
      * Zero Battery Drain: gracefully closes the SSH channel, port forwards, and TCP socket.
      * tmux continues running remote agent tasks detached on the MacBook.
      */
@@ -2376,6 +2421,11 @@ public interface SshSessionHandleInterface {
         `systemPrompt`: kotlin.String,
         `userPrompt`: kotlin.String,
     ): AiCommandSuggestion
+
+    /**
+     * Reads and parses the latest transcript from the remote host.
+     */
+    suspend fun `readRemoteTranscript`(`remotePath`: kotlin.String): List<TranscriptTurn>
 
     /**
      * Instant reconnection on app foreground (didBecomeActive).
@@ -2545,6 +2595,28 @@ open class SshSessionHandle :
         }
 
     /**
+     * Automatically detects the path of the active agent transcript on the remote host.
+     */
+    @Throws(SshCoreException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `detectActiveTranscriptPath`(`baseDir`: kotlin.String?): kotlin.String? =
+        uniffiRustCallAsync(
+            callWithHandle { uniffiHandle ->
+                UniffiLib.uniffi_ssh_core_fn_method_sshsessionhandle_detect_active_transcript_path(
+                    uniffiHandle,
+                    FfiConverterOptionalString.lower(`baseDir`),
+                )
+            },
+            { future, callback, continuation -> UniffiLib.ffi_ssh_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+            { future, continuation -> UniffiLib.ffi_ssh_core_rust_future_complete_rust_buffer(future, continuation) },
+            { future -> UniffiLib.ffi_ssh_core_rust_future_free_rust_buffer(future) },
+            // lift function
+            { FfiConverterOptionalString.lift(it) },
+            // Error FFI converter
+            SshCoreException.ErrorHandler,
+        )
+
+    /**
      * Zero Battery Drain: gracefully closes the SSH channel, port forwards, and TCP socket.
      * tmux continues running remote agent tasks detached on the MacBook.
      */
@@ -2620,6 +2692,28 @@ open class SshSessionHandle :
             { future -> UniffiLib.ffi_ssh_core_rust_future_free_rust_buffer(future) },
             // lift function
             { FfiConverterTypeAiCommandSuggestion.lift(it) },
+            // Error FFI converter
+            SshCoreException.ErrorHandler,
+        )
+
+    /**
+     * Reads and parses the latest transcript from the remote host.
+     */
+    @Throws(SshCoreException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `readRemoteTranscript`(`remotePath`: kotlin.String): List<TranscriptTurn> =
+        uniffiRustCallAsync(
+            callWithHandle { uniffiHandle ->
+                UniffiLib.uniffi_ssh_core_fn_method_sshsessionhandle_read_remote_transcript(
+                    uniffiHandle,
+                    FfiConverterString.lower(`remotePath`),
+                )
+            },
+            { future, callback, continuation -> UniffiLib.ffi_ssh_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+            { future, continuation -> UniffiLib.ffi_ssh_core_rust_future_complete_rust_buffer(future, continuation) },
+            { future -> UniffiLib.ffi_ssh_core_rust_future_free_rust_buffer(future) },
+            // lift function
+            { FfiConverterSequenceTypeTranscriptTurn.lift(it) },
             // Error FFI converter
             SshCoreException.ErrorHandler,
         )
@@ -3203,6 +3297,120 @@ public object FfiConverterTypeTmuxSessionInfo : FfiConverterRustBuffer<TmuxSessi
 }
 
 /**
+ * Represents an individual tool call executed by the agent.
+ */
+data class TranscriptToolCall(
+    var `callId`: kotlin.String,
+    var `toolName`: kotlin.String,
+    var `argumentsSummary`: kotlin.String,
+    var `fullArgumentsJson`: kotlin.String?,
+    var `result`: kotlin.String?,
+    var `isError`: kotlin.Boolean,
+    var `status`: TranscriptStatus,
+) {
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeTranscriptToolCall : FfiConverterRustBuffer<TranscriptToolCall> {
+    override fun read(buf: ByteBuffer): TranscriptToolCall =
+        TranscriptToolCall(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterTypeTranscriptStatus.read(buf),
+        )
+
+    override fun allocationSize(value: TranscriptToolCall) =
+        (
+            FfiConverterString.allocationSize(value.`callId`) +
+                FfiConverterString.allocationSize(value.`toolName`) +
+                FfiConverterString.allocationSize(value.`argumentsSummary`) +
+                FfiConverterOptionalString.allocationSize(value.`fullArgumentsJson`) +
+                FfiConverterOptionalString.allocationSize(value.`result`) +
+                FfiConverterBoolean.allocationSize(value.`isError`) +
+                FfiConverterTypeTranscriptStatus.allocationSize(value.`status`)
+        )
+
+    override fun write(
+        value: TranscriptToolCall,
+        buf: ByteBuffer,
+    ) {
+        FfiConverterString.write(value.`callId`, buf)
+        FfiConverterString.write(value.`toolName`, buf)
+        FfiConverterString.write(value.`argumentsSummary`, buf)
+        FfiConverterOptionalString.write(value.`fullArgumentsJson`, buf)
+        FfiConverterOptionalString.write(value.`result`, buf)
+        FfiConverterBoolean.write(value.`isError`, buf)
+        FfiConverterTypeTranscriptStatus.write(value.`status`, buf)
+    }
+}
+
+/**
+ * Represents a single normalized conversation turn in the structured transcript.
+ */
+data class TranscriptTurn(
+    var `id`: kotlin.String,
+    var `stepIndex`: kotlin.ULong,
+    var `turnType`: TranscriptTurnType,
+    var `timestamp`: kotlin.String?,
+    var `content`: kotlin.String?,
+    var `thinking`: kotlin.String?,
+    var `toolCalls`: List<TranscriptToolCall>,
+    var `status`: TranscriptStatus,
+) {
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeTranscriptTurn : FfiConverterRustBuffer<TranscriptTurn> {
+    override fun read(buf: ByteBuffer): TranscriptTurn =
+        TranscriptTurn(
+            FfiConverterString.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterTypeTranscriptTurnType.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterSequenceTypeTranscriptToolCall.read(buf),
+            FfiConverterTypeTranscriptStatus.read(buf),
+        )
+
+    override fun allocationSize(value: TranscriptTurn) =
+        (
+            FfiConverterString.allocationSize(value.`id`) +
+                FfiConverterULong.allocationSize(value.`stepIndex`) +
+                FfiConverterTypeTranscriptTurnType.allocationSize(value.`turnType`) +
+                FfiConverterOptionalString.allocationSize(value.`timestamp`) +
+                FfiConverterOptionalString.allocationSize(value.`content`) +
+                FfiConverterOptionalString.allocationSize(value.`thinking`) +
+                FfiConverterSequenceTypeTranscriptToolCall.allocationSize(value.`toolCalls`) +
+                FfiConverterTypeTranscriptStatus.allocationSize(value.`status`)
+        )
+
+    override fun write(
+        value: TranscriptTurn,
+        buf: ByteBuffer,
+    ) {
+        FfiConverterString.write(value.`id`, buf)
+        FfiConverterULong.write(value.`stepIndex`, buf)
+        FfiConverterTypeTranscriptTurnType.write(value.`turnType`, buf)
+        FfiConverterOptionalString.write(value.`timestamp`, buf)
+        FfiConverterOptionalString.write(value.`content`, buf)
+        FfiConverterOptionalString.write(value.`thinking`, buf)
+        FfiConverterSequenceTypeTranscriptToolCall.write(value.`toolCalls`, buf)
+        FfiConverterTypeTranscriptStatus.write(value.`status`, buf)
+    }
+}
+
+/**
  * Risk level classification for an AI-generated shell command.
  */
 
@@ -3493,6 +3701,13 @@ sealed class SshCoreException : kotlin.Exception() {
             get() = "reason=${ `reason` }"
     }
 
+    class TranscriptException(
+        val `reason`: kotlin.String,
+    ) : SshCoreException() {
+        override val message
+            get() = "reason=${ `reason` }"
+    }
+
     companion object ErrorHandler : UniffiRustCallStatusErrorHandler<SshCoreException> {
         override fun lift(error_buf: RustBuffer.ByValue): SshCoreException = FfiConverterTypeSshCoreError.lift(error_buf)
     }
@@ -3598,6 +3813,12 @@ public object FfiConverterTypeSshCoreError : FfiConverterRustBuffer<SshCoreExcep
 
             17 -> {
                 SshCoreException.AiResponseParseException(
+                    FfiConverterString.read(buf),
+                )
+            }
+
+            18 -> {
+                SshCoreException.TranscriptException(
                     FfiConverterString.read(buf),
                 )
             }
@@ -3709,6 +3930,12 @@ public object FfiConverterTypeSshCoreError : FfiConverterRustBuffer<SshCoreExcep
                 4UL +
                     FfiConverterString.allocationSize(value.`reason`)
             )
+
+            is SshCoreException.TranscriptException -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL +
+                    FfiConverterString.allocationSize(value.`reason`)
+            )
         }
 
     override fun write(
@@ -3816,7 +4043,214 @@ public object FfiConverterTypeSshCoreError : FfiConverterRustBuffer<SshCoreExcep
                 FfiConverterString.write(value.`reason`, buf)
                 Unit
             }
+
+            is SshCoreException.TranscriptException -> {
+                buf.putInt(18)
+                FfiConverterString.write(value.`reason`, buf)
+                Unit
+            }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+}
+
+sealed class TranscriptException : kotlin.Exception() {
+    class JsonParseException(
+        val `reason`: kotlin.String,
+    ) : TranscriptException() {
+        override val message
+            get() = "reason=${ `reason` }"
+    }
+
+    class PayloadTooLarge(
+        val `bytes`: kotlin.ULong,
+    ) : TranscriptException() {
+        override val message
+            get() = "bytes=${ `bytes` }"
+    }
+
+    class InvalidPath(
+        val `path`: kotlin.String,
+        val `reason`: kotlin.String,
+    ) : TranscriptException() {
+        override val message
+            get() = "path=${ `path` }, reason=${ `reason` }"
+    }
+
+    class IoException(
+        val `reason`: kotlin.String,
+    ) : TranscriptException() {
+        override val message
+            get() = "reason=${ `reason` }"
+    }
+
+    companion object ErrorHandler : UniffiRustCallStatusErrorHandler<TranscriptException> {
+        override fun lift(error_buf: RustBuffer.ByValue): TranscriptException = FfiConverterTypeTranscriptError.lift(error_buf)
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeTranscriptError : FfiConverterRustBuffer<TranscriptException> {
+    override fun read(buf: ByteBuffer): TranscriptException =
+        when (buf.getInt()) {
+            1 -> {
+                TranscriptException.JsonParseException(
+                    FfiConverterString.read(buf),
+                )
+            }
+
+            2 -> {
+                TranscriptException.PayloadTooLarge(
+                    FfiConverterULong.read(buf),
+                )
+            }
+
+            3 -> {
+                TranscriptException.InvalidPath(
+                    FfiConverterString.read(buf),
+                    FfiConverterString.read(buf),
+                )
+            }
+
+            4 -> {
+                TranscriptException.IoException(
+                    FfiConverterString.read(buf),
+                )
+            }
+
+            else -> {
+                throw RuntimeException("invalid error enum value, something is very wrong!!")
+            }
+        }
+
+    override fun allocationSize(value: TranscriptException): ULong =
+        when (value) {
+            is TranscriptException.JsonParseException -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL +
+                    FfiConverterString.allocationSize(value.`reason`)
+            )
+
+            is TranscriptException.PayloadTooLarge -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL +
+                    FfiConverterULong.allocationSize(value.`bytes`)
+            )
+
+            is TranscriptException.InvalidPath -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL +
+                    FfiConverterString.allocationSize(value.`path`) +
+                    FfiConverterString.allocationSize(value.`reason`)
+            )
+
+            is TranscriptException.IoException -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL +
+                    FfiConverterString.allocationSize(value.`reason`)
+            )
+        }
+
+    override fun write(
+        value: TranscriptException,
+        buf: ByteBuffer,
+    ) {
+        when (value) {
+            is TranscriptException.JsonParseException -> {
+                buf.putInt(1)
+                FfiConverterString.write(value.`reason`, buf)
+                Unit
+            }
+
+            is TranscriptException.PayloadTooLarge -> {
+                buf.putInt(2)
+                FfiConverterULong.write(value.`bytes`, buf)
+                Unit
+            }
+
+            is TranscriptException.InvalidPath -> {
+                buf.putInt(3)
+                FfiConverterString.write(value.`path`, buf)
+                FfiConverterString.write(value.`reason`, buf)
+                Unit
+            }
+
+            is TranscriptException.IoException -> {
+                buf.putInt(4)
+                FfiConverterString.write(value.`reason`, buf)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+}
+
+/**
+ * Execution status of an agent turn or individual tool call.
+ */
+
+enum class TranscriptStatus {
+    RUNNING,
+    DONE,
+    ERROR,
+    ;
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeTranscriptStatus : FfiConverterRustBuffer<TranscriptStatus> {
+    override fun read(buf: ByteBuffer) =
+        try {
+            TranscriptStatus.values()[buf.getInt() - 1]
+        } catch (e: IndexOutOfBoundsException) {
+            throw RuntimeException("invalid enum value, something is very wrong!!", e)
+        }
+
+    override fun allocationSize(value: TranscriptStatus) = 4UL
+
+    override fun write(
+        value: TranscriptStatus,
+        buf: ByteBuffer,
+    ) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+/**
+ * Type of conversation turn.
+ */
+
+enum class TranscriptTurnType {
+    USER,
+    ASSISTANT,
+    SYSTEM,
+    APPROVAL_REQUEST,
+    ;
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeTranscriptTurnType : FfiConverterRustBuffer<TranscriptTurnType> {
+    override fun read(buf: ByteBuffer) =
+        try {
+            TranscriptTurnType.values()[buf.getInt() - 1]
+        } catch (e: IndexOutOfBoundsException) {
+            throw RuntimeException("invalid enum value, something is very wrong!!", e)
+        }
+
+    override fun allocationSize(value: TranscriptTurnType) = 4UL
+
+    override fun write(
+        value: TranscriptTurnType,
+        buf: ByteBuffer,
+    ) {
+        buf.putInt(value.ordinal + 1)
     }
 }
 
@@ -4064,6 +4498,62 @@ public object FfiConverterSequenceTypeTmuxSessionInfo : FfiConverterRustBuffer<L
     }
 }
 
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeTranscriptToolCall : FfiConverterRustBuffer<List<TranscriptToolCall>> {
+    override fun read(buf: ByteBuffer): List<TranscriptToolCall> {
+        val len = buf.getInt()
+        return List<TranscriptToolCall>(len) {
+            FfiConverterTypeTranscriptToolCall.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<TranscriptToolCall>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeTranscriptToolCall.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(
+        value: List<TranscriptToolCall>,
+        buf: ByteBuffer,
+    ) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeTranscriptToolCall.write(it, buf)
+        }
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeTranscriptTurn : FfiConverterRustBuffer<List<TranscriptTurn>> {
+    override fun read(buf: ByteBuffer): List<TranscriptTurn> {
+        val len = buf.getInt()
+        return List<TranscriptTurn>(len) {
+            FfiConverterTypeTranscriptTurn.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<TranscriptTurn>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeTranscriptTurn.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(
+        value: List<TranscriptTurn>,
+        buf: ByteBuffer,
+    ) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeTranscriptTurn.write(it, buf)
+        }
+    }
+}
+
 fun `coreVersion`(): kotlin.String =
     FfiConverterString.lift(
         uniffiRustCall { _status ->
@@ -4299,4 +4789,25 @@ suspend fun `listRemoteTmuxSessions`(`config`: RemoteServerConfig): List<TmuxSes
         { FfiConverterSequenceTypeTmuxSessionInfo.lift(it) },
         // Error FFI converter
         SshCoreException.ErrorHandler,
+    )
+
+/**
+ * Parses a JSONL transcript payload into a normalized sequence of `TranscriptTurn`s.
+ */
+@Throws(TranscriptException::class)
+fun `parseTranscriptJsonl`(`rawJsonl`: kotlin.String): List<TranscriptTurn> =
+    FfiConverterSequenceTypeTranscriptTurn.lift(
+        uniffiRustCallWithError(TranscriptException) { _status ->
+            UniffiLib.uniffi_ssh_core_fn_func_parse_transcript_jsonl(FfiConverterString.lower(`rawJsonl`), _status)
+        },
+    )
+
+/**
+ * Strip ANSI escape codes from terminal / agent text.
+ */
+fun `stripAnsiCodes`(`input`: kotlin.String): kotlin.String =
+    FfiConverterString.lift(
+        uniffiRustCall { _status ->
+            UniffiLib.uniffi_ssh_core_fn_func_strip_ansi_codes(FfiConverterString.lower(`input`), _status)
+        },
     )

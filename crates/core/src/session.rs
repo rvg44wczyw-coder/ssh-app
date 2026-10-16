@@ -264,6 +264,95 @@ impl SshSessionHandle {
         let generated_text = crate::ai::parse_ollama_generate_response(&raw_response)?;
         crate::ai::parse_ai_response(&generated_text)
     }
+
+    /// Reads and parses the latest transcript from the remote host.
+    pub async fn read_remote_transcript(
+        &self,
+        remote_path: String,
+    ) -> Result<Vec<crate::transcript::TranscriptTurn>, SshCoreError> {
+        crate::transcript::validate_transcript_path(&remote_path).map_err(|e| {
+            SshCoreError::TranscriptError {
+                reason: e.to_string(),
+            }
+        })?;
+
+        let tail_cmd = format!("tail -n 500 -- {}", crate::tmux::shell_quote(&remote_path));
+        let raw_output = self.execute_command_on_active_session(tail_cmd).await?;
+
+        crate::transcript::parse_transcript_jsonl(raw_output).map_err(|e| {
+            SshCoreError::TranscriptError {
+                reason: e.to_string(),
+            }
+        })
+    }
+
+    /// Automatically detects the path of the active agent transcript on the remote host.
+    pub async fn detect_active_transcript_path(
+        &self,
+        base_dir: Option<String>,
+    ) -> Result<Option<String>, SshCoreError> {
+        if let Some(ref dir) = base_dir {
+            crate::transcript::validate_transcript_path(dir).map_err(|e| {
+                SshCoreError::TranscriptError {
+                    reason: e.to_string(),
+                }
+            })?;
+        }
+        let quoted_dir = match base_dir {
+            Some(dir) => crate::tmux::shell_quote(&dir),
+            None => "\"$HOME\"".to_string(),
+        };
+        let detect_script = format!(
+            r#"zsh -l -c '
+TARGET_DIR="$1"
+if [ -d "$HOME/.gemini/antigravity-cli/brain" ]; then
+  LATEST=$(ls -td "$HOME/.gemini/antigravity-cli/brain"/* 2>/dev/null | head -n 1)
+  if [ -n "$LATEST" ] && [ -f "$LATEST/.system_generated/logs/transcript.jsonl" ]; then
+    echo "$LATEST/.system_generated/logs/transcript.jsonl"
+    exit 0
+  fi
+fi
+if [ -d "$HOME/.claude/projects" ]; then
+  LATEST_CLAUDE=$(ls -td "$HOME/.claude/projects"/*/*.jsonl 2>/dev/null | head -n 1)
+  if [ -n "$LATEST_CLAUDE" ] && [ -f "$LATEST_CLAUDE" ]; then
+    echo "$LATEST_CLAUDE"
+    exit 0
+  fi
+fi
+if [ -n "$TARGET_DIR" ] && [ -f "$TARGET_DIR/.agents/transcript.jsonl" ]; then
+  echo "$TARGET_DIR/.agents/transcript.jsonl"
+  exit 0
+fi
+if [ -n "$TARGET_DIR" ] && [ -f "$TARGET_DIR/transcript.jsonl" ]; then
+  echo "$TARGET_DIR/transcript.jsonl"
+  exit 0
+fi
+' -- {}"#,
+            quoted_dir
+        );
+
+        let output = self
+            .execute_command_on_active_session(detect_script)
+            .await?;
+        let trimmed = output.trim();
+        if trimmed.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(trimmed.to_string()))
+        }
+    }
+
+    /// Reads recent commands from the remote host's shell history (`~/.zsh_history` / `~/.bash_history`)
+    /// and scrubs sensitive credentials before returning.
+    pub async fn fetch_remote_shell_history(
+        &self,
+        limit: u32,
+    ) -> Result<Vec<String>, SshCoreError> {
+        let cmd = "tail -n 250 \"$HOME/.zsh_history\" \"$HOME/.bash_history\" 2>/dev/null || true"
+            .to_string();
+        let raw_output = self.execute_command_on_active_session(cmd).await?;
+        Ok(crate::snippets::extract_history_commands(raw_output, limit))
+    }
 }
 
 impl SshSessionHandle {
