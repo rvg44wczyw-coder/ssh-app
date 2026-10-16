@@ -379,6 +379,53 @@ fi
         let _ = self.execute_command_on_active_session(cmd).await?;
         Ok(())
     }
+
+    /// Lists entries in a remote directory (or active tmux pane working directory if `path` is `None`).
+    pub async fn list_remote_directory(
+        &self,
+        path: Option<String>,
+        include_hidden: bool,
+    ) -> Result<crate::file_browser::RemoteDirectoryListing, SshCoreError> {
+        let session_name = self.config.read().unwrap().session_name.clone();
+        let cmd =
+            crate::file_browser::build_list_directory_command(path.as_deref(), &session_name)?;
+        let raw_output = self.execute_command_on_active_session(cmd).await?;
+        let listing =
+            crate::file_browser::parse_remote_directory_listing(raw_output, include_hidden);
+        // The shell resolved symlinks (`pwd -P`); re-check the real location against the blocklist.
+        crate::file_browser::validate_remote_dir_path(&listing.current_path)?;
+        Ok(listing)
+    }
+
+    /// Reads a preview of a remote file (up to `max_bytes`, capped at 128 KB), blocking sensitive credential files.
+    pub async fn read_remote_file_preview(
+        &self,
+        path: String,
+        max_bytes: u32,
+    ) -> Result<crate::file_browser::RemoteFilePreview, SshCoreError> {
+        let requested = crate::file_browser::validate_remote_file_read_path(&path)?;
+        let capped_max = (max_bytes as usize).clamp(1024, 131_072);
+        // Resolve symlinks first so a harmless-looking link cannot expose a blocked file.
+        let resolved = self
+            .execute_command_on_active_session(crate::file_browser::build_resolve_path_command(
+                &requested,
+            ))
+            .await?;
+        let resolved = resolved.trim();
+        if resolved.is_empty() {
+            return Err(SshCoreError::IoError {
+                reason: "File not found".to_string(),
+            });
+        }
+        let safe_path = crate::file_browser::validate_remote_file_read_path(resolved)?;
+        let cmd = crate::file_browser::build_read_file_command(&safe_path, capped_max);
+        let raw_output = self.execute_command_on_active_session(cmd).await?;
+        Ok(crate::file_browser::build_file_preview_from_bytes(
+            &safe_path,
+            raw_output.as_bytes(),
+            capped_max,
+        ))
+    }
 }
 
 impl SshSessionHandle {

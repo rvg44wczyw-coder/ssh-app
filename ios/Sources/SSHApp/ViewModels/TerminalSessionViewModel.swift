@@ -33,6 +33,12 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     @Published public var isTelemetryLoading: Bool = false
     @Published public var telemetryError: String? = nil
 
+    // Remote File Browser State
+    @Published public var fileListing: RemoteDirectoryListing? = nil
+    @Published public var filePreview: RemoteFilePreview? = nil
+    @Published public var isFileBrowserLoading: Bool = false
+    @Published public var fileBrowserError: String? = nil
+
     private var handle: SshSessionHandle?
     private var lastCols: UInt16 = 80
     private var lastRows: UInt16 = 24
@@ -267,6 +273,51 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
                 self.telemetryError = error.localizedDescription
             }
         }
+    }
+
+    /// Lists a remote directory. `nil` path resolves the active tmux pane cwd (or `$HOME`).
+    public func loadRemoteDirectory(path: String?, includeHidden: Bool) {
+        guard let handle = handle, state == .connected else {
+            fileBrowserError = "Session is not connected"
+            return
+        }
+        isFileBrowserLoading = true
+        fileBrowserError = nil
+        Task {
+            do {
+                self.fileListing = try await handle.listRemoteDirectory(path: path, includeHidden: includeHidden)
+            } catch {
+                self.fileBrowserError = error.localizedDescription
+            }
+            self.isFileBrowserLoading = false
+        }
+    }
+
+    public func loadRemoteFilePreview(path: String) {
+        guard let handle = handle, state == .connected else {
+            fileBrowserError = "Session is not connected"
+            return
+        }
+        isFileBrowserLoading = true
+        fileBrowserError = nil
+        Task {
+            do {
+                self.filePreview = try await handle.readRemoteFilePreview(path: path, maxBytes: 131_072)
+            } catch {
+                self.fileBrowserError = error.localizedDescription
+            }
+            self.isFileBrowserLoading = false
+        }
+    }
+
+    /// Types `cd '<path>'` + Enter into the active terminal.
+    public func changeDirectory(to path: String) {
+        executeAiCommand("cd " + quoteRemotePathForShell(path: path))
+    }
+
+    /// Inserts the shell-quoted path into the prompt without executing.
+    public func insertRemotePath(_ path: String) {
+        insertAiCommand(quoteRemotePathForShell(path: path) + " ")
     }
 
     /// Zero Battery Drain: gracefully closes the SSH TCP socket when iOS suspends the app.

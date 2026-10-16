@@ -20,6 +20,7 @@ public struct MainTerminalView: View {
         case aiAssistant
         case snippets
         case telemetry
+        case fileBrowser
 
         var id: String { rawValue }
     }
@@ -236,6 +237,13 @@ public struct MainTerminalView: View {
                     }
                     .accessibilityLabel("Smart Snippets & Fuzzy History")
 
+                    Button(action: { presentSheet(.fileBrowser) }) {
+                        Image(systemName: "folder.fill")
+                            .font(.system(size: 14))
+                            .foregroundColor(.yellow)
+                    }
+                    .accessibilityLabel("Remote File Browser")
+
                     Button(action: { presentSheet(.telemetry) }) {
                         Image(systemName: "gauge.with.dots.needle.33percent")
                             .font(.system(size: 14))
@@ -323,6 +331,12 @@ public struct MainTerminalView: View {
                 case .telemetry:
                     if let activeVM = tabsManager.activeViewModel {
                         HostTelemetrySheetView(viewModel: activeVM) {
+                            activeSheet = nil
+                        }
+                    }
+                case .fileBrowser:
+                    if let activeVM = tabsManager.activeViewModel {
+                        FileBrowserSheetView(viewModel: activeVM) {
                             activeSheet = nil
                         }
                     }

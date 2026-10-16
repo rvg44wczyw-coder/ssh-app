@@ -17,6 +17,7 @@
 | **M10: Structured Transcript & Dual-Mode UI** | Real-time `transcript.jsonl` parser in Rust, dual-mode UI (Raw Terminal $\leftrightarrow$ Structured Chat View) | Completed | `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker` |
 | **M11: Smart Snippets & Fuzzy History Search** | Rust Core snippet catalog & secret-scrubbed history parser, fuzzy search engine, iOS snippets & history sheet | Completed | `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker` |
 | **M12: Remote Host Telemetry & Process Monitor** | CPU/RAM/Disk/Battery/Ollama telemetry collector in Rust Core, process category classifier (`AiAgent`, `DevServer`, `System`), safe process kill (`SIGTERM`/`SIGKILL`), iOS dashboard sheet | Completed | `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker` |
+| **M13: Remote File Browser & Quick Code Viewer** | Tmux-aware directory listing, symlink-safe credential blocklist, 128 KB text preview, `cd` Here / Insert Path, iOS `FileBrowserSheetView` | Completed | `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker` |
 
 ---
 
@@ -43,7 +44,7 @@
 ### Feature 04: Android Client Architecture & Cross-Platform Support
 - **Doc**: `docs/features/04-android-support-and-architecture.md`
 - **Roles**: `doc-dev`, `rust-core-dev`, `android-ui-dev`, `rev`, `hacker`
-- **Hacker Gate**: Completed
+- **Hacker Gate**: Marked completed, but no findings doc is on record in `docs/security-findings/` (TODO: add or re-run `hacker`)
 - **Status**: Implemented & Verified with Gradle (`./gradlew assembleDebug` **BUILD SUCCESSFUL**)
 
 ### Feature 05: In-App Web Preview & SSH Port Forwarding (Localhost Tunnel)
@@ -91,7 +92,32 @@
 - **Hacker Gate**: Completed (`docs/security-findings/2026-10-16-host-telemetry-audit.md` — VERDICT: CLEAR)
 - **Status**: Implemented & Verified with `cargo test` (44/44 passed), `swift test` (3/3 passed), and `xcodebuild` (**BUILD SUCCEEDED**)
 
+### Feature 10: Remote File Browser & Quick Code Viewer
+- **Doc**: `docs/features/10-remote-file-browser-and-viewer.md`
+- **Scope**:
+  - **Rust Core**: `crates/core/src/file_browser.rs` — tmux-aware `list_remote_directory`, `ls -la` parser, symlink-resolving path validator and credential blocklist, `read_remote_file_preview` (regular files, ≤128 KB, binary detection), `quote_remote_path_for_shell`.
+  - **Platform (iOS)**: top bar `folder.fill` button, `FileBrowserSheetView` (drill-down, `..`/Home, hidden toggle, filter, `cd Here`) and `FilePreviewView` (line numbers, Copy, Insert Path).
+- **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
+- **Hacker Gate**: Completed (`docs/security-findings/2026-10-16-remote-file-browser-audit.md` — 2 Medium + 2 Low found and fixed, no open issues)
+- **Status**: Implemented & Verified with `cargo test` (53/53 passed, `file_browser.rs` coverage 96.6%), `cargo clippy -D warnings`, and `xcodebuild` (**BUILD SUCCEEDED**, device target). `make iphone` builds and signs; install on iPhone not yet confirmed (`devicectl` connection error, pending retry)
 
+---
 
+## Platform Parity
 
+| Milestone | iOS | Android |
+| :--- | :--- | :--- |
+| M8 Web Preview | Done | Done (`WebPreviewDialog`) |
+| M9 AI Assistant | Done | Done (`AiAssistantDialog`) |
+| M10 Structured Transcript | Done | Done (`StructuredTranscriptScreen`) |
+| M11 Snippets & History | Done | Not started |
+| M12 Telemetry & Process Monitor | Done | Not started |
+| M13 File Browser | Done | Not started |
 
+## Backlog
+
+- [ ] Confirm M13 on a physical iPhone (install + launch via `make iphone`).
+- [ ] Android UI for M11–M13 (needs an `android-ui-dev` skill; none exists in `.agents/skills/` yet) and a Kotlin bindings refresh.
+- [ ] Hacker findings doc for Feature 04 (Android).
+- [ ] Integration test for the `SshSessionHandle` exec-based methods (telemetry, history, file browser) against a loopback sshd.
+- [ ] Re-verify the per-feature test counts above: Features 07 and 08 both report `cargo test` 40/40; the current suite is 53 tests.

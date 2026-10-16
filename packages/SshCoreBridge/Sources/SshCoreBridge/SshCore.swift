@@ -913,10 +913,20 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func killRemoteProcess(pid: UInt32, force: Bool) async throws 
     
     /**
+     * Lists entries in a remote directory (or active tmux pane working directory if `path` is `None`).
+     */
+    func listRemoteDirectory(path: String?, includeHidden: Bool) async throws  -> RemoteDirectoryListing
+    
+    /**
      * Queries Ollama running locally on the remote host (http://127.0.0.1:11434/api/generate)
      * through the active SSH session and returns the generated command suggestion.
      */
     func queryHostOllama(model: String, systemPrompt: String, userPrompt: String) async throws  -> AiCommandSuggestion
+    
+    /**
+     * Reads a preview of a remote file (up to `max_bytes`, capped at 128 KB), blocking sensitive credential files.
+     */
+    func readRemoteFilePreview(path: String, maxBytes: UInt32) async throws  -> RemoteFilePreview
     
     /**
      * Reads and parses the latest transcript from the remote host.
@@ -1151,6 +1161,25 @@ open func killRemoteProcess(pid: UInt32, force: Bool)async throws   {
 }
     
     /**
+     * Lists entries in a remote directory (or active tmux pane working directory if `path` is `None`).
+     */
+open func listRemoteDirectory(path: String?, includeHidden: Bool)async throws  -> RemoteDirectoryListing  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_list_remote_directory(
+                        self.uniffiCloneHandle(),FfiConverterOptionString.lower(path),FfiConverterBool.lower(includeHidden)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeRemoteDirectoryListing_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
      * Queries Ollama running locally on the remote host (http://127.0.0.1:11434/api/generate)
      * through the active SSH session and returns the generated command suggestion.
      */
@@ -1166,6 +1195,25 @@ open func queryHostOllama(model: String, systemPrompt: String, userPrompt: Strin
             completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
             freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
             liftFunc: FfiConverterTypeAiCommandSuggestion_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Reads a preview of a remote file (up to `max_bytes`, capped at 128 KB), blocking sensitive credential files.
+     */
+open func readRemoteFilePreview(path: String, maxBytes: UInt32)async throws  -> RemoteFilePreview  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_read_remote_file_preview(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(path),FfiConverterUInt32.lower(maxBytes)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeRemoteFilePreview_lift,
             errorHandler: FfiConverterTypeSshCoreError_lift
         )
 }
@@ -1925,6 +1973,204 @@ public func FfiConverterTypePortForwardInfo_lower(_ value: PortForwardInfo) -> R
 }
 
 
+public struct RemoteDirectoryListing: Equatable, Hashable {
+    public var currentPath: String
+    public var parentPath: String?
+    public var entries: [RemoteFileEntry]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(currentPath: String, parentPath: String?, entries: [RemoteFileEntry]) {
+        self.currentPath = currentPath
+        self.parentPath = parentPath
+        self.entries = entries
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension RemoteDirectoryListing: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRemoteDirectoryListing: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RemoteDirectoryListing {
+        return
+            try RemoteDirectoryListing(
+                currentPath: FfiConverterString.read(from: &buf), 
+                parentPath: FfiConverterOptionString.read(from: &buf), 
+                entries: FfiConverterSequenceTypeRemoteFileEntry.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: RemoteDirectoryListing, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.currentPath, into: &buf)
+        FfiConverterOptionString.write(value.parentPath, into: &buf)
+        FfiConverterSequenceTypeRemoteFileEntry.write(value.entries, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRemoteDirectoryListing_lift(_ buf: RustBuffer) throws -> RemoteDirectoryListing {
+    return try FfiConverterTypeRemoteDirectoryListing.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRemoteDirectoryListing_lower(_ value: RemoteDirectoryListing) -> RustBuffer {
+    return FfiConverterTypeRemoteDirectoryListing.lower(value)
+}
+
+
+public struct RemoteFileEntry: Equatable, Hashable {
+    public var name: String
+    public var path: String
+    public var kind: RemoteFileKind
+    public var sizeBytes: UInt64
+    public var isHidden: Bool
+    public var permissions: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(name: String, path: String, kind: RemoteFileKind, sizeBytes: UInt64, isHidden: Bool, permissions: String) {
+        self.name = name
+        self.path = path
+        self.kind = kind
+        self.sizeBytes = sizeBytes
+        self.isHidden = isHidden
+        self.permissions = permissions
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension RemoteFileEntry: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRemoteFileEntry: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RemoteFileEntry {
+        return
+            try RemoteFileEntry(
+                name: FfiConverterString.read(from: &buf), 
+                path: FfiConverterString.read(from: &buf), 
+                kind: FfiConverterTypeRemoteFileKind.read(from: &buf), 
+                sizeBytes: FfiConverterUInt64.read(from: &buf), 
+                isHidden: FfiConverterBool.read(from: &buf), 
+                permissions: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: RemoteFileEntry, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.name, into: &buf)
+        FfiConverterString.write(value.path, into: &buf)
+        FfiConverterTypeRemoteFileKind.write(value.kind, into: &buf)
+        FfiConverterUInt64.write(value.sizeBytes, into: &buf)
+        FfiConverterBool.write(value.isHidden, into: &buf)
+        FfiConverterString.write(value.permissions, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRemoteFileEntry_lift(_ buf: RustBuffer) throws -> RemoteFileEntry {
+    return try FfiConverterTypeRemoteFileEntry.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRemoteFileEntry_lower(_ value: RemoteFileEntry) -> RustBuffer {
+    return FfiConverterTypeRemoteFileEntry.lower(value)
+}
+
+
+public struct RemoteFilePreview: Equatable, Hashable {
+    public var path: String
+    public var filename: String
+    public var content: String
+    public var sizeBytes: UInt64
+    public var isTruncated: Bool
+    public var isBinary: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(path: String, filename: String, content: String, sizeBytes: UInt64, isTruncated: Bool, isBinary: Bool) {
+        self.path = path
+        self.filename = filename
+        self.content = content
+        self.sizeBytes = sizeBytes
+        self.isTruncated = isTruncated
+        self.isBinary = isBinary
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension RemoteFilePreview: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRemoteFilePreview: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RemoteFilePreview {
+        return
+            try RemoteFilePreview(
+                path: FfiConverterString.read(from: &buf), 
+                filename: FfiConverterString.read(from: &buf), 
+                content: FfiConverterString.read(from: &buf), 
+                sizeBytes: FfiConverterUInt64.read(from: &buf), 
+                isTruncated: FfiConverterBool.read(from: &buf), 
+                isBinary: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: RemoteFilePreview, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.path, into: &buf)
+        FfiConverterString.write(value.filename, into: &buf)
+        FfiConverterString.write(value.content, into: &buf)
+        FfiConverterUInt64.write(value.sizeBytes, into: &buf)
+        FfiConverterBool.write(value.isTruncated, into: &buf)
+        FfiConverterBool.write(value.isBinary, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRemoteFilePreview_lift(_ buf: RustBuffer) throws -> RemoteFilePreview {
+    return try FfiConverterTypeRemoteFilePreview.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRemoteFilePreview_lower(_ value: RemoteFilePreview) -> RustBuffer {
+    return FfiConverterTypeRemoteFilePreview.lower(value)
+}
+
+
 public struct RemoteProcessInfo: Equatable, Hashable {
     public var pid: UInt32
     public var name: String
@@ -2667,6 +2913,79 @@ public func FfiConverterTypeProcessCategory_lift(_ buf: RustBuffer) throws -> Pr
 #endif
 public func FfiConverterTypeProcessCategory_lower(_ value: ProcessCategory) -> RustBuffer {
     return FfiConverterTypeProcessCategory.lower(value)
+}
+
+
+
+
+public enum RemoteFileKind: Equatable, Hashable {
+    
+    case directory
+    case file
+    case symlink
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension RemoteFileKind: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRemoteFileKind: FfiConverterRustBuffer {
+    typealias SwiftType = RemoteFileKind
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RemoteFileKind {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .directory
+        
+        case 2: return .file
+        
+        case 3: return .symlink
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: RemoteFileKind, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .directory:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .file:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .symlink:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRemoteFileKind_lift(_ buf: RustBuffer) throws -> RemoteFileKind {
+    return try FfiConverterTypeRemoteFileKind.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRemoteFileKind_lower(_ value: RemoteFileKind) -> RustBuffer {
+    return FfiConverterTypeRemoteFileKind.lower(value)
 }
 
 
@@ -3649,6 +3968,31 @@ fileprivate struct FfiConverterSequenceTypePortForwardInfo: FfiConverterRustBuff
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeRemoteFileEntry: FfiConverterRustBuffer {
+    typealias SwiftType = [RemoteFileEntry]
+
+    public static func write(_ value: [RemoteFileEntry], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeRemoteFileEntry.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [RemoteFileEntry] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [RemoteFileEntry]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeRemoteFileEntry.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeRemoteProcessInfo: FfiConverterRustBuffer {
     typealias SwiftType = [RemoteProcessInfo]
 
@@ -3964,6 +4308,29 @@ public func verifyApprovalSignature(publicKeyOpenssh: String, canonicalBytes: Da
     )
 })
 }
+/**
+ * Parses the output of `build_list_directory_command` into a structured `RemoteDirectoryListing`.
+ */
+public func parseRemoteDirectoryListing(rawOutput: String, includeHidden: Bool) -> RemoteDirectoryListing  {
+    return try!  FfiConverterTypeRemoteDirectoryListing_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_parse_remote_directory_listing(
+        FfiConverterString.lower(rawOutput),
+        FfiConverterBool.lower(includeHidden),uniffiCallStatus
+    )
+})
+}
+/**
+ * Quotes a remote path for safe insertion into an interactive shell prompt.
+ */
+public func quoteRemotePathForShell(path: String) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_quote_remote_path_for_shell(
+        FfiConverterString.lower(path),uniffiCallStatus
+    )
+})
+}
 public func derivePublicKey(privateKeyOpenssh: String)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
         uniffiCallStatus in
@@ -4153,6 +4520,12 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_func_verify_approval_signature() != 51597) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_func_parse_remote_directory_listing() != 14774) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_quote_remote_path_for_shell() != 15391) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_func_derive_public_key() != 26782) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -4231,7 +4604,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_kill_remote_process() != 36526) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_list_remote_directory() != 25160) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_query_host_ollama() != 61217) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_read_remote_file_preview() != 41827) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_read_remote_transcript() != 7170) {
