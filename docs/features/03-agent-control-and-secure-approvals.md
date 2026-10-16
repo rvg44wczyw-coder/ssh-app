@@ -1,3 +1,5 @@
+> **Note (2026-10-16):** the real hook contracts, the hook script and installation are specified in `11-agent-hooks-and-launch-profiles.md`, which supersedes the hook details below. The host broker (`ssh-app-ctl` / `control.sock`) described here is **not yet implemented**.
+
 # Feature Specification: AI Agent Control, Cryptographic Approvals & Zero-Knowledge Wake-up Pings
 
 - **Slug**: `03-agent-control-and-secure-approvals`
@@ -11,7 +13,7 @@
 
 ### 1.1. Context & Motivation
 Remote autonomous coding agents (*Claude Code*, *Google Antigravity*, *OpenAI Codex*, *Cursor Agent*) run long-duration tasks inside background `tmux` sessions on the user's MacBook or remote development host. During execution, agents frequently block on critical safety gates:
-1. **Tool / Shell Approvals (`PreToolUse` / `beforeShellExecution`)**: Asking user permission to run shell commands (`git push`, `rm`, database migrations).
+1. **Tool / Shell Approvals (Claude Code `PermissionRequest`, Antigravity `PreToolUse`)**: Asking user permission to run shell commands (`git push`, `rm`, database migrations).
 2. **Clarification Questions**: Asking the user to pick an option or clarify architectural constraints.
 3. **Task Completion / Failure Alerts**: Notifying the user when a multi-turn task concludes.
 
@@ -22,7 +24,7 @@ Competitors typically attempt to solve this by deploying a persistent proprietar
 
 ### 1.2. Scope
 - **In Scope**:
-  1. **Host-Side Agent Hooks**: Lightweight hooks for *Claude Code* (`~/.claude/settings.json`) and *Google Antigravity* (`beforeShellExecution`), communicating via a private Unix Domain Socket (`0600`).
+  1. **Host-Side Agent Hooks**: Lightweight hooks for *Claude Code* (`~/.claude/settings.json`) and *Google Antigravity* (`~/.gemini/config/hooks.json`, `PreToolUse`), communicating via a private Unix Domain Socket (`0600`).
   2. **Zero Network Attack Surface**: No listening TCP/HTTP ports on the host. Mobile clients communicate with the approval manager strictly through authenticated SSH channels (`russh` with Ed25519).
   3. **Hardware-Signed Approvals**: Mobile approvals signed using the iPhone's hardware-backed Ed25519 private key in Secure Enclave / iOS Keychain. Host verifies the signature against `~/.ssh/authorized_keys` before unblocking the agent.
   4. **Zero-Knowledge APNs Wake-up**: A stateless Cloudflare Worker acting as an APNs trigger, forwarding *only* an opaque device token with an empty wake-up ping ($0 cost, 0 bytes of sensitive data).

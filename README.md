@@ -151,15 +151,11 @@ npx wrangler secret put APPLE_P8_PRIVATE_KEY
 npx wrangler deploy
 ```
 
-### 6. Enable Claude Code Approval Hook
-In your Mac's `~/.claude/settings.json`:
-```json
-{
-  "hooks": {
-    "PreToolUse": "/path/to/ssh-app/scripts/agent-hooks/claude-hook.sh"
-  }
-}
-```
+### 6. Enable Agent Approval Hooks
+Hooks are installed from the app (Settings → agent profile → **Hooks → Install**), which merges the
+`ssh-app-hook` entries into the agent's own config (`<CLAUDE_CONFIG_DIR or ~/.claude>/settings.json` for
+Claude Code, `~/.gemini/config/hooks.json` for Google Antigravity) and copies the script to
+`~/.ssh-app/bin/ssh-app-hook`. See `docs/features/11-agent-hooks-and-launch-profiles.md`.
 
 ---
 

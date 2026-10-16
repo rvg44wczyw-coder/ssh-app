@@ -159,6 +159,40 @@ public final class TerminalTabsManager: ObservableObject {
         return newSession
     }
 
+    /// Opens a new tab that auto-starts `profile` (compiled `command`) inside its own tmux session.
+    public func addAgentSession(
+        profile: SavedAgentProfile,
+        command: String,
+        serverId: UUID?
+    ) -> TabSession {
+        let slug = String(
+            profile.name.lowercased()
+                .map { $0.isASCII && ($0.isLetter || $0.isNumber) ? $0 : "-" }
+        ).trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        let base = slug.isEmpty ? "agent" : String(slug.prefix(32))
+        let existing = Set(sessions.map { $0.sessionName })
+        var n = 1
+        while existing.contains("\(base)-\(n)") { n += 1 }
+        let agentType: AgentType
+        switch profile.agent {
+        case .claudeCode: agentType = .claudeCode
+        case .antigravity: agentType = .antigravity
+        default: agentType = .customShell
+        }
+        let newSession = TabSession(
+            title: profile.name,
+            agentType: agentType,
+            sessionName: "\(base)-\(n)",
+            command: command,
+            serverId: serverId
+        )
+        sessions.append(newSession)
+        registerSession(newSession)
+        selectedSessionId = newSession.id
+        saveSessions()
+        return newSession
+    }
+
     public func openOrSwitchToSession(sessionName: String, serverId: UUID?) -> TabSession {
         // If an open tab already targets this tmux session and server, switch to it
         if let existing = sessions.first(where: {

@@ -1,11 +1,13 @@
 uniffi::setup_scaffolding!();
 
+pub mod agents;
 pub mod ai;
 pub mod approval;
 pub mod buffer;
 pub mod config;
 pub mod error;
 pub mod file_browser;
+pub(crate) mod hostprobe;
 pub mod keys;
 pub mod port_forward;
 pub mod session;
@@ -14,10 +16,20 @@ pub mod telemetry;
 pub mod tmux;
 pub mod transcript;
 
+pub use agents::{
+    agent_config_dir_env, agent_hook_script, agent_hooks_config_path, agent_hooks_installed,
+    build_agent_launch_command, build_binary_probe_command, default_hook_preset,
+    default_launch_profiles, hook_events_for, hook_preset_uses_script, hooks_section_of,
+    installed_hook_entries, merge_agent_hooks, merge_planned_hooks, parse_resolved_binary,
+    plan_agent_hooks, profile_config_dir, remove_agent_hooks, validate_launch_profile,
+    AgentEnvCheck, AgentHooksStatus, AgentKind, AgentLaunchProfile, EnvVar, HookPreset,
+    HookPresetKind, PlannedHook,
+};
 pub use ai::{
-    assemble_ai_system_prompt, assemble_ai_user_prompt, classify_command_risk, parse_ai_response,
-    parse_ollama_generate_response, sanitize_shell_command, AiCommandRequest, AiCommandSuggestion,
-    AiRiskAssessment, AiRiskLevel,
+    assemble_ai_system_prompt, assemble_ai_user_prompt, build_ollama_probe_command,
+    classify_command_risk, parse_ai_response, parse_ollama_generate_response, parse_ollama_probe,
+    sanitize_shell_command, AiCommandRequest, AiCommandSuggestion, AiRiskAssessment, AiRiskLevel,
+    OllamaHostStatus,
 };
 pub use approval::{
     create_canonical_signing_bytes, hash_command_sha256, verify_approval_freshness,

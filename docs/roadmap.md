@@ -19,6 +19,8 @@
 | **M12: Remote Host Telemetry & Process Monitor** | CPU/RAM/Disk/Battery/Ollama telemetry collector in Rust Core, process category classifier (`AiAgent`, `DevServer`, `System`), safe process kill (`SIGTERM`/`SIGKILL`), iOS dashboard sheet | Completed | `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker` |
 | **M13: Remote File Browser & Quick Code Viewer** | Tmux-aware directory listing, symlink-safe credential blocklist, 128 KB text preview, `cd` Here / Insert Path, iOS `FileBrowserSheetView` | Completed | `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker` |
 | **M14: Loopback sshd Integration Tests** | End-to-end tests of exec-based `SshSessionHandle` methods (telemetry, file browser incl. symlink/blocklist checks) against a throwaway `sshd` on `127.0.0.1` | Completed | `rust-core-dev`, `rev` |
+| **M15: Agent Hooks & Launch Profiles** | Approval/notification hooks for Claude Code (`PermissionRequest`) and Antigravity (`PreToolUse`), idempotent installer, auto-start launch profiles (work/personal `CLAUDE_CONFIG_DIR`), optional `~/.zshrc` loading + host binary check, hook presets (phone approval / notify only / custom command) with in-app preview of installed vs planned entries, iOS profile & hooks UI | Completed | `doc-dev`, `rev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker` |
+| **M16: Toolbar Redesign, Server Popup & Host Ollama Check** | One "More" button opening a labeled action panel with long-press hints (replaces 9 toolbar icons and the system overflow), server picker popup (startup, new tab, tmux sheet), host Ollama check (installed / running / models) driving the AI assistant, shared host-probe watchdog | Completed (iOS) | `doc-dev`, `rev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker` |
 
 ---
 
@@ -118,6 +120,10 @@
 ## Backlog
 
 - [ ] Confirm M13 on a physical iPhone (install + launch via `make iphone`).
+- [ ] **Hook install lost-update window**: install is read → merge → atomic write; compare a content hash on the host before `mv` (audit `2026-10-16-agent-hooks-presets-audit.md` item 6).
+- [ ] **Host approval broker (`ssh-app-ctl`, `control.sock`)**: specified in Feature 03 but not implemented; until it exists the M15 hooks always defer to the agents' native prompts, so no phone approvals happen yet. Implement, with Ed25519 signature verification and `0600` socket.
+- [ ] Codex (`hooks.json`, trust via `/hooks`) and Grok (`~/.grok/hooks`, fail-open) hook installers; verify the `grok` binary name.
+- [ ] Verify Antigravity `run_command` arg key and hook exit-code semantics on the installed `agy`.
 - [ ] Android UI for M11–M13 (needs an `android-ui-dev` skill; none exists in `.agents/skills/` yet) and a Kotlin bindings refresh.
 - [ ] Hacker findings doc for Feature 04 (Android).
 - [x] Integration test for exec-based methods against a loopback sshd (M14: telemetry + file browser; `crates/core/tests/loopback_sshd.rs`). History/transcript methods still uncovered.
@@ -126,3 +132,20 @@
 ### M14: Loopback sshd Integration Tests
 - **Test**: `crates/core/tests/loopback_sshd.rs` — spawns its own `sshd` (ephemeral host key, `127.0.0.1`, ephemeral port, generated Ed25519 client key), connects `SshSessionHandle`, and exercises `fetch_host_telemetry`, `list_remote_directory` and `read_remote_file_preview` (hidden filter, binary detection, symlink-to-`.ssh` file and directory refused, missing file). Skips with a message if `sshd`/`ssh-keygen`/`tmux` are absent; cleans up sshd and its tmux session.
 - **Status**: `cargo test` (53 unit + 1 integration passed), `cargo clippy --all-targets -D warnings` clean
+
+### Feature 12 / M16: Toolbar Redesign, Server Popup & Host Ollama Check
+- **Doc**: `docs/features/12-toolbar-redesign-and-host-checks.md`
+- **Scope**: `AppAction` catalog + `ActionPanelView` (tap runs, long-press shows a hint, disabled-with-reason when offline), `ServerPickerPopup` replacing the confirmation dialog and the menu picker, `check_host_ollama` (`build_ollama_probe_command` / `parse_ollama_probe`, shared `hostprobe::watchdog_sh` with a descendant-tree kill that also works under dash) and the AI assistant states (checking / not installed / not running / no models / ready with host model list).
+- **Status**: `cargo test` (87 unit + 8 hook + 4 loopback + 3 probe), clippy clean, `xcodebuild` BUILD SUCCEEDED; panel and popup layout checked offscreen. Not yet exercised on a device (popover chrome, long-press, haptics).
+
+### Feature 11 / M15: Agent Approval Hooks & Launch Profiles
+- **Doc**: `docs/features/11-agent-hooks-and-launch-profiles.md` (supersedes the hook details of Feature 03, which used a non-existent `beforeShellExecution` event and a hook that never blocked on deny)
+- **Scope**:
+  - **Hooks**: `scripts/agent-hooks/ssh-app-hook.py` (replaces `claude-hook.sh`); Claude Code `PermissionRequest`/`Notification`/`Stop` into `<CLAUDE_CONFIG_DIR>/settings.json`, Antigravity `PreToolUse(run_command)`/`Stop` into `~/.gemini/config/hooks.json`; idempotent, backup, symlink- and mode-preserving, refuses unparsable configs. Failure policy: defer to the agent's native policy, never auto-approve.
+  - **Launch profiles**: `crates/core/src/agents.rs` compiles profiles to explicit `env VAR=… binary args; exec $SHELL -l` (aliases are not loaded by the app's login shell); validation rejects injection, `LD_*`/`DYLD_*`, secret-looking env keys.
+  - **iOS**: `AgentProfilesSheetView` (profiles, auto-start choice for new tabs), tab auto-start via `addAgentSession`.
+  - **Host shell environment**: per-profile `load_shell_rc` (`$SHELL -i -c`, loads `~/.zshrc`) and "Check on host" (`check_agent_environment`: login vs interactive resolution of the binary, host-side 8 s watchdog, 10 s client timeout).
+  - **Hook presets & preview**: `HookPreset` (PhoneApproval / NotifyOnly / Custom command), `plan_agent_hooks`, `HookPreviewSheetView` shows installed vs planned entries and the resulting hooks section (never other settings) before **Install**; handler-level removal; duplicate-key and dangling-comment guards; exec output capped at 4 MB.
+- **Researched, not implemented**: Codex and Grok hooks (see backlog).
+- **Hacker Gate**: Completed twice: `docs/security-findings/2026-10-16-agent-hooks-audit.md` (1 Medium + 4 Low, fixed) and `docs/security-findings/2026-10-16-agent-hooks-presets-audit.md` (rc/probe/presets: 1 Medium + 6 Low/Info, all fixed and re-verified live except the documented read→write window)
+- **Status**: `cargo test` (82 unit + 8 hook-script + 4 loopback sshd passed), `clippy --all-targets -D warnings` clean, `xcodebuild` (**BUILD SUCCEEDED**, device target). Not yet exercised on a physical iPhone or against a real `claude`/`agy` hook invocation.

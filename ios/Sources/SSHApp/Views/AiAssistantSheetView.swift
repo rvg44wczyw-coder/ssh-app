@@ -7,16 +7,28 @@ public struct AiAssistantSheetView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var userPrompt: String = ""
-    @State private var selectedModel: String = "qwen2.5-coder:7b"
+    @AppStorage("ai_last_model") private var lastModel: String = ""
+    @State private var selectedModel: String = ""
+    @State private var check: OllamaCheckState = .checking
+    @State private var checkToken = 0
+    @State private var copiedHint: String? = nil
     @State private var showCopiedAlert: Bool = false
     @State private var showDestructiveConfirm: Bool = false
 
-    private let availableModels = [
-        "qwen2.5-coder:7b",
-        "llama3.2",
-        "deepseek-coder",
-        "mistral"
-    ]
+    /// Result of asking the host what it has; drives the whole "host model" area.
+    private enum OllamaCheckState: Equatable {
+        case checking
+        case notInstalled
+        case notRunning(version: String?)
+        case noModels
+        case ready(models: [String])
+        case failed(String)
+    }
+
+    private var isReady: Bool {
+        if case .ready = check { return !selectedModel.isEmpty }
+        return false
+    }
 
     private let quickPrompts = [
         "Show open ports & listeners",
@@ -41,7 +53,7 @@ public struct AiAssistantSheetView: View {
             ScrollView {
                 VStack(spacing: 18) {
                     headerSection
-                    modelSelectorRow
+                    hostCheckSection
                     promptInputSection
                     quickPromptChips
 
@@ -69,6 +81,7 @@ public struct AiAssistantSheetView: View {
                     .foregroundColor(.secondary)
                 }
             }
+            .task { await runCheck() }
             .alert("Destructive Command", isPresented: $showDestructiveConfirm) {
                 Button("Cancel", role: .cancel) {}
                 Button("Run Anyway", role: .destructive) {
@@ -107,35 +120,139 @@ public struct AiAssistantSheetView: View {
         }
     }
 
-    // MARK: - Model Selector
-    private var modelSelectorRow: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("HOST MODEL")
-                .font(.system(size: 11, weight: .bold, design: .monospaced))
-                .foregroundColor(.secondary)
+    // MARK: - Host check
+    private var hostCheckSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("HOST MODEL")
+                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                    .foregroundColor(.secondary)
+                Spacer()
+                Button {
+                    Task { await runCheck() }
+                } label: {
+                    Label("Re-check", systemImage: "arrow.clockwise").font(.caption)
+                }
+                .disabled(check == .checking)
+            }
 
-            ScrollView(.horizontal, showsIndicators: false) {
+            switch check {
+            case .checking:
                 HStack(spacing: 8) {
-                    ForEach(availableModels, id: \.self) { model in
-                        Button {
-                            selectedModel = model
-                        } label: {
-                            Text(model)
-                                .font(.system(size: 12, weight: .medium, design: .monospaced))
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
-                                .background(selectedModel == model ? Color.purple.opacity(0.3) : Color(white: 0.15))
-                                .foregroundColor(selectedModel == model ? .purple : .secondary)
-                                .cornerRadius(8)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .stroke(selectedModel == model ? Color.purple : Color.clear, lineWidth: 1)
-                                )
+                    ProgressView().scaleEffect(0.8)
+                    Text("Checking Ollama on the host…").font(.caption).foregroundColor(.secondary)
+                }
+            case .notInstalled:
+                problemCard(
+                    "Ollama is not installed on this host.",
+                    detail: "Install it on the host, then Re-check.",
+                    commands: ["brew install ollama"],
+                    footnote: "or download it from ollama.com/download")
+            case .notRunning(let version):
+                problemCard(
+                    "Ollama is installed\(version.map { " (v\($0))" } ?? "") but not reachable on 127.0.0.1:11434.",
+                    detail: "Start the server on the host (or open the Ollama app), then Re-check.",
+                    commands: ["ollama serve"],
+                    footnote: nil)
+            case .noModels:
+                problemCard(
+                    "Ollama is running but has no models yet.",
+                    detail: "Pull one on the host, then Re-check.",
+                    commands: ["ollama pull qwen2.5-coder:7b"],
+                    footnote: nil)
+            case .failed(let message):
+                problemCard("Could not check the host.", detail: message, commands: [], footnote: nil)
+            case .ready(let models):
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(models, id: \.self) { model in
+                            Button {
+                                selectedModel = model
+                                lastModel = model
+                            } label: {
+                                Text(model)
+                                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                                    .background(selectedModel == model ? Color.purple.opacity(0.3) : Color(white: 0.15))
+                                    .foregroundColor(selectedModel == model ? .purple : .secondary)
+                                    .cornerRadius(8)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .stroke(selectedModel == model ? Color.purple : Color.clear, lineWidth: 1)
+                                    )
+                            }
                         }
                     }
                 }
             }
         }
+    }
+
+    private func problemCard(_ title: String, detail: String, commands: [String], footnote: String?) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(title, systemImage: "exclamationmark.triangle.fill")
+                .font(.caption.weight(.semibold))
+                .foregroundColor(.orange)
+            Text(detail).font(.caption).foregroundColor(.secondary)
+            ForEach(commands, id: \.self) { cmd in
+                HStack {
+                    Text(cmd)
+                        .font(.system(size: 12, design: .monospaced))
+                        .textSelection(.enabled)
+                    Spacer()
+                    Button(copiedHint == cmd ? "Copied" : "Copy") {
+                        #if os(iOS)
+                        UIPasteboard.general.string = cmd
+                        #endif
+                        copiedHint = cmd
+                    }
+                    .font(.caption.bold())
+                }
+                .padding(8)
+                .background(Color(white: 0.12))
+                .cornerRadius(8)
+            }
+            if let footnote {
+                Text(footnote).font(.caption2).foregroundColor(.secondary)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.orange.opacity(0.10))
+        .cornerRadius(10)
+    }
+
+    /// Asks the host (installed? server up? which models?). A stale answer never overwrites a
+    /// newer one: each run carries a token.
+    private func runCheck() async {
+        checkToken += 1
+        let token = checkToken
+        check = .checking
+        copiedHint = nil
+        guard let handle = viewModel.sessionHandle, viewModel.state == .connected else {
+            check = .failed("Not connected to a host.")
+            return
+        }
+        let result: OllamaCheckState
+        do {
+            let status = try await handle.checkHostOllama()
+            if !status.installed {
+                result = .notInstalled
+            } else if !status.running {
+                result = .notRunning(version: status.version)
+            } else if status.models.isEmpty {
+                result = .noModels
+            } else {
+                result = .ready(models: status.models)
+            }
+            if token == checkToken, case .ready(let models) = result {
+                selectedModel = models.contains(lastModel) ? lastModel : (models.first ?? "")
+            }
+        } catch {
+            result = .failed(error.localizedDescription)
+        }
+        if token == checkToken { check = result }
     }
 
     // MARK: - Prompt Input
@@ -177,7 +294,7 @@ public struct AiAssistantSheetView: View {
                 .foregroundColor(.white)
                 .cornerRadius(10)
             }
-            .disabled(userPrompt.trimmingCharacters(in: .whitespaces).isEmpty || viewModel.isAiLoading)
+            .disabled(userPrompt.trimmingCharacters(in: .whitespaces).isEmpty || viewModel.isAiLoading || !isReady)
         }
     }
 

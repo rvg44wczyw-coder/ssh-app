@@ -871,6 +871,23 @@ public func FfiConverterTypePortForwardHandle_lower(_ value: PortForwardHandle) 
 public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     
     /**
+     * Reports whether the ssh-app hooks are present in the agent's config and the script is installed.
+     */
+    func agentHooksStatus(agent: AgentKind, configDir: String?, hookDir: String?) async throws  -> AgentHooksStatus
+    
+    /**
+     * Resolves `binary` in a login shell and in an interactive shell (rc files loaded), so the
+     * app can tell the user whether the agent is only reachable after sourcing `~/.zshrc`.
+     */
+    func checkAgentEnvironment(binary: String) async throws  -> AgentEnvCheck
+    
+    /**
+     * Checks the host for Ollama: installed, server reachable on 127.0.0.1:11434, model list.
+     * A timeout is an error (the host may be slow), not \"not installed\".
+     */
+    func checkHostOllama() async throws  -> OllamaHostStatus
+    
+    /**
      * Establishes the SSH connection, launches tmux, and starts streaming I/O.
      */
     func connect(callback: SshSessionCallback) throws 
@@ -908,6 +925,23 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func getActivePortForwards()  -> [PortForwardInfo]
     
     /**
+     * Installs the default (phone approval) hooks; see `install_agent_hooks_with_preset`.
+     */
+    func installAgentHooks(agent: AgentKind, configDir: String?, hookDir: String?) async throws 
+    
+    /**
+     * Installs hooks for `agent`: merges the preset's entries into its config (backup, atomic,
+     * symlink- and mode-preserving) and, unless the preset is `Custom`, writes the hook script.
+     * Refuses to touch an unparsable config.
+     */
+    func installAgentHooksWithPreset(agent: AgentKind, configDir: String?, hookDir: String?, preset: HookPreset) async throws 
+    
+    /**
+     * The ssh-app hook entries currently installed in the agent's config.
+     */
+    func installedAgentHooks(agent: AgentKind, configDir: String?) async throws  -> [PlannedHook]
+    
+    /**
      * Safely terminates a remote process by PID (`SIGTERM` or `SIGKILL`), rejecting reserved PIDs <= 1.
      */
     func killRemoteProcess(pid: UInt32, force: Bool) async throws 
@@ -916,6 +950,12 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
      * Lists entries in a remote directory (or active tmux pane working directory if `path` is `None`).
      */
     func listRemoteDirectory(path: String?, includeHidden: Bool) async throws  -> RemoteDirectoryListing
+    
+    /**
+     * Dry run: the hooks section a preset would produce (never other settings), without touching
+     * the host. Lets the user review exactly what will be installed.
+     */
+    func previewAgentHooks(agent: AgentKind, configDir: String?, hookDir: String?, preset: HookPreset) async throws  -> String
     
     /**
      * Queries Ollama running locally on the remote host (http://127.0.0.1:11434/api/generate)
@@ -964,6 +1004,11 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
      * Stops all running port forwards (used during teardown/backgrounding).
      */
     func stopAllPortForwards() 
+    
+    /**
+     * Removes only the ssh-app hook entries from the agent's config (the script is left in place).
+     */
+    func uninstallAgentHooks(agent: AgentKind, configDir: String?) async throws 
     
 }
 open class SshSessionHandle: SshSessionHandleProtocol, @unchecked Sendable {
@@ -1027,6 +1072,65 @@ public convenience init(config: SessionConfig) {
 
     
 
+    
+    /**
+     * Reports whether the ssh-app hooks are present in the agent's config and the script is installed.
+     */
+open func agentHooksStatus(agent: AgentKind, configDir: String?, hookDir: String?)async throws  -> AgentHooksStatus  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_agent_hooks_status(
+                        self.uniffiCloneHandle(),FfiConverterTypeAgentKind_lower(agent),FfiConverterOptionString.lower(configDir),FfiConverterOptionString.lower(hookDir)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeAgentHooksStatus_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Resolves `binary` in a login shell and in an interactive shell (rc files loaded), so the
+     * app can tell the user whether the agent is only reachable after sourcing `~/.zshrc`.
+     */
+open func checkAgentEnvironment(binary: String)async throws  -> AgentEnvCheck  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_check_agent_environment(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(binary)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeAgentEnvCheck_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Checks the host for Ollama: installed, server reachable on 127.0.0.1:11434, model list.
+     * A timeout is an error (the host may be slow), not \"not installed\".
+     */
+open func checkHostOllama()async throws  -> OllamaHostStatus  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_check_host_ollama(
+                        self.uniffiCloneHandle()
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeOllamaHostStatus_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
     
     /**
      * Establishes the SSH connection, launches tmux, and starts streaming I/O.
@@ -1142,6 +1246,65 @@ open func getActivePortForwards() -> [PortForwardInfo]  {
 }
     
     /**
+     * Installs the default (phone approval) hooks; see `install_agent_hooks_with_preset`.
+     */
+open func installAgentHooks(agent: AgentKind, configDir: String?, hookDir: String?)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_install_agent_hooks(
+                        self.uniffiCloneHandle(),FfiConverterTypeAgentKind_lower(agent),FfiConverterOptionString.lower(configDir),FfiConverterOptionString.lower(hookDir)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_void,
+            completeFunc: ffi_ssh_core_rust_future_complete_void,
+            freeFunc: ffi_ssh_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Installs hooks for `agent`: merges the preset's entries into its config (backup, atomic,
+     * symlink- and mode-preserving) and, unless the preset is `Custom`, writes the hook script.
+     * Refuses to touch an unparsable config.
+     */
+open func installAgentHooksWithPreset(agent: AgentKind, configDir: String?, hookDir: String?, preset: HookPreset)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_install_agent_hooks_with_preset(
+                        self.uniffiCloneHandle(),FfiConverterTypeAgentKind_lower(agent),FfiConverterOptionString.lower(configDir),FfiConverterOptionString.lower(hookDir),FfiConverterTypeHookPreset_lower(preset)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_void,
+            completeFunc: ffi_ssh_core_rust_future_complete_void,
+            freeFunc: ffi_ssh_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * The ssh-app hook entries currently installed in the agent's config.
+     */
+open func installedAgentHooks(agent: AgentKind, configDir: String?)async throws  -> [PlannedHook]  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_installed_agent_hooks(
+                        self.uniffiCloneHandle(),FfiConverterTypeAgentKind_lower(agent),FfiConverterOptionString.lower(configDir)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceTypePlannedHook.lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
      * Safely terminates a remote process by PID (`SIGTERM` or `SIGKILL`), rejecting reserved PIDs <= 1.
      */
 open func killRemoteProcess(pid: UInt32, force: Bool)async throws   {
@@ -1175,6 +1338,26 @@ open func listRemoteDirectory(path: String?, includeHidden: Bool)async throws  -
             completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
             freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
             liftFunc: FfiConverterTypeRemoteDirectoryListing_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Dry run: the hooks section a preset would produce (never other settings), without touching
+     * the host. Lets the user review exactly what will be installed.
+     */
+open func previewAgentHooks(agent: AgentKind, configDir: String?, hookDir: String?, preset: HookPreset)async throws  -> String  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_preview_agent_hooks(
+                        self.uniffiCloneHandle(),FfiConverterTypeAgentKind_lower(agent),FfiConverterOptionString.lower(configDir),FfiConverterOptionString.lower(hookDir),FfiConverterTypeHookPreset_lower(preset)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterString.lift,
             errorHandler: FfiConverterTypeSshCoreError_lift
         )
 }
@@ -1317,6 +1500,25 @@ open func stopAllPortForwards()  {try! rustCall() {
 }
 }
     
+    /**
+     * Removes only the ssh-app hook entries from the agent's config (the script is left in place).
+     */
+open func uninstallAgentHooks(agent: AgentKind, configDir: String?)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_uninstall_agent_hooks(
+                        self.uniffiCloneHandle(),FfiConverterTypeAgentKind_lower(agent),FfiConverterOptionString.lower(configDir)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_void,
+            completeFunc: ffi_ssh_core_rust_future_complete_void,
+            freeFunc: ffi_ssh_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
 
     
 }
@@ -1363,6 +1565,217 @@ public func FfiConverterTypeSshSessionHandle_lower(_ value: SshSessionHandle) ->
 }
 
 
+
+
+/**
+ * Where a binary resolves on the host in a login shell vs. an interactive shell (rc loaded).
+ */
+public struct AgentEnvCheck: Equatable, Hashable {
+    public var loginPath: String?
+    public var interactivePath: String?
+    /**
+     * The interactive probe did not finish in time (a `~/.zshrc` that blocks or is very slow).
+     */
+    public var interactiveTimedOut: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(loginPath: String?, interactivePath: String?, 
+        /**
+         * The interactive probe did not finish in time (a `~/.zshrc` that blocks or is very slow).
+         */interactiveTimedOut: Bool) {
+        self.loginPath = loginPath
+        self.interactivePath = interactivePath
+        self.interactiveTimedOut = interactiveTimedOut
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension AgentEnvCheck: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAgentEnvCheck: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AgentEnvCheck {
+        return
+            try AgentEnvCheck(
+                loginPath: FfiConverterOptionString.read(from: &buf), 
+                interactivePath: FfiConverterOptionString.read(from: &buf), 
+                interactiveTimedOut: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AgentEnvCheck, into buf: inout [UInt8]) {
+        FfiConverterOptionString.write(value.loginPath, into: &buf)
+        FfiConverterOptionString.write(value.interactivePath, into: &buf)
+        FfiConverterBool.write(value.interactiveTimedOut, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAgentEnvCheck_lift(_ buf: RustBuffer) throws -> AgentEnvCheck {
+    return try FfiConverterTypeAgentEnvCheck.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAgentEnvCheck_lower(_ value: AgentEnvCheck) -> RustBuffer {
+    return FfiConverterTypeAgentEnvCheck.lower(value)
+}
+
+
+public struct AgentHooksStatus: Equatable, Hashable {
+    public var configPath: String
+    public var hooksInstalled: Bool
+    public var scriptInstalled: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(configPath: String, hooksInstalled: Bool, scriptInstalled: Bool) {
+        self.configPath = configPath
+        self.hooksInstalled = hooksInstalled
+        self.scriptInstalled = scriptInstalled
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension AgentHooksStatus: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAgentHooksStatus: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AgentHooksStatus {
+        return
+            try AgentHooksStatus(
+                configPath: FfiConverterString.read(from: &buf), 
+                hooksInstalled: FfiConverterBool.read(from: &buf), 
+                scriptInstalled: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AgentHooksStatus, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.configPath, into: &buf)
+        FfiConverterBool.write(value.hooksInstalled, into: &buf)
+        FfiConverterBool.write(value.scriptInstalled, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAgentHooksStatus_lift(_ buf: RustBuffer) throws -> AgentHooksStatus {
+    return try FfiConverterTypeAgentHooksStatus.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAgentHooksStatus_lower(_ value: AgentHooksStatus) -> RustBuffer {
+    return FfiConverterTypeAgentHooksStatus.lower(value)
+}
+
+
+public struct AgentLaunchProfile: Equatable, Hashable {
+    public var id: String
+    public var name: String
+    public var agent: AgentKind
+    public var binary: String
+    public var env: [EnvVar]
+    public var args: [String]
+    public var workingDir: String?
+    /**
+     * Start the agent through an interactive shell (`$SHELL -i -c`) so `~/.zshrc` (PATH from
+     * nvm/npm/asdf, exports) is loaded. Login non-interactive shells do not read it.
+     */
+    public var loadShellRc: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, name: String, agent: AgentKind, binary: String, env: [EnvVar], args: [String], workingDir: String?, 
+        /**
+         * Start the agent through an interactive shell (`$SHELL -i -c`) so `~/.zshrc` (PATH from
+         * nvm/npm/asdf, exports) is loaded. Login non-interactive shells do not read it.
+         */loadShellRc: Bool) {
+        self.id = id
+        self.name = name
+        self.agent = agent
+        self.binary = binary
+        self.env = env
+        self.args = args
+        self.workingDir = workingDir
+        self.loadShellRc = loadShellRc
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension AgentLaunchProfile: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAgentLaunchProfile: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AgentLaunchProfile {
+        return
+            try AgentLaunchProfile(
+                id: FfiConverterString.read(from: &buf), 
+                name: FfiConverterString.read(from: &buf), 
+                agent: FfiConverterTypeAgentKind.read(from: &buf), 
+                binary: FfiConverterString.read(from: &buf), 
+                env: FfiConverterSequenceTypeEnvVar.read(from: &buf), 
+                args: FfiConverterSequenceString.read(from: &buf), 
+                workingDir: FfiConverterOptionString.read(from: &buf), 
+                loadShellRc: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AgentLaunchProfile, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.name, into: &buf)
+        FfiConverterTypeAgentKind.write(value.agent, into: &buf)
+        FfiConverterString.write(value.binary, into: &buf)
+        FfiConverterSequenceTypeEnvVar.write(value.env, into: &buf)
+        FfiConverterSequenceString.write(value.args, into: &buf)
+        FfiConverterOptionString.write(value.workingDir, into: &buf)
+        FfiConverterBool.write(value.loadShellRc, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAgentLaunchProfile_lift(_ buf: RustBuffer) throws -> AgentLaunchProfile {
+    return try FfiConverterTypeAgentLaunchProfile.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAgentLaunchProfile_lower(_ value: AgentLaunchProfile) -> RustBuffer {
+    return FfiConverterTypeAgentLaunchProfile.lower(value)
+}
 
 
 /**
@@ -1679,6 +2092,60 @@ public func FfiConverterTypeCanonicalSigningPayload_lower(_ value: CanonicalSign
 }
 
 
+public struct EnvVar: Equatable, Hashable {
+    public var key: String
+    public var value: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(key: String, value: String) {
+        self.key = key
+        self.value = value
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension EnvVar: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeEnvVar: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> EnvVar {
+        return
+            try EnvVar(
+                key: FfiConverterString.read(from: &buf), 
+                value: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: EnvVar, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.key, into: &buf)
+        FfiConverterString.write(value.value, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEnvVar_lift(_ buf: RustBuffer) throws -> EnvVar {
+    return try FfiConverterTypeEnvVar.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEnvVar_lower(_ value: EnvVar) -> RustBuffer {
+    return FfiConverterTypeEnvVar.lower(value)
+}
+
+
 /**
  * Represents a ranked fuzzy search result.
  */
@@ -1737,6 +2204,86 @@ public func FfiConverterTypeFuzzyMatchResult_lift(_ buf: RustBuffer) throws -> F
 #endif
 public func FfiConverterTypeFuzzyMatchResult_lower(_ value: FuzzyMatchResult) -> RustBuffer {
     return FfiConverterTypeFuzzyMatchResult.lower(value)
+}
+
+
+public struct HookPreset: Equatable, Hashable {
+    public var kind: HookPresetKind
+    /**
+     * `Custom` only: shell command the agent runs for each event (it receives the event JSON on stdin).
+     */
+    public var customCommand: String
+    /**
+     * `Custom` only: agent events to attach it to (see `hook_events_for`).
+     */
+    public var customEvents: [String]
+    /**
+     * `Custom` only: tool matcher for tool events; empty = the agent's default.
+     */
+    public var customMatcher: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(kind: HookPresetKind, 
+        /**
+         * `Custom` only: shell command the agent runs for each event (it receives the event JSON on stdin).
+         */customCommand: String, 
+        /**
+         * `Custom` only: agent events to attach it to (see `hook_events_for`).
+         */customEvents: [String], 
+        /**
+         * `Custom` only: tool matcher for tool events; empty = the agent's default.
+         */customMatcher: String) {
+        self.kind = kind
+        self.customCommand = customCommand
+        self.customEvents = customEvents
+        self.customMatcher = customMatcher
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension HookPreset: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHookPreset: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HookPreset {
+        return
+            try HookPreset(
+                kind: FfiConverterTypeHookPresetKind.read(from: &buf), 
+                customCommand: FfiConverterString.read(from: &buf), 
+                customEvents: FfiConverterSequenceString.read(from: &buf), 
+                customMatcher: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: HookPreset, into buf: inout [UInt8]) {
+        FfiConverterTypeHookPresetKind.write(value.kind, into: &buf)
+        FfiConverterString.write(value.customCommand, into: &buf)
+        FfiConverterSequenceString.write(value.customEvents, into: &buf)
+        FfiConverterString.write(value.customMatcher, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHookPreset_lift(_ buf: RustBuffer) throws -> HookPreset {
+    return try FfiConverterTypeHookPreset.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHookPreset_lower(_ value: HookPreset) -> RustBuffer {
+    return FfiConverterTypeHookPreset.lower(value)
 }
 
 
@@ -1901,6 +2448,137 @@ public func FfiConverterTypeKeypairResult_lift(_ buf: RustBuffer) throws -> Keyp
 #endif
 public func FfiConverterTypeKeypairResult_lower(_ value: KeypairResult) -> RustBuffer {
     return FfiConverterTypeKeypairResult.lower(value)
+}
+
+
+/**
+ * What the host has: whether Ollama is installed, whether its server answers on the default
+ * loopback endpoint, and which models it lists.
+ */
+public struct OllamaHostStatus: Equatable, Hashable {
+    public var installed: Bool
+    public var binaryPath: String?
+    public var version: String?
+    public var running: Bool
+    public var models: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(installed: Bool, binaryPath: String?, version: String?, running: Bool, models: [String]) {
+        self.installed = installed
+        self.binaryPath = binaryPath
+        self.version = version
+        self.running = running
+        self.models = models
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension OllamaHostStatus: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeOllamaHostStatus: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> OllamaHostStatus {
+        return
+            try OllamaHostStatus(
+                installed: FfiConverterBool.read(from: &buf), 
+                binaryPath: FfiConverterOptionString.read(from: &buf), 
+                version: FfiConverterOptionString.read(from: &buf), 
+                running: FfiConverterBool.read(from: &buf), 
+                models: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: OllamaHostStatus, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.installed, into: &buf)
+        FfiConverterOptionString.write(value.binaryPath, into: &buf)
+        FfiConverterOptionString.write(value.version, into: &buf)
+        FfiConverterBool.write(value.running, into: &buf)
+        FfiConverterSequenceString.write(value.models, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeOllamaHostStatus_lift(_ buf: RustBuffer) throws -> OllamaHostStatus {
+    return try FfiConverterTypeOllamaHostStatus.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeOllamaHostStatus_lower(_ value: OllamaHostStatus) -> RustBuffer {
+    return FfiConverterTypeOllamaHostStatus.lower(value)
+}
+
+
+/**
+ * One hook entry that will be written into the agent's config; shown to the user before install.
+ */
+public struct PlannedHook: Equatable, Hashable {
+    public var event: String
+    public var matcher: String?
+    public var command: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(event: String, matcher: String?, command: String) {
+        self.event = event
+        self.matcher = matcher
+        self.command = command
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension PlannedHook: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePlannedHook: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PlannedHook {
+        return
+            try PlannedHook(
+                event: FfiConverterString.read(from: &buf), 
+                matcher: FfiConverterOptionString.read(from: &buf), 
+                command: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: PlannedHook, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.event, into: &buf)
+        FfiConverterOptionString.write(value.matcher, into: &buf)
+        FfiConverterString.write(value.command, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePlannedHook_lift(_ buf: RustBuffer) throws -> PlannedHook {
+    return try FfiConverterTypePlannedHook.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePlannedHook_lower(_ value: PlannedHook) -> RustBuffer {
+    return FfiConverterTypePlannedHook.lower(value)
 }
 
 
@@ -2735,6 +3413,86 @@ public func FfiConverterTypeTranscriptTurn_lower(_ value: TranscriptTurn) -> Rus
 }
 
 
+
+public enum AgentKind: Equatable, Hashable {
+    
+    case claudeCode
+    case antigravity
+    case codex
+    case grok
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension AgentKind: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAgentKind: FfiConverterRustBuffer {
+    typealias SwiftType = AgentKind
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AgentKind {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .claudeCode
+        
+        case 2: return .antigravity
+        
+        case 3: return .codex
+        
+        case 4: return .grok
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: AgentKind, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .claudeCode:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .antigravity:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .codex:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .grok:
+            writeInt(&buf, Int32(4))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAgentKind_lift(_ buf: RustBuffer) throws -> AgentKind {
+    return try FfiConverterTypeAgentKind.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAgentKind_lower(_ value: AgentKind) -> RustBuffer {
+    return FfiConverterTypeAgentKind.lower(value)
+}
+
+
+
 /**
  * Risk level classification for an AI-generated shell command.
  */
@@ -2826,6 +3584,88 @@ public func FfiConverterTypeAiRiskLevel_lift(_ buf: RustBuffer) throws -> AiRisk
 #endif
 public func FfiConverterTypeAiRiskLevel_lower(_ value: AiRiskLevel) -> RustBuffer {
     return FfiConverterTypeAiRiskLevel.lower(value)
+}
+
+
+
+
+public enum HookPresetKind: Equatable, Hashable {
+    
+    /**
+     * Ask the phone to approve tool use (falls back to the agent's own prompt), plus notifications.
+     */
+    case phoneApproval
+    /**
+     * Only Notification/Stop events are forwarded; nothing can be approved or blocked.
+     */
+    case notifyOnly
+    /**
+     * The user's own command for the chosen events; the ssh-app hook script is not used.
+     */
+    case custom
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension HookPresetKind: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHookPresetKind: FfiConverterRustBuffer {
+    typealias SwiftType = HookPresetKind
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HookPresetKind {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .phoneApproval
+        
+        case 2: return .notifyOnly
+        
+        case 3: return .custom
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: HookPresetKind, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .phoneApproval:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .notifyOnly:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .custom:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHookPresetKind_lift(_ buf: RustBuffer) throws -> HookPresetKind {
+    return try FfiConverterTypeHookPresetKind.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHookPresetKind_lower(_ value: HookPresetKind) -> RustBuffer {
+    return FfiConverterTypeHookPresetKind.lower(value)
 }
 
 
@@ -3918,6 +4758,56 @@ fileprivate struct FfiConverterSequenceString: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeAgentLaunchProfile: FfiConverterRustBuffer {
+    typealias SwiftType = [AgentLaunchProfile]
+
+    public static func write(_ value: [AgentLaunchProfile], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeAgentLaunchProfile.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [AgentLaunchProfile] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [AgentLaunchProfile]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeAgentLaunchProfile.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeEnvVar: FfiConverterRustBuffer {
+    typealias SwiftType = [EnvVar]
+
+    public static func write(_ value: [EnvVar], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeEnvVar.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [EnvVar] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [EnvVar]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeEnvVar.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeFuzzyMatchResult: FfiConverterRustBuffer {
     typealias SwiftType = [FuzzyMatchResult]
 
@@ -3935,6 +4825,31 @@ fileprivate struct FfiConverterSequenceTypeFuzzyMatchResult: FfiConverterRustBuf
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeFuzzyMatchResult.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypePlannedHook: FfiConverterRustBuffer {
+    typealias SwiftType = [PlannedHook]
+
+    public static func write(_ value: [PlannedHook], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypePlannedHook.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [PlannedHook] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [PlannedHook]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypePlannedHook.read(from: &buf))
         }
         return seq
     }
@@ -4177,6 +5092,218 @@ public func generateSshKeypair()throws  -> KeypairResult  {
 })
 }
 /**
+ * Name of the env var an agent uses to select its config directory, if it has one.
+ */
+public func agentConfigDirEnv(agent: AgentKind) -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_agent_config_dir_env(
+        FfiConverterTypeAgentKind_lower(agent),uniffiCallStatus
+    )
+})
+}
+public func agentHookScript() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_agent_hook_script(uniffiCallStatus
+    )
+})
+}
+/**
+ * Remote path (with a leading `~/`) of the config file the hooks live in.
+ */
+public func agentHooksConfigPath(agent: AgentKind, configDir: String?)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_agent_hooks_config_path(
+        FfiConverterTypeAgentKind_lower(agent),
+        FfiConverterOptionString.lower(configDir),uniffiCallStatus
+    )
+})
+}
+public func agentHooksInstalled(agent: AgentKind, existing: String) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_agent_hooks_installed(
+        FfiConverterTypeAgentKind_lower(agent),
+        FfiConverterString.lower(existing),uniffiCallStatus
+    )
+})
+}
+/**
+ * Builds the command run inside the new tmux session: `[cd dir &&] env K=V... bin args...`,
+ * followed by a login shell so the tmux session survives the agent exiting.
+ */
+public func buildAgentLaunchCommand(profile: AgentLaunchProfile)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_build_agent_launch_command(
+        FfiConverterTypeAgentLaunchProfile_lower(profile),uniffiCallStatus
+    )
+})
+}
+/**
+ * Command that prints where `binary` resolves in a login shell (`interactive == false`) or an
+ * interactive shell that has read `~/.zshrc`. Run it on the host and feed the output to
+ * `parse_resolved_binary`.
+ */
+public func buildBinaryProbeCommand(binary: String, interactive: Bool)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_build_binary_probe_command(
+        FfiConverterString.lower(binary),
+        FfiConverterBool.lower(interactive),uniffiCallStatus
+    )
+})
+}
+public func defaultHookPreset() -> HookPreset  {
+    return try!  FfiConverterTypeHookPreset_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_default_hook_preset(uniffiCallStatus
+    )
+})
+}
+/**
+ * Default presets. Personal/work variants are user data (see `config_dir` env), not presets.
+ */
+public func defaultLaunchProfiles() -> [AgentLaunchProfile]  {
+    return try!  FfiConverterSequenceTypeAgentLaunchProfile.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_default_launch_profiles(uniffiCallStatus
+    )
+})
+}
+/**
+ * Events a `Custom` preset may attach to, per agent.
+ */
+public func hookEventsFor(agent: AgentKind) -> [String]  {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_hook_events_for(
+        FfiConverterTypeAgentKind_lower(agent),uniffiCallStatus
+    )
+})
+}
+/**
+ * Whether the preset runs the ssh-app hook script (so it must be installed on the host).
+ */
+public func hookPresetUsesScript(preset: HookPreset) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_hook_preset_uses_script(
+        FfiConverterTypeHookPreset_lower(preset),uniffiCallStatus
+    )
+})
+}
+/**
+ * Only the hooks part of a config (Claude: `hooks`; Antigravity: `ssh-app`), pretty-printed.
+ * Other settings (e.g. an `env` block with API keys) are never returned, so the app can show it.
+ */
+public func hooksSectionOf(agent: AgentKind, configJson: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_hooks_section_of(
+        FfiConverterTypeAgentKind_lower(agent),
+        FfiConverterString.lower(configJson),uniffiCallStatus
+    )
+})
+}
+/**
+ * The ssh-app entries currently present in an agent's config (unparsable/foreign content: none).
+ */
+public func installedHookEntries(agent: AgentKind, existing: String) -> [PlannedHook]  {
+    return try!  FfiConverterSequenceTypePlannedHook.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_installed_hook_entries(
+        FfiConverterTypeAgentKind_lower(agent),
+        FfiConverterString.lower(existing),uniffiCallStatus
+    )
+})
+}
+/**
+ * Idempotently adds the default (phone approval) ssh-app hooks to an agent's config JSON.
+ */
+public func mergeAgentHooks(agent: AgentKind, existing: String, hookDir: String?)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_merge_agent_hooks(
+        FfiConverterTypeAgentKind_lower(agent),
+        FfiConverterString.lower(existing),
+        FfiConverterOptionString.lower(hookDir),uniffiCallStatus
+    )
+})
+}
+/**
+ * Idempotently writes `planned` into an agent's existing config JSON (replacing any previous
+ * ssh-app entries, preserving everything else). Used for install and for the dry-run preview.
+ */
+public func mergePlannedHooks(agent: AgentKind, existing: String, planned: [PlannedHook])throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_merge_planned_hooks(
+        FfiConverterTypeAgentKind_lower(agent),
+        FfiConverterString.lower(existing),
+        FfiConverterSequenceTypePlannedHook.lower(planned),uniffiCallStatus
+    )
+})
+}
+/**
+ * Extracts the resolved absolute path from probe output. Interactive shells may print noise
+ * (banners, prompt frameworks) and `command -v` prints `alias ...` for aliases, so only the
+ * last line that is an absolute path without control characters counts.
+ */
+public func parseResolvedBinary(output: String) -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_parse_resolved_binary(
+        FfiConverterString.lower(output),uniffiCallStatus
+    )
+})
+}
+/**
+ * Resolves a preset to the exact entries that will be written. Pure; used for the preview too.
+ */
+public func planAgentHooks(agent: AgentKind, preset: HookPreset, hookDir: String?)throws  -> [PlannedHook]  {
+    return try  FfiConverterSequenceTypePlannedHook.lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_plan_agent_hooks(
+        FfiConverterTypeAgentKind_lower(agent),
+        FfiConverterTypeHookPreset_lower(preset),
+        FfiConverterOptionString.lower(hookDir),uniffiCallStatus
+    )
+})
+}
+/**
+ * The config directory a profile points at (value of its config-dir env var), if set.
+ */
+public func profileConfigDir(profile: AgentLaunchProfile) -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_profile_config_dir(
+        FfiConverterTypeAgentLaunchProfile_lower(profile),uniffiCallStatus
+    )
+})
+}
+/**
+ * Removes the ssh-app hooks, leaving every other setting and hook untouched.
+ */
+public func removeAgentHooks(agent: AgentKind, existing: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_remove_agent_hooks(
+        FfiConverterTypeAgentKind_lower(agent),
+        FfiConverterString.lower(existing),uniffiCallStatus
+    )
+})
+}
+public func validateLaunchProfile(profile: AgentLaunchProfile)throws   {try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_validate_launch_profile(
+        FfiConverterTypeAgentLaunchProfile_lower(profile),uniffiCallStatus
+    )
+}
+}
+/**
  * Assembles the system prompt instructing the LLM to output a single tailored command.
  */
 public func assembleAiSystemPrompt(targetOs: String, shellName: String, cwd: String?) -> String  {
@@ -4197,6 +5324,18 @@ public func assembleAiUserPrompt(request: AiCommandRequest) -> String  {
         uniffiCallStatus in
     uniffi_ssh_core_fn_func_assemble_ai_user_prompt(
         FfiConverterTypeAiCommandRequest_lower(request),uniffiCallStatus
+    )
+})
+}
+/**
+ * Fixed, read-only host command that prints `OLLAMA_PATH=`, `OLLAMA_VERSION=` and `OLLAMA_TAGS=`
+ * lines (each only when known). It runs through the login shell (so PATH from `.zprofile` is
+ * set) and then through POSIX `sh` (the login shell may be fish), under an 8 s host watchdog.
+ */
+public func buildOllamaProbeCommand() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_build_ollama_probe_command(uniffiCallStatus
     )
 })
 }
@@ -4230,6 +5369,18 @@ public func parseOllamaGenerateResponse(jsonBody: String)throws  -> String  {
         uniffiCallStatus in
     uniffi_ssh_core_fn_func_parse_ollama_generate_response(
         FfiConverterString.lower(jsonBody),uniffiCallStatus
+    )
+})
+}
+/**
+ * Parses the probe output. Host-controlled, so every field is validated: the last well-formed
+ * value per marker wins, noise lines are ignored, and nothing can panic.
+ */
+public func parseOllamaProbe(output: String) -> OllamaHostStatus  {
+    return try!  FfiConverterTypeOllamaHostStatus_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_parse_ollama_probe(
+        FfiConverterString.lower(output),uniffiCallStatus
     )
 })
 }
@@ -4487,10 +5638,70 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_func_generate_ssh_keypair() != 25495) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_func_agent_config_dir_env() != 12240) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_agent_hook_script() != 54399) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_agent_hooks_config_path() != 43968) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_agent_hooks_installed() != 54659) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_build_agent_launch_command() != 42878) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_build_binary_probe_command() != 57846) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_default_hook_preset() != 37463) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_default_launch_profiles() != 49018) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_hook_events_for() != 9711) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_hook_preset_uses_script() != 31615) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_hooks_section_of() != 39095) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_installed_hook_entries() != 62815) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_merge_agent_hooks() != 40395) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_merge_planned_hooks() != 18776) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_parse_resolved_binary() != 3012) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_plan_agent_hooks() != 3645) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_profile_config_dir() != 12994) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_remove_agent_hooks() != 55313) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_validate_launch_profile() != 49937) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_func_assemble_ai_system_prompt() != 40691) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_assemble_ai_user_prompt() != 11531) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_build_ollama_probe_command() != 42784) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_classify_command_risk() != 56039) {
@@ -4500,6 +5711,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_parse_ollama_generate_response() != 49074) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_parse_ollama_probe() != 35390) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_sanitize_shell_command() != 11144) {
@@ -4580,6 +5794,15 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_method_portforwardhandle_stop() != 35538) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_agent_hooks_status() != 27994) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_check_agent_environment() != 25185) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_check_host_ollama() != 37008) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_connect() != 11069) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -4601,10 +5824,22 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_get_active_port_forwards() != 9499) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_install_agent_hooks() != 25424) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_install_agent_hooks_with_preset() != 57736) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_installed_agent_hooks() != 22063) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_kill_remote_process() != 36526) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_list_remote_directory() != 25160) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_preview_agent_hooks() != 1507) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_query_host_ollama() != 61217) {
@@ -4632,6 +5867,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_stop_all_port_forwards() != 215) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_uninstall_agent_hooks() != 64089) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_constructor_sshsessionhandle_new() != 21965) {

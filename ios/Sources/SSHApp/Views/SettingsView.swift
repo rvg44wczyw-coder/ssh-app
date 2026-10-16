@@ -77,7 +77,7 @@ public struct SettingsView: View {
                                                 .cornerRadius(3)
                                         }
                                     }
-                                    Text("\(server.username)@\(server.host):\(server.port)")
+                                    Text(verbatim: "\(server.username)@\(server.host):\(server.port)")
                                         .font(.caption)
                                         .foregroundColor(.secondary)
                                 }

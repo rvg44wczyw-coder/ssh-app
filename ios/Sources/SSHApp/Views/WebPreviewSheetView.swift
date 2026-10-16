@@ -124,7 +124,7 @@ public struct WebPreviewSheetView: View {
                         selectedPort = port
                         startTunnel(port: port)
                     } label: {
-                        Text(":\(port)")
+                        Text(verbatim: ":\(port)")
                             .font(.system(size: 13, weight: .semibold, design: .monospaced))
                             .padding(.horizontal, 10)
                             .padding(.vertical, 6)

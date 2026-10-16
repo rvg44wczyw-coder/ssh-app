@@ -2,6 +2,7 @@
 //! history) against a throwaway `sshd` bound to 127.0.0.1 on an ephemeral port.
 //! Skipped (with a message) when `sshd`, `ssh-keygen` or `tmux` are not available.
 
+use ssh_core::{build_agent_launch_command, AgentKind, AgentLaunchProfile, EnvVar};
 use ssh_core::{
     generate_keypair, SessionConfig, SessionState, SshSessionCallback, SshSessionHandle,
 };
@@ -237,5 +238,352 @@ fn exec_based_methods_against_loopback_sshd() {
             .is_err());
     });
 
+    handle.disconnect();
+}
+
+#[test]
+fn agent_hooks_install_flow_against_loopback_sshd() {
+    use std::os::unix::fs::PermissionsExt;
+    let Some(server) = start_sshd() else {
+        eprintln!("SKIP: sshd/ssh-keygen/tmux unavailable");
+        return;
+    };
+    let handle = connect(&server);
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().canonicalize().unwrap();
+    let cfg_dir = root.join("claude-personal");
+    let hook_dir = root.join("bin");
+    std::fs::create_dir_all(&cfg_dir).unwrap();
+    let settings = cfg_dir.join("settings.json");
+    let original = r#"{"model":"opus","hooks":{"PermissionRequest":[{"matcher":"Bash","hooks":[{"type":"command","command":"mine"}]}]}}"#;
+    std::fs::write(&settings, original).unwrap();
+    std::fs::set_permissions(&settings, std::fs::Permissions::from_mode(0o640)).unwrap();
+    let cfg = Some(cfg_dir.to_str().unwrap().to_string());
+    let hooks = Some(hook_dir.to_str().unwrap().to_string());
+    let agent = AgentKind::ClaudeCode;
+
+    rt.block_on(async {
+        let st = handle
+            .agent_hooks_status(agent, cfg.clone(), hooks.clone())
+            .await
+            .unwrap();
+        assert!(!st.hooks_installed && !st.script_installed);
+        assert_eq!(
+            st.config_path,
+            format!("{}/settings.json", cfg_dir.display())
+        );
+
+        handle
+            .install_agent_hooks(agent, cfg.clone(), hooks.clone())
+            .await
+            .expect("install");
+        let st = handle
+            .agent_hooks_status(agent, cfg.clone(), hooks.clone())
+            .await
+            .unwrap();
+        assert!(st.hooks_installed && st.script_installed);
+
+        // Script is private and executable by owner only; config keeps its mode; backup exists.
+        let script = hook_dir.join("ssh-app-hook");
+        assert_eq!(
+            std::fs::metadata(&script).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        assert!(std::fs::read_to_string(&script)
+            .unwrap()
+            .contains("def main"));
+        assert_eq!(
+            std::fs::metadata(&settings).unwrap().permissions().mode() & 0o777,
+            0o640
+        );
+        assert_eq!(
+            std::fs::read_to_string(cfg_dir.join("settings.json.ssh-app.bak")).unwrap(),
+            original
+        );
+
+        // The installed config keeps user settings and hooks.
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&settings).unwrap()).unwrap();
+        assert_eq!(v["model"], "opus");
+        assert_eq!(
+            v["hooks"]["PermissionRequest"][0]["hooks"][0]["command"],
+            "mine"
+        );
+
+        // Idempotent.
+        let after_first = std::fs::read_to_string(&settings).unwrap();
+        handle
+            .install_agent_hooks(agent, cfg.clone(), hooks.clone())
+            .await
+            .unwrap();
+        assert_eq!(std::fs::read_to_string(&settings).unwrap(), after_first);
+
+        // Uninstall restores the user's hooks exactly.
+        handle
+            .uninstall_agent_hooks(agent, cfg.clone())
+            .await
+            .unwrap();
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&settings).unwrap()).unwrap();
+        assert_eq!(
+            v,
+            serde_json::from_str::<serde_json::Value>(original).unwrap()
+        );
+        assert!(
+            !handle
+                .agent_hooks_status(agent, cfg.clone(), hooks.clone())
+                .await
+                .unwrap()
+                .hooks_installed
+        );
+
+        // Invalid config is refused and left byte-for-byte untouched.
+        std::fs::write(&settings, "{ not json").unwrap();
+        assert!(handle
+            .install_agent_hooks(agent, cfg.clone(), hooks.clone())
+            .await
+            .is_err());
+        assert!(handle
+            .uninstall_agent_hooks(agent, cfg.clone())
+            .await
+            .is_err());
+        assert_eq!(std::fs::read_to_string(&settings).unwrap(), "{ not json");
+
+        // A symlinked settings.json is written through, not replaced.
+        let real = root.join("dotfiles-settings.json");
+        std::fs::write(&real, "{}").unwrap();
+        std::fs::remove_file(&settings).unwrap();
+        std::os::unix::fs::symlink(&real, &settings).unwrap();
+        handle
+            .install_agent_hooks(agent, cfg.clone(), hooks.clone())
+            .await
+            .unwrap();
+        assert!(std::fs::symlink_metadata(&settings)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert!(std::fs::read_to_string(&real)
+            .unwrap()
+            .contains("ssh-app-hook"));
+
+        // A pre-planted symlink at the temp-file path must not be followed (clobber attack).
+        let victim = root.join("victim.txt");
+        std::fs::write(&victim, "VICTIM").unwrap();
+        let _ = std::fs::remove_file(root.join("claude-personal/settings.json.ssh-app.tmp"));
+        std::os::unix::fs::symlink(
+            &victim,
+            root.join("claude-personal/settings.json.ssh-app.tmp"),
+        )
+        .unwrap();
+        handle
+            .uninstall_agent_hooks(agent, cfg.clone())
+            .await
+            .unwrap();
+        assert_eq!(std::fs::read_to_string(&victim).unwrap(), "VICTIM");
+        assert!(!std::fs::read_to_string(&real)
+            .unwrap()
+            .contains("ssh-app-hook"));
+
+        // Antigravity uses hooks.json in its dir; Codex/Grok are refused.
+        let agy_dir = Some(root.join("gemini").to_str().unwrap().to_string());
+        handle
+            .install_agent_hooks(AgentKind::Antigravity, agy_dir.clone(), hooks.clone())
+            .await
+            .unwrap();
+        let hj = std::fs::read_to_string(root.join("gemini/hooks.json")).unwrap();
+        assert!(hj.contains("\"ssh-app\"") && hj.contains("run_command"));
+        assert!(handle
+            .install_agent_hooks(AgentKind::Codex, None, hooks.clone())
+            .await
+            .is_err());
+    });
+
+    handle.disconnect();
+}
+
+#[test]
+fn launch_command_executes_with_literal_env_on_loopback_sshd() {
+    let Some(server) = start_sshd() else {
+        eprintln!("SKIP: sshd/ssh-keygen/tmux unavailable");
+        return;
+    };
+    let handle = connect(&server);
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let profile = |key: &str, value: &str| AgentLaunchProfile {
+        id: "t".into(),
+        name: "T".into(),
+        agent: AgentKind::ClaudeCode,
+        binary: "printenv".into(),
+        env: vec![EnvVar {
+            key: key.into(),
+            value: value.into(),
+        }],
+        args: vec![key.into()],
+        working_dir: None,
+        load_shell_rc: false,
+    };
+    rt.block_on(async {
+        // `~/` expands to the remote $HOME (this is what the alias CLAUDE_CONFIG_DIR=... did).
+        let cmd =
+            build_agent_launch_command(profile("CLAUDE_CONFIG_DIR", "~/.claude-personal")).unwrap();
+        // No pty here, so close stdin or the trailing login shell would wait for input forever.
+        let out = handle
+            .execute_command_on_active_session(format!("( {cmd} ) </dev/null"))
+            .await
+            .unwrap();
+        let home = std::env::var("HOME").unwrap();
+        assert_eq!(out.trim(), format!("{home}/.claude-personal"));
+
+        // A hostile value is passed literally: nothing is executed or expanded.
+        let hostile = "a'; touch /tmp/ssh-app-pwned; echo '$(id) `id` $HOME";
+        let cmd = build_agent_launch_command(profile("FOO", hostile)).unwrap();
+        let out = handle
+            .execute_command_on_active_session(format!("( {cmd} ) </dev/null"))
+            .await
+            .unwrap();
+        assert_eq!(out.trim(), hostile);
+        assert!(!std::path::Path::new("/tmp/ssh-app-pwned").exists());
+
+        // Interactive (rc-loading) mode keeps the same literal-value guarantee. The user's rc
+        // may print noise, so only the last line is compared.
+        let mut p = profile("FOO", hostile);
+        p.load_shell_rc = true;
+        let cmd = build_agent_launch_command(p).unwrap();
+        let out = handle
+            .execute_command_on_active_session(format!("( {cmd} ) </dev/null 2>/dev/null"))
+            .await
+            .unwrap();
+        assert_eq!(out.lines().last().map(str::trim), Some(hostile));
+        assert!(!std::path::Path::new("/tmp/ssh-app-pwned").exists());
+
+        // The environment check resolves a binary every shell can find.
+        let check = handle
+            .check_agent_environment("sh".to_string())
+            .await
+            .unwrap();
+        assert!(check.login_path.is_some() && check.interactive_path.is_some());
+        assert!(!check.interactive_timed_out);
+        let missing = handle
+            .check_agent_environment("definitely-not-installed-xyz".to_string())
+            .await
+            .unwrap();
+        assert!(missing.login_path.is_none() && missing.interactive_path.is_none());
+
+        // Ollama check: succeeds on any host and agrees with what this machine actually has.
+        let ollama = handle.check_host_ollama().await.unwrap();
+        let local = ["/opt/homebrew/bin/ollama", "/usr/local/bin/ollama"]
+            .iter()
+            .any(|p| Path::new(p).exists());
+        if local {
+            assert!(ollama.installed, "{ollama:?}");
+        }
+        assert!(ollama.models.iter().all(|m| !m.contains(' ')));
+    });
+    handle.disconnect();
+}
+
+#[test]
+fn hook_presets_preview_and_custom_install_against_loopback_sshd() {
+    use ssh_core::{default_hook_preset, HookPreset, HookPresetKind};
+    let Some(server) = start_sshd() else {
+        eprintln!("SKIP: sshd/ssh-keygen/tmux unavailable");
+        return;
+    };
+    let handle = connect(&server);
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().canonicalize().unwrap();
+    let cfg_dir = root.join("claude-work");
+    let hook_dir = root.join("bin");
+    std::fs::create_dir_all(&cfg_dir).unwrap();
+    let settings = cfg_dir.join("settings.json");
+    let original = r#"{"env":{"ANTHROPIC_API_KEY":"sk-topsecret"},"model":"opus"}"#;
+    std::fs::write(&settings, original).unwrap();
+    let cfg = Some(cfg_dir.to_str().unwrap().to_string());
+    let hooks = Some(hook_dir.to_str().unwrap().to_string());
+    let agent = AgentKind::ClaudeCode;
+    let custom = HookPreset {
+        kind: HookPresetKind::Custom,
+        custom_command: "/usr/local/bin/audit --log".into(),
+        custom_events: vec!["PreToolUse".into(), "Stop".into()],
+        custom_matcher: "Bash".into(),
+    };
+
+    rt.block_on(async {
+        // Preview is a dry run and never reveals other settings.
+        let preview = handle
+            .preview_agent_hooks(agent, cfg.clone(), hooks.clone(), default_hook_preset())
+            .await
+            .unwrap();
+        assert!(preview.contains("PermissionRequest"));
+        assert!(!preview.contains("sk-topsecret"));
+        assert_eq!(std::fs::read_to_string(&settings).unwrap(), original);
+        assert!(!hook_dir.exists());
+
+        // Custom preset: no script written, entries are marked and listed as installed.
+        handle
+            .install_agent_hooks_with_preset(agent, cfg.clone(), hooks.clone(), custom.clone())
+            .await
+            .unwrap();
+        assert!(!hook_dir.exists());
+        let installed = handle
+            .installed_agent_hooks(agent, cfg.clone())
+            .await
+            .unwrap();
+        assert_eq!(installed.len(), 2);
+        assert_eq!(installed[0].matcher.as_deref(), Some("Bash"));
+        assert!(installed[0]
+            .command
+            .starts_with("/usr/local/bin/audit --log #"));
+        let on_disk = std::fs::read_to_string(&settings).unwrap();
+        assert!(on_disk.contains("sk-topsecret") && on_disk.contains("\"model\""));
+
+        // Switching preset replaces our entries instead of stacking them.
+        let mut notify = default_hook_preset();
+        notify.kind = HookPresetKind::NotifyOnly;
+        handle
+            .install_agent_hooks_with_preset(agent, cfg.clone(), hooks.clone(), notify)
+            .await
+            .unwrap();
+        let installed = handle
+            .installed_agent_hooks(agent, cfg.clone())
+            .await
+            .unwrap();
+        let events: Vec<_> = installed.iter().map(|h| h.event.as_str()).collect();
+        assert_eq!(events, ["Notification", "Stop"]);
+
+        handle
+            .uninstall_agent_hooks(agent, cfg.clone())
+            .await
+            .unwrap();
+        assert!(handle
+            .installed_agent_hooks(agent, cfg.clone())
+            .await
+            .unwrap()
+            .is_empty());
+        let after: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&settings).unwrap()).unwrap();
+        assert_eq!(after["model"], "opus");
+        assert!(after.get("hooks").is_none());
+
+        // A hostile custom command is stored as data and never executed by the app.
+        let mut evil = custom;
+        evil.custom_command = "true; touch /tmp/ssh-app-pwned-preset".into();
+        handle
+            .install_agent_hooks_with_preset(agent, cfg.clone(), hooks.clone(), evil)
+            .await
+            .unwrap();
+        assert!(!Path::new("/tmp/ssh-app-pwned-preset").exists());
+    });
     handle.disconnect();
 }

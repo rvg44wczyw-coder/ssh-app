@@ -40,6 +40,8 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     @Published public var fileBrowserError: String? = nil
 
     private var handle: SshSessionHandle?
+    /// The live core session, for host-side management actions (e.g. agent hook install).
+    public var sessionHandle: SshSessionHandle? { handle }
     private var lastCols: UInt16 = 80
     private var lastRows: UInt16 = 24
 

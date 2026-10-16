@@ -340,6 +340,118 @@ pub fn parse_ai_response(raw_llm_response: &str) -> Result<AiCommandSuggestion, 
     })
 }
 
+/// What the host has: whether Ollama is installed, whether its server answers on the default
+/// loopback endpoint, and which models it lists.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, uniffi::Record)]
+pub struct OllamaHostStatus {
+    pub installed: bool,
+    pub binary_path: Option<String>,
+    pub version: Option<String>,
+    pub running: bool,
+    pub models: Vec<String>,
+}
+
+const OLLAMA_PROBE_SCRIPT: &str = r#"p=$(command -v ollama 2>/dev/null)
+case "$p" in *[![:print:]]*) p="";; esac
+if [ -z "$p" ]; then
+  for c in /opt/homebrew/bin/ollama /usr/local/bin/ollama /Applications/Ollama.app/Contents/Resources/ollama; do
+    if [ -x "$c" ]; then p="$c"; break; fi
+  done
+fi
+if [ -n "$p" ]; then
+  printf 'OLLAMA_PATH=%s\n' "$p"
+  v=$("$p" --version 2>&1 | head -c 4096 | grep 'version is' | tail -n 1)
+  if [ -n "$v" ]; then printf 'OLLAMA_VERSION=%s\n' "$v"; fi
+fi
+t=$(curl -s -m 2 http://127.0.0.1:11434/api/tags 2>/dev/null | head -c 262144 | tr -d '\n\r')
+if [ -n "$t" ]; then printf 'OLLAMA_TAGS=%s\n' "$t"; fi
+true"#;
+
+/// Fixed, read-only host command that prints `OLLAMA_PATH=`, `OLLAMA_VERSION=` and `OLLAMA_TAGS=`
+/// lines (each only when known). It runs through the login shell (so PATH from `.zprofile` is
+/// set) and then through POSIX `sh` (the login shell may be fish), under an 8 s host watchdog.
+#[uniffi::export]
+pub fn build_ollama_probe_command() -> String {
+    let via_sh = format!(
+        "exec sh -c {}",
+        crate::tmux::shell_quote(OLLAMA_PROBE_SCRIPT)
+    );
+    let inner = format!(
+        "\"${{SHELL:-/bin/zsh}}\" -l -c {} </dev/null 2>&1",
+        crate::tmux::shell_quote(&via_sh)
+    );
+    crate::hostprobe::watchdog_sh(&inner, 8)
+}
+
+fn is_model_name(name: &str) -> bool {
+    (1..=128).contains(&name.len())
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | ':' | '/' | '-'))
+}
+
+/// Parses the probe output. Host-controlled, so every field is validated: the last well-formed
+/// value per marker wins, noise lines are ignored, and nothing can panic.
+#[uniffi::export]
+pub fn parse_ollama_probe(output: String) -> OllamaHostStatus {
+    let mut binary_path = None;
+    let mut version = None;
+    let mut tags = None;
+    for line in output.lines() {
+        let line = line.trim();
+        if let Some(p) = line.strip_prefix("OLLAMA_PATH=") {
+            let spoofy = |c: char| {
+                c.is_control()
+                    || matches!(c, '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '\u{feff}')
+            };
+            if p.starts_with('/') && p.len() <= 4096 && !p.chars().any(spoofy) {
+                binary_path = Some(p.to_string());
+            }
+        } else if let Some(v) = line.strip_prefix("OLLAMA_VERSION=") {
+            if let Some((_, rest)) = v.split_once("version is") {
+                let rest = rest.trim();
+                if !rest.is_empty()
+                    && rest.len() <= 64
+                    && rest
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '+' | '-'))
+                {
+                    version = Some(rest.to_string());
+                }
+            }
+        } else if let Some(t) = line.strip_prefix("OLLAMA_TAGS=") {
+            tags = Some(t.to_string());
+        }
+    }
+
+    let mut running = false;
+    let mut models: Vec<String> = vec![];
+    if let Some(body) = tags {
+        if let Ok(serde_json::Value::Object(map)) = serde_json::from_str::<serde_json::Value>(&body)
+        {
+            if let Some(serde_json::Value::Array(items)) = map.get("models") {
+                running = true;
+                models = items
+                    .iter()
+                    .filter_map(|m| m.get("name").and_then(serde_json::Value::as_str))
+                    .filter(|n| is_model_name(n))
+                    .map(str::to_string)
+                    .collect();
+                models.sort();
+                models.dedup();
+                models.truncate(100);
+            }
+        }
+    }
+    OllamaHostStatus {
+        installed: binary_path.is_some() || running,
+        binary_path,
+        version,
+        running,
+        models,
+    }
+}
+
 /// Parses the JSON response from Ollama's /api/generate endpoint.
 #[uniffi::export]
 pub fn parse_ollama_generate_response(json_body: &str) -> Result<String, SshCoreError> {
@@ -369,6 +481,93 @@ pub fn parse_ollama_generate_response(json_body: &str) -> Result<String, SshCore
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn ollama_probe_parses_the_documented_example() {
+        let out = "OLLAMA_PATH=/opt/homebrew/bin/ollama\nOLLAMA_VERSION=ollama version is 0.12.3\n\
+                   OLLAMA_TAGS={\"models\":[{\"name\":\"qwen2.5-coder:7b\"},{\"name\":\"llama3.2:latest\"}]}\n";
+        let s = parse_ollama_probe(out.into());
+        assert_eq!(
+            s,
+            OllamaHostStatus {
+                installed: true,
+                binary_path: Some("/opt/homebrew/bin/ollama".into()),
+                version: Some("0.12.3".into()),
+                running: true,
+                models: vec!["llama3.2:latest".into(), "qwen2.5-coder:7b".into()],
+            }
+        );
+    }
+
+    #[test]
+    fn ollama_probe_states() {
+        let none = parse_ollama_probe(String::new());
+        assert!(!none.installed && !none.running && none.models.is_empty());
+        let down = parse_ollama_probe(
+            "OLLAMA_PATH=/usr/local/bin/ollama\nOLLAMA_VERSION=Warning: client version is 0.9.0\n"
+                .into(),
+        );
+        assert!(down.installed && !down.running);
+        assert_eq!(down.version.as_deref(), Some("0.9.0"));
+        let empty = parse_ollama_probe("OLLAMA_TAGS={\"models\":[]}".into());
+        assert!(empty.running && empty.installed && empty.models.is_empty());
+    }
+
+    #[test]
+    fn ollama_probe_ignores_noise_and_takes_the_last_marker() {
+        let s = parse_ollama_probe(
+            "welcome!\nOLLAMA_PATH=/first\nOLLAMA_PATH=/second/ollama\nzsh: banner\n".into(),
+        );
+        assert_eq!(s.binary_path.as_deref(), Some("/second/ollama"));
+    }
+
+    #[test]
+    fn ollama_probe_rejects_hostile_values() {
+        let long = "a".repeat(200);
+        let many: Vec<String> = (0..150).map(|i| format!("{{\"name\":\"z{i}\"}}")).collect();
+        let tags = format!(
+            "OLLAMA_TAGS={{\"models\":[{{\"name\":\"ok:1\"}},{{\"name\":\"a; rm -rf ~\"}},{{\"name\":\"a b\"}},{{\"name\":\"{long}\"}},{{\"name\":\"ok:1\"}},{{\"name\":5}},{{}},{}]}}",
+            many.join(",")
+        );
+        let s = parse_ollama_probe(tags);
+        assert!(s.models.contains(&"ok:1".to_string()));
+        assert!(s.models.iter().all(|m| is_model_name(m)));
+        assert_eq!(s.models.iter().filter(|m| *m == "ok:1").count(), 1);
+        assert_eq!(s.models.len(), 100);
+
+        assert_eq!(
+            parse_ollama_probe("OLLAMA_PATH=/usr/bin/\u{202e}gnp".into()).binary_path,
+            None
+        );
+        assert_eq!(
+            parse_ollama_probe("OLLAMA_PATH=relative/ollama".into()).binary_path,
+            None
+        );
+        assert_eq!(
+            parse_ollama_probe("OLLAMA_VERSION=version is $(id)".into()).version,
+            None
+        );
+        assert!(!parse_ollama_probe("OLLAMA_TAGS={\"models\":[".into()).running);
+        assert!(!parse_ollama_probe("OLLAMA_TAGS=[1,2]".into()).running);
+        assert!(!parse_ollama_probe("OLLAMA_TAGS={\"models\":5}".into()).running);
+    }
+
+    #[test]
+    fn ollama_probe_command_is_a_constant_watchdogged_sh() {
+        let c = build_ollama_probe_command();
+        assert!(c.starts_with("sh -c '"));
+        assert!(c.contains("kill -9") && c.contains("kt()"));
+        for needle in [
+            "OLLAMA_PATH",
+            "OLLAMA_VERSION",
+            "OLLAMA_TAGS",
+            "/opt/homebrew/bin/ollama",
+            "127.0.0.1:11434",
+            "-l -c",
+        ] {
+            assert!(c.contains(needle), "missing {needle}");
+        }
+    }
+
     use super::*;
 
     #[test]

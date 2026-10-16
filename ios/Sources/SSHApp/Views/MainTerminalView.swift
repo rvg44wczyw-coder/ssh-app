@@ -6,6 +6,7 @@ public struct MainTerminalView: View {
 
     @StateObject private var serversManager = ServerProfilesManager()
     @StateObject private var tabsManager = TerminalTabsManager()
+    @StateObject private var agentProfiles = AgentProfilesManager()
 
     private enum ServerPickerContext {
         case startup
@@ -21,6 +22,7 @@ public struct MainTerminalView: View {
         case snippets
         case telemetry
         case fileBrowser
+        case agentProfiles
 
         var id: String { rawValue }
     }
@@ -33,6 +35,8 @@ public struct MainTerminalView: View {
     @State private var pendingApproval: AgentApprovalRequest? = nil
 
     @State private var showServerPicker: Bool = false
+    @State private var showActionPanel: Bool = false
+    @State private var serverStatuses: [UUID: ServerReachability] = [:]
     @State private var pingingServers: [ServerProfile] = []
     @State private var serverPickerContext: ServerPickerContext = .startup
     @State private var isCheckingServers: Bool = false
@@ -188,12 +192,6 @@ public struct MainTerminalView: View {
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button(action: { presentSheet(.tmuxSessions) }) {
-                        Image(systemName: "rectangle.stack")
-                            .font(.system(size: 13))
-                    }
-                }
                 ToolbarItem(placement: .principal) {
                     HStack(spacing: 4) {
                         Image(systemName: "terminal")
@@ -209,86 +207,28 @@ public struct MainTerminalView: View {
                         }
                     }
                 }
-                #if os(iOS)
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button(action: {
+                // One deliberate button; every other action lives in the panel it opens, so iOS
+                // never has to build its own (unlabeled) overflow menu.
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
                         dismissKeyboard()
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            tabsManager.activeViewModel?.toggleChatMode()
-                        }
-                    }) {
-                        Image(systemName: (tabsManager.activeViewModel?.isChatMode == true) ? "terminal.fill" : "bubble.left.and.bubble.right.fill")
-                            .font(.system(size: 14))
-                            .foregroundColor((tabsManager.activeViewModel?.isChatMode == true) ? .blue : .accentColor)
+                        showActionPanel = true
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                            .font(.system(size: 17))
                     }
-                    .accessibilityLabel("Toggle Chat and Terminal Mode")
-
-                    Button(action: { presentSheet(.aiAssistant) }) {
-                        Image(systemName: "wand.and.stars")
-                            .font(.system(size: 14))
-                            .foregroundColor(.purple)
-                    }
-                    .accessibilityLabel("AI Shell Assistant")
-
-                    Button(action: { presentSheet(.snippets) }) {
-                        Image(systemName: "bolt.fill")
-                            .font(.system(size: 14))
-                            .foregroundColor(.orange)
-                    }
-                    .accessibilityLabel("Smart Snippets & Fuzzy History")
-
-                    Button(action: { presentSheet(.fileBrowser) }) {
-                        Image(systemName: "folder.fill")
-                            .font(.system(size: 14))
-                            .foregroundColor(.yellow)
-                    }
-                    .accessibilityLabel("Remote File Browser")
-
-                    Button(action: { presentSheet(.telemetry) }) {
-                        Image(systemName: "gauge.with.dots.needle.33percent")
-                            .font(.system(size: 14))
-                            .foregroundColor(.green)
-                    }
-                    .accessibilityLabel("Host Telemetry & Process Monitor")
-
-                    Button(action: { presentSheet(.webPreview) }) {
-                        Image(systemName: "globe")
-                            .font(.system(size: 14))
-                    }
-                    .accessibilityLabel("In-App Web Preview")
-
-                    Button(action: { presentSheet(.diffViewer) }) {
-                        Image(systemName: "arrow.triangle.pull")
-                            .font(.system(size: 14))
-                    }
-                    .accessibilityLabel("Git Diff Review")
-
-                    Button(action: {
-                        withAnimation {
-                            showPublicKeyBanner.toggle()
-                            if showPublicKeyBanner {
-                                activePublicKey = KeychainManager.shared.getOrDerivePublicKey()
-                            }
-                        }
-                    }) {
-                        Image(systemName: "key")
-                            .font(.system(size: 14))
-                    }
-                    .accessibilityLabel("Toggle Public Key")
-
-                    Button(action: { presentSheet(.settings) }) {
-                        Image(systemName: "gearshape")
-                            .font(.system(size: 14))
-                    }
-                    .accessibilityLabel("Settings")
-                }
-                #else
-                ToolbarItem(placement: .automatic) {
-                    Button(action: { presentSheet(.settings) }) {
-                        Image(systemName: "gearshape")
+                    .accessibilityLabel("More actions")
+                    .accessibilityHint("Opens the list of actions: chat mode, tmux, AI assistant, files and more")
+                    .popover(isPresented: $showActionPanel, arrowEdge: .top) {
+                        ActionPanelView(
+                            isChatMode: tabsManager.activeViewModel?.isChatMode == true,
+                            keyVisible: showPublicKeyBanner,
+                            isConnected: tabsManager.activeViewModel?.state == .connected,
+                            onSelect: { performAction($0) }
+                        )
+                        .presentationCompactAdaptation(.popover)
                     }
                 }
-                #endif
             }
             .sheet(item: $activeSheet) { sheet in
                 switch sheet {
@@ -334,6 +274,23 @@ public struct MainTerminalView: View {
                             activeSheet = nil
                         }
                     }
+                case .agentProfiles:
+                    if let activeVM = tabsManager.activeViewModel {
+                        AgentProfilesSheetView(
+                            manager: agentProfiles,
+                            viewModel: activeVM,
+                            onLaunch: { profile, command in
+                                activeSheet = nil
+                                let s = tabsManager.addAgentSession(
+                                    profile: profile,
+                                    command: command,
+                                    serverId: tabsManager.activeSession?.serverId ?? serversManager.activeProfileId
+                                )
+                                ensureSessionStarted(for: s.id)
+                            },
+                            onClose: { activeSheet = nil }
+                        )
+                    }
                 case .fileBrowser:
                     if let activeVM = tabsManager.activeViewModel {
                         FileBrowserSheetView(viewModel: activeVM) {
@@ -342,22 +299,27 @@ public struct MainTerminalView: View {
                     }
                 }
             }
-            .confirmationDialog(
-                serverPickerContext == .startup ? "Select Server to Open" : "Open New Tab on Server",
-                isPresented: $showServerPicker,
-                titleVisibility: .visible
-            ) {
-                ForEach(pingingServers) { server in
-                    Button("\(server.name) (\(server.host))") {
-                        handleServerChosen(server)
-                    }
+            .overlay {
+                if showServerPicker {
+                    ServerPickerPopup(
+                        title: serverPickerContext == .startup ? "Open terminal on…" : "Open new tab on…",
+                        subtitle: serverPickerContext == .startup
+                            ? "More than one server is online. Pick the one to connect to."
+                            : "More than one server is online. Pick where this tab should run.",
+                        servers: pingingServers,
+                        statuses: serverStatuses,
+                        currentId: tabsManager.activeSession?.serverId ?? serversManager.activeProfileId,
+                        onSelect: { server in
+                            withAnimation(.easeOut(duration: 0.15)) { showServerPicker = false }
+                            handleServerChosen(server)
+                        },
+                        onCancel: {
+                            withAnimation(.easeOut(duration: 0.15)) { showServerPicker = false }
+                        }
+                    )
                 }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text(serverPickerContext == .startup
-                     ? "Both configured servers are online. Which server do you want to open terminal on?"
-                     : "Both servers are online. Which server should this new tab connect to?")
             }
+            .animation(.easeOut(duration: 0.15), value: showServerPicker)
             .onAppear {
                 let pubKey = KeychainManager.shared.getOrDerivePublicKey()
                 activePublicKey = pubKey
@@ -372,6 +334,43 @@ public struct MainTerminalView: View {
         }
     }
 
+    /// Runs a panel action. The popover is dismissed first; sheets are presented after it has
+    /// finished closing (presenting while a popover is still dismissing is dropped by UIKit).
+    private func performAction(_ action: AppAction) {
+        showActionPanel = false
+        if action == .chatToggle {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                tabsManager.activeViewModel?.toggleChatMode()
+            }
+            return
+        }
+        if action == .publicKey {
+            withAnimation {
+                showPublicKeyBanner.toggle()
+                if showPublicKeyBanner {
+                    activePublicKey = KeychainManager.shared.getOrDerivePublicKey()
+                }
+            }
+            return
+        }
+        let sheet: ActiveModalSheet
+        switch action {
+        case .tmuxSessions: sheet = .tmuxSessions
+        case .aiAssistant: sheet = .aiAssistant
+        case .snippets: sheet = .snippets
+        case .agentProfiles: sheet = .agentProfiles
+        case .fileBrowser: sheet = .fileBrowser
+        case .telemetry: sheet = .telemetry
+        case .webPreview: sheet = .webPreview
+        case .diffViewer: sheet = .diffViewer
+        case .settings: sheet = .settings
+        case .chatToggle, .publicKey: return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            presentSheet(sheet)
+        }
+    }
+
     private func handleServerChosen(_ server: ServerProfile) {
         switch serverPickerContext {
         case .startup:
@@ -380,7 +379,7 @@ public struct MainTerminalView: View {
             ensureSessionStarted(for: tabsManager.selectedSessionId, force: true)
         case .newTab:
             print("[MainView] User selected server '\(server.name)' for new tab")
-            let newSession = tabsManager.addSession(serverId: server.id)
+            let newSession = addNewTab(serverId: server.id)
             ensureSessionStarted(for: newSession.id)
         }
     }
@@ -408,6 +407,7 @@ public struct MainTerminalView: View {
                 if pinging.count >= 2 {
                     print("[MainView] \(pinging.count) servers pinging on startup. Presenting choice.")
                     self.pingingServers = pinging
+                    self.serverStatuses = Dictionary(uniqueKeysWithValues: pinging.map { ($0.id, ServerReachability.online) })
                     self.serverPickerContext = .startup
                     self.showServerPicker = true
                 }
@@ -415,10 +415,18 @@ public struct MainTerminalView: View {
         }
     }
 
+    /// Opens a new tab, auto-starting the configured agent profile (plain shell if none/invalid).
+    private func addNewTab(serverId: UUID?) -> TabSession {
+        if let profile = agentProfiles.autoStartProfile, case .success(let cmd) = profile.launchCommand() {
+            return tabsManager.addAgentSession(profile: profile, command: cmd, serverId: serverId)
+        }
+        return tabsManager.addSession(serverId: serverId)
+    }
+
     private func handleAddNewSession() {
         let profiles = serversManager.profiles
         guard profiles.count >= 2 else {
-            let newSession = tabsManager.addSession(serverId: serversManager.activeProfileId)
+            let newSession = addNewTab(serverId: serversManager.activeProfileId)
             ensureSessionStarted(for: newSession.id)
             return
         }
@@ -428,13 +436,14 @@ public struct MainTerminalView: View {
             await MainActor.run {
                 if pinging.count >= 2 {
                     self.pingingServers = pinging
+                    self.serverStatuses = Dictionary(uniqueKeysWithValues: pinging.map { ($0.id, ServerReachability.online) })
                     self.serverPickerContext = .newTab
                     self.showServerPicker = true
                 } else if let onlyOne = pinging.first {
-                    let newSession = self.tabsManager.addSession(serverId: onlyOne.id)
+                    let newSession = self.addNewTab(serverId: onlyOne.id)
                     self.ensureSessionStarted(for: newSession.id)
                 } else {
-                    let newSession = self.tabsManager.addSession(serverId: self.serversManager.activeProfileId)
+                    let newSession = self.addNewTab(serverId: self.serversManager.activeProfileId)
                     self.ensureSessionStarted(for: newSession.id)
                 }
             }

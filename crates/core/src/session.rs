@@ -227,7 +227,9 @@ impl SshSessionHandle {
             match msg {
                 russh::ChannelMsg::Data { ref data }
                 | russh::ChannelMsg::ExtendedData { ref data, .. } => {
-                    output.extend_from_slice(data);
+                    if push_capped(&mut output, data) {
+                        break;
+                    }
                 }
                 russh::ChannelMsg::Eof | russh::ChannelMsg::Close => break,
                 _ => {}
@@ -397,6 +399,192 @@ fi
         Ok(listing)
     }
 
+    /// Resolves `binary` in a login shell and in an interactive shell (rc files loaded), so the
+    /// app can tell the user whether the agent is only reachable after sourcing `~/.zshrc`.
+    pub async fn check_agent_environment(
+        &self,
+        binary: String,
+    ) -> Result<crate::agents::AgentEnvCheck, SshCoreError> {
+        // A user's rc file can block (prompts, slow plugins); never let the UI wait on it forever.
+        const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
+        let login = tokio::time::timeout(
+            PROBE_TIMEOUT,
+            self.execute_command_on_active_session(crate::agents::build_binary_probe_command(
+                binary.clone(),
+                false,
+            )?),
+        )
+        .await
+        .map_err(|_| SshCoreError::Timeout)??;
+        let interactive = tokio::time::timeout(
+            PROBE_TIMEOUT,
+            self.execute_command_on_active_session(crate::agents::build_binary_probe_command(
+                binary, true,
+            )?),
+        )
+        .await;
+        Ok(crate::agents::AgentEnvCheck {
+            login_path: crate::agents::parse_resolved_binary(login),
+            interactive_timed_out: interactive.is_err(),
+            interactive_path: interactive
+                .ok()
+                .transpose()?
+                .and_then(crate::agents::parse_resolved_binary),
+        })
+    }
+
+    /// Checks the host for Ollama: installed, server reachable on 127.0.0.1:11434, model list.
+    /// A timeout is an error (the host may be slow), not \"not installed\".
+    pub async fn check_host_ollama(&self) -> Result<crate::ai::OllamaHostStatus, SshCoreError> {
+        let out = tokio::time::timeout(
+            Duration::from_secs(10),
+            self.execute_command_on_active_session(crate::ai::build_ollama_probe_command()),
+        )
+        .await
+        .map_err(|_| SshCoreError::Timeout)??;
+        Ok(crate::ai::parse_ollama_probe(out))
+    }
+
+    /// Reports whether the ssh-app hooks are present in the agent's config and the script is installed.
+    pub async fn agent_hooks_status(
+        &self,
+        agent: crate::agents::AgentKind,
+        config_dir: Option<String>,
+        hook_dir: Option<String>,
+    ) -> Result<crate::agents::AgentHooksStatus, SshCoreError> {
+        let config_path = crate::agents::agent_hooks_config_path(agent, config_dir)?;
+        let existing = self
+            .execute_command_on_active_session(format!(
+                "cat {} 2>/dev/null || true",
+                crate::agents::remote_path_expr(&config_path)
+            ))
+            .await?;
+        let hook_dir = hook_dir.unwrap_or_else(|| crate::agents::DEFAULT_HOOK_DIR.to_string());
+        let script = crate::agents::remote_script_path(&hook_dir);
+        let present = self
+            .execute_command_on_active_session(format!("[ -f {script} ] && echo yes || echo no"))
+            .await?;
+        Ok(crate::agents::AgentHooksStatus {
+            hooks_installed: crate::agents::agent_hooks_installed(agent, existing),
+            config_path,
+            script_installed: present.trim() == "yes",
+        })
+    }
+
+    /// Installs the default (phone approval) hooks; see `install_agent_hooks_with_preset`.
+    pub async fn install_agent_hooks(
+        &self,
+        agent: crate::agents::AgentKind,
+        config_dir: Option<String>,
+        hook_dir: Option<String>,
+    ) -> Result<(), SshCoreError> {
+        self.install_agent_hooks_with_preset(
+            agent,
+            config_dir,
+            hook_dir,
+            crate::agents::default_hook_preset(),
+        )
+        .await
+    }
+
+    /// Dry run: the hooks section a preset would produce (never other settings), without touching
+    /// the host. Lets the user review exactly what will be installed.
+    pub async fn preview_agent_hooks(
+        &self,
+        agent: crate::agents::AgentKind,
+        config_dir: Option<String>,
+        hook_dir: Option<String>,
+        preset: crate::agents::HookPreset,
+    ) -> Result<String, SshCoreError> {
+        let config_path = crate::agents::agent_hooks_config_path(agent, config_dir)?;
+        let planned = crate::agents::plan_agent_hooks(agent, preset, hook_dir)?;
+        let existing = self.read_remote_config(&config_path).await?;
+        let merged = crate::agents::merge_planned_hooks(agent, existing, planned)?;
+        // Only the hooks part: settings.json may hold API keys that must not reach the screen.
+        crate::agents::hooks_section_of(agent, merged)
+    }
+
+    /// The ssh-app hook entries currently installed in the agent's config.
+    pub async fn installed_agent_hooks(
+        &self,
+        agent: crate::agents::AgentKind,
+        config_dir: Option<String>,
+    ) -> Result<Vec<crate::agents::PlannedHook>, SshCoreError> {
+        let config_path = crate::agents::agent_hooks_config_path(agent, config_dir)?;
+        let existing = self.read_remote_config(&config_path).await?;
+        Ok(crate::agents::installed_hook_entries(agent, existing))
+    }
+
+    /// Installs hooks for `agent`: merges the preset's entries into its config (backup, atomic,
+    /// symlink- and mode-preserving) and, unless the preset is `Custom`, writes the hook script.
+    /// Refuses to touch an unparsable config.
+    pub async fn install_agent_hooks_with_preset(
+        &self,
+        agent: crate::agents::AgentKind,
+        config_dir: Option<String>,
+        hook_dir: Option<String>,
+        preset: crate::agents::HookPreset,
+    ) -> Result<(), SshCoreError> {
+        let config_path = crate::agents::agent_hooks_config_path(agent, config_dir)?;
+        let hook_dir = hook_dir.unwrap_or_else(|| crate::agents::DEFAULT_HOOK_DIR.to_string());
+
+        let uses_script = crate::agents::hook_preset_uses_script(preset.clone());
+        let planned = crate::agents::plan_agent_hooks(agent, preset, Some(hook_dir.clone()))?;
+
+        let py = self
+            .execute_command_on_active_session(
+                "python3 --version >/dev/null 2>&1 && echo ok || echo missing".to_string(),
+            )
+            .await?;
+        if uses_script && py.trim() != "ok" {
+            return Err(SshCoreError::IoError {
+                reason: "python3 is required on the host to run the approval hook".to_string(),
+            });
+        }
+
+        let existing = self.read_remote_config(&config_path).await?;
+        let merged = crate::agents::merge_planned_hooks(agent, existing, planned)?;
+
+        // Script first, so a config never points at a missing script.
+        let script_path = crate::agents::remote_script_path(&hook_dir);
+        let dir_expr = crate::agents::remote_path_expr(hook_dir.trim_end_matches('/'));
+        // Only directories we create are locked down: never chmod a pre-existing (or parent) dir.
+        let lock_default_parent = if hook_dir.trim_end_matches('/')
+            == crate::agents::DEFAULT_HOOK_DIR
+        {
+            "mkdir -p \"$HOME/.ssh-app/run\" && chmod 700 \"$HOME/.ssh-app\" \"$HOME/.ssh-app/run\"; "
+        } else {
+            ""
+        };
+        if uses_script {
+            self.execute_command_on_active_session(format!(
+            "umask 077; if [ ! -d {dir_expr} ]; then mkdir -p {dir_expr} && chmod 700 {dir_expr}; fi; {lock_default_parent}{}",
+            crate::agents::build_write_file_command(
+                &script_path,
+                &crate::agents::agent_hook_script(),
+                "700"
+            )
+        ))
+            .await?;
+        }
+        self.write_remote_config(&config_path, &merged).await
+    }
+
+    /// Removes only the ssh-app hook entries from the agent's config (the script is left in place).
+    pub async fn uninstall_agent_hooks(
+        &self,
+        agent: crate::agents::AgentKind,
+        config_dir: Option<String>,
+    ) -> Result<(), SshCoreError> {
+        let config_path = crate::agents::agent_hooks_config_path(agent, config_dir)?;
+        let existing = self.read_remote_config(&config_path).await?;
+        if existing.trim().is_empty() {
+            return Ok(());
+        }
+        let cleaned = crate::agents::remove_agent_hooks(agent, existing)?;
+        self.write_remote_config(&config_path, &cleaned).await
+    }
+
     /// Reads a preview of a remote file (up to `max_bytes`, capped at 128 KB), blocking sensitive credential files.
     pub async fn read_remote_file_preview(
         &self,
@@ -429,6 +617,31 @@ fi
 }
 
 impl SshSessionHandle {
+    async fn read_remote_config(&self, path: &str) -> Result<String, SshCoreError> {
+        self.execute_command_on_active_session(format!(
+            "cat {} 2>/dev/null || true",
+            crate::agents::remote_path_expr(path)
+        ))
+        .await
+    }
+
+    /// Writes through symlinks, keeps the original mode (new files `0600`), backs up once.
+    async fn write_remote_config(&self, path: &str, content: &str) -> Result<(), SshCoreError> {
+        let p = crate::agents::remote_path_expr(path);
+        let body = crate::tmux::shell_quote(content);
+        let cmd = format!(
+            "set -e; p={p}; mkdir -p \"$(dirname \"$p\")\"; \
+             if [ -L \"$p\" ]; then p=$(realpath -- \"$p\" 2>/dev/null || readlink -f -- \"$p\"); fi; \
+             if [ -f \"$p\" ] && [ ! -e \"$p.ssh-app.bak\" ]; then cp -p \"$p\" \"$p.ssh-app.bak\"; fi; \
+             t=\"$p.ssh-app.tmp\"; rm -f \"$t\"; umask 077; set -C; printf %s {body} > \"$t\"; set +C; \
+             if [ -f \"$p\" ]; then chmod --reference=\"$p\" \"$t\" 2>/dev/null || chmod \"$(stat -f %Lp \"$p\" 2>/dev/null || echo 600)\" \"$t\"; fi; \
+             mv \"$t\" \"$p\""
+        );
+        self.execute_command_on_active_session(cmd)
+            .await
+            .map(|_| ())
+    }
+
     fn set_state(&self, new_state: SessionState) {
         *self.state.write().unwrap() = new_state.clone();
         if let Some(cb) = self.callback.read().unwrap().as_ref() {
@@ -663,6 +876,17 @@ impl SshSessionHandle {
     }
 }
 
+/// Upper bound for the output of one exec call. A runaway remote command (or a hostile shell rc)
+/// must not be able to grow the client's memory until the OS kills the app.
+const MAX_EXEC_OUTPUT: usize = 4 * 1024 * 1024;
+
+/// Appends `data` up to `MAX_EXEC_OUTPUT`; returns true when the cap is reached (stop reading).
+fn push_capped(output: &mut Vec<u8>, data: &[u8]) -> bool {
+    let room = MAX_EXEC_OUTPUT.saturating_sub(output.len());
+    output.extend_from_slice(&data[..data.len().min(room)]);
+    output.len() >= MAX_EXEC_OUTPUT
+}
+
 /// Connects via SSH, executes `command` without a PTY, captures stdout/stderr, and returns output.
 pub async fn execute_remote_command_internal(
     config: &RemoteServerConfig,
@@ -720,11 +944,10 @@ pub async fn execute_remote_command_internal(
     let mut output = Vec::new();
     while let Some(msg) = channel.wait().await {
         match msg {
-            ChannelMsg::Data { ref data } => {
-                output.extend_from_slice(data);
-            }
-            ChannelMsg::ExtendedData { ref data, .. } => {
-                output.extend_from_slice(data);
+            ChannelMsg::Data { ref data } | ChannelMsg::ExtendedData { ref data, .. } => {
+                if push_capped(&mut output, data) {
+                    break;
+                }
             }
             ChannelMsg::Eof | ChannelMsg::Close => {
                 break;
@@ -785,6 +1008,16 @@ pub async fn kill_remote_tmux_session(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn exec_output_is_capped() {
+        let mut out = Vec::new();
+        let chunk = vec![b'x'; 1024 * 1024];
+        let stops: Vec<bool> = (0..6).map(|_| push_capped(&mut out, &chunk)).collect();
+        assert_eq!(out.len(), MAX_EXEC_OUTPUT);
+        assert_eq!(stops, [false, false, false, true, true, true]);
+        assert!(push_capped(&mut Vec::new(), &vec![0; MAX_EXEC_OUTPUT + 10]));
+    }
+
     use super::*;
 
     struct DummyCallback;

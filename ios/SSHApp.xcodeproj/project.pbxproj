@@ -33,6 +33,12 @@
 		AA000026 /* SnippetsSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000026 /* SnippetsSheetView.swift */; };
 		AA000027 /* HostTelemetrySheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000027 /* HostTelemetrySheetView.swift */; };
 		AA000028 /* FileBrowserSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000028 /* FileBrowserSheetView.swift */; };
+		AA000029 /* AgentProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000029 /* AgentProfile.swift */; };
+		AA000032 /* HookPreviewSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000032 /* HookPreviewSheetView.swift */; };
+		AA000033 /* AppAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000033 /* AppAction.swift */; };
+		AA000034 /* ActionPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000034 /* ActionPanelView.swift */; };
+		AA000035 /* ServerPickerPopup.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000035 /* ServerPickerPopup.swift */; };
+		AA000031 /* AgentProfilesSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000031 /* AgentProfilesSheetView.swift */; };
 		AA000020 /* SshCoreBridge in Frameworks */ = {isa = PBXBuildFile; productRef = CC000001 /* SshCoreBridge */; };
 		AA000021 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = CC000002 /* SwiftTerm */; };
 		AA000030 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = BB000030 /* Assets.xcassets */; };
@@ -66,6 +72,12 @@
 		BB000026 /* SnippetsSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/SnippetsSheetView.swift; sourceTree = "<group>"; };
 		BB000027 /* HostTelemetrySheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/HostTelemetrySheetView.swift; sourceTree = "<group>"; };
 		BB000028 /* FileBrowserSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/FileBrowserSheetView.swift; sourceTree = "<group>"; };
+		BB000029 /* AgentProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models/AgentProfile.swift; sourceTree = "<group>"; };
+		BB000032 /* HookPreviewSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/HookPreviewSheetView.swift; sourceTree = "<group>"; };
+		BB000033 /* AppAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models/AppAction.swift; sourceTree = "<group>"; };
+		BB000034 /* ActionPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/ActionPanelView.swift; sourceTree = "<group>"; };
+		BB000035 /* ServerPickerPopup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/ServerPickerPopup.swift; sourceTree = "<group>"; };
+		BB000031 /* AgentProfilesSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/AgentProfilesSheetView.swift; sourceTree = "<group>"; };
 		BB000030 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -121,6 +133,12 @@
 				BB000026 /* SnippetsSheetView.swift */,
 				BB000027 /* HostTelemetrySheetView.swift */,
 				BB000028 /* FileBrowserSheetView.swift */,
+				BB000031 /* AgentProfilesSheetView.swift */,
+				BB000035 /* ServerPickerPopup.swift */,
+				BB000034 /* ActionPanelView.swift */,
+				BB000033 /* AppAction.swift */,
+				BB000032 /* HookPreviewSheetView.swift */,
+				BB000029 /* AgentProfile.swift */,
 			);
 			path = Sources/SSHApp;
 			sourceTree = "<group>";
@@ -244,6 +262,12 @@
 				AA000026 /* SnippetsSheetView.swift in Sources */,
 				AA000027 /* HostTelemetrySheetView.swift in Sources */,
 				AA000028 /* FileBrowserSheetView.swift in Sources */,
+				AA000031 /* AgentProfilesSheetView.swift in Sources */,
+				AA000035 /* ServerPickerPopup.swift in Sources */,
+				AA000034 /* ActionPanelView.swift in Sources */,
+				AA000033 /* AppAction.swift in Sources */,
+				AA000032 /* HookPreviewSheetView.swift in Sources */,
+				AA000029 /* AgentProfile.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

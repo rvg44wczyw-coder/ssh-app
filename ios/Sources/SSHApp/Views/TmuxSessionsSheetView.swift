@@ -9,6 +9,8 @@ public struct TmuxSessionsSheetView: View {
     @State private var selectedServerId: UUID?
     @State private var sessionToKill: String?
     @State private var showKillConfirmation: Bool = false
+    @State private var showServerPopup: Bool = false
+    @State private var serverStatuses: [UUID: ServerReachability] = [:]
 
     public let onAttachSession: (String, ServerProfile) -> Void
 
@@ -31,27 +33,32 @@ public struct TmuxSessionsSheetView: View {
             VStack(spacing: 0) {
                 // Server selector header if multiple profiles exist
                 if serversManager.profiles.count > 1 {
-                    HStack {
-                        Text("Server:")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                        Picker("Server", selection: Binding(
-                            get: { selectedServerId ?? serversManager.activeProfile?.id ?? UUID() },
-                            set: { newId in
-                                selectedServerId = newId
-                                refreshSessions()
-                            }
-                        )) {
-                            ForEach(serversManager.profiles) { server in
-                                Text(server.name).tag(server.id)
+                    Button {
+                        showServerPopup = true
+                        Task {
+                            await probeServers(serversManager.profiles) { id, state in
+                                serverStatuses[id] = state
                             }
                         }
-                        .pickerStyle(MenuPickerStyle())
-                        Spacer()
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text("Server:")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                            Text(currentServer?.name ?? "Select")
+                                .font(.subheadline.weight(.semibold))
+                            Image(systemName: "chevron.up.chevron.down")
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                            Spacer()
+                        }
+                        .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
                     .background(Color(UIColor.secondarySystemBackground))
+                    .accessibilityLabel("Server: \(currentServer?.name ?? "none"). Change server")
                     Divider()
                 }
 
@@ -200,6 +207,26 @@ public struct TmuxSessionsSheetView: View {
                     .disabled(viewModel.isLoading)
                 }
             }
+            .overlay {
+                if showServerPopup {
+                    ServerPickerPopup(
+                        title: "Show tmux sessions of…",
+                        subtitle: "Sessions are listed from the server you choose.",
+                        servers: serversManager.profiles,
+                        statuses: serverStatuses,
+                        currentId: currentServer?.id,
+                        onSelect: { server in
+                            withAnimation(.easeOut(duration: 0.15)) { showServerPopup = false }
+                            selectedServerId = server.id
+                            refreshSessions()
+                        },
+                        onCancel: {
+                            withAnimation(.easeOut(duration: 0.15)) { showServerPopup = false }
+                        }
+                    )
+                }
+            }
+            .animation(.easeOut(duration: 0.15), value: showServerPopup)
             .onAppear {
                 if selectedServerId == nil {
                     selectedServerId = serversManager.activeProfile?.id
