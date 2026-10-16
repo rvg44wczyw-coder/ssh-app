@@ -11,6 +11,7 @@ public struct AgentProfilesSheetView: View {
     @State private var editing: SavedAgentProfile? = nil
     @State private var hookStatus: [String: AgentHooksStatus] = [:]
     @State private var previewing: SavedAgentProfile? = nil
+    @State private var editingPermissions: SavedAgentProfile? = nil
     @State private var message: String? = nil
     @State private var approvalStatus: ApprovalStatus? = nil
 
@@ -90,6 +91,13 @@ public struct AgentProfilesSheetView: View {
                     onClose: { previewing = nil }
                 )
             }
+            .sheet(item: $editingPermissions) { profile in
+                PermissionsEditorSheetView(
+                    profile: profile,
+                    handle: connected ? viewModel.sessionHandle : nil,
+                    onClose: { editingPermissions = nil }
+                )
+            }
             .task { await refreshAll() }
         }
     }
@@ -155,6 +163,11 @@ public struct AgentProfilesSheetView: View {
             Text(status == nil ? "Hooks: unknown" : (status!.hooksInstalled ? "Hooks installed" : "Hooks not installed"))
                 .font(.caption)
             Spacer()
+            if profile.supportsPermissions {
+                Button("Permissions") { editingPermissions = profile }
+                    .font(.caption)
+                    .buttonStyle(.borderless)
+            }
             Button("Review & install") { previewing = profile }
                 .font(.caption)
                 .buttonStyle(.borderless)
@@ -339,6 +352,26 @@ struct AgentProfileEditorView: View {
                                 .textInputAutocapitalization(.never)
                                 #endif
                         }
+                        if profile.hookKindRaw != "custom" {
+                            ForEach(profile.approvalEventChoices, id: \.self) { ev in
+                                Toggle(ev, isOn: Binding(
+                                    get: { profile.approvalEvents.isEmpty || profile.approvalEvents.contains(ev) },
+                                    set: { on in
+                                        var current = profile.approvalEvents.isEmpty ? profile.approvalEventChoices : profile.approvalEvents
+                                        current.removeAll { $0 == ev }
+                                        if on { current.append(ev) }
+                                        // All selected = the defaults (stored as empty).
+                                        profile.approvalEvents = Set(current) == Set(profile.approvalEventChoices) ? [] : current
+                                    }))
+                            }
+                            if profile.hookKindRaw == "phoneApproval" {
+                                TextField("Tools sent to the phone, e.g. Bash|Edit|Write (empty = all)", text: $profile.approvalMatcher)
+                                    .autocorrectionDisabled()
+                                    #if os(iOS)
+                                    .textInputAutocapitalization(.never)
+                                    #endif
+                            }
+                        }
                         if let e = hookPresetError {
                             Text(e).font(.caption).foregroundColor(.red)
                         }
@@ -386,6 +419,10 @@ struct AgentProfileEditorView: View {
                 // invisible in the toggle list yet still fail validation).
                 let allowed = hookEventsFor(agent: agent)
                 profile.customHookEvents.removeAll { !allowed.contains($0) }
+                profile.approvalEvents.removeAll { !profile.approvalEventChoices.contains($0) }
+            }
+            .onChange(of: profile.hookKindRaw) { _, _ in
+                profile.approvalEvents.removeAll { !profile.approvalEventChoices.contains($0) }
             }
             .onAppear {
                 var env = profile.env

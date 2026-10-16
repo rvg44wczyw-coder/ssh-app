@@ -504,6 +504,45 @@ fi
         crate::agents::hooks_section_of(agent, merged)
     }
 
+    /// The permission rules (allow / ask / deny / default mode) in the profile's `settings.json`.
+    /// Refuses a file it cannot represent exactly (see `permissions_from_settings`).
+    pub async fn read_agent_permissions(
+        &self,
+        agent: crate::agents::AgentKind,
+        config_dir: Option<String>,
+    ) -> Result<crate::permissions::AgentPermissions, SshCoreError> {
+        let config_path = crate::agents::agent_hooks_config_path(agent, config_dir)?;
+        let existing = self.read_remote_config(&config_path).await?;
+        crate::permissions::permissions_from_settings(agent, existing)
+    }
+
+    /// Dry run: only the resulting `permissions` object, never other settings (they may hold keys).
+    pub async fn preview_agent_permissions(
+        &self,
+        agent: crate::agents::AgentKind,
+        config_dir: Option<String>,
+        permissions: crate::permissions::AgentPermissions,
+    ) -> Result<String, SshCoreError> {
+        let config_path = crate::agents::agent_hooks_config_path(agent, config_dir)?;
+        let existing = self.read_remote_config(&config_path).await?;
+        let merged = crate::permissions::merge_permissions(agent, existing, permissions)?;
+        crate::permissions::permissions_section_of(agent, merged)
+    }
+
+    /// Replaces the four permission fields in the profile's `settings.json` (backup once, atomic,
+    /// symlink- and mode-preserving). Refuses an unparsable file and leaves it untouched.
+    pub async fn apply_agent_permissions(
+        &self,
+        agent: crate::agents::AgentKind,
+        config_dir: Option<String>,
+        permissions: crate::permissions::AgentPermissions,
+    ) -> Result<(), SshCoreError> {
+        let config_path = crate::agents::agent_hooks_config_path(agent, config_dir)?;
+        let existing = self.read_remote_config(&config_path).await?;
+        let merged = crate::permissions::merge_permissions(agent, existing, permissions)?;
+        self.write_remote_config(&config_path, &merged).await
+    }
+
     /// The ssh-app hook entries currently installed in the agent's config.
     pub async fn installed_agent_hooks(
         &self,

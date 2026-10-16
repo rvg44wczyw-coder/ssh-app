@@ -523,6 +523,8 @@ fn hook_presets_preview_and_custom_install_against_loopback_sshd() {
         custom_command: "/usr/local/bin/audit --log".into(),
         custom_events: vec!["PreToolUse".into(), "Stop".into()],
         custom_matcher: "Bash".into(),
+        approval_matcher: String::new(),
+        approval_events: vec![],
     };
 
     rt.block_on(async {
@@ -830,6 +832,228 @@ fn git_diff_runs_in_the_terminals_directory_on_loopback_sshd() {
         assert_eq!(r.status, GitDiffStatus::NoSession, "{r:?}");
 
         assert!(handle.fetch_git_diff("a b; rm -rf ~".into()).await.is_err());
+    });
+    handle.disconnect();
+}
+
+#[test]
+fn agent_permissions_and_hook_settings_against_loopback_sshd() {
+    use ssh_core::{default_hook_preset, AgentPermissions, HookPresetKind};
+    let Some(server) = start_sshd() else {
+        eprintln!("SKIP: sshd/ssh-keygen/tmux unavailable");
+        return;
+    };
+    let handle = connect(&server);
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().canonicalize().unwrap();
+    let work = root.join("claude-work");
+    let personal = root.join("claude-personal");
+    let real = root.join("dotfiles");
+    let hook_dir = root.join("bin");
+    for d in [&work, &personal, &real] {
+        std::fs::create_dir_all(d).unwrap();
+    }
+    let agent = AgentKind::ClaudeCode;
+    let dir = |p: &Path| Some(p.to_str().unwrap().to_string());
+    let hooks = dir(&hook_dir);
+    let rules = |allow: &[&str], deny: &[&str], mode: Option<&str>| AgentPermissions {
+        allow: allow.iter().map(|s| s.to_string()).collect(),
+        ask: vec![],
+        deny: deny.iter().map(|s| s.to_string()).collect(),
+        default_mode: mode.map(str::to_string),
+    };
+
+    // The personal profile has a user hook and secrets; the work profile is symlinked.
+    let original = r#"{"env":{"ANTHROPIC_API_KEY":"sk-topsecret"},"model":"opus","hooks":{"Stop":[{"hooks":[{"type":"command","command":"say done"}]}]},"permissions":{"additionalDirectories":["../x"]}}"#;
+    std::fs::write(personal.join("settings.json"), original).unwrap();
+    std::fs::write(real.join("settings.json"), "{}").unwrap();
+    std::os::unix::fs::symlink(real.join("settings.json"), work.join("settings.json")).unwrap();
+
+    rt.block_on(async {
+        // Nothing configured yet: empty rules.
+        assert_eq!(
+            handle
+                .read_agent_permissions(agent, dir(&work))
+                .await
+                .unwrap(),
+            AgentPermissions::default()
+        );
+
+        // Preview is a dry run, shows only the permissions section and never the secrets.
+        let want = rules(
+            &["Read", "Bash(git status:*)"],
+            &["Read(./.env)"],
+            Some("acceptEdits"),
+        );
+        let preview = handle
+            .preview_agent_permissions(agent, dir(&personal), want.clone())
+            .await
+            .unwrap();
+        assert!(preview.contains("Read(./.env)") && preview.contains("additionalDirectories"));
+        assert!(!preview.contains("sk-topsecret") && !preview.contains("say done"));
+        assert_eq!(
+            std::fs::read_to_string(personal.join("settings.json")).unwrap(),
+            original
+        );
+
+        // Apply to the personal profile, twice (the backup is taken once).
+        handle
+            .apply_agent_permissions(agent, dir(&personal), want.clone())
+            .await
+            .unwrap();
+        let back = std::fs::read_to_string(personal.join("settings.json.ssh-app.bak")).unwrap();
+        assert_eq!(back, original);
+        let want2 = rules(&["Read"], &["Read(./.env)"], None);
+        handle
+            .apply_agent_permissions(agent, dir(&personal), want2.clone())
+            .await
+            .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(personal.join("settings.json.ssh-app.bak")).unwrap(),
+            original
+        );
+        assert_eq!(
+            handle
+                .read_agent_permissions(agent, dir(&personal))
+                .await
+                .unwrap(),
+            want2
+        );
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(personal.join("settings.json")).unwrap())
+                .unwrap();
+        assert_eq!(v["env"]["ANTHROPIC_API_KEY"], "sk-topsecret");
+        assert_eq!(v["model"], "opus");
+        assert_eq!(v["hooks"]["Stop"][0]["hooks"][0]["command"], "say done");
+        assert_eq!(v["permissions"]["additionalDirectories"][0], "../x");
+        assert!(v["permissions"].get("defaultMode").is_none());
+
+        // Profiles are independent: the work profile is untouched.
+        assert_eq!(
+            std::fs::read_to_string(real.join("settings.json")).unwrap(),
+            "{}"
+        );
+
+        // A symlinked settings.json is written through, the link survives.
+        handle
+            .apply_agent_permissions(agent, dir(&work), want.clone())
+            .await
+            .unwrap();
+        assert!(std::fs::symlink_metadata(work.join("settings.json"))
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert!(std::fs::read_to_string(real.join("settings.json"))
+            .unwrap()
+            .contains("acceptEdits"));
+
+        // Hook settings: matcher + events, next to the user's rules and own hook.
+        let mut preset = default_hook_preset();
+        preset.kind = HookPresetKind::PhoneApproval;
+        preset.approval_matcher = "Bash|Edit".into();
+        preset.approval_events = vec!["PermissionRequest".into(), "Stop".into()];
+        handle
+            .install_agent_hooks_with_preset(agent, dir(&personal), hooks.clone(), preset)
+            .await
+            .unwrap();
+        let installed = handle
+            .installed_agent_hooks(agent, dir(&personal))
+            .await
+            .unwrap();
+        let mut got: Vec<_> = installed
+            .iter()
+            .map(|h| (h.event.as_str(), h.matcher.as_deref()))
+            .collect();
+        got.sort();
+        assert_eq!(
+            got,
+            [("PermissionRequest", Some("Bash|Edit")), ("Stop", None)]
+        );
+        assert_eq!(
+            handle
+                .read_agent_permissions(agent, dir(&personal))
+                .await
+                .unwrap(),
+            want2
+        );
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(personal.join("settings.json")).unwrap())
+                .unwrap();
+        assert_eq!(
+            v["hooks"]["Stop"].as_array().unwrap().len(),
+            2,
+            "user hook kept"
+        );
+
+        // A hostile matcher is refused before anything is written.
+        let mut evil = default_hook_preset();
+        evil.approval_matcher = "*'; touch /tmp/ssh-app-pwned-matcher #".into();
+        assert!(handle
+            .install_agent_hooks_with_preset(agent, dir(&personal), hooks.clone(), evil)
+            .await
+            .is_err());
+        assert!(!Path::new("/tmp/ssh-app-pwned-matcher").exists());
+
+        // Shell metacharacters inside a specifier are data: stored verbatim, never executed.
+        let nasty = "Bash(echo '$(touch /tmp/ssh-app-pwned-rule)' `touch /tmp/ssh-app-pwned-rule` \"; touch /tmp/ssh-app-pwned-rule #:*)";
+        let tricky = rules(&[nasty], &[], None);
+        handle
+            .apply_agent_permissions(agent, dir(&personal), tricky.clone())
+            .await
+            .unwrap();
+        assert_eq!(
+            handle.read_agent_permissions(agent, dir(&personal)).await.unwrap(),
+            tricky
+        );
+        assert!(!Path::new("/tmp/ssh-app-pwned-rule").exists());
+        handle
+            .apply_agent_permissions(agent, dir(&personal), want2.clone())
+            .await
+            .unwrap();
+
+        // An invalid rule is refused with its name, and nothing changes.
+        let before = std::fs::read_to_string(personal.join("settings.json")).unwrap();
+        let err = handle
+            .apply_agent_permissions(agent, dir(&personal), rules(&["bad rule"], &[], None))
+            .await
+            .unwrap_err();
+        assert!(format!("{err}").contains("bad rule"));
+        assert_eq!(
+            std::fs::read_to_string(personal.join("settings.json")).unwrap(),
+            before
+        );
+
+        // An unparsable file is refused, for read, preview and apply, and left byte-identical.
+        let broken = root.join("claude-broken");
+        std::fs::create_dir_all(&broken).unwrap();
+        std::fs::write(broken.join("settings.json"), "{ not json").unwrap();
+        assert!(handle
+            .read_agent_permissions(agent, dir(&broken))
+            .await
+            .is_err());
+        assert!(handle
+            .preview_agent_permissions(agent, dir(&broken), want.clone())
+            .await
+            .is_err());
+        assert!(handle
+            .apply_agent_permissions(agent, dir(&broken), want)
+            .await
+            .is_err());
+        assert_eq!(
+            std::fs::read_to_string(broken.join("settings.json")).unwrap(),
+            "{ not json"
+        );
+        assert!(!broken.join("settings.json.ssh-app.bak").exists());
+
+        // Other agents are refused.
+        assert!(handle
+            .read_agent_permissions(AgentKind::Antigravity, None)
+            .await
+            .is_err());
     });
     handle.disconnect();
 }

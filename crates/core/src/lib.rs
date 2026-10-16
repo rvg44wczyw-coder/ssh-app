@@ -11,6 +11,7 @@ pub mod file_browser;
 pub mod gitdiff;
 pub(crate) mod hostprobe;
 pub mod keys;
+pub mod permissions;
 pub mod port_forward;
 pub mod session;
 pub mod snippets;
@@ -48,6 +49,10 @@ pub use file_browser::{
 };
 pub use gitdiff::{GitDiffResult, GitDiffStatus};
 pub use keys::{derive_public_key, generate_keypair, KeypairResult};
+pub use permissions::{
+    merge_permissions, permission_rule_templates, permission_warnings, permissions_from_settings,
+    permissions_section_of, validate_agent_permissions, AgentPermissions, PermissionTemplate,
+};
 pub use port_forward::{PortForwardHandle, PortForwardInfo};
 pub use session::{
     execute_remote_command, kill_remote_tmux_session, list_remote_tmux_sessions,

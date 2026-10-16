@@ -2,7 +2,7 @@
 
 - **Slug**: `14-agent-permissions-and-hook-settings`
 - **Milestone**: M18
-- **Status**: In implementation
+- **Status**: Implemented (M18)
 - **Participating roles**: `doc-dev`, `rev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
 - **Hacker gate**: yes (writes the agent's permission policy on the host; parses untrusted host config)
 

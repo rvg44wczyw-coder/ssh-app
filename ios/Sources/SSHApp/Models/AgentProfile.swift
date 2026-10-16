@@ -18,10 +18,14 @@ public struct SavedAgentProfile: Identifiable, Codable, Equatable, Sendable {
     public var customHookCommand: String
     public var customHookEvents: [String]
     public var customHookMatcher: String
+    /// Phone approval / notify only: tools that reach the phone (empty = all) and events to install (empty = all).
+    public var approvalMatcher: String
+    public var approvalEvents: [String]
 
     private enum CodingKeys: String, CodingKey {
         case id, name, agentRaw, binary, env, args, workingDir, loadShellRc
         case hookKindRaw, customHookCommand, customHookEvents, customHookMatcher
+        case approvalMatcher, approvalEvents
     }
 
     public init(from decoder: Decoder) throws {
@@ -39,6 +43,8 @@ public struct SavedAgentProfile: Identifiable, Codable, Equatable, Sendable {
         customHookCommand = try c.decodeIfPresent(String.self, forKey: .customHookCommand) ?? ""
         customHookEvents = try c.decodeIfPresent([String].self, forKey: .customHookEvents) ?? []
         customHookMatcher = try c.decodeIfPresent(String.self, forKey: .customHookMatcher) ?? ""
+        approvalMatcher = try c.decodeIfPresent(String.self, forKey: .approvalMatcher) ?? ""
+        approvalEvents = try c.decodeIfPresent([String].self, forKey: .approvalEvents) ?? []
     }
 
     public init(
@@ -63,6 +69,8 @@ public struct SavedAgentProfile: Identifiable, Codable, Equatable, Sendable {
         self.customHookCommand = ""
         self.customHookEvents = []
         self.customHookMatcher = ""
+        self.approvalMatcher = ""
+        self.approvalEvents = []
     }
 
     public var agent: AgentKind {
@@ -112,7 +120,9 @@ public struct SavedAgentProfile: Identifiable, Codable, Equatable, Sendable {
             kind: kind,
             customCommand: customHookCommand,
             customEvents: customHookEvents,
-            customMatcher: customHookMatcher
+            customMatcher: customHookMatcher,
+            approvalMatcher: approvalMatcher,
+            approvalEvents: approvalEvents
         )
     }
 
@@ -136,6 +146,17 @@ public struct SavedAgentProfile: Identifiable, Codable, Equatable, Sendable {
 
     /// Config dir the hooks must be installed into for this profile (`CLAUDE_CONFIG_DIR`), if any.
     public var configDir: String? { profileConfigDir(profile: coreProfile) }
+
+    /// Events the phone-approval / notify-only presets install for this agent (the toggle list).
+    public var approvalEventChoices: [String] {
+        let notifyOnly = hookKindRaw == "notifyOnly"
+        switch agent {
+        case .claudeCode: return notifyOnly ? ["Notification", "Stop"] : ["PermissionRequest", "Notification", "Stop"]
+        default: return notifyOnly ? ["Stop"] : ["PreToolUse", "Stop"]
+        }
+    }
+
+    public var supportsPermissions: Bool { agent == .claudeCode }
 
     public var supportsHooks: Bool { agent == .claudeCode || agent == .antigravity }
 

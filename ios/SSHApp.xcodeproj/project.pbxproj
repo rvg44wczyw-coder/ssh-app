@@ -20,6 +20,7 @@
 		AA000011 /* TerminalContainerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000011 /* TerminalContainerView.swift */; };
 		AA000012 /* TerminalTabsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000012 /* TerminalTabsManager.swift */; };
 		AA000036 /* ApprovalsCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000036 /* ApprovalsCenter.swift */; };
+		AA000037 /* PermissionsEditorSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000037 /* PermissionsEditorSheetView.swift */; };
 		AA000013 /* ServerProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000013 /* ServerProfile.swift */; };
 		AA000014 /* ServerProfilesManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000014 /* ServerProfilesManager.swift */; };
 		AA000015 /* TmuxSessionManagerViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000015 /* TmuxSessionManagerViewModel.swift */; };
@@ -59,6 +60,7 @@
 		BB000010 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/SettingsView.swift; sourceTree = "<group>"; };
 		BB000011 /* TerminalContainerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/TerminalContainerView.swift; sourceTree = "<group>"; };
 		BB000012 /* TerminalTabsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewModels/TerminalTabsManager.swift; sourceTree = "<group>"; };
+		BB000037 /* PermissionsEditorSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/PermissionsEditorSheetView.swift; sourceTree = "<group>"; };
 		BB000036 /* ApprovalsCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewModels/ApprovalsCenter.swift; sourceTree = "<group>"; };
 		BB000013 /* ServerProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models/ServerProfile.swift; sourceTree = "<group>"; };
 		BB000014 /* ServerProfilesManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewModels/ServerProfilesManager.swift; sourceTree = "<group>"; };
@@ -141,6 +143,7 @@
 				BB000034 /* ActionPanelView.swift */,
 				BB000033 /* AppAction.swift */,
 				BB000032 /* HookPreviewSheetView.swift */,
+				BB000037 /* PermissionsEditorSheetView.swift */,
 				BB000029 /* AgentProfile.swift */,
 			);
 			path = Sources/SSHApp;
@@ -271,6 +274,7 @@
 				AA000034 /* ActionPanelView.swift in Sources */,
 				AA000033 /* AppAction.swift in Sources */,
 				AA000032 /* HookPreviewSheetView.swift in Sources */,
+				AA000037 /* PermissionsEditorSheetView.swift in Sources */,
 				AA000029 /* AgentProfile.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

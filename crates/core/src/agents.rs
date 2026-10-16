@@ -73,7 +73,7 @@ pub struct AgentHooksStatus {
     pub script_installed: bool,
 }
 
-fn invalid(reason: impl Into<String>) -> SshCoreError {
+pub(crate) fn invalid(reason: impl Into<String>) -> SshCoreError {
     SshCoreError::IoError {
         reason: reason.into(),
     }
@@ -290,7 +290,7 @@ pub fn parse_resolved_binary(output: String) -> Option<String> {
 // Hooks
 // ---------------------------------------------------------------------------------------------
 
-fn unsupported(agent: AgentKind) -> SshCoreError {
+pub(crate) fn unsupported(agent: AgentKind) -> SshCoreError {
     invalid(format!(
         "Approval hooks are not supported for {agent:?} yet (supported: ClaudeCode, Antigravity)"
     ))
@@ -439,7 +439,7 @@ fn find_duplicate_key(text: &str) -> Option<String> {
     None
 }
 
-fn parse_object(existing: &str) -> Result<Map<String, Value>, SshCoreError> {
+pub(crate) fn parse_object(existing: &str) -> Result<Map<String, Value>, SshCoreError> {
     if existing.trim().is_empty() {
         return Ok(Map::new());
     }
@@ -459,7 +459,7 @@ fn parse_object(existing: &str) -> Result<Map<String, Value>, SshCoreError> {
     }
 }
 
-fn render(map: Map<String, Value>) -> Result<String, SshCoreError> {
+pub(crate) fn render(map: Map<String, Value>) -> Result<String, SshCoreError> {
     serde_json::to_string_pretty(&Value::Object(map))
         .map(|s| s + "\n")
         .map_err(|e| invalid(format!("Failed to serialize config: {e}")))
@@ -517,6 +517,10 @@ pub struct HookPreset {
     pub custom_events: Vec<String>,
     /// `Custom` only: tool matcher for tool events; empty = the agent's default.
     pub custom_matcher: String,
+    /// `PhoneApproval` / `NotifyOnly`: tools whose requests reach the phone; empty = the agent's default.
+    pub approval_matcher: String,
+    /// `PhoneApproval` / `NotifyOnly`: events to install, a subset of the preset's own; empty = all of them.
+    pub approval_events: Vec<String>,
 }
 
 /// One hook entry that will be written into the agent's config; shown to the user before install.
@@ -534,6 +538,8 @@ pub fn default_hook_preset() -> HookPreset {
         custom_command: String::new(),
         custom_events: vec![],
         custom_matcher: String::new(),
+        approval_matcher: String::new(),
+        approval_events: vec![],
     }
 }
 
@@ -624,6 +630,46 @@ fn validate_custom_hook(agent: AgentKind, preset: &HookPreset) -> Result<(), Ssh
     Ok(())
 }
 
+/// `None` = the agent's default matcher.
+fn validate_approval_matcher(raw: &str) -> Result<Option<String>, SshCoreError> {
+    let m = raw.trim();
+    if m.is_empty() {
+        return Ok(None);
+    }
+    if m.len() > 200
+        || !m
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '*' | '|' | '.' | ':' | '-'))
+    {
+        return Err(invalid(
+            "Approval matcher must be up to 200 characters of letters, digits and _ * | . : -",
+        ));
+    }
+    Ok(Some(m.to_string()))
+}
+
+/// Chosen events in the preset's own order, deduplicated; empty input = all defaults.
+fn validate_approval_events(
+    chosen: &[String],
+    defaults: &[&str],
+) -> Result<Vec<String>, SshCoreError> {
+    if chosen.is_empty() {
+        return Ok(defaults.iter().map(|e| (*e).to_string()).collect());
+    }
+    if let Some(bad) = chosen.iter().find(|e| !defaults.contains(&e.as_str())) {
+        return Err(invalid(format!(
+            "Event '{}' is not part of this preset (choose from {})",
+            crate::approval_queue::display_safe(&bad.chars().take(40).collect::<String>()),
+            defaults.join(", ")
+        )));
+    }
+    Ok(defaults
+        .iter()
+        .filter(|d| chosen.iter().any(|c| c == *d))
+        .map(|e| (*e).to_string())
+        .collect())
+}
+
 /// Resolves a preset to the exact entries that will be written. Pure; used for the preview too.
 #[uniffi::export]
 pub fn plan_agent_hooks(
@@ -670,32 +716,25 @@ pub fn plan_agent_hooks(
         }
         kind => {
             let notify_only = kind == HookPresetKind::NotifyOnly;
-            let cmd = |event: &str| hook_command(&dir, name, event);
-            let mut v = vec![];
-            match agent {
-                AgentKind::ClaudeCode => {
-                    if !notify_only {
-                        v.push(planned(
-                            "PermissionRequest",
-                            Some("*"),
-                            cmd("PermissionRequest"),
-                        ));
-                    }
-                    v.push(planned("Notification", None, cmd("Notification")));
-                    v.push(planned("Stop", None, cmd("Stop")));
-                }
-                _ => {
-                    if !notify_only {
-                        v.push(planned(
-                            "PreToolUse",
-                            Some(ANTIGRAVITY_TOOL_MATCHER),
-                            cmd("PreToolUse"),
-                        ));
-                    }
-                    v.push(planned("Stop", None, cmd("Stop")));
-                }
-            }
-            v
+            let defaults: &[&str] = match (agent, notify_only) {
+                (AgentKind::ClaudeCode, false) => &["PermissionRequest", "Notification", "Stop"],
+                (AgentKind::ClaudeCode, true) => &["Notification", "Stop"],
+                (_, false) => &["PreToolUse", "Stop"],
+                (_, true) => &["Stop"],
+            };
+            let matcher = validate_approval_matcher(&preset.approval_matcher)?
+                .unwrap_or_else(|| default_matcher.to_string());
+            let chosen = validate_approval_events(&preset.approval_events, defaults)?;
+            chosen
+                .iter()
+                .map(|event| {
+                    planned(
+                        event,
+                        event_takes_matcher(event).then_some(matcher.as_str()),
+                        hook_command(&dir, name, event),
+                    )
+                })
+                .collect()
         }
     })
 }
@@ -1185,6 +1224,70 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    fn approval(kind: HookPresetKind, matcher: &str, events: &[&str]) -> HookPreset {
+        HookPreset {
+            kind,
+            approval_matcher: matcher.into(),
+            approval_events: events.iter().map(|e| e.to_string()).collect(),
+            ..default_hook_preset()
+        }
+    }
+
+    #[test]
+    fn approval_matcher_and_events_are_configurable_and_validated() {
+        use HookPresetKind::{NotifyOnly, PhoneApproval};
+        let plan = |a, p| plan_agent_hooks(a, p, None);
+        let c = AgentKind::ClaudeCode;
+        let p = plan(
+            c,
+            approval(PhoneApproval, " Bash|Edit ", &["Stop", "PermissionRequest"]),
+        )
+        .unwrap();
+        let got: Vec<_> = p
+            .iter()
+            .map(|h| (h.event.as_str(), h.matcher.as_deref()))
+            .collect();
+        assert_eq!(
+            got,
+            [("PermissionRequest", Some("Bash|Edit")), ("Stop", None)]
+        );
+        // Defaults are unchanged when nothing is chosen.
+        let d = plan(c, default_hook_preset()).unwrap();
+        assert_eq!(d.len(), 3);
+        assert_eq!(d[0].matcher.as_deref(), Some("*"));
+        // Notify-only has no tool event, so the matcher is irrelevant and PermissionRequest is refused.
+        assert_eq!(plan(c, approval(NotifyOnly, "Bash", &[])).unwrap().len(), 2);
+        assert!(plan(c, approval(NotifyOnly, "", &["PermissionRequest"])).is_err());
+        // Antigravity keeps its own default matcher and events.
+        let a = plan(
+            AgentKind::Antigravity,
+            approval(PhoneApproval, "", &["PreToolUse"]),
+        )
+        .unwrap();
+        assert_eq!(a.len(), 1);
+        assert_eq!(a[0].matcher.as_deref(), Some(ANTIGRAVITY_TOOL_MATCHER));
+        assert!(plan(
+            AgentKind::Antigravity,
+            approval(PhoneApproval, "", &["Notification"])
+        )
+        .is_err());
+        // Hostile values are rejected, never written.
+        for bad in ["Bash;rm", "a b", "x\ny", "\"", &"a".repeat(201)] {
+            assert!(
+                plan(c, approval(PhoneApproval, bad, &[])).is_err(),
+                "{bad:?}"
+            );
+        }
+        assert!(plan(c, approval(PhoneApproval, "", &["Stop\n", "Bogus"])).is_err());
+        // Duplicates collapse.
+        assert_eq!(
+            plan(c, approval(PhoneApproval, "", &["Stop", "Stop"]))
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
     #[test]
     fn parse_resolved_binary_ignores_noise_and_aliases() {
         assert_eq!(
@@ -1205,6 +1308,8 @@ mod tests {
             custom_command: cmd.into(),
             custom_events: events.iter().map(|e| e.to_string()).collect(),
             custom_matcher: matcher.into(),
+            approval_matcher: String::new(),
+            approval_events: vec![],
         }
     }
 

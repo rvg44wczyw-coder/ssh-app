@@ -881,6 +881,12 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func agentHooksStatus(agent: AgentKind, configDir: String?, hookDir: String?) async throws  -> AgentHooksStatus
     
     /**
+     * Replaces the four permission fields in the profile's `settings.json` (backup once, atomic,
+     * symlink- and mode-preserving). Refuses an unparsable file and leaves it untouched.
+     */
+    func applyAgentPermissions(agent: AgentKind, configDir: String?, permissions: AgentPermissions) async throws 
+    
+    /**
      * Whether the host can verify phone approvals (OpenSSH `ssh-keygen`, trusted key installed).
      */
     func approvalStatus() async throws  -> ApprovalStatus
@@ -986,10 +992,21 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func previewAgentHooks(agent: AgentKind, configDir: String?, hookDir: String?, preset: HookPreset) async throws  -> String
     
     /**
+     * Dry run: only the resulting `permissions` object, never other settings (they may hold keys).
+     */
+    func previewAgentPermissions(agent: AgentKind, configDir: String?, permissions: AgentPermissions) async throws  -> String
+    
+    /**
      * Queries Ollama running locally on the remote host (http://127.0.0.1:11434/api/generate)
      * through the active SSH session and returns the generated command suggestion.
      */
     func queryHostOllama(model: String, systemPrompt: String, userPrompt: String) async throws  -> AiCommandSuggestion
+    
+    /**
+     * The permission rules (allow / ask / deny / default mode) in the profile's `settings.json`.
+     * Refuses a file it cannot represent exactly (see `permissions_from_settings`).
+     */
+    func readAgentPermissions(agent: AgentKind, configDir: String?) async throws  -> AgentPermissions
     
     /**
      * Reads a preview of a remote file (up to `max_bytes`, capped at 128 KB), blocking sensitive credential files.
@@ -1141,6 +1158,26 @@ open func agentHooksStatus(agent: AgentKind, configDir: String?, hookDir: String
             completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
             freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
             liftFunc: FfiConverterTypeAgentHooksStatus_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Replaces the four permission fields in the profile's `settings.json` (backup once, atomic,
+     * symlink- and mode-preserving). Refuses an unparsable file and leaves it untouched.
+     */
+open func applyAgentPermissions(agent: AgentKind, configDir: String?, permissions: AgentPermissions)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_apply_agent_permissions(
+                        self.uniffiCloneHandle(),FfiConverterTypeAgentKind_lower(agent),FfiConverterOptionString.lower(configDir),FfiConverterTypeAgentPermissions_lower(permissions)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_void,
+            completeFunc: ffi_ssh_core_rust_future_complete_void,
+            freeFunc: ffi_ssh_core_rust_future_free_void,
+            liftFunc: { $0 },
             errorHandler: FfiConverterTypeSshCoreError_lift
         )
 }
@@ -1495,6 +1532,25 @@ open func previewAgentHooks(agent: AgentKind, configDir: String?, hookDir: Strin
 }
     
     /**
+     * Dry run: only the resulting `permissions` object, never other settings (they may hold keys).
+     */
+open func previewAgentPermissions(agent: AgentKind, configDir: String?, permissions: AgentPermissions)async throws  -> String  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_preview_agent_permissions(
+                        self.uniffiCloneHandle(),FfiConverterTypeAgentKind_lower(agent),FfiConverterOptionString.lower(configDir),FfiConverterTypeAgentPermissions_lower(permissions)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterString.lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
      * Queries Ollama running locally on the remote host (http://127.0.0.1:11434/api/generate)
      * through the active SSH session and returns the generated command suggestion.
      */
@@ -1510,6 +1566,26 @@ open func queryHostOllama(model: String, systemPrompt: String, userPrompt: Strin
             completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
             freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
             liftFunc: FfiConverterTypeAiCommandSuggestion_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * The permission rules (allow / ask / deny / default mode) in the profile's `settings.json`.
+     * Refuses a file it cannot represent exactly (see `permissions_from_settings`).
+     */
+open func readAgentPermissions(agent: AgentKind, configDir: String?)async throws  -> AgentPermissions  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_read_agent_permissions(
+                        self.uniffiCloneHandle(),FfiConverterTypeAgentKind_lower(agent),FfiConverterOptionString.lower(configDir)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeAgentPermissions_lift,
             errorHandler: FfiConverterTypeSshCoreError_lift
         )
 }
@@ -1927,6 +2003,74 @@ public func FfiConverterTypeAgentLaunchProfile_lift(_ buf: RustBuffer) throws ->
 #endif
 public func FfiConverterTypeAgentLaunchProfile_lower(_ value: AgentLaunchProfile) -> RustBuffer {
     return FfiConverterTypeAgentLaunchProfile.lower(value)
+}
+
+
+public struct AgentPermissions: Equatable, Hashable {
+    public var allow: [String]
+    public var ask: [String]
+    public var deny: [String]
+    /**
+     * `None` leaves (or removes) the agent's default mode.
+     */
+    public var defaultMode: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(allow: [String], ask: [String], deny: [String], 
+        /**
+         * `None` leaves (or removes) the agent's default mode.
+         */defaultMode: String?) {
+        self.allow = allow
+        self.ask = ask
+        self.deny = deny
+        self.defaultMode = defaultMode
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension AgentPermissions: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAgentPermissions: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AgentPermissions {
+        return
+            try AgentPermissions(
+                allow: FfiConverterSequenceString.read(from: &buf), 
+                ask: FfiConverterSequenceString.read(from: &buf), 
+                deny: FfiConverterSequenceString.read(from: &buf), 
+                defaultMode: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AgentPermissions, into buf: inout [UInt8]) {
+        FfiConverterSequenceString.write(value.allow, into: &buf)
+        FfiConverterSequenceString.write(value.ask, into: &buf)
+        FfiConverterSequenceString.write(value.deny, into: &buf)
+        FfiConverterOptionString.write(value.defaultMode, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAgentPermissions_lift(_ buf: RustBuffer) throws -> AgentPermissions {
+    return try FfiConverterTypeAgentPermissions.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAgentPermissions_lower(_ value: AgentPermissions) -> RustBuffer {
+    return FfiConverterTypeAgentPermissions.lower(value)
 }
 
 
@@ -2583,6 +2727,14 @@ public struct HookPreset: Equatable, Hashable {
      * `Custom` only: tool matcher for tool events; empty = the agent's default.
      */
     public var customMatcher: String
+    /**
+     * `PhoneApproval` / `NotifyOnly`: tools whose requests reach the phone; empty = the agent's default.
+     */
+    public var approvalMatcher: String
+    /**
+     * `PhoneApproval` / `NotifyOnly`: events to install, a subset of the preset's own; empty = all of them.
+     */
+    public var approvalEvents: [String]
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -2595,11 +2747,19 @@ public struct HookPreset: Equatable, Hashable {
          */customEvents: [String], 
         /**
          * `Custom` only: tool matcher for tool events; empty = the agent's default.
-         */customMatcher: String) {
+         */customMatcher: String, 
+        /**
+         * `PhoneApproval` / `NotifyOnly`: tools whose requests reach the phone; empty = the agent's default.
+         */approvalMatcher: String, 
+        /**
+         * `PhoneApproval` / `NotifyOnly`: events to install, a subset of the preset's own; empty = all of them.
+         */approvalEvents: [String]) {
         self.kind = kind
         self.customCommand = customCommand
         self.customEvents = customEvents
         self.customMatcher = customMatcher
+        self.approvalMatcher = approvalMatcher
+        self.approvalEvents = approvalEvents
     }
 
     
@@ -2621,7 +2781,9 @@ public struct FfiConverterTypeHookPreset: FfiConverterRustBuffer {
                 kind: FfiConverterTypeHookPresetKind.read(from: &buf), 
                 customCommand: FfiConverterString.read(from: &buf), 
                 customEvents: FfiConverterSequenceString.read(from: &buf), 
-                customMatcher: FfiConverterString.read(from: &buf)
+                customMatcher: FfiConverterString.read(from: &buf), 
+                approvalMatcher: FfiConverterString.read(from: &buf), 
+                approvalEvents: FfiConverterSequenceString.read(from: &buf)
         )
     }
 
@@ -2630,6 +2792,8 @@ public struct FfiConverterTypeHookPreset: FfiConverterRustBuffer {
         FfiConverterString.write(value.customCommand, into: &buf)
         FfiConverterSequenceString.write(value.customEvents, into: &buf)
         FfiConverterString.write(value.customMatcher, into: &buf)
+        FfiConverterString.write(value.approvalMatcher, into: &buf)
+        FfiConverterSequenceString.write(value.approvalEvents, into: &buf)
     }
 }
 
@@ -2978,6 +3142,76 @@ public func FfiConverterTypePendingApproval_lift(_ buf: RustBuffer) throws -> Pe
 #endif
 public func FfiConverterTypePendingApproval_lower(_ value: PendingApproval) -> RustBuffer {
     return FfiConverterTypePendingApproval.lower(value)
+}
+
+
+public struct PermissionTemplate: Equatable, Hashable {
+    public var id: String
+    public var title: String
+    public var description: String
+    public var allow: [String]
+    public var ask: [String]
+    public var deny: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, title: String, description: String, allow: [String], ask: [String], deny: [String]) {
+        self.id = id
+        self.title = title
+        self.description = description
+        self.allow = allow
+        self.ask = ask
+        self.deny = deny
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension PermissionTemplate: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePermissionTemplate: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PermissionTemplate {
+        return
+            try PermissionTemplate(
+                id: FfiConverterString.read(from: &buf), 
+                title: FfiConverterString.read(from: &buf), 
+                description: FfiConverterString.read(from: &buf), 
+                allow: FfiConverterSequenceString.read(from: &buf), 
+                ask: FfiConverterSequenceString.read(from: &buf), 
+                deny: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: PermissionTemplate, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.title, into: &buf)
+        FfiConverterString.write(value.description, into: &buf)
+        FfiConverterSequenceString.write(value.allow, into: &buf)
+        FfiConverterSequenceString.write(value.ask, into: &buf)
+        FfiConverterSequenceString.write(value.deny, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePermissionTemplate_lift(_ buf: RustBuffer) throws -> PermissionTemplate {
+    return try FfiConverterTypePermissionTemplate.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePermissionTemplate_lower(_ value: PermissionTemplate) -> RustBuffer {
+    return FfiConverterTypePermissionTemplate.lower(value)
 }
 
 
@@ -5410,6 +5644,31 @@ fileprivate struct FfiConverterSequenceTypePendingApproval: FfiConverterRustBuff
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypePermissionTemplate: FfiConverterRustBuffer {
+    typealias SwiftType = [PermissionTemplate]
+
+    public static func write(_ value: [PermissionTemplate], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypePermissionTemplate.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [PermissionTemplate] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [PermissionTemplate]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypePermissionTemplate.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypePlannedHook: FfiConverterRustBuffer {
     typealias SwiftType = [PlannedHook]
 
@@ -6080,6 +6339,78 @@ public func derivePublicKey(privateKeyOpenssh: String)throws  -> String  {
     )
 })
 }
+/**
+ * New settings text with only the four fields replaced; empty lists remove their key and an
+ * empty `permissions` object is removed. All other keys are preserved.
+ */
+public func mergePermissions(agent: AgentKind, existing: String, permissions: AgentPermissions)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_merge_permissions(
+        FfiConverterTypeAgentKind_lower(agent),
+        FfiConverterString.lower(existing),
+        FfiConverterTypeAgentPermissions_lower(permissions),uniffiCallStatus
+    )
+})
+}
+/**
+ * Built-in starting points; applying one only adds its rules to the editor.
+ */
+public func permissionRuleTemplates() -> [PermissionTemplate]  {
+    return try!  FfiConverterSequenceTypePermissionTemplate.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_permission_rule_templates(uniffiCallStatus
+    )
+})
+}
+/**
+ * Non-blocking warnings shown in the preview.
+ */
+public func permissionWarnings(permissions: AgentPermissions) -> [String]  {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_permission_warnings(
+        FfiConverterTypeAgentPermissions_lower(permissions),uniffiCallStatus
+    )
+})
+}
+/**
+ * Reads the four permission fields. Unparsable JSON, duplicate keys, wrong types and invalid
+ * rules are errors (the editor replaces whole lists, so it must not load what it cannot save).
+ */
+public func permissionsFromSettings(agent: AgentKind, configJson: String)throws  -> AgentPermissions  {
+    return try  FfiConverterTypeAgentPermissions_lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_permissions_from_settings(
+        FfiConverterTypeAgentKind_lower(agent),
+        FfiConverterString.lower(configJson),uniffiCallStatus
+    )
+})
+}
+/**
+ * Only the `permissions` object, pretty-printed, so the preview never shows `env` or API keys.
+ */
+public func permissionsSectionOf(agent: AgentKind, configJson: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_permissions_section_of(
+        FfiConverterTypeAgentKind_lower(agent),
+        FfiConverterString.lower(configJson),uniffiCallStatus
+    )
+})
+}
+/**
+ * Normalises (trim, dedupe keeping order) and validates; invalid entries are errors, never dropped.
+ */
+public func validateAgentPermissions(agent: AgentKind, permissions: AgentPermissions)throws  -> AgentPermissions  {
+    return try  FfiConverterTypeAgentPermissions_lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_validate_agent_permissions(
+        FfiConverterTypeAgentKind_lower(agent),
+        FfiConverterTypeAgentPermissions_lower(permissions),uniffiCallStatus
+    )
+})
+}
 public func executeRemoteCommand(config: RemoteServerConfig, command: String)async throws  -> String  {
     return
         try  await uniffiRustCallAsync(
@@ -6336,6 +6667,24 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_func_derive_public_key() != 26782) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_func_merge_permissions() != 24280) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_permission_rule_templates() != 16458) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_permission_warnings() != 47521) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_permissions_from_settings() != 3226) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_permissions_section_of() != 33011) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_validate_agent_permissions() != 38620) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_func_execute_remote_command() != 30132) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -6391,6 +6740,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_agent_hooks_status() != 27994) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_apply_agent_permissions() != 50812) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_approval_status() != 19458) {
@@ -6450,7 +6802,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_preview_agent_hooks() != 1507) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_preview_agent_permissions() != 17405) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_query_host_ollama() != 61217) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_read_agent_permissions() != 43059) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_read_remote_file_preview() != 41827) {
