@@ -28,6 +28,11 @@ struct HookPreviewSheetView: View {
                 }
                 Section("Config file on the host") {
                     Text(configPath).font(.system(size: 12, design: .monospaced))
+                    if profile.agent == .claudeCode && profile.configDir == nil {
+                        Label("This profile has no config directory, so hooks go into the default Claude config (~/.claude). If that is a different account (e.g. work), close this screen and set the profile's config directory first, e.g. ~/.claude-personal.", systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundColor(.orange)
+                    }
                 }
                 Section("Currently installed") {
                     if installed.isEmpty {
