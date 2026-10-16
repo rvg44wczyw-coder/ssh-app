@@ -122,7 +122,7 @@
 ## Backlog
 
 - [ ] Confirm M13 on a physical iPhone (install + launch via `make iphone`).
-- [ ] **Hook install lost-update window**: install is read → merge → atomic write; compare a content hash on the host before `mv` (audit `2026-10-16-agent-hooks-presets-audit.md` item 6).
+- [x] **Hook install lost-update window**: the config write now compares a SHA-256 of the file on the host with what was read and refuses (`CONFIG_CHANGED`) if it differs; a failed write is no longer reported as success. Applies to hooks and permissions.
 - [x] **Host approval queue** (Feature 13 / M17, replaces the `control.sock` broker design): phone approvals work while the app is open.
 - [ ] **Push wake-up for approvals** (APNs via the zero-knowledge Worker, Notification Service Extension, Live Activity; Feature 03 §4–5): until then approvals only reach the phone while the app is in the foreground; after 120 s the agent falls back to its native prompt.
 - [ ] Approval long-poll (streaming exec) instead of 2 s polling; approvals for profiles with a custom hook directory.

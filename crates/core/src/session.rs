@@ -539,8 +539,9 @@ fi
     ) -> Result<(), SshCoreError> {
         let config_path = crate::agents::agent_hooks_config_path(agent, config_dir)?;
         let existing = self.read_remote_config(&config_path).await?;
-        let merged = crate::permissions::merge_permissions(agent, existing, permissions)?;
-        self.write_remote_config(&config_path, &merged).await
+        let merged = crate::permissions::merge_permissions(agent, existing.clone(), permissions)?;
+        self.write_remote_config(&config_path, &existing, &merged)
+            .await
     }
 
     /// The ssh-app hook entries currently installed in the agent's config.
@@ -582,7 +583,7 @@ fi
         }
 
         let existing = self.read_remote_config(&config_path).await?;
-        let merged = crate::agents::merge_planned_hooks(agent, existing, planned)?;
+        let merged = crate::agents::merge_planned_hooks(agent, existing.clone(), planned)?;
 
         // Script first, so a config never points at a missing script.
         let script_path = crate::agents::remote_script_path(&hook_dir);
@@ -607,7 +608,8 @@ fi
         ))
             .await?;
         }
-        self.write_remote_config(&config_path, &merged).await
+        self.write_remote_config(&config_path, &existing, &merged)
+            .await
     }
 
     /// Git diff (`HEAD`) of the repository the tmux session's pane is working in. The command runs
@@ -717,8 +719,9 @@ fi
         if existing.trim().is_empty() {
             return Ok(());
         }
-        let cleaned = crate::agents::remove_agent_hooks(agent, existing)?;
-        self.write_remote_config(&config_path, &cleaned).await
+        let cleaned = crate::agents::remove_agent_hooks(agent, existing.clone())?;
+        self.write_remote_config(&config_path, &existing, &cleaned)
+            .await
     }
 
     /// Reads a preview of a remote file (up to `max_bytes`, capped at 128 KB), blocking sensitive credential files.
@@ -762,20 +765,29 @@ impl SshSessionHandle {
     }
 
     /// Writes through symlinks, keeps the original mode (new files `0600`), backs up once.
-    async fn write_remote_config(&self, path: &str, content: &str) -> Result<(), SshCoreError> {
-        let p = crate::agents::remote_path_expr(path);
-        let body = crate::tmux::shell_quote(content);
-        let cmd = format!(
-            "set -e; p={p}; mkdir -p \"$(dirname \"$p\")\"; \
-             if [ -L \"$p\" ]; then p=$(realpath -- \"$p\" 2>/dev/null || readlink -f -- \"$p\"); fi; \
-             if [ -f \"$p\" ] && [ ! -e \"$p.ssh-app.bak\" ]; then cp -p \"$p\" \"$p.ssh-app.bak\"; fi; \
-             t=\"$p.ssh-app.tmp\"; rm -f \"$t\"; umask 077; set -C; printf %s {body} > \"$t\"; set +C; \
-             if [ -f \"$p\" ]; then chmod --reference=\"$p\" \"$t\" 2>/dev/null || chmod \"$(stat -f %Lp \"$p\" 2>/dev/null || echo 600)\" \"$t\"; fi; \
-             mv \"$t\" \"$p\""
-        );
-        self.execute_command_on_active_session(cmd)
-            .await
-            .map(|_| ())
+    /// `previous` is what the caller read and merged into `content`: if the file on the host
+    /// changed since (the agent or the user edited it), nothing is written.
+    async fn write_remote_config(
+        &self,
+        path: &str,
+        previous: &str,
+        content: &str,
+    ) -> Result<(), SshCoreError> {
+        let cmd = build_write_config_command(path, previous, content);
+        let out = self.execute_command_on_active_session(cmd).await?;
+        let last = out.lines().last().unwrap_or("").trim();
+        match last {
+            "CONFIG_WRITTEN" => Ok(()),
+            "CONFIG_CHANGED" => Err(SshCoreError::IoError {
+                reason: "The config file changed on the host while you were editing it; nothing was written. Reopen and try again.".to_string(),
+            }),
+            _ => Err(SshCoreError::IoError {
+                reason: format!(
+                    "Writing the config file failed on the host: {}",
+                    crate::approval_queue::display_safe(&out.chars().take(200).collect::<String>())
+                ),
+            }),
+        }
     }
 
     fn set_state(&self, new_state: SessionState) {
@@ -1142,6 +1154,25 @@ pub async fn kill_remote_tmux_session(
     })?
 }
 
+/// Host command that replaces the config file only if it still holds `previous`; prints
+/// `CONFIG_WRITTEN` or `CONFIG_CHANGED` as its last line.
+pub(crate) fn build_write_config_command(path: &str, previous: &str, content: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let expected = hex::encode(Sha256::digest(previous.as_bytes()));
+    let p = crate::agents::remote_path_expr(path);
+    let body = crate::tmux::shell_quote(content);
+    format!(
+            "set -e; p={p}; mkdir -p \"$(dirname \"$p\")\"; \
+             if [ -L \"$p\" ]; then p=$(realpath -- \"$p\" 2>/dev/null || readlink -f -- \"$p\"); fi; \
+             if [ -f \"$p\" ] && [ ! -e \"$p.ssh-app.bak\" ]; then cp -p \"$p\" \"$p.ssh-app.bak\"; fi; \
+             t=\"$p.ssh-app.tmp\"; rm -f \"$t\"; umask 077; set -C; printf %s {body} > \"$t\"; set +C; \
+             if [ -f \"$p\" ]; then chmod --reference=\"$p\" \"$t\" 2>/dev/null || chmod \"$(stat -f %Lp \"$p\" 2>/dev/null || echo 600)\" \"$t\"; fi; \
+             h=$( {{ cat \"$p\" 2>/dev/null || true; }} | {{ shasum -a 256 2>/dev/null || sha256sum; }} | cut -d' ' -f1 ); \
+             if [ \"$h\" != '{expected}' ]; then rm -f \"$t\"; echo CONFIG_CHANGED; exit 0; fi; \
+             mv \"$t\" \"$p\" && echo CONFIG_WRITTEN"
+        )
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -1248,5 +1279,30 @@ mod tests {
             }
             other => panic!("Expected Failed state, got: {:?}", other),
         }
+    }
+
+    #[test]
+    fn config_write_refuses_when_the_file_changed_since_it_was_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let p = path.to_str().unwrap();
+        let run = |prev: &str, new: &str| {
+            let out = std::process::Command::new("sh")
+                .args(["-c", &build_write_config_command(p, prev, new)])
+                .output()
+                .unwrap();
+            String::from_utf8_lossy(&out.stdout).trim().to_string()
+        };
+        // New file: the expected previous content is empty.
+        assert_eq!(run("", "{\"a\":1}"), "CONFIG_WRITTEN");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "{\"a\":1}");
+        // Someone edits the file after we read it: nothing is written, no temp file is left.
+        std::fs::write(&path, "{\"a\":2}").unwrap();
+        assert_eq!(run("{\"a\":1}", "{\"b\":1}"), "CONFIG_CHANGED");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "{\"a\":2}");
+        assert!(!dir.path().join("settings.json.ssh-app.tmp").exists());
+        // Unchanged since the read: written.
+        assert_eq!(run("{\"a\":2}", "{\"b\":1}"), "CONFIG_WRITTEN");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "{\"b\":1}");
     }
 }
