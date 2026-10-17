@@ -81,7 +81,7 @@ pub fn build_tmux_attach_or_create_command(
     // TrueColor, replay the last 1000 lines of history if available, then attach.
     // If tmux is absent, warn the user in yellow and fallback to a plain login shell.
     let full_command = format!(
-        "exec ${{SHELL:-/bin/zsh}} -l -c 'if command -v tmux >/dev/null 2>&1; then tmux has-session -t {session_name} 2>/dev/null || {escaped_create}; tmux set -g history-limit 10000 2>/dev/null; {TERMINAL_OVERRIDES} tmux capture-pane -t {session_name} -e -p -J -S -1000 -E -1 2>/dev/null || true; {escaped_attach}; else printf \"\\033[1;33m[Warning] tmux is not installed on remote host. Falling back to plain login shell.\\033[0m\\r\\n\"; exec ${{SHELL:-/bin/zsh}} -l; fi'"
+        "exec ${{SHELL:-/bin/zsh}} -l -c 'if command -v tmux >/dev/null 2>&1; then tmux has-session -t {session_name} 2>/dev/null || {escaped_create}; tmux set -g history-limit 10000 2>/dev/null; tmux set -t {session_name} mouse on 2>/dev/null; {TERMINAL_OVERRIDES} tmux capture-pane -t {session_name} -e -p -J -S -1000 -E -1 2>/dev/null || true; {escaped_attach}; else printf \"\\033[1;33m[Warning] tmux is not installed on remote host. Falling back to plain login shell.\\033[0m\\r\\n\"; exec ${{SHELL:-/bin/zsh}} -l; fi'"
     );
 
     Ok(full_command)
@@ -186,6 +186,8 @@ mod tests {
         assert!(cmd.contains(
             "has-session -t claude-code 2>/dev/null || tmux new-session -d -s claude-code;"
         ));
+        // The app scrolls by sending mouse-wheel events, which tmux only acts on with mouse on.
+        assert!(cmd.contains("tmux set -t claude-code mouse on"));
         assert!(cmd.contains("${SHELL:-/bin/zsh} -l -c"));
         assert!(cmd.contains("set -sa terminal-overrides \"xterm*:Tc,xterm*:smcup@:rmcup@\""));
         assert!(cmd.contains("capture-pane -t claude-code -e -p -J -S -1000 -E -1"));

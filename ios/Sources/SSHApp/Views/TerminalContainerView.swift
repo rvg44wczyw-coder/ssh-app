@@ -8,6 +8,10 @@ import UIKit
 /// from being hijacked by SwiftTerm's internal panSelectionGesture / panMouseGesture.
 open class AppTerminalView: TerminalView {
     private var isSetupComplete = false
+    private var allowSecondaryPan = false
+    private var wheelRemainder: CGFloat = 0
+    /// Called with (scrollUp, number of wheel ticks, column, row) for a one-finger vertical drag.
+    public var onWheel: ((Bool, Int, Int, Int) -> Void)?
 
     public override init(frame: CGRect, font: UIFont? = nil, options: TerminalOptions = TerminalOptions.default) {
         super.init(frame: frame, font: font, options: options)
@@ -43,12 +47,47 @@ open class AppTerminalView: TerminalView {
         }
     }
 
+    /// The host's tmux owns the history (the client only ever receives the visible screen), so a
+    /// one-finger drag is sent to tmux as mouse-wheel events instead of moving the local buffer.
+    /// tmux then walks its scrollback in copy mode (`mouse on` is set for the session on attach).
+    func installWheelScroll() {
+        panGestureRecognizer.isEnabled = false
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(handleWheelPan(_:)))
+        pan.minimumNumberOfTouches = 1
+        pan.maximumNumberOfTouches = 1
+        pan.cancelsTouchesInView = false
+        allowSecondaryPan = true
+        super.addGestureRecognizer(pan)
+        allowSecondaryPan = false
+    }
+
+    @objc private func handleWheelPan(_ pan: UIPanGestureRecognizer) {
+        switch pan.state {
+        case .began:
+            wheelRemainder = 0
+        case .changed:
+            wheelRemainder += pan.translation(in: self).y
+            pan.setTranslation(.zero, in: self)
+            let terminal = getTerminal()
+            let rows = max(terminal.rows, 1)
+            // One tmux wheel tick moves about five lines; match that to the finger distance.
+            let step = max(bounds.height / CGFloat(rows), 8) * 5
+            let ticks = Int(wheelRemainder / step)
+            guard ticks != 0 else { return }
+            wheelRemainder -= CGFloat(ticks) * step
+            // Dragging down shows older output, which is a wheel-up event.
+            onWheel?(ticks > 0, min(abs(ticks), 20), max(terminal.cols / 2, 1), max(rows / 2, 1))
+        default:
+            break
+        }
+    }
+
     open override func addGestureRecognizer(_ gestureRecognizer: UIGestureRecognizer) {
         if isSetupComplete {
             // SwiftTerm's enableSelectionPanGesture() and enableMousePanGesture() add secondary UIPanGestureRecognizers
             // that hijack 1-finger vertical swipes to send arrow keys or mouse reporting instead of scrolling!
             // We block and disable any such secondary pan gesture so 1-finger drag always scrolls the terminal.
-            if gestureRecognizer is UIPanGestureRecognizer && gestureRecognizer !== self.panGestureRecognizer {
+            if gestureRecognizer is UIPanGestureRecognizer && gestureRecognizer !== self.panGestureRecognizer && !allowSecondaryPan {
                 print("[AppTerminalView] Blocked secondary pan gesture from hijacking scroll: \(gestureRecognizer)")
                 gestureRecognizer.isEnabled = false
                 return
@@ -133,6 +172,14 @@ public struct TerminalContainerView: UIViewRepresentable {
         // Add pinch gesture for smooth zoom in/out
         let pinch = UIPinchGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePinch(_:)))
         terminalView.addGestureRecognizer(pinch)
+
+        terminalView.installWheelScroll()
+        terminalView.onWheel = { [weak coordinator = context.coordinator] up, count, col, row in
+            // SGR mouse report: button 64 = wheel up, 65 = wheel down.
+            let report = "\u{1b}[<\(up ? 64 : 65);\(col);\(row)M"
+            let data = Data(String(repeating: report, count: count).utf8)
+            coordinator?.viewModel.sendInput(data)
+        }
 
         context.coordinator.terminalView = terminalView
 

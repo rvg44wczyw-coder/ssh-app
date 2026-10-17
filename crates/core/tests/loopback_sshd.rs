@@ -1832,6 +1832,63 @@ fn local_assistant_chat_sends_the_whole_history_and_returns_the_reply() {
 }
 
 #[test]
+fn wheel_events_from_the_app_scroll_tmux_history() {
+    // The phone scrolls by sending SGR mouse-wheel events; tmux (mouse on for the session) then
+    // enters copy mode and walks its own history, which is the only place the history lives.
+    let Some(server) = start_sshd() else {
+        eprintln!("SKIP: sshd/ssh-keygen/tmux unavailable");
+        return;
+    };
+    let handle = connect(&server);
+    let session = format!("itest-{}", server.port);
+    let tmux = |args: &[&str]| {
+        let out = server.tmux().args(args).output().unwrap();
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    };
+    let wait = |what: &str, ok: &dyn Fn() -> bool| {
+        let deadline = Instant::now() + Duration::from_secs(15);
+        while !ok() {
+            assert!(Instant::now() < deadline, "timed out: {what}");
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    };
+    wait("mouse option", &|| {
+        tmux(&["show-options", "-t", &session, "-v", "mouse"]) == "on"
+    });
+    // Fill the history through the attached client, like the user typing.
+    handle
+        .send_input(b"seq 1 300\r".to_vec())
+        .expect("send input");
+    wait("history filled", &|| {
+        tmux(&["display", "-p", "-t", &session, "#{history_size}"])
+            .parse::<u32>()
+            .unwrap_or(0)
+            > 200
+    });
+    assert_eq!(
+        tmux(&["display", "-p", "-t", &session, "#{pane_in_mode}"]),
+        "0"
+    );
+    let wheel_up = b"\x1b[<64;10;10M".repeat(15);
+    handle.send_input(wheel_up).expect("wheel up");
+    wait("copy mode entered", &|| {
+        tmux(&["display", "-p", "-t", &session, "#{pane_in_mode}"]) == "1"
+    });
+    let pos: u32 = tmux(&["display", "-p", "-t", &session, "#{scroll_position}"])
+        .parse()
+        .unwrap_or(0);
+    assert!(pos > 0, "copy mode did not scroll back: {pos}");
+    // Wheel down all the way leaves copy mode again (the default binding uses `copy-mode -e`).
+    handle
+        .send_input(b"\x1b[<65;10;10M".repeat(200))
+        .expect("wheel down");
+    wait("copy mode left", &|| {
+        tmux(&["display", "-p", "-t", &session, "#{pane_in_mode}"]) == "0"
+    });
+    handle.disconnect();
+}
+
+#[test]
 fn the_very_first_attach_already_disables_the_alternate_screen() {
     // Scrolling in the app relies on tmux not switching clients to the alternate screen
     // (`smcup@:rmcup@`). On a host whose tmux server is not running yet, the options used to be
