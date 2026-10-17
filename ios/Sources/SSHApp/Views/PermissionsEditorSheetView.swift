@@ -111,6 +111,7 @@ struct PermissionsEditorSheetView: View {
             }
             .task { await load() }
         }
+        .interactiveDismissDisabled()
     }
 
     @ViewBuilder

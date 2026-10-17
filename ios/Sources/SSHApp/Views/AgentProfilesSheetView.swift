@@ -480,6 +480,7 @@ struct AgentProfileEditorView: View {
                 argsText = profile.args.joined(separator: "\n")
             }
         }
+        .interactiveDismissDisabled()
     }
 }
 

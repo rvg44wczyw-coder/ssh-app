@@ -98,6 +98,7 @@ struct HookPreviewSheetView: View {
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close", action: onClose) } }
             .task { await load() }
         }
+        .interactiveDismissDisabled()
     }
 
     private var presetTitle: String {

@@ -104,12 +104,13 @@ public struct MainTerminalView: View {
 
 
                 // Public key banner: hidden by default, toggled from the quick menu ("Public key")
-                if showPublicKeyBanner, let pubKey = activePublicKey ?? KeychainManager.shared.getOrDerivePublicKey(id: activeKeyId), !pubKey.isEmpty {
+                if showPublicKeyBanner {
+                    let pubKey = currentPublicKey ?? ""
                     HStack(spacing: 6) {
                         Image(systemName: "key.fill")
                             .font(.system(size: 10))
                             .foregroundColor(.yellow)
-                        Text(pubKey)
+                        Text(pubKey.isEmpty ? "No SSH key for this server yet: create one in Settings" : pubKey)
                             .font(.system(size: 9, design: .monospaced))
                             .lineLimit(1)
                             .truncationMode(.middle)
@@ -118,13 +119,14 @@ public struct MainTerminalView: View {
                         Spacer()
 
                         Button(action: {
+                            if pubKey.isEmpty { activeSheet = .settings; return }
                             KeychainManager.shared.copyPublicKeyToClipboard(pubKey)
                             copiedKeyNotification = true
                             DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                                 copiedKeyNotification = false
                             }
                         }) {
-                            Text(copiedKeyNotification ? "Copied!" : "Copy Key")
+                            Text(pubKey.isEmpty ? "Settings" : (copiedKeyNotification ? "Copied!" : "Copy Key"))
                                 .font(.system(size: 9, weight: .bold))
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
@@ -445,6 +447,13 @@ public struct MainTerminalView: View {
     /// Key of the server behind the visible tab (`nil` = the default key).
     private var activeKeyId: String? {
         (serversManager.profile(for: tabsManager.activeSession?.serverId) ?? serversManager.activeProfile)?.keyId
+    }
+
+    /// The server's key, falling back to the default key (the banner must never silently vanish).
+    private var currentPublicKey: String? {
+        let k = KeychainManager.shared.getOrDerivePublicKey(id: activeKeyId)
+            ?? KeychainManager.shared.getOrDerivePublicKey()
+        return (k?.isEmpty == false) ? k : nil
     }
 
     private func handleAddNewSession() {

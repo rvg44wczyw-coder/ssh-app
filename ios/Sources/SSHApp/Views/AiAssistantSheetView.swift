@@ -94,6 +94,7 @@ public struct AiAssistantSheetView: View {
                 Text("This command contains potentially destructive actions (e.g. recursive file deletion or hard reset). Are you sure you want to run it immediately?")
             }
         }
+        .interactiveDismissDisabled()
     }
 
     // MARK: - Header

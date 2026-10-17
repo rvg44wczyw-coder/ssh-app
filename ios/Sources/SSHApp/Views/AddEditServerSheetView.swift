@@ -106,6 +106,7 @@ public struct AddEditServerSheetView: View {
                 }
             }
         }
+        .interactiveDismissDisabled()
     }
 
     private func save() {

@@ -263,6 +263,7 @@ public struct SnippetsSheetView: View {
                 }
             }
         }
+        .interactiveDismissDisabled()
     }
 
     private func handleAction(snippet: SnippetItem, execute: Bool) {

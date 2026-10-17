@@ -293,6 +293,7 @@ public struct SettingsView: View {
                     }
                 }
             }
+            .interactiveDismissDisabled()
         }
         .alert("Delete key?", isPresented: Binding(get: { keyToDelete != nil }, set: { if !$0 { keyToDelete = nil } })) {
             Button("Cancel", role: .cancel) {}
