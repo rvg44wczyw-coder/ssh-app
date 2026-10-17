@@ -102,6 +102,7 @@ Allowed values: `default`, `acceptEdits`, `plan`, `bypassPermissions`. Anything 
 | `read-only` | Read-only tools without asking | `Read`, `Glob`, `Grep`, `Bash(git status:*)`, `Bash(git diff:*)`, `Bash(git log:*)`, `Bash(ls:*)` | | |
 | `ask-destructive` | Always ask for destructive commands | | `Bash(rm:*)`, `Bash(git push:*)`, `Bash(git reset:*)`, `Bash(sudo:*)` | |
 | `protect-secrets` | Never read secrets | | | `Read(./.env)`, `Read(./.env.*)`, `Read(~/.ssh/**)`, `Read(**/*.pem)`, `Read(**/*.key)` |
+| `protect-agent-config` | Protect agent and hook settings | | | `Edit(~/.claude/settings.json)`, `Edit(~/.claude/settings.local.json)`, `Edit(./.claude/settings*.json)`, `Edit(~/.gemini/config/hooks.json)`, `Edit(~/.codex/hooks.json)`, `Edit(~/.grok/hooks/**)`, `Edit(~/.ssh-app/**)`; also part of `project-work` |
 
 Applying a template **adds** its rules to the editor state (nothing is written until Apply).
 

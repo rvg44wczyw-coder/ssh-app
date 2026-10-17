@@ -107,8 +107,8 @@ chose. The model's levers are indirect:
 
 ## 5. Proposed work, in order
 
-1. **"Protect agent config" permission template** and a visible warning when installed hooks differ
-   from the plan (closes §3.2). Small, no new surface.
+1. **"Protect agent config" permission template** *(template done 2026-10-17: `protect-agent-config`, also in `project-work`, with a suggestion `agent-config`; limit: a shell command can still write those files, only `Edit` is denied)* and a visible warning when installed hooks differ
+   from the plan *(warning still to do)* (closes §3.2). Small, no new surface.
 2. **Command preview hardening** on the approval card: full length, tail visible, chained-command
    flag (closes the readable part of §3.1).
 3. **Custom-command lint**: warn on `eval`, `sh -c`, `bash -c`, `$(`, backticks, unquoted `$…`.
@@ -118,3 +118,7 @@ chose. The model's levers are indirect:
    introduced with the usage report).
 6. Verify Codex and Grok hooks and the `grok` binary name against the real tools; until then the
    Codex/Grok rows above are the documented contract, not observed behaviour.
+
+## 6. Goal: use everything hooks can do
+
+Decision (2026-10-17): the app should be able to do everything the agents' hooks allow, behind explicit user switches and with the safeguards of §3 and §4. Order of work: the §5 list, then the table in §1 ("What we can still add"), then `updatedInput` / `additionalContext` only as visible, user-confirmed features (never silent). Each step follows the project chain (`doc-dev` → `rev` → code → `rev` → `hacker`), and anything that changes what the agent runs or sees goes through `hacker` before it ships.

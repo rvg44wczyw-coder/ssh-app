@@ -36,6 +36,21 @@ fn strings(items: &[&str]) -> Vec<String> {
     items.iter().map(|s| s.to_string()).collect()
 }
 
+/// Files that decide what the agent may do and who is asked: its own settings, the hook configs
+/// of every supported agent and the app's folder. An agent that can edit them can switch off the
+/// phone approval, so they are denied for edits. (A shell command can still write them; the
+/// `Bash` rules and the approval itself are the guard for that.)
+const AGENT_CONFIG_DENY: &[&str] = &[
+    "Edit(~/.claude/settings.json)",
+    "Edit(~/.claude/settings.local.json)",
+    "Edit(./.claude/settings.json)",
+    "Edit(./.claude/settings.local.json)",
+    "Edit(~/.gemini/config/hooks.json)",
+    "Edit(~/.codex/hooks.json)",
+    "Edit(~/.grok/hooks/**)",
+    "Edit(~/.ssh-app/**)",
+];
+
 /// Built-in starting points; applying one only adds its rules to the editor.
 #[uniffi::export]
 pub fn permission_rule_templates() -> Vec<PermissionTemplate> {
@@ -87,6 +102,18 @@ pub fn permission_rule_templates() -> Vec<PermissionTemplate> {
             default_mode: None,
         },
         PermissionTemplate {
+            id: "protect-agent-config".into(),
+            title: "Protect agent and hook settings".into(),
+            description: "The agent cannot edit its own settings, the hook files of Claude Code, \
+                          Antigravity, Codex and Grok, or the app's folder, so it cannot turn off \
+                          phone approval."
+                .into(),
+            allow: vec![],
+            ask: vec![],
+            deny: strings(AGENT_CONFIG_DENY),
+            default_mode: None,
+        },
+        PermissionTemplate {
             id: "project-work".into(),
             title: "Work in the project (accept edits + dev tools)".into(),
             description: "Edits inside the folder the session started in are accepted without asking, \
@@ -126,7 +153,10 @@ pub fn permission_rule_templates() -> Vec<PermissionTemplate> {
                 "Read(~/.ssh/**)",
                 "Read(**/*.pem)",
                 "Read(**/*.key)",
-            ]),
+            ])
+            .into_iter()
+            .chain(strings(AGENT_CONFIG_DENY))
+            .collect(),
             default_mode: Some("acceptEdits".into()),
         },
     ]
@@ -456,6 +486,20 @@ pub fn suggest_permission_changes(
             add_allow: vec![],
             add_ask: vec![],
             add_deny: secrets,
+            remove_allow: vec![],
+            default_mode: None,
+        });
+    }
+    let config = missing(&deny, &template("protect-agent-config").deny);
+    if !config.is_empty() {
+        out.push(PermissionSuggestion {
+            id: "agent-config".into(),
+            kind: SuggestionKind::Improve,
+            title: "Protect agent and hook settings".into(),
+            detail: "The agent can no longer edit its own settings or the hook files, so it cannot switch off phone approval.".into(),
+            add_allow: vec![],
+            add_ask: vec![],
+            add_deny: config,
             remove_allow: vec![],
             default_mode: None,
         });
@@ -1027,6 +1071,26 @@ mod tests {
     }
 
     #[test]
+    fn agent_config_is_protected_by_template_and_project_work() {
+        let all = permission_rule_templates();
+        let guard = all.iter().find(|t| t.id == "protect-agent-config").unwrap();
+        for must in [
+            "Edit(~/.claude/settings.json)",
+            "Edit(~/.gemini/config/hooks.json)",
+            "Edit(~/.codex/hooks.json)",
+            "Edit(~/.grok/hooks/**)",
+            "Edit(~/.ssh-app/**)",
+        ] {
+            assert!(guard.deny.contains(&must.to_string()), "{must}");
+        }
+        assert!(guard.allow.is_empty() && guard.ask.is_empty());
+        let work = all.iter().find(|t| t.id == "project-work").unwrap();
+        for rule in &guard.deny {
+            assert!(work.deny.contains(rule), "project-work lacks {rule}");
+        }
+    }
+
+    #[test]
     fn templates_are_valid_rules() {
         for t in permission_rule_templates() {
             let v = validate_agent_permissions(
@@ -1061,7 +1125,13 @@ mod tests {
         };
         // Empty setup: the full set plus the smaller alternatives.
         let fresh = ids(none.clone(), vec![]);
-        for id in ["project-work", "secrets", "destructive", "read-only"] {
+        for id in [
+            "project-work",
+            "secrets",
+            "agent-config",
+            "destructive",
+            "read-only",
+        ] {
             assert!(fresh.contains(&id.to_string()), "{id}: {fresh:?}");
         }
         // Everything from the template already installed: nothing left to suggest.
