@@ -1,6 +1,6 @@
 # Feature 15: Hooks — what we can write, and what the model can make them do
 
-**Status:** analysis (2026-10-17). Based on the code in `crates/core/src/agent_hooks.rs`,
+**Status:** analysis (2026-10-17); most of §5 and §1's "what we can still add" are implemented, see `19-hooks-templates-and-host-guard.md`. Based on the code in `crates/core/src/agent_hooks.rs`,
 `scripts/agent-hooks/ssh-app-hook.py` and features 11, 13 and 14. Items marked *(unverified)* were
 not exercised against the real agent.
 

@@ -54,6 +54,21 @@ public struct ApprovalBannerView: View {
                 }
             }
 
+            let analysis = analyzeCommand(command: entry.item.command)
+            if !analysis.flags.isEmpty {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(analysis.flags, id: \.self) { flag in
+                        Label(flag, systemImage: "exclamationmark.triangle.fill")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundColor(.orange)
+                    }
+                }
+            }
+            if analysis.length > 0 {
+                Text(verbatim: "\(analysis.length) characters" + (analysis.lines > 1 ? ", \(analysis.lines) lines" : ""))
+                    .font(.system(size: 9))
+                    .foregroundColor(.secondary)
+            }
             ScrollView {
                 Text(verbatim: entry.item.command.isEmpty ? "(no command text)" : entry.item.command)
                     .font(.system(size: 12, weight: .semibold, design: .monospaced))
@@ -65,6 +80,17 @@ public struct ApprovalBannerView: View {
             .padding(6)
             .background(Color.black.opacity(0.4))
             .cornerRadius(6)
+            if !analysis.tail.isEmpty {
+                // A long command can hide its end below the scroll box, so the end is shown on its own.
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Ends with:").font(.system(size: 9)).foregroundColor(.secondary)
+                    Text(verbatim: analysis.tail)
+                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        .foregroundColor(.yellow)
+                        .lineLimit(3)
+                        .truncationMode(.head)
+                }
+            }
 
             if let errorMessage {
                 Text(verbatim: errorMessage)

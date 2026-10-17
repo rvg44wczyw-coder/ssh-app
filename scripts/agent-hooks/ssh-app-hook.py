@@ -20,6 +20,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import shutil
 import signal
 import stat
@@ -334,17 +335,82 @@ def glob_regex(pattern):
     return re.compile("^" + "".join(out) + "$", re.S)
 
 
+WRAPPERS = ("sudo", "env", "command", "exec", "nohup", "time", "nice", "xargs", "builtin", "doas", "stdbuf", "timeout")
+WRAPPER_VALUE_FLAGS = ("-u", "-g", "-n", "-s", "-C", "-p", "-h", "-U", "-t", "-k", "-i", "-o", "-e", "-a", "-I", "-L", "-P")
+SHELLS = ("sh", "bash", "zsh", "dash", "ksh", "fish")
+
+
 def shell_segments(command):
     return [seg.strip() for seg in re.split(r"\n|;|&&|\|\||\||&", command) if seg.strip()]
 
 
-def bash_spec_matches(spec, command):
+def peel(segment, depth=0):
+    """Command lines a segment really runs: whitespace normalised, `sudo`/`env VAR=x`/`xargs`...
+    peeled off, the program name stripped of its path, quotes and case, `sh -c "..."` and
+    `$(...)` / backticks looked into. Best effort: it removes the cheap ways around a prefix rule,
+    not every way (a rule is not a sandbox)."""
+    out = []
+    if depth > 4:
+        return out
+    inner = re.findall(r"\$\(([^()]*)\)", segment) + re.findall(r"`([^`]*)`", segment)
+    for sub in inner:
+        for seg in shell_segments(sub):
+            out.extend(peel(seg, depth + 1))
+    try:
+        toks = shlex.split(segment, posix=True)
+    except ValueError:
+        toks = segment.split()
+    while toks:
+        head = toks[0]
+        if "=" in head and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", head):
+            toks = toks[1:]
+        elif os.path.basename(head).lower() in WRAPPERS:
+            toks = toks[1:]
+            while toks and toks[0].startswith("-"):
+                flag = toks[0]
+                toks = toks[1:]
+                # Options that take a value (`sudo -u root`, `nice -n 5`, `timeout -s KILL 5`).
+                if flag in WRAPPER_VALUE_FLAGS and toks:
+                    toks = toks[1:]
+            if os.path.basename(head).lower() == "timeout" and toks and re.match(r"^[0-9.]+[smhd]?$", toks[0]):
+                toks = toks[1:]
+        else:
+            break
+    if not toks:
+        return out
+    prog = os.path.basename(toks[0]).lower()
+    if prog in SHELLS:
+        for i, t in enumerate(toks[1:], 1):
+            if t.startswith("-") and "c" in t.lstrip("-") and i + 1 < len(toks):
+                for seg in shell_segments(toks[i + 1]):
+                    out.extend(peel(seg, depth + 1))
+                break
+    out.append(" ".join([prog] + toks[1:]))
+    return out
+
+
+def command_candidates(command):
+    cands = []
     for seg in [command] + shell_segments(command):
-        if spec.endswith(":*"):
+        cands.append(re.sub(r"\s+", " ", seg).strip())
+        cands.extend(peel(seg))
+    return cands
+
+
+def bash_spec_matches(spec, command):
+    rx = None if spec.endswith(":*") else glob_regex(spec)
+    for cand in command_candidates(command):
+        if rx is None:
             prefix = spec[:-2]
-            if seg == prefix or seg.startswith(prefix + " "):
+            low, pl = cand.lower(), prefix.lower()
+            first = pl.split(" ", 1)[0]
+            # Program names are compared without case (the default macOS volume ignores it),
+            # the rest of the prefix as typed.
+            if cand == prefix or cand.startswith(prefix + " "):
                 return True
-        elif glob_regex(spec).match(seg):
+            if " " not in prefix and (low == pl or low.startswith(pl + " ")):
+                return True
+        elif rx.match(cand):
             return True
     return False
 

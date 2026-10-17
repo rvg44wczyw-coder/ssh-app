@@ -1075,3 +1075,59 @@ fn guard_context_and_stop_message_are_only_what_the_user_wrote() {
     assert_eq!(run("UserPromptSubmit", r#"{"prompt":"x"}"#), Value::Null);
     assert_eq!(run("SessionStart", r#"{"session_id":"s"}"#), Value::Null);
 }
+
+#[test]
+fn host_guard_sees_through_the_cheap_ways_around_a_prefix_rule() {
+    need_tools!();
+    let h = Host::new();
+    write_guard(&h, &["Bash(rm:*)"]);
+    let denied = |cmd: &str| -> bool {
+        let (out, _) = h
+            .spawn_hook(
+                "claude",
+                "PermissionRequest",
+                &claude_input("Bash", json!({ "command": cmd })),
+                1,
+            )
+            .finish();
+        out.contains("deny")
+    };
+    for cmd in [
+        "rm x",
+        "/bin/rm x",
+        "env rm x",
+        "FOO=1 rm x",
+        "command rm x",
+        "\"rm\" x",
+        "r\\m x",
+        "bash -c \"rm x\"",
+        "sh -c 'ls; rm x'",
+        "echo $(rm x)",
+        "echo `rm x`",
+        "sudo -u root rm x",
+        "nice -n 5 rm x",
+        "timeout 5 rm x",
+        "echo hi | xargs rm",
+        "cd /tmp && rm x",
+        "rm\tx",
+        "RM x",
+        "env -i FOO=1 rm x",
+        "  rm x  ",
+    ] {
+        assert!(denied(cmd), "should be blocked: {cmd:?}");
+    }
+    for cmd in [
+        "rmdir x",
+        "echo rm x",
+        "ls -la",
+        "git status",
+        "sudo -n ls",
+        "grep rm file",
+    ] {
+        assert!(!denied(cmd), "should pass: {cmd:?}");
+    }
+    // Known limits (documented in the audit): the command name built at run time, and tools that
+    // delete without being called rm.
+    assert!(!denied("$(echo rm) x"));
+    assert!(!denied("find . -delete"));
+}

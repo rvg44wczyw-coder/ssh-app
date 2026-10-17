@@ -15,6 +15,7 @@ public struct AgentProfilesSheetView: View {
     @State private var hookStatus: [String: AgentHooksStatus] = [:]
     @State private var previewing: SavedAgentProfile? = nil
     @State private var editingPermissions: SavedAgentProfile? = nil
+    @State private var showingGuard = false
     @State private var message: String? = nil
     @State private var approvalStatus: ApprovalStatus? = nil
 
@@ -64,6 +65,13 @@ public struct AgentProfilesSheetView: View {
                 ) {
                     approvalStatusRow
                 }
+                Section(
+                    header: Text("Host guard"),
+                    footer: Text("Rules and texts kept on the host and enforced by the hook before anything reaches your phone: block, always ask, allow, add context, continue when the agent stops.")
+                ) {
+                    Button { showingGuard = true } label: { Label("Edit host guard", systemImage: "shield.lefthalf.filled") }
+                        .disabled(!connected)
+                }
                 Section(header: Text("Profiles")) {
                     ForEach(manager.profiles) { profile in
                         profileRow(profile)
@@ -108,6 +116,9 @@ public struct AgentProfilesSheetView: View {
                     onClose: { previewing = nil }
                 )
             }
+            .sheet(isPresented: $showingGuard) {
+                HostGuardView(handle: connected ? viewModel.sessionHandle : nil)
+            }
             .sheet(item: $editingPermissions) { profile in
                 PermissionsEditorSheetView(
                     profile: profile,
@@ -149,6 +160,7 @@ public struct AgentProfilesSheetView: View {
                 .lineLimit(2)
             if profile.supportsHooks {
                 hooksRow(profile)
+                driftNotes(profile)
             } else {
                 Text("Approval hooks: not supported yet").font(.caption2).foregroundColor(.secondary)
             }
@@ -181,6 +193,24 @@ public struct AgentProfilesSheetView: View {
         }
     }
 
+    /// The host's hooks no longer match the profile's plan (edited by hand, or by the agent).
+    @ViewBuilder
+    private func driftNotes(_ profile: SavedAgentProfile) -> some View {
+        if let status = hookStatus[profile.id], status.hooksInstalled,
+           let planned = try? planAgentHooks(agent: profile.agent, preset: profile.hookPreset, hookDir: nil) {
+            let drift = hooksDrift(planned: planned, installed: status.installed)
+            if !drift.isEmpty {
+                VStack(alignment: .leading, spacing: 2) {
+                    Label("Hooks on the host differ from this profile", systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption.weight(.semibold)).foregroundColor(.orange)
+                    ForEach(drift, id: \.self) { Text($0).font(.caption2).foregroundColor(.secondary) }
+                    Text("If you did not change them, something edited the agent's config. Review & install restores the plan.")
+                        .font(.caption2).foregroundColor(.secondary)
+                }
+            }
+        }
+    }
+
     @ViewBuilder
     private func hooksRow(_ profile: SavedAgentProfile) -> some View {
         let status = hookStatus[profile.id]
@@ -189,6 +219,11 @@ public struct AgentProfilesSheetView: View {
                 .foregroundColor(status?.hooksInstalled == true ? .green : .secondary)
             Text(status == nil ? "Hooks: unknown" : (status!.hooksInstalled ? "Hooks installed" : "Hooks not installed"))
                 .font(.caption)
+            if let status, status.hooksInstalled,
+               let planned = try? planAgentHooks(agent: profile.agent, preset: profile.hookPreset, hookDir: nil),
+               !hooksDrift(planned: planned, installed: status.installed).isEmpty {
+                Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.orange)
+            }
             Spacer()
             if profile.supportsPermissions {
                 Button("Permissions") { editingPermissions = profile }
@@ -445,6 +480,11 @@ struct AgentProfileEditorView: View {
                         header: Text("Approval hooks"),
                         footer: Text("Hooks are installed from the profile list (Review & install), where you see exactly what is written to the host.")
                     ) {
+                        NavigationLink {
+                            HookTemplatesView(agent: profile.agent) { t in profile.apply(template: t.preset) }
+                        } label: {
+                            Label("Templates (\(hookTemplatesFor(agent: profile.agent).count))", systemImage: "square.grid.3x3.square")
+                        }
                         Picker("Preset", selection: $profile.hookKindRaw) {
                             Text("Phone approval").tag("phoneApproval")
                             Text("Notify only").tag("notifyOnly")
@@ -459,6 +499,10 @@ struct AgentProfileEditorView: View {
                                 #endif
                             if looksLikeCredential(profile.customHookCommand) {
                                 Text("This command seems to contain a credential. It is stored unencrypted on this phone, written into the agent's config and visible in the host's process list. Read it from the host's environment instead.")
+                                    .font(.caption).foregroundColor(.orange)
+                            }
+                            ForEach(lintCustomHookCommand(command: profile.customHookCommand), id: \.self) { w in
+                                Label(w, systemImage: "exclamationmark.triangle")
                                     .font(.caption).foregroundColor(.orange)
                             }
                             ForEach(hookEventsFor(agent: profile.agent), id: \.self) { ev in
@@ -484,6 +528,16 @@ struct AgentProfileEditorView: View {
                                         current.removeAll { $0 == ev }
                                         if on { current.append(ev) }
                                         // All selected = the defaults (stored as empty).
+                                        profile.approvalEvents = Set(current) == Set(profile.approvalEventChoices) ? [] : current
+                                    }))
+                            }
+                            ForEach(profile.extraApprovalEvents, id: \.self) { ev in
+                                Toggle("\(ev) (extra)", isOn: Binding(
+                                    get: { profile.approvalEvents.contains(ev) },
+                                    set: { on in
+                                        var current = profile.approvalEvents.isEmpty ? profile.approvalEventChoices : profile.approvalEvents
+                                        current.removeAll { $0 == ev }
+                                        if on { current.append(ev) }
                                         profile.approvalEvents = Set(current) == Set(profile.approvalEventChoices) ? [] : current
                                     }))
                             }

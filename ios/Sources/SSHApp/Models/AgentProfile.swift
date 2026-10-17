@@ -185,6 +185,29 @@ public struct SavedAgentProfile: Identifiable, Codable, Equatable, Sendable {
         }
     }
 
+    /// Events the script-based presets can also install when chosen (recording and context
+    /// events); never part of the default set, so they are off until switched on.
+    public var extraApprovalEvents: [String] {
+        guard agent == .claudeCode else { return [] }
+        var extras = ["SessionStart", "SessionEnd", "UserPromptSubmit"]
+        if hookKindRaw == "phoneApproval" { extras.append("PreToolUse") }
+        return extras
+    }
+
+    /// Takes over the hook settings of a template.
+    public mutating func apply(template preset: HookPreset) {
+        switch preset.kind {
+        case .phoneApproval: hookKindRaw = "phoneApproval"
+        case .notifyOnly: hookKindRaw = "notifyOnly"
+        case .custom: hookKindRaw = "custom"
+        }
+        customHookCommand = preset.customCommand
+        customHookEvents = preset.customEvents
+        customHookMatcher = preset.customMatcher
+        approvalMatcher = preset.approvalMatcher
+        approvalEvents = preset.approvalEvents
+    }
+
     public var supportsPermissions: Bool { agent == .claudeCode }
 
     public var supportsHooks: Bool { true }
