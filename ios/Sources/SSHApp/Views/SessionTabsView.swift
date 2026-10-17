@@ -15,6 +15,9 @@ public struct SessionTabsView: View {
     public var onLaunchPreset: ((String) -> Void)? = nil
     public let onRename: (UUID, String) -> Void
     public let onClose: (UUID) -> Void
+    /// Session actions (chat, tmux, permissions, agents) offered in the tab's long-press menu.
+    public var isChatMode: ((TabSession) -> Bool)? = nil
+    public var onSessionAction: ((UUID, AppAction) -> Void)? = nil
 
     @State private var tabToRename: TabSession? = nil
     @State private var tabForMenu: TabSession? = nil
@@ -32,7 +35,9 @@ public struct SessionTabsView: View {
         presets: [(id: String, title: String, detail: String)] = [],
         onLaunchPreset: ((String) -> Void)? = nil,
         onRename: @escaping (UUID, String) -> Void,
-        onClose: @escaping (UUID) -> Void
+        onClose: @escaping (UUID) -> Void,
+        isChatMode: ((TabSession) -> Bool)? = nil,
+        onSessionAction: ((UUID, AppAction) -> Void)? = nil
     ) {
         self.sessions = sessions
         self._selectedSessionId = selectedSessionId
@@ -45,6 +50,22 @@ public struct SessionTabsView: View {
         self.onLaunchPreset = onLaunchPreset
         self.onRename = onRename
         self.onClose = onClose
+        self.isChatMode = isChatMode
+        self.onSessionAction = onSessionAction
+    }
+
+    @ViewBuilder
+    private func sessionActionButtons(for session: TabSession) -> some View {
+        if let run = onSessionAction {
+            let chat = isChatMode?(session) ?? false
+            let connected = sessionStates[session.id] == .connected
+            ForEach(AppAction.allCases.filter(\.isSessionAction)) { action in
+                Button { run(session.id, action) } label: {
+                    Label(action.title(isChatMode: chat), systemImage: action.systemImage(isChatMode: chat, keyVisible: false))
+                }
+                .disabled(action.requiresConnection && !connected)
+            }
+        }
     }
 
     private func icon(for session: TabSession) -> (symbol: String, color: Color?) {
@@ -120,6 +141,7 @@ public struct SessionTabsView: View {
                         .cornerRadius(6)
                     }
                     .contextMenu {
+                        sessionActionButtons(for: session)
                         Button {
                             tabToRename = session
                             renameText = session.title
@@ -146,6 +168,7 @@ public struct SessionTabsView: View {
         .background(Color.appBackground)
         .confirmationDialog(tabForMenu?.title ?? "", isPresented: Binding(get: { tabForMenu != nil }, set: { if !$0 { tabForMenu = nil } }), titleVisibility: .visible) {
             if let tab = tabForMenu {
+                sessionActionButtons(for: tab)
                 Button("Rename") {
                     tabToRename = tab
                     renameText = tab.title

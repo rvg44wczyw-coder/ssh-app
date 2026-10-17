@@ -45,7 +45,6 @@ public struct MainTerminalView: View {
 
     @State private var showServerPicker: Bool = false
     @State private var showActionPanel: Bool = false
-    @State private var showSessionPanel: Bool = false
     /// Main screen is the list of session cards; opening a card shows the terminal.
     @State private var showHome: Bool = true
     @StateObject private var usageMonitor = SessionUsageMonitor()
@@ -198,6 +197,15 @@ public struct MainTerminalView: View {
                         let server = serversManager.profile(for: session?.serverId) ?? serversManager.activeProfile
                         let privateKey = KeychainManager.shared.getPrivateKey(id: server?.keyId)
                         tabsManager.closeSession(id: id, server: server, privateKey: privateKey)
+                    },
+                    isChatMode: { tabsManager.viewModel(for: $0.id)?.isChatMode == true },
+                    onSessionAction: { id, action in
+                        // The menu belongs to the pressed tab, not necessarily the selected one.
+                        if id != tabsManager.selectedSessionId {
+                            tabsManager.selectedSessionId = id
+                            ensureSessionStarted(for: id)
+                        }
+                        performAction(action)
                     }
                 )
                 .frame(height: 32)
@@ -293,28 +301,7 @@ public struct MainTerminalView: View {
                 // One deliberate button; every other action lives in the panel it opens, so iOS
                 // never has to build its own (unlabeled) overflow menu.
                 ToolbarItem(placement: .topBarTrailing) {
-                    // Both buttons live in one toolbar item: separate items each with a popover
-                    // made the second popover (quick menu) fail to open.
                     HStack(spacing: 14) {
-                    Button {
-                        dismissKeyboard()
-                        showSessionPanel = true
-                    } label: {
-                        Image(systemName: "rectangle.stack")
-                            .font(.system(size: 17))
-                    }
-                    .accessibilityLabel("Session menu")
-                    .accessibilityHint("Opens the actions of this session: chat mode, tmux sessions, permissions, agents")
-                    .popover(isPresented: $showSessionPanel, arrowEdge: .top) {
-                        ActionPanelView(
-                            scope: .session,
-                            isChatMode: tabsManager.activeViewModel?.isChatMode == true,
-                            keyVisible: false,
-                            isConnected: tabsManager.activeViewModel?.state == .connected,
-                            onSelect: { performAction($0) }
-                        )
-                        .presentationCompactAdaptation(.popover)
-                    }
                     Button {
                         dismissKeyboard()
                         showActionPanel = true
@@ -499,7 +486,6 @@ public struct MainTerminalView: View {
     /// finished closing (presenting while a popover is still dismissing is dropped by UIKit).
     private func performAction(_ action: AppAction) {
         showActionPanel = false
-        showSessionPanel = false
         if action == .chatToggle {
             withAnimation(.easeInOut(duration: 0.2)) {
                 tabsManager.activeViewModel?.toggleChatMode()

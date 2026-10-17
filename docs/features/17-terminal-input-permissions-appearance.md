@@ -39,7 +39,7 @@ Status: implemented (Rust + iOS); on-device checks pending (scroll feel, alterna
 ## 7. Sessions home screen
 - The app opens on a grid of session cards (`SessionsHomeView`): icon, title, server and tmux name, state dot, and a preview of the screen (last 7 non-empty lines, rendered through a headless SwiftTerm terminal from the tail of the tab's output, in the tab's color scheme; refreshed every 3 s while visible). Tap opens the terminal; long press renames or closes; the dashed card starts a new session (long press: agent profiles). Approval banners show on this screen too.
 - In the terminal the top-left button returns to the list. A new session started from anywhere opens straight in the terminal.
-- The tab strip stays (also with one session). A second tap on the selected tab opens its settings (Rename, Close); the long-press menu is unchanged.
+- The tab strip stays (also with one session). The session actions (Chat/Terminal, tmux sessions, Permissions, Agents) are no longer a toolbar button: they sit at the top of the tab's long-press menu and of the settings dialog (second tap on the selected tab), above Rename and Close. They act on the pressed tab (it is selected first); the ones that need a connection are disabled while that tab is not connected. The toolbar keeps only the quick menu.
 - Cards only show output for sessions that have been opened since the app started (the host session of the others is not attached in the background).
 
 ## Open
