@@ -7,6 +7,7 @@ public enum AppAction: String, CaseIterable, Identifiable, Sendable {
     case tmuxSessions
     case aiAssistant
     case snippets
+    case commands
     case agentProfiles
     case fileBrowser
     case telemetry
@@ -24,6 +25,7 @@ public enum AppAction: String, CaseIterable, Identifiable, Sendable {
         case .tmuxSessions: return "tmux sessions"
         case .aiAssistant: return "AI assistant"
         case .snippets: return "Snippets"
+        case .commands: return "Commands"
         case .agentProfiles: return "Agents"
         case .fileBrowser: return "Files"
         case .telemetry: return "Host monitor"
@@ -40,6 +42,7 @@ public enum AppAction: String, CaseIterable, Identifiable, Sendable {
         case .tmuxSessions: return "rectangle.stack"
         case .aiAssistant: return "wand.and.stars"
         case .snippets: return "bolt.fill"
+        case .commands: return "slash.circle"
         case .agentProfiles: return "play.rectangle.on.rectangle.fill"
         case .fileBrowser: return "folder.fill"
         case .telemetry: return "gauge.with.dots.needle.33percent"
@@ -56,6 +59,7 @@ public enum AppAction: String, CaseIterable, Identifiable, Sendable {
         case .tmuxSessions: return .indigo
         case .aiAssistant: return .purple
         case .snippets: return .orange
+        case .commands: return .brown
         case .agentProfiles: return .mint
         case .fileBrowser: return .yellow
         case .telemetry: return .green
@@ -77,6 +81,8 @@ public enum AppAction: String, CaseIterable, Identifiable, Sendable {
             return "Describe what you want in words; the local Ollama model on the host turns it into a shell command you can review before running."
         case .snippets:
             return "Saved commands and fuzzy search over your shell history."
+        case .commands:
+            return "Slash commands of the agent in this tab (/model, /config, /compact, ...): insert at the prompt or run in one tap."
         case .agentProfiles:
             return "Start Claude Code, Antigravity and others in a new tab, choose what starts automatically, and manage their approval hooks."
         case .fileBrowser:
@@ -97,7 +103,7 @@ public enum AppAction: String, CaseIterable, Identifiable, Sendable {
     /// Needs a live connection to the active host (shown disabled otherwise, never hidden).
     public var requiresConnection: Bool {
         switch self {
-        case .chatToggle, .aiAssistant, .snippets, .agentProfiles, .fileBrowser, .telemetry, .webPreview:
+        case .chatToggle, .aiAssistant, .snippets, .commands, .agentProfiles, .fileBrowser, .telemetry, .webPreview:
             return true
         case .tmuxSessions, .diffViewer, .publicKey, .settings:
             return false

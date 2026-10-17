@@ -21,6 +21,7 @@ public struct MainTerminalView: View {
         case webPreview
         case aiAssistant
         case snippets
+        case commands
         case telemetry
         case fileBrowser
         case agentProfiles
@@ -258,6 +259,14 @@ public struct MainTerminalView: View {
                             activeSheet = nil
                         }
                     }
+                case .commands:
+                    if let activeVM = tabsManager.activeViewModel {
+                        CommandPaletteSheetView(
+                            viewModel: activeVM,
+                            tabAgent: tabsManager.activeSession?.agentType ?? .customShell,
+                            onClose: { activeSheet = nil }
+                        )
+                    }
                 case .snippets:
                     if let activeVM = tabsManager.activeViewModel {
                         SnippetsSheetView(viewModel: activeVM) {
@@ -342,6 +351,7 @@ public struct MainTerminalView: View {
         case .tmuxSessions: sheet = .tmuxSessions
         case .aiAssistant: sheet = .aiAssistant
         case .snippets: sheet = .snippets
+        case .commands: sheet = .commands
         case .agentProfiles: sheet = .agentProfiles
         case .fileBrowser: sheet = .fileBrowser
         case .telemetry: sheet = .telemetry

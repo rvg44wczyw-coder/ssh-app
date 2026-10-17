@@ -61,3 +61,13 @@ Always ensure:
 - Rust code passes `cargo fmt`, `cargo clippy -D warnings`, and `cargo test`.
 - UniFFI interface is clean, safe, and returns typed errors (no `unwrap()` in public paths).
 - Swift code maintains clean concurrency (actors/async-await) and no UI freezes.
+
+## Test isolation (tmux)
+
+Tests that start tmux, sshd or anything touching the developer's machine must never reach the real tmux server: the dev laptop is also the SSH host, and the agent running the tests usually lives inside the user's own tmux (`$TMUX` is set and outranks `TMUX_TMPDIR`).
+
+- Always target a private socket explicitly (`tmux -S <private dir>/…`, folder chmod 0700) and `env_remove("TMUX")` / `TMUX_PANE`; never call a bare `tmux` or `kill-server` in a test.
+- `crates/core/tests/loopback_sshd.rs` does this in `Sshd::tmux()`; reuse it.
+- After a run that touches tmux compare `tmux display -p '#{pid}'` before and after, and check `tmux show-environment -g HOME`.
+- 2026-10-16 and 2026-10-17: two incidents (leaked fake `HOME`; real server killed by `kill-server`) reset the user's sessions.
+
