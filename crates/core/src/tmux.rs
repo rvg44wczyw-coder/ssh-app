@@ -57,24 +57,31 @@ pub fn build_tmux_attach_or_create_command(
 ) -> Result<String, SshCoreError> {
     validate_session_name(session_name)?;
 
-    let mut tmux_cmd = format!("tmux new-session -A -s {session_name}");
+    // The session is created first, detached, so the tmux server exists before its options are
+    // set: on a host where no server runs yet (after a restart) `tmux set` fails and the first
+    // attach would keep tmux's alternate screen, i.e. no scrollback in the app. `new-session -A`
+    // then attaches to the session that is already there.
+    let mut create = format!("tmux new-session -d -s {session_name}");
     if let Some(cmd) = initial_command {
         let trimmed_cmd = cmd.trim();
         if !trimmed_cmd.is_empty() {
             // Escape single quotes for POSIX shell single-quoted string
             let escaped_cmd = trimmed_cmd.replace('\'', "'\\''");
-            tmux_cmd.push_str(&format!(" '{escaped_cmd}'"));
+            create.push_str(&format!(" '{escaped_cmd}'"));
         }
     }
+    let attach = format!("tmux new-session -A -s {session_name}");
 
-    // Escape single quotes inside the inner tmux command for the outer shell wrapper
-    let escaped_inner = tmux_cmd.replace('\'', "'\\''");
+    // Escape single quotes inside the inner tmux commands for the outer shell wrapper
+    let escaped_create = create.replace('\'', "'\\''");
+    let escaped_attach = attach.replace('\'', "'\\''");
 
     // Execute via login shell to source remote environment, PATH, and agent keys.
-    // If tmux is installed, configure TrueColor override, capture last 1000 lines of history if available, and attach/create session.
+    // If tmux is installed: make sure the session (and server) exist, configure scrollback and
+    // TrueColor, replay the last 1000 lines of history if available, then attach.
     // If tmux is absent, warn the user in yellow and fallback to a plain login shell.
     let full_command = format!(
-        "exec ${{SHELL:-/bin/zsh}} -l -c 'if command -v tmux >/dev/null 2>&1; then tmux set -g history-limit 10000 2>/dev/null; {TERMINAL_OVERRIDES} tmux capture-pane -t {session_name} -e -p -J -S -1000 -E -1 2>/dev/null || true; {escaped_inner}; else printf \"\\033[1;33m[Warning] tmux is not installed on remote host. Falling back to plain login shell.\\033[0m\\r\\n\"; exec ${{SHELL:-/bin/zsh}} -l; fi'"
+        "exec ${{SHELL:-/bin/zsh}} -l -c 'if command -v tmux >/dev/null 2>&1; then tmux has-session -t {session_name} 2>/dev/null || {escaped_create}; tmux set -g history-limit 10000 2>/dev/null; {TERMINAL_OVERRIDES} tmux capture-pane -t {session_name} -e -p -J -S -1000 -E -1 2>/dev/null || true; {escaped_attach}; else printf \"\\033[1;33m[Warning] tmux is not installed on remote host. Falling back to plain login shell.\\033[0m\\r\\n\"; exec ${{SHELL:-/bin/zsh}} -l; fi'"
     );
 
     Ok(full_command)
@@ -176,6 +183,9 @@ mod tests {
         let cmd =
             build_tmux_attach_or_create_command("claude-code", None).expect("Valid session name");
         assert!(cmd.contains("tmux new-session -A -s claude-code"));
+        assert!(cmd.contains(
+            "has-session -t claude-code 2>/dev/null || tmux new-session -d -s claude-code;"
+        ));
         assert!(cmd.contains("${SHELL:-/bin/zsh} -l -c"));
         assert!(cmd.contains("set -sa terminal-overrides \"xterm*:Tc,xterm*:smcup@:rmcup@\""));
         assert!(cmd.contains("capture-pane -t claude-code -e -p -J -S -1000 -E -1"));
@@ -186,6 +196,9 @@ mod tests {
         let cmd = build_tmux_attach_or_create_command("local-llm", Some("ollama run llama3"))
             .expect("Valid session name");
         assert!(cmd.contains("'ollama run llama3'"));
+        // The program belongs to the creating call only; attaching never restarts it.
+        assert!(cmd.contains("new-session -d -s local-llm "));
+        assert!(cmd.contains("tmux new-session -A -s local-llm;"));
     }
 
     #[test]

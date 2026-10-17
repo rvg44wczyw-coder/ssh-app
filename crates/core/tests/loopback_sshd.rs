@@ -1734,3 +1734,63 @@ fn stopping_a_local_model_request_kills_it_on_the_host() {
     });
     handle.disconnect();
 }
+
+#[test]
+fn the_very_first_attach_already_disables_the_alternate_screen() {
+    // Scrolling in the app relies on tmux not switching clients to the alternate screen
+    // (`smcup@:rmcup@`). On a host whose tmux server is not running yet, the options used to be
+    // set before the server existed, so the first session (and the whole server's life after a
+    // restart) had no scrollback.
+    let Some(server) = start_sshd() else {
+        eprintln!("SKIP: sshd/ssh-keygen/tmux unavailable");
+        return;
+    };
+    // Nothing runs yet on this private tmux socket.
+    let before = server
+        .tmux()
+        .args(["show-options", "-sv", "terminal-overrides"])
+        .output()
+        .unwrap();
+    assert!(
+        !before.status.success(),
+        "a tmux server was already running"
+    );
+    let handle = connect(&server);
+    // `Connected` is reported when the SSH channel is up; the remote script is still running.
+    let read_overrides = || {
+        let out = server
+            .tmux()
+            .args(["show-options", "-sv", "terminal-overrides"])
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout).to_string()
+    };
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let mut text = read_overrides();
+    while !text.contains("smcup@") && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(100));
+        text = read_overrides();
+    }
+    assert!(text.contains("xterm*:smcup@:rmcup@"), "{text}");
+    assert!(text.contains("xterm*:Tc"), "{text}");
+    // Reconnecting does not pile the options up again.
+    handle.disconnect();
+    handle.reconnect().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while handle.state() != SessionState::Connected {
+        assert!(Instant::now() < deadline, "reconnect timed out");
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    let again = server
+        .tmux()
+        .args(["show-options", "-sv", "terminal-overrides"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        String::from_utf8_lossy(&again.stdout)
+            .matches("smcup@")
+            .count(),
+        1
+    );
+    handle.disconnect();
+}
