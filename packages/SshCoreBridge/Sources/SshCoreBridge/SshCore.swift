@@ -887,6 +887,11 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func applyAgentPermissions(agent: AgentKind, configDir: String?, permissions: AgentPermissions) async throws 
     
     /**
+     * Validates and writes the host guard (folder `0700`, file `0600`).
+     */
+    func applyHostGuard(`guard`: HostGuard) async throws 
+    
+    /**
      * Whether the host can verify phone approvals (OpenSSH `ssh-keygen`, trusted key installed).
      */
     func approvalStatus() async throws  -> ApprovalStatus
@@ -967,6 +972,11 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func killRemoteProcess(pid: UInt32, force: Bool) async throws 
     
     /**
+     * Agent sessions the hook script registered (needs the "Register sessions" template).
+     */
+    func listAgentSessions() async throws  -> [AgentSessionInfo]
+    
+    /**
      * Pending approval requests and notices on the host, with the host's clock. An empty list
      * when the queue is not installed (see `approval_status`).
      */
@@ -1005,6 +1015,12 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
      * inside a rule) are returned separately instead of failing the read.
      */
     func readAgentPermissionsChecked(agent: AgentKind, configDir: String?) async throws  -> CheckedPermissions
+    
+    /**
+     * The host guard (`~/.ssh-app/guard.json`); a missing file is an empty guard. A file the app
+     * cannot understand is an error, so it is never overwritten by accident.
+     */
+    func readHostGuard() async throws  -> HostGuard
     
     /**
      * Reads a preview of a remote file (up to `max_bytes`, capped at 128 KB), blocking sensitive credential files.
@@ -1200,6 +1216,25 @@ open func applyAgentPermissions(agent: AgentKind, configDir: String?, permission
             rustFutureFunc: {
                 uniffi_ssh_core_fn_method_sshsessionhandle_apply_agent_permissions(
                         self.uniffiCloneHandle(),FfiConverterTypeAgentKind_lower(agent),FfiConverterOptionString.lower(configDir),FfiConverterTypeAgentPermissions_lower(permissions)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_void,
+            completeFunc: ffi_ssh_core_rust_future_complete_void,
+            freeFunc: ffi_ssh_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Validates and writes the host guard (folder `0700`, file `0600`).
+     */
+open func applyHostGuard(`guard`: HostGuard)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_apply_host_guard(
+                        self.uniffiCloneHandle(),FfiConverterTypeHostGuard_lower(`guard`)
                 )
             },
             pollFunc: ffi_ssh_core_rust_future_poll_void,
@@ -1487,6 +1522,25 @@ open func killRemoteProcess(pid: UInt32, force: Bool)async throws   {
 }
     
     /**
+     * Agent sessions the hook script registered (needs the "Register sessions" template).
+     */
+open func listAgentSessions()async throws  -> [AgentSessionInfo]  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_list_agent_sessions(
+                        self.uniffiCloneHandle()
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceTypeAgentSessionInfo.lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
      * Pending approval requests and notices on the host, with the host's clock. An empty list
      * when the queue is not installed (see `approval_status`).
      */
@@ -1620,6 +1674,26 @@ open func readAgentPermissionsChecked(agent: AgentKind, configDir: String?)async
             completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
             freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
             liftFunc: FfiConverterTypeCheckedPermissions_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * The host guard (`~/.ssh-app/guard.json`); a missing file is an empty guard. A file the app
+     * cannot understand is an error, so it is never overwritten by accident.
+     */
+open func readHostGuard()async throws  -> HostGuard  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_read_host_guard(
+                        self.uniffiCloneHandle()
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeHostGuard_lift,
             errorHandler: FfiConverterTypeSshCoreError_lift
         )
 }
@@ -1971,13 +2045,21 @@ public struct AgentHooksStatus: Equatable, Hashable {
     public var configPath: String
     public var hooksInstalled: Bool
     public var scriptInstalled: Bool
+    /**
+     * The ssh-app entries found in the config, to compare with the plan (`hooks_drift`).
+     */
+    public var installed: [PlannedHook]
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(configPath: String, hooksInstalled: Bool, scriptInstalled: Bool) {
+    public init(configPath: String, hooksInstalled: Bool, scriptInstalled: Bool, 
+        /**
+         * The ssh-app entries found in the config, to compare with the plan (`hooks_drift`).
+         */installed: [PlannedHook]) {
         self.configPath = configPath
         self.hooksInstalled = hooksInstalled
         self.scriptInstalled = scriptInstalled
+        self.installed = installed
     }
 
     
@@ -1998,7 +2080,8 @@ public struct FfiConverterTypeAgentHooksStatus: FfiConverterRustBuffer {
             try AgentHooksStatus(
                 configPath: FfiConverterString.read(from: &buf), 
                 hooksInstalled: FfiConverterBool.read(from: &buf), 
-                scriptInstalled: FfiConverterBool.read(from: &buf)
+                scriptInstalled: FfiConverterBool.read(from: &buf), 
+                installed: FfiConverterSequenceTypePlannedHook.read(from: &buf)
         )
     }
 
@@ -2006,6 +2089,7 @@ public struct FfiConverterTypeAgentHooksStatus: FfiConverterRustBuffer {
         FfiConverterString.write(value.configPath, into: &buf)
         FfiConverterBool.write(value.hooksInstalled, into: &buf)
         FfiConverterBool.write(value.scriptInstalled, into: &buf)
+        FfiConverterSequenceTypePlannedHook.write(value.installed, into: &buf)
     }
 }
 
@@ -2202,6 +2286,81 @@ public func FfiConverterTypeAgentPermissions_lift(_ buf: RustBuffer) throws -> A
 #endif
 public func FfiConverterTypeAgentPermissions_lower(_ value: AgentPermissions) -> RustBuffer {
     return FfiConverterTypeAgentPermissions.lower(value)
+}
+
+
+/**
+ * An agent session the hook script registered on the host (`SessionStart`).
+ */
+public struct AgentSessionInfo: Equatable, Hashable {
+    public var agent: String
+    public var session: String
+    public var cwd: String
+    /**
+     * tmux session the agent runs in; empty when it was not started inside tmux.
+     */
+    public var tmux: String
+    public var started: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(agent: String, session: String, cwd: String, 
+        /**
+         * tmux session the agent runs in; empty when it was not started inside tmux.
+         */tmux: String, started: UInt64) {
+        self.agent = agent
+        self.session = session
+        self.cwd = cwd
+        self.tmux = tmux
+        self.started = started
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension AgentSessionInfo: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAgentSessionInfo: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AgentSessionInfo {
+        return
+            try AgentSessionInfo(
+                agent: FfiConverterString.read(from: &buf), 
+                session: FfiConverterString.read(from: &buf), 
+                cwd: FfiConverterString.read(from: &buf), 
+                tmux: FfiConverterString.read(from: &buf), 
+                started: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AgentSessionInfo, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.agent, into: &buf)
+        FfiConverterString.write(value.session, into: &buf)
+        FfiConverterString.write(value.cwd, into: &buf)
+        FfiConverterString.write(value.tmux, into: &buf)
+        FfiConverterUInt64.write(value.started, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAgentSessionInfo_lift(_ buf: RustBuffer) throws -> AgentSessionInfo {
+    return try FfiConverterTypeAgentSessionInfo.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAgentSessionInfo_lower(_ value: AgentSessionInfo) -> RustBuffer {
+    return FfiConverterTypeAgentSessionInfo.lower(value)
 }
 
 
@@ -2752,6 +2911,91 @@ public func FfiConverterTypeCheckedPermissions_lower(_ value: CheckedPermissions
 }
 
 
+/**
+ * What the approval card shows next to a command.
+ */
+public struct CommandAnalysis: Equatable, Hashable {
+    /**
+     * Characters in the command.
+     */
+    public var length: UInt32
+    public var lines: UInt32
+    /**
+     * Short human-readable reasons to read the command carefully; empty for a plain command.
+     */
+    public var flags: [String]
+    /**
+     * Last characters of a long command (so the end cannot hide below the scroll box); empty
+     * for a short one.
+     */
+    public var tail: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Characters in the command.
+         */length: UInt32, lines: UInt32, 
+        /**
+         * Short human-readable reasons to read the command carefully; empty for a plain command.
+         */flags: [String], 
+        /**
+         * Last characters of a long command (so the end cannot hide below the scroll box); empty
+         * for a short one.
+         */tail: String) {
+        self.length = length
+        self.lines = lines
+        self.flags = flags
+        self.tail = tail
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension CommandAnalysis: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCommandAnalysis: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CommandAnalysis {
+        return
+            try CommandAnalysis(
+                length: FfiConverterUInt32.read(from: &buf), 
+                lines: FfiConverterUInt32.read(from: &buf), 
+                flags: FfiConverterSequenceString.read(from: &buf), 
+                tail: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: CommandAnalysis, into buf: inout [UInt8]) {
+        FfiConverterUInt32.write(value.length, into: &buf)
+        FfiConverterUInt32.write(value.lines, into: &buf)
+        FfiConverterSequenceString.write(value.flags, into: &buf)
+        FfiConverterString.write(value.tail, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCommandAnalysis_lift(_ buf: RustBuffer) throws -> CommandAnalysis {
+    return try FfiConverterTypeCommandAnalysis.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCommandAnalysis_lower(_ value: CommandAnalysis) -> RustBuffer {
+    return FfiConverterTypeCommandAnalysis.lower(value)
+}
+
+
 public struct EnvVar: Equatable, Hashable {
     public var key: String
     public var value: String
@@ -3056,6 +3300,266 @@ public func FfiConverterTypeHookPreset_lift(_ buf: RustBuffer) throws -> HookPre
 #endif
 public func FfiConverterTypeHookPreset_lower(_ value: HookPreset) -> RustBuffer {
     return FfiConverterTypeHookPreset.lower(value)
+}
+
+
+public struct HookTemplate: Equatable, Hashable {
+    public var id: String
+    public var title: String
+    public var description: String
+    /**
+     * Approvals, Notifications, Guards, Logging, Workflow.
+     */
+    public var category: String
+    /**
+     * Agents whose events and payload the template fits.
+     */
+    public var agents: [AgentKind]
+    public var preset: HookPreset
+    /**
+     * Something to read before installing; empty when there is nothing special.
+     */
+    public var caution: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, title: String, description: String, 
+        /**
+         * Approvals, Notifications, Guards, Logging, Workflow.
+         */category: String, 
+        /**
+         * Agents whose events and payload the template fits.
+         */agents: [AgentKind], preset: HookPreset, 
+        /**
+         * Something to read before installing; empty when there is nothing special.
+         */caution: String) {
+        self.id = id
+        self.title = title
+        self.description = description
+        self.category = category
+        self.agents = agents
+        self.preset = preset
+        self.caution = caution
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension HookTemplate: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHookTemplate: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HookTemplate {
+        return
+            try HookTemplate(
+                id: FfiConverterString.read(from: &buf), 
+                title: FfiConverterString.read(from: &buf), 
+                description: FfiConverterString.read(from: &buf), 
+                category: FfiConverterString.read(from: &buf), 
+                agents: FfiConverterSequenceTypeAgentKind.read(from: &buf), 
+                preset: FfiConverterTypeHookPreset.read(from: &buf), 
+                caution: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: HookTemplate, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.title, into: &buf)
+        FfiConverterString.write(value.description, into: &buf)
+        FfiConverterString.write(value.category, into: &buf)
+        FfiConverterSequenceTypeAgentKind.write(value.agents, into: &buf)
+        FfiConverterTypeHookPreset.write(value.preset, into: &buf)
+        FfiConverterString.write(value.caution, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHookTemplate_lift(_ buf: RustBuffer) throws -> HookTemplate {
+    return try FfiConverterTypeHookTemplate.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHookTemplate_lower(_ value: HookTemplate) -> RustBuffer {
+    return FfiConverterTypeHookTemplate.lower(value)
+}
+
+
+public struct HostGuard: Equatable, Hashable {
+    /**
+     * Blocked on the host, without asking anyone.
+     */
+    public var deny: [String]
+    /**
+     * Always handed to the user (Claude: PreToolUse "ask"), even if the agent's mode would not ask.
+     */
+    public var ask: [String]
+    /**
+     * Allowed without a prompt (Claude, Antigravity); a `deny` rule always wins.
+     */
+    public var allow: [String]
+    /**
+     * Text added to the model's context when a session starts (Claude).
+     */
+    public var sessionStartContext: String
+    /**
+     * Text added to the model's context with every prompt you send (Claude).
+     */
+    public var promptContext: String
+    /**
+     * When the agent stops, ask it to continue with this message, once per stop (Claude).
+     */
+    public var stopMessage: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Blocked on the host, without asking anyone.
+         */deny: [String], 
+        /**
+         * Always handed to the user (Claude: PreToolUse "ask"), even if the agent's mode would not ask.
+         */ask: [String], 
+        /**
+         * Allowed without a prompt (Claude, Antigravity); a `deny` rule always wins.
+         */allow: [String], 
+        /**
+         * Text added to the model's context when a session starts (Claude).
+         */sessionStartContext: String, 
+        /**
+         * Text added to the model's context with every prompt you send (Claude).
+         */promptContext: String, 
+        /**
+         * When the agent stops, ask it to continue with this message, once per stop (Claude).
+         */stopMessage: String) {
+        self.deny = deny
+        self.ask = ask
+        self.allow = allow
+        self.sessionStartContext = sessionStartContext
+        self.promptContext = promptContext
+        self.stopMessage = stopMessage
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension HostGuard: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHostGuard: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HostGuard {
+        return
+            try HostGuard(
+                deny: FfiConverterSequenceString.read(from: &buf), 
+                ask: FfiConverterSequenceString.read(from: &buf), 
+                allow: FfiConverterSequenceString.read(from: &buf), 
+                sessionStartContext: FfiConverterString.read(from: &buf), 
+                promptContext: FfiConverterString.read(from: &buf), 
+                stopMessage: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: HostGuard, into buf: inout [UInt8]) {
+        FfiConverterSequenceString.write(value.deny, into: &buf)
+        FfiConverterSequenceString.write(value.ask, into: &buf)
+        FfiConverterSequenceString.write(value.allow, into: &buf)
+        FfiConverterString.write(value.sessionStartContext, into: &buf)
+        FfiConverterString.write(value.promptContext, into: &buf)
+        FfiConverterString.write(value.stopMessage, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHostGuard_lift(_ buf: RustBuffer) throws -> HostGuard {
+    return try FfiConverterTypeHostGuard.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHostGuard_lower(_ value: HostGuard) -> RustBuffer {
+    return FfiConverterTypeHostGuard.lower(value)
+}
+
+
+public struct HostGuardPreset: Equatable, Hashable {
+    public var id: String
+    public var title: String
+    public var description: String
+    public var `guard`: HostGuard
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, title: String, description: String, `guard`: HostGuard) {
+        self.id = id
+        self.title = title
+        self.description = description
+        self.`guard` = `guard`
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension HostGuardPreset: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHostGuardPreset: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HostGuardPreset {
+        return
+            try HostGuardPreset(
+                id: FfiConverterString.read(from: &buf), 
+                title: FfiConverterString.read(from: &buf), 
+                description: FfiConverterString.read(from: &buf), 
+                guard: FfiConverterTypeHostGuard.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: HostGuardPreset, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.title, into: &buf)
+        FfiConverterString.write(value.description, into: &buf)
+        FfiConverterTypeHostGuard.write(value.`guard`, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHostGuardPreset_lift(_ buf: RustBuffer) throws -> HostGuardPreset {
+    return try FfiConverterTypeHostGuardPreset.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHostGuardPreset_lower(_ value: HostGuardPreset) -> RustBuffer {
+    return FfiConverterTypeHostGuardPreset.lower(value)
 }
 
 
@@ -6689,6 +7193,31 @@ fileprivate struct FfiConverterSequenceTypeAgentPermissions: FfiConverterRustBuf
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeAgentSessionInfo: FfiConverterRustBuffer {
+    typealias SwiftType = [AgentSessionInfo]
+
+    public static func write(_ value: [AgentSessionInfo], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeAgentSessionInfo.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [AgentSessionInfo] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [AgentSessionInfo]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeAgentSessionInfo.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeChatMessage: FfiConverterRustBuffer {
     typealias SwiftType = [ChatMessage]
 
@@ -6756,6 +7285,56 @@ fileprivate struct FfiConverterSequenceTypeFuzzyMatchResult: FfiConverterRustBuf
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeFuzzyMatchResult.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeHookTemplate: FfiConverterRustBuffer {
+    typealias SwiftType = [HookTemplate]
+
+    public static func write(_ value: [HookTemplate], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeHookTemplate.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [HookTemplate] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [HookTemplate]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeHookTemplate.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeHostGuardPreset: FfiConverterRustBuffer {
+    typealias SwiftType = [HostGuardPreset]
+
+    public static func write(_ value: [HostGuardPreset], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeHostGuardPreset.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [HostGuardPreset] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [HostGuardPreset]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeHostGuardPreset.read(from: &buf))
         }
         return seq
     }
@@ -7085,6 +7664,31 @@ fileprivate struct FfiConverterSequenceTypeTranscriptTurn: FfiConverterRustBuffe
         return seq
     }
 }
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeAgentKind: FfiConverterRustBuffer {
+    typealias SwiftType = [AgentKind]
+
+    public static func write(_ value: [AgentKind], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeAgentKind.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [AgentKind] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [AgentKind]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeAgentKind.read(from: &buf))
+        }
+        return seq
+    }
+}
 private let UNIFFI_RUST_FUTURE_POLL_READY: Int8 = 0
 private let UNIFFI_RUST_FUTURE_POLL_WAKE: Int8 = 1
 
@@ -7201,6 +7805,20 @@ public func hookPresetUsesScript(preset: HookPreset) -> Bool  {
         uniffiCallStatus in
     uniffi_ssh_core_fn_func_hook_preset_uses_script(
         FfiConverterTypeHookPreset_lower(preset),uniffiCallStatus
+    )
+})
+}
+/**
+ * Differences between what the profile plans and what the host config holds: entries that are
+ * missing, changed or not part of the plan any more. Empty when they match, and also when
+ * nothing is installed at all (that is "not installed", not a change).
+ */
+public func hooksDrift(planned: [PlannedHook], installed: [PlannedHook]) -> [String]  {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_hooks_drift(
+        FfiConverterSequenceTypePlannedHook.lower(planned),
+        FfiConverterSequenceTypePlannedHook.lower(installed),uniffiCallStatus
     )
 })
 }
@@ -7551,6 +8169,124 @@ public func quoteRemotePathForShell(path: String) -> String  {
     )
 })
 }
+public func analyzeCommand(command: String) -> CommandAnalysis  {
+    return try!  FfiConverterTypeCommandAnalysis_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_analyze_command(
+        FfiConverterString.lower(command),uniffiCallStatus
+    )
+})
+}
+/**
+ * Warnings for a custom hook command. The agent feeds the event JSON (written by the model) to
+ * it on stdin, so anything that evaluates or interpolates it can be steered by the model.
+ */
+public func lintCustomHookCommand(command: String) -> [String]  {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_lint_custom_hook_command(
+        FfiConverterString.lower(command),uniffiCallStatus
+    )
+})
+}
+/**
+ * All templates, grouped by category in display order.
+ */
+public func hookTemplates() -> [HookTemplate]  {
+    return try!  FfiConverterSequenceTypeHookTemplate.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_hook_templates(uniffiCallStatus
+    )
+})
+}
+/**
+ * The templates that fit one agent.
+ */
+public func hookTemplatesFor(agent: AgentKind) -> [HookTemplate]  {
+    return try!  FfiConverterSequenceTypeHookTemplate.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_hook_templates_for(
+        FfiConverterTypeAgentKind_lower(agent),uniffiCallStatus
+    )
+})
+}
+/**
+ * Which parts of the guard each agent acts on.
+ */
+public func hostGuardAgentSupport(agent: AgentKind) -> [String]  {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_host_guard_agent_support(
+        FfiConverterTypeAgentKind_lower(agent),uniffiCallStatus
+    )
+})
+}
+/**
+ * Reads the file text from the host; empty text is an empty guard. Anything unreadable is an
+ * error, so the app never overwrites a file it could not understand.
+ */
+public func hostGuardFromJson(text: String)throws  -> HostGuard  {
+    return try  FfiConverterTypeHostGuard_lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_host_guard_from_json(
+        FfiConverterString.lower(text),uniffiCallStatus
+    )
+})
+}
+/**
+ * Starting points for the guard editor; many, small, and combinable (the editor merges them).
+ */
+public func hostGuardPresets() -> [HostGuardPreset]  {
+    return try!  FfiConverterSequenceTypeHostGuardPreset.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_host_guard_presets(uniffiCallStatus
+    )
+})
+}
+/**
+ * The JSON the hook script reads.
+ */
+public func hostGuardToJson(`guard`: HostGuard)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_host_guard_to_json(
+        FfiConverterTypeHostGuard_lower(`guard`),uniffiCallStatus
+    )
+})
+}
+/**
+ * Things to read twice before applying.
+ */
+public func hostGuardWarnings(`guard`: HostGuard) -> [String]  {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_host_guard_warnings(
+        FfiConverterTypeHostGuard_lower(`guard`),uniffiCallStatus
+    )
+})
+}
+/**
+ * Parses `ctl sessions`; anything malformed is an empty list (an older script has no such command).
+ */
+public func parseAgentSessions(output: String) -> [AgentSessionInfo]  {
+    return try!  FfiConverterSequenceTypeAgentSessionInfo.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_parse_agent_sessions(
+        FfiConverterString.lower(output),uniffiCallStatus
+    )
+})
+}
+/**
+ * Trims, de-duplicates and validates; the result is what gets written.
+ */
+public func validateHostGuard(`guard`: HostGuard)throws  -> HostGuard  {
+    return try  FfiConverterTypeHostGuard_lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_validate_host_guard(
+        FfiConverterTypeHostGuard_lower(`guard`),uniffiCallStatus
+    )
+})
+}
 public func derivePublicKey(privateKeyOpenssh: String)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
         uniffiCallStatus in
@@ -7875,6 +8611,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_func_hook_preset_uses_script() != 27106) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_func_hooks_drift() != 33436) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_func_hooks_section_of() != 42299) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -7960,6 +8699,39 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_quote_remote_path_for_shell() != 15391) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_analyze_command() != 65433) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_lint_custom_hook_command() != 50010) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_hook_templates() != 15083) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_hook_templates_for() != 16627) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_host_guard_agent_support() != 27416) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_host_guard_from_json() != 35193) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_host_guard_presets() != 60165) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_host_guard_to_json() != 2873) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_host_guard_warnings() != 44537) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_parse_agent_sessions() != 12760) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_validate_host_guard() != 42342) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_derive_public_key() != 26782) {
@@ -8058,6 +8830,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_apply_agent_permissions() != 31164) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_apply_host_guard() != 15363) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_approval_status() != 60832) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -8100,6 +8875,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_kill_remote_process() != 61505) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_list_agent_sessions() != 54724) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_list_pending_approvals() != 16470) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -8119,6 +8897,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_read_agent_permissions_checked() != 6139) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_read_host_guard() != 33399) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_read_remote_file_preview() != 57830) {

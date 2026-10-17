@@ -281,7 +281,9 @@ public struct MainTerminalView: View {
                     Button { dismissKeyboard(); showHome = true } label: {
                         Image(systemName: "square.grid.2x2").font(.system(size: 17))
                     }
+                    .contextMenu { jumpMenu }
                     .accessibilityLabel("All sessions")
+                    .accessibilityHint("Tap for the list of sessions. Touch and hold to switch session, pick a server or start a new session.")
                 }
                 ToolbarItem(placement: .principal) {
                     HStack(spacing: 4) {
@@ -577,6 +579,88 @@ public struct MainTerminalView: View {
     /// Key of the server behind the visible tab (`nil` = the default key).
     private var activeKeyId: String? {
         (serversManager.profile(for: tabsManager.activeSession?.serverId) ?? serversManager.activeProfile)?.keyId
+    }
+
+    private func openSession(_ id: UUID) {
+        tabsManager.selectedSessionId = id
+        ensureSessionStarted(for: id)
+    }
+
+    private func startNewSession(on serverId: UUID?) {
+        guard canOpenNewSession() else { return }
+        let s = addNewTab(serverId: serverId)
+        ensureSessionStarted(for: s.id)
+    }
+
+    private func launchPreset(_ id: String) {
+        guard canOpenNewSession() else { return }
+        guard let profile = agentProfiles.profiles.first(where: { $0.id == id }),
+              case .success(let cmd) = profile.launchCommand() else { return }
+        let s = tabsManager.addAgentSession(
+            profile: profile,
+            command: cmd,
+            serverId: tabsManager.activeSession?.serverId ?? serversManager.activeProfileId
+        )
+        ensureSessionStarted(for: s.id)
+    }
+
+    /// Long press on the "all sessions" button: jump to another open session, look at the servers
+    /// and their sessions, or start a new one (plain, from a preset, or with new settings).
+    @ViewBuilder
+    private var jumpMenu: some View {
+        let others = tabsManager.sessions.filter { $0.id != tabsManager.selectedSessionId }
+        if !others.isEmpty {
+            Section("Other sessions") {
+                ForEach(others) { session in
+                    Button { openSession(session.id) } label: {
+                        let profile = agentProfiles.profiles.first { $0.id == session.profileId }
+                        Label(session.title, systemImage: ProfileIcons.symbol(profile, tabType: session.agentType))
+                    }
+                }
+            }
+        }
+        let servers = serversManager.profiles
+        if !servers.isEmpty {
+            Section("Servers") {
+                ForEach(servers) { server in
+                    let onServer = tabsManager.sessions.filter {
+                        ($0.serverId ?? serversManager.activeProfileId) == server.id
+                    }
+                    Menu {
+                        ForEach(onServer) { session in
+                            Button { openSession(session.id) } label: {
+                                Label(session.title, systemImage: session.id == tabsManager.selectedSessionId ? "checkmark" : "terminal")
+                            }
+                        }
+                        Button { startNewSession(on: server.id) } label: {
+                            Label("New session here", systemImage: "plus")
+                        }
+                    } label: {
+                        Label(onServer.isEmpty ? server.name : "\(server.name) (\(onServer.count))", systemImage: "server.rack")
+                    }
+                }
+            }
+        }
+        Section("New session") {
+            Button { startNewSession(on: tabsManager.activeSession?.serverId ?? serversManager.activeProfileId) } label: {
+                Label("New terminal", systemImage: "plus")
+            }
+            if !agentProfiles.profiles.isEmpty {
+                Menu {
+                    ForEach(agentProfiles.profiles, id: \.id) { p in
+                        Button { launchPreset(p.id) } label: {
+                            Text(p.workingDir.isEmpty ? p.name : "\(p.name) — \(p.workingDir)")
+                        }
+                    }
+                } label: {
+                    Label("From a preset", systemImage: "play.rectangle.on.rectangle")
+                }
+            }
+            Button { performAction(.agentProfiles) } label: {
+                Label("With new settings…", systemImage: "slider.horizontal.3")
+            }
+            .disabled(tabsManager.activeViewModel?.state != .connected)
+        }
     }
 
     /// A session-menu action. It belongs to the pressed tab or card, not necessarily the selected
