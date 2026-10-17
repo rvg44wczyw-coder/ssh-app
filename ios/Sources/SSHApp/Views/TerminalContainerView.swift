@@ -61,22 +61,53 @@ open class AppTerminalView: TerminalView {
         allowSecondaryPan = false
     }
 
+    private var momentumLink: CADisplayLink?
+    private var momentumVelocity: CGFloat = 0
+
+    private func stopMomentum() {
+        momentumLink?.invalidate()
+        momentumLink = nil
+    }
+
+    /// Finger distance (points) per tmux wheel tick. One tick moves about five lines, so one row
+    /// of finger travel per tick makes the text move several times faster than the finger.
+    private var wheelStep: CGFloat {
+        max(bounds.height / CGFloat(max(getTerminal().rows, 1)), 8)
+    }
+
+    private func emitWheel(_ distance: CGFloat) {
+        wheelRemainder += distance
+        let ticks = Int(wheelRemainder / wheelStep)
+        guard ticks != 0 else { return }
+        wheelRemainder -= CGFloat(ticks) * wheelStep
+        let terminal = getTerminal()
+        // Dragging down shows older output, which is a wheel-up event.
+        onWheel?(ticks > 0, min(abs(ticks), 40), max(terminal.cols / 2, 1), max(terminal.rows / 2, 1))
+    }
+
+    @objc private func momentumTick(_ link: CADisplayLink) {
+        let dt = CGFloat(link.targetTimestamp - link.timestamp)
+        emitWheel(momentumVelocity * dt)
+        momentumVelocity *= 0.95
+        if abs(momentumVelocity) < 60 { stopMomentum() }
+    }
+
     @objc private func handleWheelPan(_ pan: UIPanGestureRecognizer) {
         switch pan.state {
         case .began:
+            stopMomentum()
             wheelRemainder = 0
         case .changed:
-            wheelRemainder += pan.translation(in: self).y
+            let dy = pan.translation(in: self).y
             pan.setTranslation(.zero, in: self)
-            let terminal = getTerminal()
-            let rows = max(terminal.rows, 1)
-            // One tmux wheel tick moves about five lines; match that to the finger distance.
-            let step = max(bounds.height / CGFloat(rows), 8) * 5
-            let ticks = Int(wheelRemainder / step)
-            guard ticks != 0 else { return }
-            wheelRemainder -= CGFloat(ticks) * step
-            // Dragging down shows older output, which is a wheel-up event.
-            onWheel?(ticks > 0, min(abs(ticks), 20), max(terminal.cols / 2, 1), max(rows / 2, 1))
+            emitWheel(dy)
+        case .ended:
+            let v = pan.velocity(in: self).y
+            guard abs(v) > 300 else { return }
+            momentumVelocity = v
+            let link = CADisplayLink(target: self, selector: #selector(momentumTick(_:)))
+            link.add(to: .main, forMode: .common)
+            momentumLink = link
         default:
             break
         }
