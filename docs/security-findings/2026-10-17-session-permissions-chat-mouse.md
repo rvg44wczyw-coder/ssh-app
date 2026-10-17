@@ -1,0 +1,21 @@
+# Adversarial review: session permissions, Ollama chat, tmux mouse (2026-10-17)
+
+## 1. Scope
+- Commit `c63b386`. Paths: `crates/core/src/permissions.rs` (`build_inspect_permissions_command`, parser, merge), `host_api.rs` (inspect / read / preview / apply permissions, `chat_ollama_on_port`, `build_write_config_command`), `ai.rs` (chat payload), `tmux.rs` (attach command, `mouse on`), `ios/.../TerminalContainerView.swift` (wheel and tap events).
+- Attacker capabilities considered: (a) prompt-injected agent that can start processes / set argv and env inside the tmux pane, (b) an untrusted repository (project settings files), (c) another local user or process on the host.
+- Ruled out: MITM, replay, downgrade, key confusion, weak randomness (no crypto or protocol change; the per-call marker tag uses `rand::random`, the OS-seeded CSPRNG).
+- Live tests run (local only, own processes): a compiled stub `claude` process with a crafted argv and env to run the same `ps eww | tr | sed | head` pipeline as the product. Everything else is code analysis; the loopback sshd suite (21 tests, private tmux socket, pid 35350 unchanged) passes.
+
+## 2. Findings
+
+1. **InputValidation / spoofing, Low (Medium if the user does not read the path).** `permissions.rs` config-dir detection. `ps eww -p PID -o command=` prints argv **before** the environment, and the pipeline takes the first `CLAUDE_CONFIG_DIR=` word, so an argument works as well as the variable.
+   - Verified: `CLAUDE_CONFIG_DIR=/real ./claude "CLAUDE_CONFIG_DIR=/fake"` → detected `/fake`. An env value containing a space plus `CLAUDE_CONFIG_DIR=x` would do the same.
+   - Scenario: a prompt-injected agent (or any process named `claude*` in the pane) steers the "Permissions" screen to another folder. Applying then merges a `permissions` object into `<dir>/settings.json` (it must already be a valid JSON object, otherwise the write is refused, and only the four permission fields are touched). The target file name is fixed, so no arbitrary file write; the real risk is the user editing/applying a different account's file believing it is the running one's.
+   - Fix direction: read the environment separately from argv (`ps -E`/`/proc`-style split, or `ps eww` and cut at the first ` _=`/known env boundary is unreliable), accept only the value that follows the last argv element, prefer `lsof`-free alternatives; require the detected path to look like a directory that exists and contains `settings.json` or is under `$HOME`; keep showing the full path (already done) and label it "detected".
+2. **MetadataLeak, Low.** `chat_ollama_on_port`: the whole chat (up to 96 KB) is passed as `curl -d <payload>` on the command line, visible in `ps` to any local user while the request runs (up to 290 s). Same pattern in `query_ollama_on_port`. On a single-user laptop the exposure is the user's own processes. Fix direction: feed the body on stdin (`--data-binary @-`).
+3. **DoS, Low.** The chat response is read in full from `curl` output into the phone's memory with no size cap; a process squatting on host port 11434 could return a huge body (the 300 s timeout still applies). Fix direction: `curl --max-filesize` plus `head -c` before returning.
+4. **Informational (tmux mouse).** `mouse on` is set per session with a validated session name (no injection). Wheel/tap events are SGR sequences built from integers only (no user text). A tap is delivered to mouse-aware programs as a click, so terminal output that draws a fake button can receive a click; this equals desktop terminal behaviour and the user has to tap. `mouse on` also routes the mouse to tmux (copy-mode selection) instead of native text selection. No finding.
+5. **Checked, no finding.** Inspect output sections now use a per-call random tag (earlier forgeable-marker issue fixed, test added). Rule validation rejects control characters and bad syntax; invalid rules are dropped only after confirmation; apply compares a SHA-256 of the previous file and refuses on change; write is atomic, symlink-aware, mode-preserving, backup once. All paths and the chat payload go through `shell_quote` / `remote_path_expr`; ports are `u16`; detected config dir is length- and control-character-checked before it is shown.
+
+## 3. Verdict
+Findings, highest severity Low (items 1–3); nothing blocks merge.
