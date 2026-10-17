@@ -218,6 +218,9 @@ public struct MainTerminalView: View {
                 // One deliberate button; every other action lives in the panel it opens, so iOS
                 // never has to build its own (unlabeled) overflow menu.
                 ToolbarItem(placement: .topBarTrailing) {
+                    // Both buttons live in one toolbar item: separate items each with a popover
+                    // made the second popover (quick menu) fail to open.
+                    HStack(spacing: 14) {
                     Button {
                         dismissKeyboard()
                         showSessionPanel = true
@@ -237,8 +240,6 @@ public struct MainTerminalView: View {
                         )
                         .presentationCompactAdaptation(.popover)
                     }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         dismissKeyboard()
                         showActionPanel = true
@@ -256,6 +257,7 @@ public struct MainTerminalView: View {
                             onSelect: { performAction($0) }
                         )
                         .presentationCompactAdaptation(.popover)
+                    }
                     }
                 }
             }
