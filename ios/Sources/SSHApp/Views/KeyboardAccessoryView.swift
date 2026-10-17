@@ -9,6 +9,7 @@ public struct KeyboardAccessoryView: View {
     public let onSnippetsTap: (() -> Void)?
     @ObservedObject private var store = QuickCommandStore.shared
     @State private var showEditor = false
+    @State private var pendingClear: QuickCommand?
 
     public init(
         onSendBytes: @escaping ([UInt8]) -> Void,
@@ -56,7 +57,11 @@ public struct KeyboardAccessoryView: View {
                 ForEach(store.commands) { cmd in
                     AccessoryButton(label: cmd.label) {
                         triggerHaptic()
-                        onSendBytes(cmd.bytes)
+                        if cmd.confirm {
+                            pendingClear = cmd
+                        } else {
+                            onSendBytes(cmd.bytes)
+                        }
                     }
                 }
                 AccessoryButton(label: "✎") {
@@ -69,6 +74,17 @@ public struct KeyboardAccessoryView: View {
         }
         .background(Color.appSecondaryBackground)
         .sheet(isPresented: $showEditor) { QuickCommandsEditorView() }
+        .confirmationDialog(
+            "Run \(pendingClear?.label ?? "")?",
+            isPresented: Binding(get: { pendingClear != nil }, set: { if !$0 { pendingClear = nil } }),
+            titleVisibility: .visible,
+            presenting: pendingClear
+        ) { cmd in
+            Button("Run \(cmd.label)", role: .destructive) { onSendBytes(cmd.bytes) }
+            Button("Cancel", role: .cancel) {}
+        } message: { cmd in
+            Text("Send \"\(cmd.text)\" to the session?")
+        }
     }
 
     private func triggerHaptic() {

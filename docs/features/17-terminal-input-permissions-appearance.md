@@ -11,6 +11,7 @@ Status: implemented (Rust + iOS); on-device checks pending (scroll feel, alterna
 ## 2. Keyboard accessory and quick commands
 - The system bar already has Esc/Ctrl/Tab/arrows, so ours has: assistant, quick action, ^C, y/n, user commands, editor.
 - User commands (`QuickCommand`, editor `QuickCommandsEditorView`); defaults: clear, /clear, /model, /help, /compact, /status.
+- Confirmation: each command has `confirm` ("Ask before sending" switch in the editor). On tap the bar shows a confirmation dialog ("Run <label>?" / Cancel) and sends only after Run. On by default for `clear` and `/clear` (wipe the screen / the agent's context); other defaults are off. Saved commands without the field get the default from their text (custom `Codable` decoding), so no migration or reset is needed.
 
 ## 3. Local chat assistant
 - Chat mode next to Command mode in the AI assistant sheet; host Ollama `/api/chat` over SSH.

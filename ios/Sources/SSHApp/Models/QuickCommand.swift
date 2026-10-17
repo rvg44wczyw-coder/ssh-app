@@ -8,11 +8,27 @@ public struct QuickCommand: Identifiable, Codable, Equatable {
     public var text: String
     /// Press Return after the text.
     public var run: Bool
+    /// Ask before sending; on by default for `clear` and `/clear`, which wipe the screen or the agent's context.
+    public var confirm: Bool
 
-    public init(label: String, text: String, run: Bool = true) {
+    public init(label: String, text: String, run: Bool = true, confirm: Bool? = nil) {
         self.label = label
         self.text = text
         self.run = run
+        self.confirm = confirm ?? Self.isDestructive(text)
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        label = try c.decode(String.self, forKey: .label)
+        text = try c.decode(String.self, forKey: .text)
+        run = try c.decodeIfPresent(Bool.self, forKey: .run) ?? true
+        confirm = try c.decodeIfPresent(Bool.self, forKey: .confirm) ?? Self.isDestructive(text)
+    }
+
+    static func isDestructive(_ text: String) -> Bool {
+        ["clear", "/clear"].contains(text.trimmingCharacters(in: .whitespaces))
     }
 
     public var bytes: [UInt8] { Array((text + (run ? "\r" : "")).utf8) }

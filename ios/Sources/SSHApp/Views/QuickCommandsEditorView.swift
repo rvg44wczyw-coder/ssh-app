@@ -16,6 +16,8 @@ struct QuickCommandsEditorView: View {
                                     .font(.system(.body, design: .monospaced).weight(.semibold))
                                 Toggle("⏎", isOn: $cmd.run).labelsHidden().fixedSize()
                             }
+                            Toggle("Ask before sending", isOn: $cmd.confirm)
+                                .font(.footnote)
                             TextField("Command", text: $cmd.text)
                                 .font(.system(.footnote, design: .monospaced))
                                 .foregroundColor(.secondary)
@@ -33,7 +35,7 @@ struct QuickCommandsEditorView: View {
                 } header: {
                     Text("Buttons above the keyboard")
                 } footer: {
-                    Text("The switch sends Return after the command. Esc, Ctrl, Tab and arrows are on the system keyboard bar.")
+                    Text("The ⏎ switch sends Return after the command; “Ask before sending” shows a confirmation on tap. Esc, Ctrl, Tab and arrows are on the system keyboard bar.")
                 }
                 Section {
                     Button("Reset to defaults", role: .destructive) { store.resetToDefaults() }
