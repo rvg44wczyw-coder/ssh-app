@@ -62,8 +62,38 @@ public struct SettingsView: View {
     @AppStorage(AppAccent.storageKey) private var accentRaw: String = AppAccent.blue.rawValue
     @State private var schemeRefresh = 0
 
+    @State private var iconChoice: AppIconChoice = .standard
+    @State private var iconError: String?
+
     private var appearancePage: some View {
         Form {
+            Section(header: Text("App icon"), footer: Text(iconError ?? "The icon on the home screen. iOS shows a confirmation when it changes.")) {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 5), spacing: 12) {
+                    ForEach(AppIconChoice.allCases) { choice in
+                        Button {
+                            Task {
+                                iconError = await choice.apply()
+                                iconChoice = AppIconChoice.current
+                            }
+                        } label: {
+                            VStack(spacing: 4) {
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(choice.backdrop)
+                                    .frame(width: 52, height: 52)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 7).fill(choice.tile).padding(9)
+                                            .overlay(Image(systemName: "chevron.right").font(.system(size: 14, weight: .bold)).foregroundColor(choice.glyph))
+                                    )
+                                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.primary.opacity(0.25), lineWidth: 1))
+                                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.appAccent, lineWidth: iconChoice == choice ? 3 : 0).padding(-3))
+                                Text(choice.title).font(.caption2).foregroundColor(.secondary)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.vertical, 6)
+            }
             Section(header: Text("Accent color"), footer: Text("Buttons, selected chips and links. Open sheets update when you reopen them.")) {
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: 14) {
                     ForEach(AppAccent.allCases) { accent in
@@ -111,6 +141,7 @@ public struct SettingsView: View {
             }
         }
         .navigationTitle("Appearance")
+        .onAppear { iconChoice = AppIconChoice.current }
     }
 
     private var terminalPage: some View {

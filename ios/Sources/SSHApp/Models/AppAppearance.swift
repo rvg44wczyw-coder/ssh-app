@@ -40,6 +40,46 @@ extension Color {
     public static var appAccent: Color { AppAccent.current.color }
 }
 
+// MARK: - Home screen icon
+
+/// Alternate app icons (the asset sets `AppIcon-<Name>`); `nil` is the default white-on-black one.
+public enum AppIconChoice: String, CaseIterable, Identifiable {
+    case standard = "", blue = "Blue", teal = "Teal", green = "Green", orange = "Orange"
+    case red = "Red", pink = "Pink", purple = "Purple", light = "Light"
+
+    public var id: String { rawValue }
+    public var title: String { self == .standard ? "Classic" : rawValue }
+    public var alternateName: String? { self == .standard ? nil : "AppIcon-\(rawValue)" }
+
+    /// Glyph color for the in-app preview tile.
+    public var glyph: Color {
+        switch self {
+        case .standard: return .white
+        case .light: return .black
+        default: return AppAccent(rawValue: rawValue.lowercased())?.color ?? .white
+        }
+    }
+    public var tile: Color { self == .light ? Color(white: 0.91) : Color(white: 0.09) }
+    public var backdrop: Color { self == .light ? .white : .black }
+
+    #if canImport(UIKit)
+    @MainActor public static var current: AppIconChoice {
+        let name = UIApplication.shared.alternateIconName?.replacingOccurrences(of: "AppIcon-", with: "") ?? ""
+        return AppIconChoice(rawValue: name) ?? .standard
+    }
+
+    @MainActor public func apply() async -> String? {
+        guard UIApplication.shared.supportsAlternateIcons else { return "This device does not support alternate icons." }
+        do {
+            try await UIApplication.shared.setAlternateIconName(alternateName)
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+    #endif
+}
+
 // MARK: - Tab and profile icons
 
 public enum ProfileIcons {
