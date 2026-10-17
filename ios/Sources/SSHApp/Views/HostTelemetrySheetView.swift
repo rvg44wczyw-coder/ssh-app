@@ -7,6 +7,9 @@ public struct HostTelemetrySheetView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var selectedFilter: String = "All"
+    /// 0 = off. Stops while the sheet is closed or the app is in the background (zero battery drain).
+    @AppStorage("monitor_refresh_seconds") private var refreshSeconds: Int = 10
+    @Environment(\.scenePhase) private var scenePhase
     @State private var processToForceKill: RemoteProcessInfo? = nil
     /// System and other-account processes start collapsed: the user-space group is what is usually wanted.
     @State private var collapsedGroups: Set<ProcessGroup> = [.system, .other]
@@ -58,6 +61,11 @@ public struct HostTelemetrySheetView: View {
                     }
 
                     if let snap = viewModel.telemetrySnapshot {
+                        if let t = viewModel.telemetryUpdatedAt {
+                            Text("Updated \(t.formatted(date: .omitted, time: .standard))" + (refreshSeconds > 0 ? " · every \(refreshSeconds) s" : " · auto-refresh off"))
+                                .font(.caption2).foregroundColor(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .trailing)
+                        }
                         hostSummaryCard(snap)
                         resourceGaugesGrid(snap)
                         processMonitorSection(snap)
@@ -91,6 +99,15 @@ public struct HostTelemetrySheetView: View {
             }
             .background(Color.appBackground.ignoresSafeArea())
             .navigationTitle("Host Monitor")
+            .task(id: refreshSeconds) {
+                // Cancelled when the sheet goes away or the interval changes.
+                guard refreshSeconds > 0 else { return }
+                while !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: UInt64(refreshSeconds) * 1_000_000_000)
+                    if Task.isCancelled { break }
+                    if scenePhase == .active, !viewModel.isTelemetryLoading { viewModel.refreshHostTelemetry() }
+                }
+            }
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
@@ -99,6 +116,20 @@ public struct HostTelemetrySheetView: View {
                     Button("Close") {
                         closeSheet()
                     }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Picker("Auto-refresh", selection: $refreshSeconds) {
+                            Text("Off").tag(0)
+                            Text("Every 5 s").tag(5)
+                            Text("Every 10 s").tag(10)
+                            Text("Every 30 s").tag(30)
+                            Text("Every 60 s").tag(60)
+                        }
+                    } label: {
+                        Image(systemName: refreshSeconds > 0 ? "timer" : "timer.slash")
+                    }
+                    .accessibilityLabel("Auto-refresh")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(action: { viewModel.refreshHostTelemetry() }) {

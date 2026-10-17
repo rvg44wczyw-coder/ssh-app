@@ -59,8 +59,8 @@ pub use permissions::{
 };
 pub use port_forward::{PortForwardHandle, PortForwardInfo};
 pub use session::{
-    execute_remote_command, fetch_host_usage, kill_remote_tmux_session, list_remote_tmux_sessions,
-    SshSessionCallback, SshSessionHandle,
+    execute_remote_command, fetch_host_telemetry_once, fetch_host_usage, kill_remote_tmux_session,
+    list_remote_tmux_sessions, SshSessionCallback, SshSessionHandle,
 };
 pub use snippets::{
     default_developer_snippets, extract_history_commands, extract_snippet_placeholders,

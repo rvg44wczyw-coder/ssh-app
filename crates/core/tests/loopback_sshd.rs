@@ -1507,6 +1507,23 @@ fn reconnect_and_one_shot_tmux_calls_against_loopback_sshd() {
             .is_err());
         let after = list_remote_tmux_sessions(cfg.clone()).await.unwrap();
         assert!(!after.iter().any(|s| s.name == name), "{after:?}");
+        // A snapshot without any live session (the widget path): one short-lived connection.
+        let snap = ssh_core::fetch_host_telemetry_once(cfg.clone())
+            .await
+            .unwrap();
+        assert!(snap.cpu_cores > 0 && !snap.processes.is_empty());
+        let me = std::env::var("USER").unwrap_or_default();
+        assert!(
+            snap.processes
+                .iter()
+                .any(|p| p.group == ssh_core::telemetry::ProcessGroup::User && p.owner == me),
+            "no user-space process of {me}: {:?}",
+            snap.processes
+                .iter()
+                .map(|p| (&p.owner, &p.name))
+                .take(8)
+                .collect::<Vec<_>>()
+        );
         // One-shot exec against a closed port fails fast with a typed error.
         let mut dead = cfg.clone();
         dead.port = TcpListener::bind("127.0.0.1:0")

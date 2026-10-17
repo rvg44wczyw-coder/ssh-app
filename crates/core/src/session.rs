@@ -473,6 +473,23 @@ pub async fn list_remote_tmux_sessions(
     })?
 }
 
+/// One snapshot of the host without a live terminal session: a single short-lived connection.
+/// This is the entry point for anything that cannot keep a session open (a home-screen widget).
+#[uniffi::export(async_runtime = "tokio")]
+pub async fn fetch_host_telemetry_once(
+    config: RemoteServerConfig,
+) -> Result<crate::telemetry::HostTelemetrySnapshot, SshCoreError> {
+    let handle = RUNTIME.spawn(async move {
+        let raw =
+            execute_remote_command_internal(&config, crate::telemetry::TELEMETRY_COLLECTION_SCRIPT)
+                .await?;
+        Ok(crate::telemetry::parse_host_telemetry(raw))
+    });
+    handle.await.map_err(|e| SshCoreError::ConnectionError {
+        reason: format!("Task join error: {e}"),
+    })?
+}
+
 /// Which models run in the host's tmux sessions and how much context / usage they have used.
 /// `config_dirs` are the Claude config directories of the saved profiles (empty = `~/.claude`).
 #[uniffi::export(async_runtime = "tokio")]

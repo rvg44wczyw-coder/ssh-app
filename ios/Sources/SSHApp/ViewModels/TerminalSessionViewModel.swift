@@ -33,6 +33,7 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     @Published public var telemetrySnapshot: HostTelemetrySnapshot? = nil
     @Published public var isTelemetryLoading: Bool = false
     @Published public var telemetryError: String? = nil
+    @Published public var telemetryUpdatedAt: Date? = nil
 
     // Remote File Browser State
     @Published public var fileListing: RemoteDirectoryListing? = nil
@@ -282,6 +283,7 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
             do {
                 let snap = try await handle.fetchHostTelemetry()
                 self.telemetrySnapshot = snap
+                self.telemetryUpdatedAt = Date()
                 self.isTelemetryLoading = false
             } catch {
                 self.telemetryError = error.localizedDescription

@@ -6998,6 +6998,24 @@ public func executeRemoteCommand(config: RemoteServerConfig, command: String)asy
         )
 }
 /**
+ * One snapshot of the host without a live terminal session: a single short-lived connection.
+ * This is the entry point for anything that cannot keep a session open (a home-screen widget).
+ */
+public func fetchHostTelemetryOnce(config: RemoteServerConfig)async throws  -> HostTelemetrySnapshot  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_func_fetch_host_telemetry_once(FfiConverterTypeRemoteServerConfig_lower(config)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeHostTelemetrySnapshot_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+/**
  * Which models run in the host's tmux sessions and how much context / usage they have used.
  * `config_dirs` are the Claude config directories of the saved profiles (empty = `~/.claude`).
  */
@@ -7291,6 +7309,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_execute_remote_command() != 30132) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_fetch_host_telemetry_once() != 29721) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_fetch_host_usage() != 24017) {
