@@ -15,6 +15,7 @@ public struct MainTerminalView: View {
 
     private enum ActiveModalSheet: String, Identifiable {
         case settings
+        case publicKey
         case tmuxSessions
         case diffViewer
         case webPreview
@@ -29,9 +30,6 @@ public struct MainTerminalView: View {
 
     @State private var isCtrlLocked: Bool = false
     @State private var activeSheet: ActiveModalSheet? = nil
-    @State private var showPublicKeyBanner: Bool = false
-    @State private var copiedKeyNotification: Bool = false
-    @State private var activePublicKey: String? = nil
     @StateObject private var approvals = ApprovalsCenter()
 
     @State private var showServerPicker: Bool = false
@@ -102,54 +100,6 @@ public struct MainTerminalView: View {
                 )
                 .frame(height: 32)
 
-
-                // Public key banner: hidden by default, toggled from the quick menu ("Public key")
-                if showPublicKeyBanner {
-                    let pubKey = currentPublicKey ?? ""
-                    HStack(spacing: 6) {
-                        Image(systemName: "key.fill")
-                            .font(.system(size: 10))
-                            .foregroundColor(.yellow)
-                        Text(pubKey.isEmpty ? "No SSH key for this server yet: create one in Settings" : pubKey)
-                            .font(.system(size: 9, design: .monospaced))
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .foregroundColor(.primary)
-
-                        Spacer()
-
-                        Button(action: {
-                            if pubKey.isEmpty { activeSheet = .settings; return }
-                            KeychainManager.shared.copyPublicKeyToClipboard(pubKey)
-                            copiedKeyNotification = true
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                                copiedKeyNotification = false
-                            }
-                        }) {
-                            Text(pubKey.isEmpty ? "Settings" : (copiedKeyNotification ? "Copied!" : "Copy Key"))
-                                .font(.system(size: 9, weight: .bold))
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Color.accentColor.opacity(0.2))
-                                .foregroundColor(.accentColor)
-                                .cornerRadius(4)
-                        }
-
-                        Button(action: {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                showPublicKeyBanner = false
-                            }
-                        }) {
-                            Image(systemName: "xmark")
-                                .font(.system(size: 9, weight: .bold))
-                                .foregroundColor(.secondary)
-                                .padding(2)
-                        }
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(Color.appSecondaryBackground)
-                }
 
                 Divider()
 
@@ -244,7 +194,7 @@ public struct MainTerminalView: View {
                     .popover(isPresented: $showActionPanel, arrowEdge: .top) {
                         ActionPanelView(
                             isChatMode: tabsManager.activeViewModel?.isChatMode == true,
-                            keyVisible: showPublicKeyBanner,
+                            keyVisible: false,
                             isConnected: tabsManager.activeViewModel?.state == .connected,
                             onSelect: { performAction($0) }
                         )
@@ -257,9 +207,14 @@ public struct MainTerminalView: View {
                 case .settings:
                     SettingsView(serversManager: serversManager)
                         .onDisappear {
-                            activePublicKey = KeychainManager.shared.getOrDerivePublicKey(id: activeKeyId)
                             ensureSessionStarted(for: tabsManager.selectedSessionId)
                         }
+                case .publicKey:
+                    PublicKeySheetView(
+                        serverName: (serversManager.profile(for: tabsManager.activeSession?.serverId) ?? serversManager.activeProfile)?.name,
+                        activeKeyId: activeKeyId,
+                        onClose: { activeSheet = nil }
+                    )
                 case .tmuxSessions:
                     TmuxSessionsSheetView(
                         serversManager: serversManager,
@@ -341,10 +296,6 @@ public struct MainTerminalView: View {
             }
             .animation(.easeOut(duration: 0.15), value: showServerPicker)
             .onAppear {
-                let pubKey = KeychainManager.shared.getOrDerivePublicKey(id: activeKeyId)
-                activePublicKey = pubKey
-                print(">>> CURRENT_PUBLIC_KEY: \(pubKey ?? "NONE") <<<")
-                fflush(stdout)
                 ensureSessionStarted(for: tabsManager.selectedSessionId)
                 checkStartupServersIfMultiple()
                 startApprovalPolling()
@@ -365,15 +316,6 @@ public struct MainTerminalView: View {
             }
             return
         }
-        if action == .publicKey {
-            withAnimation {
-                showPublicKeyBanner.toggle()
-                if showPublicKeyBanner {
-                    activePublicKey = KeychainManager.shared.getOrDerivePublicKey(id: activeKeyId)
-                }
-            }
-            return
-        }
         let sheet: ActiveModalSheet
         switch action {
         case .tmuxSessions: sheet = .tmuxSessions
@@ -385,7 +327,8 @@ public struct MainTerminalView: View {
         case .webPreview: sheet = .webPreview
         case .diffViewer: sheet = .diffViewer
         case .settings: sheet = .settings
-        case .chatToggle, .publicKey: return
+        case .publicKey: sheet = .publicKey
+        case .chatToggle: return
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             presentSheet(sheet)
@@ -447,13 +390,6 @@ public struct MainTerminalView: View {
     /// Key of the server behind the visible tab (`nil` = the default key).
     private var activeKeyId: String? {
         (serversManager.profile(for: tabsManager.activeSession?.serverId) ?? serversManager.activeProfile)?.keyId
-    }
-
-    /// The server's key, falling back to the default key (the banner must never silently vanish).
-    private var currentPublicKey: String? {
-        let k = KeychainManager.shared.getOrDerivePublicKey(id: activeKeyId)
-            ?? KeychainManager.shared.getOrDerivePublicKey()
-        return (k?.isEmpty == false) ? k : nil
     }
 
     private func handleAddNewSession() {
@@ -681,6 +617,49 @@ struct ActiveTerminalSessionView: View {
                 )
             }
             #endif
+        }
+    }
+}
+
+
+/// The public key to add to `~/.ssh/authorized_keys`: the active server's key first, then the others.
+struct PublicKeySheetView: View {
+    let serverName: String?
+    let activeKeyId: String?
+    let onClose: () -> Void
+    @ObservedObject private var keys = SSHKeyStore.shared
+    @State private var copied: String? = nil
+
+    private var rows: [(id: String?, name: String)] {
+        let all: [(id: String?, name: String)] =
+            [(nil, "Default key")] + keys.extra.map { (Optional($0.id), $0.name) }
+        return all.sorted { ($0.id == activeKeyId ? 0 : 1) < ($1.id == activeKeyId ? 0 : 1) }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(rows, id: \.id) { row in
+                    let pub = KeychainManager.shared.getOrDerivePublicKey(id: row.id)
+                    Section(header: Text(row.id == activeKeyId ? "\(row.name) — used by \(serverName ?? "this server")" : row.name)) {
+                        if let pub, !pub.isEmpty {
+                            Text(pub).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
+                            Button(copied == (row.id ?? "default") ? "Copied" : "Copy public key") {
+                                KeychainManager.shared.copyPublicKeyToClipboard(pub)
+                                copied = row.id ?? "default"
+                            }
+                        } else {
+                            Text(row.id == nil ? "No default key yet: create one in Settings." : "Key is missing from the Keychain.")
+                                .font(.caption).foregroundColor(.secondary)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Public key")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close", action: onClose) } }
         }
     }
 }
