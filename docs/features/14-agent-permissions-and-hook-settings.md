@@ -135,3 +135,7 @@ Applying a template **adds** its rules to the editor state (nothing is written u
 ## 8. Out of scope / backlog
 
 - Project-level settings, Antigravity/Codex/Grok permission editors, per-directory rule scopes, rule testing ("would this command be allowed?").
+
+## Addendum: session permissions and invalid rules
+
+The "Permissions" menu tile (per session: folder, detected config folder, start mode, suggestions) and the checked read that shows invalid rules escaped and drops them only after confirmation are described in feature 17 §4.

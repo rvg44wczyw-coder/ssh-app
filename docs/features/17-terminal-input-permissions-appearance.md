@@ -25,10 +25,18 @@ Status: implemented (Rust + iOS); on-device checks pending (scroll feel, alterna
 
 ## 5. Appearance (Settings → Appearance)
 - Accent: 12 presets or a custom color (`#rrggbb` in `app_accent`); applied via `Color.appAccent` and root `.tint`.
-- Terminal color schemes: 17 built-in + user schemes. Defaults per slot (general, Claude, Antigravity, Codex, Grok, shell), per-profile override. Resolution: profile → slot → general → built-in pick.
+- Terminal color schemes: 18 built-in + user schemes. Defaults per slot (general, Claude, Antigravity, Codex, Grok, shell), per-profile override. Resolution: profile → slot → general → built-in pick.
 - Scheme editor: name, background, text, cursor, 16 ANSI colors, preview, "start from"; custom schemes in UserDefaults (`terminal_custom_schemes`, ids `custom-*`).
 - Icons: per-profile symbol + color (tabs, profile list); home-screen app icon (classic, 7 tints, light) through alternate icon sets.
 
 ## Open
 - Per-tab quick scheme switch and `/theme` in the Commands palette.
 - Real subscription quota has no safe source.
+
+## Review notes (rev, 2026-10-17)
+- Verified: `cargo fmt`, `clippy -D warnings`, 128 unit + 17 hook + 21 loopback + 6 probe tests; tmux server pid unchanged (35350); generic `xcodebuild` clean.
+- Chat payload and every host path/config dir go through `shell_quote` / `remote_path_expr`; control characters and over-long config dirs are rejected; host ports are `u16`.
+- **Low, open:** the inspect command prints the user, shared and local settings files between `===SECTION===` markers. A project file (untrusted repo) that contains such a marker can forge another section. Impact is limited to what is shown and suggested; nothing is written from it. Fix when touched next: random per-call delimiter.
+- **Open:** no Swift tests for scheme resolution, custom-scheme JSON, accent `#rrggbb` (no iOS test target yet); covered only by build + manual checks.
+- **Tradeoffs:** `mouse on` makes tmux handle the mouse (native text selection of scrollback is replaced by tmux copy-mode); the ×5 scroll speed is fixed, not a setting; a free accent color can have poor contrast (e.g. on yellow); custom schemes live only on the phone (no sync); a deleted custom scheme that a profile still names falls back to the slot/general default.
+- Not yet run for these features: `hacker`.

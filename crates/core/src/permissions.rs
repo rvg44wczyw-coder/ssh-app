@@ -585,16 +585,12 @@ pub(crate) fn build_inspect_permissions_command(
 
 pub(crate) fn parse_inspect_permissions_output(out: &str) -> SessionPermissionsReport {
     let section = |name: &str, next: &str| -> String {
-        let start = format!("===[{name}]===\n")
-            .replace('[', "")
-            .replace(']', "");
+        let start = format!("==={name}===\n");
         let Some(i) = out.find(&start) else {
             return String::new();
         };
         let rest = &out[i + start.len()..];
-        let end = rest
-            .find(&format!("===[{next}]===").replace('[', "").replace(']', ""))
-            .unwrap_or(rest.len());
+        let end = rest.find(&format!("==={next}===")).unwrap_or(rest.len());
         rest[..end].trim().to_string()
     };
     let dir = section("DIR", "CFG");
