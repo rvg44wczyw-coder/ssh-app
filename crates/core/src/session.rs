@@ -473,6 +473,24 @@ pub async fn list_remote_tmux_sessions(
     })?
 }
 
+/// Which models run in the host's tmux sessions and how much context / usage they have used.
+/// `config_dirs` are the Claude config directories of the saved profiles (empty = `~/.claude`).
+#[uniffi::export(async_runtime = "tokio")]
+pub async fn fetch_host_usage(
+    config: RemoteServerConfig,
+    config_dirs: Vec<String>,
+) -> Result<crate::usage::HostUsageReport, SshCoreError> {
+    crate::usage::validate_config_dirs(&config_dirs)?;
+    let handle = RUNTIME.spawn(async move {
+        let cmd = crate::usage::build_usage_command(&config_dirs);
+        let raw = execute_remote_command_internal(&config, &cmd).await?;
+        crate::usage::parse_usage_report(&raw)
+    });
+    handle.await.map_err(|e| SshCoreError::ConnectionError {
+        reason: format!("Task join error: {e}"),
+    })?
+}
+
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn kill_remote_tmux_session(
     config: RemoteServerConfig,

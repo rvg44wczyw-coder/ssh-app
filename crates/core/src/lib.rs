@@ -21,6 +21,7 @@ pub mod telemetry;
 pub mod tmux;
 pub mod transcript;
 pub(crate) mod transport;
+pub mod usage;
 
 pub use agents::{
     agent_config_dir_env, agent_hook_script, agent_hooks_config_path, agent_hooks_installed,
@@ -58,7 +59,7 @@ pub use permissions::{
 };
 pub use port_forward::{PortForwardHandle, PortForwardInfo};
 pub use session::{
-    execute_remote_command, kill_remote_tmux_session, list_remote_tmux_sessions,
+    execute_remote_command, fetch_host_usage, kill_remote_tmux_session, list_remote_tmux_sessions,
     SshSessionCallback, SshSessionHandle,
 };
 pub use snippets::{

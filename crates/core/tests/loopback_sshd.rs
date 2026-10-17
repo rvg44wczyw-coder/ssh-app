@@ -32,10 +32,30 @@ struct Sshd {
 }
 
 impl Sshd {
-    /// `tmux` against this server's private socket directory.
+    /// `tmux` against this server's private socket, and nothing else.
+    ///
+    /// `$TMUX` (set whenever the tests run inside a tmux pane, e.g. an agent session) outranks
+    /// `TMUX_TMPDIR`, so without the explicit `-S` a `kill-server` here killed the developer's real
+    /// tmux server and every session in it. The socket path is what tmux itself derives from
+    /// `TMUX_TMPDIR` for the sshd-side sessions (`<dir>/tmux-<uid>/default`).
     fn tmux(&self) -> Command {
+        use std::os::unix::fs::MetadataExt;
+        let uid = std::fs::metadata(&self.tmux_tmp)
+            .map(|m| m.uid())
+            .expect("private tmux dir");
+        let dir = self.tmux_tmp.join(format!("tmux-{uid}"));
+        // With an explicit socket tmux does not create the folder itself.
+        std::fs::create_dir_all(&dir).expect("private tmux socket dir");
+        // tmux refuses a socket folder that is not private (the sshd-side tmux checks it).
+        std::fs::set_permissions(&dir, std::os::unix::fs::PermissionsExt::from_mode(0o700))
+            .expect("chmod private tmux socket dir");
+        let sock = dir.join("default");
         let mut c = Command::new("tmux");
-        c.env("TMUX_TMPDIR", &self.tmux_tmp);
+        c.env_remove("TMUX")
+            .env_remove("TMUX_PANE")
+            .env("TMUX_TMPDIR", &self.tmux_tmp)
+            .arg("-S")
+            .arg(sock);
         c
     }
 }
@@ -1497,4 +1517,153 @@ fn reconnect_and_one_shot_tmux_calls_against_loopback_sshd() {
         assert!(execute_remote_command(dead, "true".into()).await.is_err());
     });
     handle.disconnect();
+}
+
+/// `YYYY-MM-DDTHH:MM:SS.000Z` for an epoch (civil-from-days, no date crate needed).
+fn iso_utc(epoch: u64) -> String {
+    let (days, rem) = ((epoch / 86400) as i64, epoch % 86400);
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    format!(
+        "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}.000Z",
+        rem / 3600,
+        rem % 3600 / 60,
+        rem % 60
+    )
+}
+
+#[test]
+fn usage_report_finds_models_in_tmux_sessions_and_reads_transcripts() {
+    use ssh_core::{fetch_host_usage, RemoteServerConfig};
+    use std::os::unix::fs::PermissionsExt;
+    if !have("python3") {
+        eprintln!("SKIP: python3 unavailable");
+        return;
+    }
+    let Some(server) = start_sshd() else {
+        eprintln!("SKIP: sshd/ssh-keygen/tmux unavailable");
+        return;
+    };
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().canonicalize().unwrap();
+    let work = root.join("work");
+    let bin = root.join("bin");
+    std::fs::create_dir_all(&work).unwrap();
+    std::fs::create_dir_all(&bin).unwrap();
+    // Fake agents: processes whose command line names the agent, like the real binaries.
+    for name in ["claude", "ollama"] {
+        let p = bin.join(name);
+        std::fs::write(&p, "#!/bin/sh\nsleep 600\n").unwrap();
+        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let port = server.port;
+    let (claude, llm, plain) = (
+        format!("uc{port}claude"),
+        format!("uc{port}llm"),
+        format!("uc{port}plain"),
+    );
+    let start = |name: &str, cmd: &str| {
+        let ok = server
+            .tmux()
+            .current_dir(&root)
+            .args([
+                "new-session",
+                "-d",
+                "-s",
+                name,
+                "-c",
+                work.to_str().unwrap(),
+                cmd,
+            ])
+            .status()
+            .unwrap()
+            .success();
+        assert!(ok, "tmux new-session {name}");
+    };
+    start(&claude, bin.join("claude").to_str().unwrap());
+    start(
+        &llm,
+        &format!("{} run qwen2.5-coder", bin.join("ollama").display()),
+    );
+    start(&plain, "sleep 600");
+
+    // Transcript in the fake HOME, under the project folder Claude Code derives from the cwd.
+    let slug: String = work
+        .to_str()
+        .unwrap()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect();
+    let proj = server.home.join(".claude/projects").join(slug);
+    std::fs::create_dir_all(&proj).unwrap();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let usage = |id: &str, ts: u64, input: u64| {
+        format!(
+            "{{\"type\":\"assistant\",\"timestamp\":\"{}\",\"requestId\":\"r-{id}\",\"message\":{{\"id\":\"{id}\",\"model\":\"claude-test\",\"content\":[{{\"type\":\"text\",\"text\":\"ok\"}}],\"usage\":{{\"input_tokens\":{input},\"output_tokens\":200,\"cache_creation_input_tokens\":5000,\"cache_read_input_tokens\":150000}}}}}}",
+            iso_utc(ts)
+        )
+    };
+    let limit = format!(
+        "{{\"type\":\"assistant\",\"isApiErrorMessage\":true,\"timestamp\":\"{}\",\"message\":{{\"content\":[{{\"type\":\"text\",\"text\":\"Claude AI usage limit reached|{}\"}}]}}}}",
+        iso_utc(now),
+        now + 3600
+    );
+    let body = [
+        usage("old", now - 6 * 3600, 7),
+        usage("m1", now - 60, 100),
+        usage("m1", now - 60, 100), // the same message logged twice counts once
+        limit,
+    ]
+    .join("\n");
+    std::fs::write(proj.join("s.jsonl"), body + "\n").unwrap();
+
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let cfg = RemoteServerConfig {
+        host: "127.0.0.1".into(),
+        port,
+        username: std::env::var("USER").unwrap_or_else(|_| "root".into()),
+        private_key_pem: server.private_key.clone(),
+        pinned_host_key: None,
+    };
+    rt.block_on(async {
+        // Bad directories are refused before anything reaches the host.
+        assert!(fetch_host_usage(cfg.clone(), vec!["a\nb".into()])
+            .await
+            .is_err());
+        let r = fetch_host_usage(cfg.clone(), vec![]).await.unwrap();
+        assert!(!r.partial);
+        let by = |n: &str| r.sessions.iter().find(|s| s.session == n);
+        assert!(by(&plain).is_none(), "no model runs there: {r:?}");
+
+        let c = by(&claude).unwrap_or_else(|| panic!("claude session missing: {r:?}"));
+        assert_eq!(c.agent.as_deref(), Some("claude"));
+        assert_eq!(c.model.as_deref(), Some("claude-test"));
+        assert_eq!(c.context_used, Some(100 + 200 + 5000 + 150_000));
+        assert_eq!(c.context_limit, Some(200_000));
+        assert_eq!(c.limit_reset_epoch, Some(now + 3600));
+        assert!(c.limit_note.as_deref().unwrap().contains("limit reached"));
+
+        let o = by(&llm).unwrap_or_else(|| panic!("ollama session missing: {r:?}"));
+        assert_eq!(o.agent.as_deref(), Some("ollama"));
+        assert_eq!(o.model.as_deref(), Some("qwen2.5-coder"));
+
+        // 5 h window: only the recent message (duplicate dropped); 7 d: the old one too.
+        assert_eq!((r.five_hour.messages, r.five_hour.input), (1, 100));
+        assert_eq!(r.five_hour.cache_read, 150_000);
+        assert_eq!((r.week.messages, r.week.input), (2, 107));
+    });
 }
