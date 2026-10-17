@@ -66,40 +66,71 @@ public struct SettingsView: View {
     @State private var editingScheme: TerminalScheme?
     @State private var iconError: String?
 
+    private func setIcon(_ choice: AppIconChoice) {
+        Task {
+            iconError = await choice.apply()
+            iconChoice = AppIconChoice.current
+        }
+    }
+
+    @ViewBuilder
+    private func iconTile(design: AppIconChoice.Design, tint: AppIconChoice.Tint) -> some View {
+        let isLight = design == .light
+        RoundedRectangle(cornerRadius: 12)
+            .fill(isLight ? Color.white : Color.black)
+            .frame(width: 52, height: 52)
+            .overlay(
+                Group {
+                    if let preview = design.previewImage {
+                        Image(preview).resizable().scaledToFill().colorMultiply(tint.color).clipShape(RoundedRectangle(cornerRadius: 12))
+                    } else {
+                        RoundedRectangle(cornerRadius: 7).fill(isLight ? Color(white: 0.91) : Color(white: 0.09)).padding(9)
+                            .overlay(Image(systemName: "chevron.right").font(.system(size: 14, weight: .bold)).foregroundColor(isLight ? .black : tint.color))
+                    }
+                }
+            )
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.primary.opacity(0.25), lineWidth: 1))
+    }
+
     private var appearancePage: some View {
         Form {
             Section(header: Text("App icon"), footer: Text(iconError ?? "The icon on the home screen. iOS shows a confirmation when it changes. iOS only allows icons that ship inside the app, so your own picture can be used for tabs and profiles (Agent profiles → Icon), not for the home screen.")) {
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 5), spacing: 12) {
-                    ForEach(AppIconChoice.allCases) { choice in
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: 12) {
+                    ForEach(AppIconChoice.Design.allCases) { design in
+                        let selected = iconChoice.design == design
                         Button {
-                            Task {
-                                iconError = await choice.apply()
-                                iconChoice = AppIconChoice.current
-                            }
+                            var next = iconChoice
+                            next.design = design
+                            if !design.supportsTint { next.tint = .white }
+                            setIcon(next)
                         } label: {
                             VStack(spacing: 4) {
-                                RoundedRectangle(cornerRadius: 12)
-                                    .fill(choice.backdrop)
-                                    .frame(width: 52, height: 52)
-                                    .overlay(
-                                        Group {
-                                            if let preview = choice.previewImage {
-                                                Image(preview).resizable().scaledToFill().clipShape(RoundedRectangle(cornerRadius: 12))
-                                            } else {
-                                                RoundedRectangle(cornerRadius: 7).fill(choice.tile).padding(9)
-                                                    .overlay(Image(systemName: "chevron.right").font(.system(size: 14, weight: .bold)).foregroundColor(choice.glyph))
-                                            }
-                                        }
-                                    )
-                                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.primary.opacity(0.25), lineWidth: 1))
-                                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.appAccent, lineWidth: iconChoice == choice ? 3 : 0).padding(-3))
-                                Text(choice.title).font(.caption2).foregroundColor(.secondary)
+                                iconTile(design: design, tint: selected ? iconChoice.tint : .white)
+                                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.appAccent, lineWidth: selected ? 3 : 0).padding(-3))
+                                Text(design.title).font(.caption2).foregroundColor(.secondary)
                             }
                         }
                         .buttonStyle(.plain)
                     }
                 }
                 .padding(.vertical, 6)
+                if iconChoice.design.supportsTint {
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 8), spacing: 10) {
+                        ForEach(AppIconChoice.Tint.allCases) { tint in
+                            Button {
+                                var next = iconChoice
+                                next.tint = tint
+                                setIcon(next)
+                            } label: {
+                                Circle().fill(tint.color).frame(width: 26, height: 26)
+                                    .overlay(Circle().stroke(Color.primary.opacity(0.3), lineWidth: 1))
+                                    .overlay(Circle().stroke(Color.primary, lineWidth: iconChoice.tint == tint ? 2.5 : 0).padding(-3))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
             }
             Section(header: Text("Accent color"), footer: Text("Buttons, selected chips and links. Open sheets update when you reopen them.")) {
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: 14) {

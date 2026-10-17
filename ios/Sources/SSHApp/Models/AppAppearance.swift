@@ -58,47 +58,78 @@ extension Color {
 
 // MARK: - Home screen icon
 
-/// Alternate app icons (the asset sets `AppIcon-<Name>`); `nil` is the default white-on-black one.
-public enum AppIconChoice: String, CaseIterable, Identifiable {
-    case standard = "", blue = "Blue", teal = "Teal", green = "Green", orange = "Orange"
-    case red = "Red", pink = "Pink", purple = "Purple", light = "Light"
-    // Designs from docs/icons (3×3 grids).
-    case gridMinimal = "GridMinimal", gridPrompts = "GridPrompts", gridRounded = "GridRounded"
-    case gridSymbols = "GridSymbols", gridSymbolsBold = "GridSymbolsBold"
+/// The home screen icon: a design (classic, light, or one of the grid designs from docs/icons)
+/// plus an accent tint. Alternate asset sets are named `AppIcon-<Tint>` (classic),
+/// `AppIcon-Light`, `AppIcon-<Design>` (white) and `AppIcon-<Design>-<Tint>`.
+public struct AppIconChoice: Equatable {
+    public enum Design: String, CaseIterable, Identifiable {
+        case classic, gridMinimal = "GridMinimal", gridPrompts = "GridPrompts", gridRounded = "GridRounded"
+        case gridSymbols = "GridSymbols", gridSymbolsBold = "GridSymbolsBold", light = "Light"
 
-    public var id: String { rawValue }
-    public var title: String {
-        switch self {
-        case .standard: return "Classic"
-        case .gridMinimal: return "Grid minimal"
-        case .gridPrompts: return "Grid prompts"
-        case .gridRounded: return "Grid rounded"
-        case .gridSymbols: return "Grid symbols"
-        case .gridSymbolsBold: return "Grid bold"
-        default: return rawValue
+        public var id: String { rawValue }
+        public var title: String {
+            switch self {
+            case .classic: return "Classic"
+            case .gridMinimal: return "Grid minimal"
+            case .gridPrompts: return "Grid prompts"
+            case .gridRounded: return "Grid rounded"
+            case .gridSymbols: return "Grid symbols"
+            case .gridSymbolsBold: return "Grid bold"
+            case .light: return "Light"
+            }
+        }
+        /// Asset name of the picture shown in Settings for the grid designs.
+        public var previewImage: String? { rawValue.hasPrefix("Grid") ? "IconPreview-\(rawValue)" : nil }
+        public var supportsTint: Bool { self != .light }
+    }
+
+    public enum Tint: String, CaseIterable, Identifiable {
+        case white = "", blue = "Blue", teal = "Teal", green = "Green", orange = "Orange"
+        case red = "Red", pink = "Pink", purple = "Purple"
+
+        public var id: String { rawValue }
+        public var title: String { self == .white ? "White" : rawValue }
+        public var color: Color { self == .white ? .white : (AppAccent(rawValue: rawValue.lowercased())?.color ?? .white) }
+    }
+
+    public var design: Design
+    public var tint: Tint
+
+    public static let standard = AppIconChoice(design: .classic, tint: .white)
+
+    public var alternateName: String? {
+        switch design {
+        case .light: return "AppIcon-Light"
+        case .classic: return tint == .white ? nil : "AppIcon-\(tint.rawValue)"
+        default: return tint == .white ? "AppIcon-\(design.rawValue)" : "AppIcon-\(design.rawValue)-\(tint.rawValue)"
         }
     }
 
-    /// Asset name of the picture shown in Settings for the grid designs.
-    public var previewImage: String? { rawValue.hasPrefix("Grid") ? "IconPreview-\(rawValue)" : nil }
-    public var alternateName: String? { self == .standard ? nil : "AppIcon-\(rawValue)" }
-
-    /// Glyph color for the in-app preview tile.
-    public var glyph: Color {
-        switch self {
-        case .standard: return .white
-        case .light: return .black
-        default: return AppAccent(rawValue: rawValue.lowercased())?.color ?? .white
+    /// Every alternate icon name (for `ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES`).
+    public static var allAlternateNames: [String] {
+        var names: [String] = []
+        for d in Design.allCases {
+            for t in Tint.allCases where d.supportsTint || t == .white {
+                if let n = AppIconChoice(design: d, tint: t).alternateName { names.append(n) }
+            }
         }
+        return names
     }
-    public var tile: Color { self == .light ? Color(white: 0.91) : Color(white: 0.09) }
-    public var backdrop: Color { self == .light ? .white : .black }
+
+    public static func parse(alternateName: String?) -> AppIconChoice {
+        guard let raw = alternateName?.replacingOccurrences(of: "AppIcon-", with: ""), !raw.isEmpty else { return .standard }
+        if raw == "Light" { return AppIconChoice(design: .light, tint: .white) }
+        if let t = Tint(rawValue: raw), t != .white { return AppIconChoice(design: .classic, tint: t) }
+        let parts = raw.split(separator: "-", maxSplits: 1).map(String.init)
+        if let d = Design(rawValue: parts[0]) {
+            let t = parts.count > 1 ? (Tint(rawValue: parts[1]) ?? .white) : .white
+            return AppIconChoice(design: d, tint: t)
+        }
+        return .standard
+    }
 
     #if canImport(UIKit)
-    @MainActor public static var current: AppIconChoice {
-        let name = UIApplication.shared.alternateIconName?.replacingOccurrences(of: "AppIcon-", with: "") ?? ""
-        return AppIconChoice(rawValue: name) ?? .standard
-    }
+    @MainActor public static var current: AppIconChoice { parse(alternateName: UIApplication.shared.alternateIconName) }
 
     @MainActor public func apply() async -> String? {
         guard UIApplication.shared.supportsAlternateIcons else { return "This device does not support alternate icons." }

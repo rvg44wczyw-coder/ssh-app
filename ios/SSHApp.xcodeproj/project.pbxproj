@@ -363,7 +363,7 @@
 		11000003 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = "AppIcon-Blue AppIcon-Teal AppIcon-Green AppIcon-Orange AppIcon-Red AppIcon-Pink AppIcon-Purple AppIcon-Light AppIcon-GridMinimal AppIcon-GridPrompts AppIcon-GridRounded AppIcon-GridSymbols AppIcon-GridSymbolsBold";
+				ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = "AppIcon-Blue AppIcon-Teal AppIcon-Green AppIcon-Orange AppIcon-Red AppIcon-Pink AppIcon-Purple AppIcon-Light AppIcon-GridMinimal AppIcon-GridMinimal-Blue AppIcon-GridMinimal-Teal AppIcon-GridMinimal-Green AppIcon-GridMinimal-Orange AppIcon-GridMinimal-Red AppIcon-GridMinimal-Pink AppIcon-GridMinimal-Purple AppIcon-GridPrompts AppIcon-GridPrompts-Blue AppIcon-GridPrompts-Teal AppIcon-GridPrompts-Green AppIcon-GridPrompts-Orange AppIcon-GridPrompts-Red AppIcon-GridPrompts-Pink AppIcon-GridPrompts-Purple AppIcon-GridRounded AppIcon-GridRounded-Blue AppIcon-GridRounded-Teal AppIcon-GridRounded-Green AppIcon-GridRounded-Orange AppIcon-GridRounded-Red AppIcon-GridRounded-Pink AppIcon-GridRounded-Purple AppIcon-GridSymbols AppIcon-GridSymbols-Blue AppIcon-GridSymbols-Teal AppIcon-GridSymbols-Green AppIcon-GridSymbols-Orange AppIcon-GridSymbols-Red AppIcon-GridSymbols-Pink AppIcon-GridSymbols-Purple AppIcon-GridSymbolsBold AppIcon-GridSymbolsBold-Blue AppIcon-GridSymbolsBold-Teal AppIcon-GridSymbolsBold-Green AppIcon-GridSymbolsBold-Orange AppIcon-GridSymbolsBold-Red AppIcon-GridSymbolsBold-Pink AppIcon-GridSymbolsBold-Purple";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
@@ -394,7 +394,7 @@
 		11000004 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = "AppIcon-Blue AppIcon-Teal AppIcon-Green AppIcon-Orange AppIcon-Red AppIcon-Pink AppIcon-Purple AppIcon-Light AppIcon-GridMinimal AppIcon-GridPrompts AppIcon-GridRounded AppIcon-GridSymbols AppIcon-GridSymbolsBold";
+				ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = "AppIcon-Blue AppIcon-Teal AppIcon-Green AppIcon-Orange AppIcon-Red AppIcon-Pink AppIcon-Purple AppIcon-Light AppIcon-GridMinimal AppIcon-GridMinimal-Blue AppIcon-GridMinimal-Teal AppIcon-GridMinimal-Green AppIcon-GridMinimal-Orange AppIcon-GridMinimal-Red AppIcon-GridMinimal-Pink AppIcon-GridMinimal-Purple AppIcon-GridPrompts AppIcon-GridPrompts-Blue AppIcon-GridPrompts-Teal AppIcon-GridPrompts-Green AppIcon-GridPrompts-Orange AppIcon-GridPrompts-Red AppIcon-GridPrompts-Pink AppIcon-GridPrompts-Purple AppIcon-GridRounded AppIcon-GridRounded-Blue AppIcon-GridRounded-Teal AppIcon-GridRounded-Green AppIcon-GridRounded-Orange AppIcon-GridRounded-Red AppIcon-GridRounded-Pink AppIcon-GridRounded-Purple AppIcon-GridSymbols AppIcon-GridSymbols-Blue AppIcon-GridSymbols-Teal AppIcon-GridSymbols-Green AppIcon-GridSymbols-Orange AppIcon-GridSymbols-Red AppIcon-GridSymbols-Pink AppIcon-GridSymbols-Purple AppIcon-GridSymbolsBold AppIcon-GridSymbolsBold-Blue AppIcon-GridSymbolsBold-Teal AppIcon-GridSymbolsBold-Green AppIcon-GridSymbolsBold-Orange AppIcon-GridSymbolsBold-Red AppIcon-GridSymbolsBold-Pink AppIcon-GridSymbolsBold-Purple";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
