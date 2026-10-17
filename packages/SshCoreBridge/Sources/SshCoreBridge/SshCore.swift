@@ -1954,6 +1954,11 @@ public struct AgentLaunchProfile: Equatable, Hashable {
     public var args: [String]
     public var workingDir: String?
     /**
+     * Git branch to switch to (in the start directory) before the agent starts. A failed
+     * switch (no such branch, dirty tree) is reported in the tab and the agent still starts.
+     */
+    public var gitBranch: String?
+    /**
      * Start the agent through an interactive shell (`$SHELL -i -c`) so `~/.zshrc` (PATH from
      * nvm/npm/asdf, exports) is loaded. Login non-interactive shells do not read it.
      */
@@ -1962,6 +1967,10 @@ public struct AgentLaunchProfile: Equatable, Hashable {
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
     public init(id: String, name: String, agent: AgentKind, binary: String, env: [EnvVar], args: [String], workingDir: String?, 
+        /**
+         * Git branch to switch to (in the start directory) before the agent starts. A failed
+         * switch (no such branch, dirty tree) is reported in the tab and the agent still starts.
+         */gitBranch: String?, 
         /**
          * Start the agent through an interactive shell (`$SHELL -i -c`) so `~/.zshrc` (PATH from
          * nvm/npm/asdf, exports) is loaded. Login non-interactive shells do not read it.
@@ -1973,6 +1982,7 @@ public struct AgentLaunchProfile: Equatable, Hashable {
         self.env = env
         self.args = args
         self.workingDir = workingDir
+        self.gitBranch = gitBranch
         self.loadShellRc = loadShellRc
     }
 
@@ -1999,6 +2009,7 @@ public struct FfiConverterTypeAgentLaunchProfile: FfiConverterRustBuffer {
                 env: FfiConverterSequenceTypeEnvVar.read(from: &buf), 
                 args: FfiConverterSequenceString.read(from: &buf), 
                 workingDir: FfiConverterOptionString.read(from: &buf), 
+                gitBranch: FfiConverterOptionString.read(from: &buf), 
                 loadShellRc: FfiConverterBool.read(from: &buf)
         )
     }
@@ -2011,6 +2022,7 @@ public struct FfiConverterTypeAgentLaunchProfile: FfiConverterRustBuffer {
         FfiConverterSequenceTypeEnvVar.write(value.env, into: &buf)
         FfiConverterSequenceString.write(value.args, into: &buf)
         FfiConverterOptionString.write(value.workingDir, into: &buf)
+        FfiConverterOptionString.write(value.gitBranch, into: &buf)
         FfiConverterBool.write(value.loadShellRc, into: &buf)
     }
 }

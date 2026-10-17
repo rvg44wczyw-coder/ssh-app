@@ -75,6 +75,21 @@ public struct MainTerminalView: View {
                     onAddSession: {
                         handleAddNewSession()
                     },
+                    presets: agentProfiles.profiles.map { p in
+                        (id: p.id, title: p.name,
+                         detail: [p.workingDir, p.gitBranch.isEmpty ? "" : "⎇ " + p.gitBranch]
+                            .filter { !$0.isEmpty }.joined(separator: " "))
+                    },
+                    onLaunchPreset: { id in
+                        guard let profile = agentProfiles.profiles.first(where: { $0.id == id }),
+                              case .success(let cmd) = profile.launchCommand() else { return }
+                        let s = tabsManager.addAgentSession(
+                            profile: profile,
+                            command: cmd,
+                            serverId: tabsManager.activeSession?.serverId ?? serversManager.activeProfileId
+                        )
+                        ensureSessionStarted(for: s.id)
+                    },
                     onRename: { id, newTitle in
                         tabsManager.renameSession(id: id, newTitle: newTitle)
                     },

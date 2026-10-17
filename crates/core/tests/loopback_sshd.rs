@@ -482,6 +482,7 @@ fn launch_command_executes_with_literal_env_on_loopback_sshd() {
         }],
         args: vec![key.into()],
         working_dir: None,
+        git_branch: None,
         load_shell_rc: false,
     };
     rt.block_on(async {

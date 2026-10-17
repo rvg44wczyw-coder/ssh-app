@@ -11,6 +11,8 @@ public struct SavedAgentProfile: Identifiable, Codable, Equatable, Sendable {
     public var env: [String]
     public var args: [String]
     public var workingDir: String
+    /// Git branch switched to in `workingDir` before the agent starts (empty = leave as is).
+    public var gitBranch: String
     /// Start through an interactive shell so `~/.zshrc` (PATH, exports) is loaded on the host.
     public var loadShellRc: Bool
     /// Approval-hook preset: "phoneApproval" (default), "notifyOnly" or "custom".
@@ -23,7 +25,7 @@ public struct SavedAgentProfile: Identifiable, Codable, Equatable, Sendable {
     public var approvalEvents: [String]
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, agentRaw, binary, env, args, workingDir, loadShellRc
+        case id, name, agentRaw, binary, env, args, workingDir, gitBranch, loadShellRc
         case hookKindRaw, customHookCommand, customHookEvents, customHookMatcher
         case approvalMatcher, approvalEvents
     }
@@ -37,6 +39,7 @@ public struct SavedAgentProfile: Identifiable, Codable, Equatable, Sendable {
         env = try c.decode([String].self, forKey: .env)
         args = try c.decode([String].self, forKey: .args)
         workingDir = try c.decode(String.self, forKey: .workingDir)
+        gitBranch = try c.decodeIfPresent(String.self, forKey: .gitBranch) ?? ""
         // Profiles saved before this option existed keep their previous (login-shell) behavior.
         loadShellRc = try c.decodeIfPresent(Bool.self, forKey: .loadShellRc) ?? false
         hookKindRaw = try c.decodeIfPresent(String.self, forKey: .hookKindRaw) ?? "phoneApproval"
@@ -55,6 +58,7 @@ public struct SavedAgentProfile: Identifiable, Codable, Equatable, Sendable {
         env: [String] = [],
         args: [String] = [],
         workingDir: String = "",
+        gitBranch: String = "",
         loadShellRc: Bool = true
     ) {
         self.id = id
@@ -64,6 +68,7 @@ public struct SavedAgentProfile: Identifiable, Codable, Equatable, Sendable {
         self.env = env
         self.args = args
         self.workingDir = workingDir
+        self.gitBranch = gitBranch
         self.loadShellRc = loadShellRc
         self.hookKindRaw = "phoneApproval"
         self.customHookCommand = ""
@@ -105,6 +110,7 @@ public struct SavedAgentProfile: Identifiable, Codable, Equatable, Sendable {
             env: p.env.map { "\($0.key)=\($0.value)" },
             args: p.args,
             workingDir: p.workingDir ?? "",
+            gitBranch: p.gitBranch ?? "",
             loadShellRc: p.loadShellRc
         )
     }
@@ -132,6 +138,7 @@ public struct SavedAgentProfile: Identifiable, Codable, Equatable, Sendable {
             return EnvVar(key: String(line[..<eq]), value: String(line[line.index(after: eq)...]))
         }
         let dir = workingDir.trimmingCharacters(in: .whitespaces)
+        let branch = gitBranch.trimmingCharacters(in: .whitespaces)
         return AgentLaunchProfile(
             id: id,
             name: name,
@@ -140,6 +147,7 @@ public struct SavedAgentProfile: Identifiable, Codable, Equatable, Sendable {
             env: vars,
             args: args,
             workingDir: dir.isEmpty ? nil : dir,
+            gitBranch: branch.isEmpty ? nil : branch,
             loadShellRc: loadShellRc
         )
     }
@@ -202,6 +210,16 @@ public final class AgentProfilesManager: ObservableObject {
             profiles.append(profile)
         }
         save()
+    }
+
+    /// A copy of `profile` to adjust (another folder or config dir for the same agent).
+    @discardableResult
+    public func duplicate(_ profile: SavedAgentProfile) -> SavedAgentProfile {
+        var copy = profile
+        copy.id = UUID().uuidString
+        copy.name = profile.name + " copy"
+        upsert(copy)
+        return copy
     }
 
     public func delete(_ profile: SavedAgentProfile) {

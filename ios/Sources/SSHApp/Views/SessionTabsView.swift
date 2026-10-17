@@ -8,6 +8,9 @@ public struct SessionTabsView: View {
     public var serverNameProvider: ((TabSession) -> String?)? = nil
     public let onSelect: (UUID) -> Void
     public let onAddSession: () -> Void
+    /// Presets listed in the long-press menu of the + button (id, title, detail).
+    public var presets: [(id: String, title: String, detail: String)] = []
+    public var onLaunchPreset: ((String) -> Void)? = nil
     public let onRename: (UUID, String) -> Void
     public let onClose: (UUID) -> Void
 
@@ -22,6 +25,8 @@ public struct SessionTabsView: View {
         serverNameProvider: ((TabSession) -> String?)? = nil,
         onSelect: @escaping (UUID) -> Void,
         onAddSession: @escaping () -> Void,
+        presets: [(id: String, title: String, detail: String)] = [],
+        onLaunchPreset: ((String) -> Void)? = nil,
         onRename: @escaping (UUID, String) -> Void,
         onClose: @escaping (UUID) -> Void
     ) {
@@ -31,6 +36,8 @@ public struct SessionTabsView: View {
         self.serverNameProvider = serverNameProvider
         self.onSelect = onSelect
         self.onAddSession = onAddSession
+        self.presets = presets
+        self.onLaunchPreset = onLaunchPreset
         self.onRename = onRename
         self.onClose = onClose
     }
@@ -95,13 +102,22 @@ public struct SessionTabsView: View {
                 }
 
                 // Add new tab button
-                Button(action: onAddSession) {
+                Menu {
+                    ForEach(presets, id: \.id) { p in
+                        Button { onLaunchPreset?(p.id) } label: {
+                            Text(p.detail.isEmpty ? p.title : "\(p.title) — \(p.detail)")
+                        }
+                    }
+                    Button { onAddSession() } label: { Label("New tab", systemImage: "plus") }
+                } label: {
                     Image(systemName: "plus")
                         .font(.system(size: 10, weight: .bold))
                         .foregroundColor(.accentColor)
                         .padding(5)
                         .background(Color.appSecondaryBackground)
                         .clipShape(Circle())
+                } primaryAction: {
+                    onAddSession()
                 }
             }
             .padding(.horizontal, 8)

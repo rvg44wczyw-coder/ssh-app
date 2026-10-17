@@ -42,6 +42,9 @@ pub struct AgentLaunchProfile {
     pub env: Vec<EnvVar>,
     pub args: Vec<String>,
     pub working_dir: Option<String>,
+    /// Git branch to switch to (in the start directory) before the agent starts. A failed
+    /// switch (no such branch, dirty tree) is reported in the tab and the agent still starts.
+    pub git_branch: Option<String>,
     /// Start the agent through an interactive shell (`$SHELL -i -c`) so `~/.zshrc` (PATH from
     /// nvm/npm/asdf, exports) is loaded. Login non-interactive shells do not read it.
     pub load_shell_rc: bool,
@@ -77,6 +80,7 @@ pub fn default_launch_profiles() -> Vec<AgentLaunchProfile> {
         env: vec![],
         args: vec![],
         working_dir: None,
+        git_branch: None,
         load_shell_rc: true,
     };
     vec![
@@ -181,6 +185,32 @@ pub fn validate_launch_profile(profile: AgentLaunchProfile) -> Result<(), SshCor
             return Err(invalid("Working directory contains control characters"));
         }
     }
+    if let Some(b) = &profile.git_branch {
+        validate_git_branch(b)?;
+    }
+    Ok(())
+}
+
+/// A branch name that is safe to pass to `git switch` unquoted-by-meaning: no leading `-`, no
+/// `..`, only the characters git branches normally use.
+pub(crate) fn validate_git_branch(b: &str) -> Result<(), SshCoreError> {
+    let b = b.trim();
+    if b.is_empty() {
+        return Ok(());
+    }
+    if b.len() > 200
+        || b.starts_with('-')
+        || b.starts_with('/')
+        || b.ends_with('/')
+        || b.ends_with(".lock")
+        || b.contains("..")
+        || b.contains("//")
+        || !b
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '/' | '+' | '@'))
+    {
+        return Err(invalid(format!("Invalid git branch '{b}'")));
+    }
     Ok(())
 }
 
@@ -207,6 +237,18 @@ pub fn build_agent_launch_command(profile: AgentLaunchProfile) -> Result<String,
         .filter(|d| !d.trim().is_empty())
     {
         cmd.push_str(&format!("cd -- {} && ", remote_path_expr(dir.trim())));
+    }
+    if let Some(branch) = profile
+        .git_branch
+        .as_deref()
+        .map(str::trim)
+        .filter(|b| !b.is_empty())
+    {
+        // The name is validated (no leading `-`, restricted charset), so it cannot be an option.
+        let q = shell_quote(branch);
+        cmd.push_str(&format!(
+            "{{ git switch {q} || echo \"ssh-app: could not switch to branch \"{q}; }} && "
+        ));
     }
     let mut inner = String::from("env");
     for e in &profile.env {
@@ -290,6 +332,7 @@ mod tests {
                 .collect(),
             args: vec![],
             working_dir: None,
+            git_branch: None,
             load_shell_rc: false,
         }
     }
@@ -317,6 +360,22 @@ mod tests {
         let c = build_agent_launch_command(p).unwrap();
         assert!(c.starts_with("cd -- \"$HOME\"'/my proj' && env FOO='a'\\''; rm -rf ~ #'"));
         assert!(c.contains("'$(id) `id`'"));
+    }
+
+    #[test]
+    fn launch_command_switches_branch_after_cd() {
+        let mut p = profile(AgentKind::ClaudeCode, "claude", &[]);
+        p.working_dir = Some("~/app".into());
+        p.git_branch = Some("feature/x-1".into());
+        let c = build_agent_launch_command(p).unwrap();
+        assert!(c.starts_with(
+            "cd -- \"$HOME\"'/app' && { git switch 'feature/x-1' || echo \"ssh-app: could not switch to branch \"'feature/x-1'; } && env claude"
+        ));
+        for bad in ["-c", "a b", "x;rm", "a..b", "$(id)", "/x", "x/", "a.lock"] {
+            let mut p = profile(AgentKind::ClaudeCode, "claude", &[]);
+            p.git_branch = Some(bad.into());
+            assert!(validate_launch_profile(p).is_err(), "{bad}");
+        }
     }
 
     #[test]

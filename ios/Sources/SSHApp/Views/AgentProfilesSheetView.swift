@@ -76,6 +76,9 @@ public struct AgentProfilesSheetView: View {
                 AgentProfileEditorView(profile: profile, checkEnvironment: connected ? { binary in
                     guard let handle = viewModel.sessionHandle else { return nil }
                     return try? await handle.checkAgentEnvironment(binary: binary)
+                } : nil, listDirectory: connected ? { path, hidden in
+                    guard let handle = viewModel.sessionHandle else { throw SshCoreError.NotConnected }
+                    return try await handle.listRemoteDirectory(path: path, includeHidden: hidden)
                 } : nil) { saved in
                     manager.upsert(saved)
                     editing = nil
@@ -117,6 +120,14 @@ public struct AgentProfilesSheetView: View {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
             }
+            if !profile.workingDir.isEmpty || !profile.gitBranch.isEmpty {
+                Label(
+                    [profile.workingDir, profile.gitBranch.isEmpty ? nil : "⎇ " + profile.gitBranch]
+                        .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "  "),
+                    systemImage: "folder"
+                )
+                .font(.caption).foregroundColor(.secondary).lineLimit(1)
+            }
             Text(([profile.binary] + profile.env).joined(separator: "  "))
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundColor(.secondary)
@@ -131,6 +142,7 @@ public struct AgentProfilesSheetView: View {
         .swipeActions {
             Button(role: .destructive) { manager.delete(profile) } label: { Label("Delete", systemImage: "trash") }
             Button { editing = profile } label: { Label("Edit", systemImage: "pencil") }.tint(.blue)
+            Button { editing = manager.duplicate(profile) } label: { Label("Duplicate", systemImage: "plus.square.on.square") }.tint(.indigo)
         }
     }
 
@@ -194,17 +206,23 @@ struct AgentProfileEditorView: View {
     @State private var checking = false
     /// Probes the connected host; `nil` when there is no live session.
     var checkEnvironment: ((String) async -> AgentEnvCheck?)?
+    /// Lists a directory on the connected host (for the folder picker); `nil` without a session.
+    var listDirectory: ((String?, Bool) async throws -> RemoteDirectoryListing)?
+    @State private var pickingStart = false
+    @State private var pickingConfig = false
     var onSave: (SavedAgentProfile) -> Void
     var onCancel: () -> Void
 
     init(
         profile: SavedAgentProfile,
         checkEnvironment: ((String) async -> AgentEnvCheck?)? = nil,
+        listDirectory: ((String?, Bool) async throws -> RemoteDirectoryListing)? = nil,
         onSave: @escaping (SavedAgentProfile) -> Void,
         onCancel: @escaping () -> Void
     ) {
         _profile = State(initialValue: profile)
         self.checkEnvironment = checkEnvironment
+        self.listDirectory = listDirectory
         self.onSave = onSave
         self.onCancel = onCancel
     }
@@ -285,9 +303,17 @@ struct AgentProfileEditorView: View {
                 }
                 Section(
                     header: Text("Start directory"),
-                    footer: Text("The agent starts here in every new tab (e.g. ~/projects/app). Empty = the host's home folder. `~` is expanded on the host.")
+                    footer: Text("The agent starts here (e.g. ~/projects/app); empty = the host's home folder. Branch: `git switch` runs here first; if it fails the tab says so and the agent still starts. Make one profile per folder/branch (swipe → Duplicate).")
                 ) {
                     TextField("~/projects/app", text: $profile.workingDir)
+                        .autocorrectionDisabled()
+                        #if os(iOS)
+                        .textInputAutocapitalization(.never)
+                        #endif
+                    if listDirectory != nil {
+                        Button { pickingStart = true } label: { Label("Choose folder on host", systemImage: "folder") }
+                    }
+                    TextField("Git branch (optional)", text: $profile.gitBranch)
                         .autocorrectionDisabled()
                         #if os(iOS)
                         .textInputAutocapitalization(.never)
@@ -325,6 +351,9 @@ struct AgentProfileEditorView: View {
                             #if os(iOS)
                             .textInputAutocapitalization(.never)
                             #endif
+                        if listDirectory != nil {
+                            Button { pickingConfig = true } label: { Label("Choose folder on host", systemImage: "folder") }
+                        }
                     }
                 }
                 if supportsHooks {
@@ -417,6 +446,20 @@ struct AgentProfileEditorView: View {
                     Button("Save") { onSave(compiled()) }.disabled(validationError != nil)
                 }
             }
+            .sheet(isPresented: $pickingStart) {
+                if let list = listDirectory {
+                    RemoteDirectoryPickerView(title: "Start directory", showHidden: false, start: profile.workingDir, list: list) {
+                        profile.workingDir = $0
+                    }
+                }
+            }
+            .sheet(isPresented: $pickingConfig) {
+                if let list = listDirectory {
+                    RemoteDirectoryPickerView(title: "Config directory", showHidden: true, start: configDir, list: list) {
+                        configDir = $0
+                    }
+                }
+            }
             .onChange(of: profile.agent) { _, agent in
                 // Events differ per agent; drop ones the new agent does not have (they would be
                 // invisible in the toggle list yet still fail validation).
@@ -435,6 +478,97 @@ struct AgentProfileEditorView: View {
                 }
                 envText = env.joined(separator: "\n")
                 argsText = profile.args.joined(separator: "\n")
+            }
+        }
+    }
+}
+
+
+/// Folder chooser over the host's file listing (directories only). Paths under the host's home
+/// are returned as `~/...` so a profile keeps working if the home folder is renamed.
+struct RemoteDirectoryPickerView: View {
+    let title: String
+    @State var showHidden: Bool
+    let start: String
+    let list: (String?, Bool) async throws -> RemoteDirectoryListing
+    let onPick: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var listing: RemoteDirectoryListing?
+    @State private var home: String?
+    @State private var error: String?
+    @State private var loading = false
+
+    init(title: String, showHidden: Bool, start: String, list: @escaping (String?, Bool) async throws -> RemoteDirectoryListing, onPick: @escaping (String) -> Void) {
+        self.title = title
+        _showHidden = State(initialValue: showHidden)
+        self.start = start
+        self.list = list
+        self.onPick = onPick
+    }
+
+    private func shown(_ path: String) -> String {
+        if let h = home, path == h { return "~" }
+        if let h = home, path.hasPrefix(h + "/") { return "~" + path.dropFirst(h.count) }
+        return path
+    }
+
+    private func load(_ path: String?) async {
+        loading = true
+        error = nil
+        do {
+            listing = try await list(path, showHidden)
+        } catch {
+            self.error = error.localizedDescription
+        }
+        loading = false
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                if let l = listing {
+                    HStack {
+                        Text(shown(l.currentPath))
+                            .font(.system(size: 12, design: .monospaced)).lineLimit(1).truncationMode(.head)
+                        Spacer()
+                        Button("Use this folder") { onPick(shown(l.currentPath)); dismiss() }
+                            .font(.caption.bold()).buttonStyle(.borderedProminent).controlSize(.small)
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 8)
+                }
+                if let e = error { Text(e).font(.caption).foregroundColor(.red).padding(8) }
+                List {
+                    if let parent = listing?.parentPath {
+                        Button { Task { await load(parent) } } label: { Label("..", systemImage: "arrow.up.left") }
+                    }
+                    ForEach((listing?.entries ?? []).filter { $0.kind == .directory }, id: \.path) { entry in
+                        Button { Task { await load(entry.path) } } label: {
+                            Label(entry.name, systemImage: "folder.fill").font(.system(size: 14, design: .monospaced))
+                        }
+                    }
+                }
+                .listStyle(.plain)
+                .overlay { if loading { ProgressView() } }
+            }
+            .navigationTitle(title)
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItemGroup(placement: .primaryAction) {
+                    Button { Task { await load("~") } } label: { Image(systemName: "house") }
+                    Button { showHidden.toggle(); Task { await load(listing?.currentPath) } } label: {
+                        Image(systemName: showHidden ? "eye" : "eye.slash")
+                    }
+                }
+            }
+            .task {
+                if let h = try? await list("~", false) { home = h.currentPath }
+                let s = start.trimmingCharacters(in: .whitespaces)
+                await load(s.isEmpty ? "~" : s)
+                if error != nil { await load("~") }
             }
         }
     }
