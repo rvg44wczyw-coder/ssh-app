@@ -198,3 +198,15 @@ Antigravity adds a top-level `"ssh-app": { "PreToolUse": [{ "matcher": "run_comm
 | Timeout | default 600 s | default 5 s (we write 130) |
 
 Named tradeoffs: Grok cannot be approved from the phone, only denied; neither agent has been run live (sources: developers.openai.com/codex/hooks, docs.x.ai/build/features/hooks).
+
+## Addendum: presets, folders and several SSH keys
+
+- A profile is a full preset: agent, binary, config dir, start directory, optional git branch
+  (`git switch` runs in the start directory first; a failure is echoed in the tab and the agent
+  still starts). Any number of profiles per agent (swipe → Duplicate). Long-press `+` in the tab
+  bar lists them for one-tap launch.
+- Start and config directories can be chosen with a directory picker over the host's file listing
+  (paths under the host's home are stored as `~/...`).
+- SSH keys: the original key is the "Default key"; more keys are generated or imported in
+  Settings (unencrypted OpenSSH Ed25519, validated by the core) and stored in the Keychain under
+  their own account. A server profile picks its key (`ServerProfile.keyId`, `nil` = default).

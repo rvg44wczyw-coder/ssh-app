@@ -13,6 +13,8 @@ public struct AddEditServerSheetView: View {
     @State private var isDefault: Bool = false
     @State private var errorMessage: String? = nil
     @State private var forgetHostKey = false
+    @State private var keyId: String? = nil
+    @ObservedObject private var keys = SSHKeyStore.shared
 
     public init(
         existingProfile: ServerProfile? = nil,
@@ -25,6 +27,7 @@ public struct AddEditServerSheetView: View {
         _port = State(initialValue: Int(existingProfile?.port ?? 22))
         _username = State(initialValue: existingProfile?.username ?? "")
         _isDefault = State(initialValue: existingProfile?.isDefault ?? false)
+        _keyId = State(initialValue: existingProfile?.keyId)
     }
 
     public var body: some View {
@@ -67,6 +70,13 @@ public struct AddEditServerSheetView: View {
                         if !forgetHostKey {
                             Button("Forget pinned key", role: .destructive) { forgetHostKey = true }
                         }
+                    }
+                }
+
+                Section(header: Text("SSH key"), footer: Text("The key this server accepts. Add its public key to ~/.ssh/authorized_keys on that host. Manage keys in Settings.")) {
+                    Picker("Key", selection: $keyId) {
+                        Text("Default key").tag(String?.none)
+                        ForEach(keys.extra) { k in Text(k.name).tag(String?.some(k.id)) }
                     }
                 }
 
@@ -122,7 +132,8 @@ public struct AddEditServerSheetView: View {
             port: UInt16(clamping: port),
             username: trimmedUser,
             isDefault: isDefault,
-            hostKeyFingerprint: keptHostKey(host: trimmedHost)
+            hostKeyFingerprint: keptHostKey(host: trimmedHost),
+            keyId: keyId
         )
 
         onSave(profile)

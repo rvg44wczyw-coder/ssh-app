@@ -30,7 +30,8 @@ public final class ServerProfilesManager: ObservableObject {
         host: String,
         port: UInt16 = 22,
         username: String,
-        isDefault: Bool = false
+        isDefault: Bool = false,
+        keyId: String? = nil
     ) -> ServerProfile {
         var shouldBeDefault = isDefault || profiles.isEmpty
         if shouldBeDefault {
@@ -44,7 +45,8 @@ public final class ServerProfilesManager: ObservableObject {
             host: host.trimmingCharacters(in: .whitespacesAndNewlines),
             port: port,
             username: username.trimmingCharacters(in: .whitespacesAndNewlines),
-            isDefault: shouldBeDefault
+            isDefault: shouldBeDefault,
+            keyId: keyId
         )
 
         profiles.append(newProfile)

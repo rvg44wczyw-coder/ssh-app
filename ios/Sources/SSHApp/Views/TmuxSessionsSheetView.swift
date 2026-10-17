@@ -237,7 +237,7 @@ public struct TmuxSessionsSheetView: View {
                 Button("Cancel", role: .cancel) {}
                 Button("Stop & Remove", role: .destructive) {
                     if let server = currentServer,
-                       let key = KeychainManager.shared.getPrivateKey() {
+                       let key = KeychainManager.shared.getPrivateKey(id: server.keyId) {
                         viewModel.killSession(name: name, server: server, privateKey: key)
                     }
                 }
@@ -249,7 +249,7 @@ public struct TmuxSessionsSheetView: View {
 
     private func refreshSessions() {
         guard let server = currentServer,
-              let key = KeychainManager.shared.getPrivateKey(),
+              let key = KeychainManager.shared.getPrivateKey(id: server.keyId),
               !key.isEmpty else {
             return
         }

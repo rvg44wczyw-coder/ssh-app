@@ -161,6 +161,8 @@ public struct SettingsView: View {
                     }
                 }
 
+                additionalKeysSection
+
                 if let err = errorMessage {
                     Section {
                         Text(err)
@@ -183,7 +185,8 @@ public struct SettingsView: View {
                         host: newProfile.host,
                         port: newProfile.port,
                         username: newProfile.username,
-                        isDefault: newProfile.isDefault
+                        isDefault: newProfile.isDefault,
+                        keyId: newProfile.keyId
                     )
                 }
             }
@@ -205,6 +208,104 @@ public struct SettingsView: View {
             } message: {
                 Text("Warning: Regenerating will permanently replace your current SSH key. You will lose access to all remote servers until you update ~/.ssh/authorized_keys with the new key.")
             }
+        }
+    }
+
+    @ObservedObject private var keyStore = SSHKeyStore.shared
+    @State private var newKeyName = ""
+    @State private var importingKey = false
+    @State private var importText = ""
+    @State private var showKeyFileImporter = false
+    @State private var keyToDelete: SSHKeyInfo? = nil
+
+    private func usedBy(_ id: String) -> [String] {
+        serversManager.profiles.filter { $0.keyId == id }.map(\.name)
+    }
+
+    private var additionalKeysSection: some View {
+        Section(
+            header: Text("More SSH keys"),
+            footer: Text("Use a different key per server (pick it in the server's settings). Private keys stay in this device's Keychain; imported keys must be unencrypted OpenSSH Ed25519 (`-----BEGIN OPENSSH PRIVATE KEY-----`).")
+        ) {
+            ForEach(keyStore.extra) { k in
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(k.name).font(.headline)
+                    let used = usedBy(k.id)
+                    Text(used.isEmpty ? "Not used by any server" : "Used by: " + used.joined(separator: ", "))
+                        .font(.caption).foregroundColor(.secondary)
+                    if let pub = KeychainManager.shared.getOrDerivePublicKey(id: k.id) {
+                        Text(pub).font(.system(size: 10, design: .monospaced)).lineLimit(2).foregroundColor(.secondary)
+                        HStack(spacing: 16) {
+                            Button("Copy public key") {
+                                KeychainManager.shared.copyPublicKeyToClipboard(pub)
+                                showCopiedAlert = true
+                            }
+                            Button("Delete", role: .destructive) { keyToDelete = k }
+                        }
+                        .font(.caption).buttonStyle(.borderless)
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+            TextField("Name for a new key (e.g. work)", text: $newKeyName)
+                .autocorrectionDisabled()
+            Button {
+                do {
+                    try keyStore.generate(name: newKeyName)
+                    newKeyName = ""
+                    errorMessage = nil
+                } catch { errorMessage = "Failed to generate key: \(error.localizedDescription)" }
+            } label: { Label("Generate new key", systemImage: "key.fill") }
+            Button { importingKey = true } label: { Label("Import private key…", systemImage: "square.and.arrow.down") }
+        }
+        .sheet(isPresented: $importingKey) {
+            NavigationStack {
+                Form {
+                    Section(footer: Text("Paste the contents of an unencrypted OpenSSH private key (id_ed25519), or choose the file. The name above is used.")) {
+                        TextEditor(text: $importText)
+                            .font(.system(size: 11, design: .monospaced))
+                            .frame(minHeight: 160)
+                            .autocorrectionDisabled()
+                        Button("Choose file…") { showKeyFileImporter = true }
+                    }
+                }
+                .navigationTitle("Import key")
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) { Button("Cancel") { importingKey = false; importText = "" } }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Import") {
+                            do {
+                                try keyStore.importKey(name: newKeyName, privateKey: importText)
+                                newKeyName = ""; importText = ""; importingKey = false; errorMessage = nil
+                            } catch { errorMessage = "Import failed: \(error.localizedDescription)"; importingKey = false }
+                        }
+                        .disabled(importText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                }
+                .fileImporter(isPresented: $showKeyFileImporter, allowedContentTypes: [.data, .text, .plainText]) { result in
+                    guard case .success(let url) = result else { return }
+                    let scoped = url.startAccessingSecurityScopedResource()
+                    defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                    if let data = try? Data(contentsOf: url), data.count < 16_384, let text = String(data: data, encoding: .utf8) {
+                        importText = text
+                    } else {
+                        errorMessage = "That file is not a readable key (too large or not text)."
+                    }
+                }
+            }
+        }
+        .alert("Delete key?", isPresented: Binding(get: { keyToDelete != nil }, set: { if !$0 { keyToDelete = nil } })) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) {
+                if let k = keyToDelete {
+                    for s in serversManager.profiles where s.keyId == k.id {
+                        var u = s; u.keyId = nil; serversManager.updateProfile(u)
+                    }
+                    keyStore.delete(id: k.id)
+                }
+            }
+        } message: {
+            Text("The private key is removed from this device for good. Servers that used it fall back to the default key.")
         }
     }
 

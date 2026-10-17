@@ -96,7 +96,7 @@ public struct MainTerminalView: View {
                     onClose: { id in
                         let session = tabsManager.sessions.first(where: { $0.id == id })
                         let server = serversManager.profile(for: session?.serverId) ?? serversManager.activeProfile
-                        let privateKey = KeychainManager.shared.getPrivateKey()
+                        let privateKey = KeychainManager.shared.getPrivateKey(id: server?.keyId)
                         tabsManager.closeSession(id: id, server: server, privateKey: privateKey)
                     }
                 )
@@ -104,7 +104,7 @@ public struct MainTerminalView: View {
 
 
                 // Public key banner: hidden by default, toggled from the quick menu ("Public key")
-                if showPublicKeyBanner, let pubKey = activePublicKey ?? KeychainManager.shared.getOrDerivePublicKey(), !pubKey.isEmpty {
+                if showPublicKeyBanner, let pubKey = activePublicKey ?? KeychainManager.shared.getOrDerivePublicKey(id: activeKeyId), !pubKey.isEmpty {
                     HStack(spacing: 6) {
                         Image(systemName: "key.fill")
                             .font(.system(size: 10))
@@ -255,7 +255,7 @@ public struct MainTerminalView: View {
                 case .settings:
                     SettingsView(serversManager: serversManager)
                         .onDisappear {
-                            activePublicKey = KeychainManager.shared.getOrDerivePublicKey()
+                            activePublicKey = KeychainManager.shared.getOrDerivePublicKey(id: activeKeyId)
                             ensureSessionStarted(for: tabsManager.selectedSessionId)
                         }
                 case .tmuxSessions:
@@ -339,7 +339,7 @@ public struct MainTerminalView: View {
             }
             .animation(.easeOut(duration: 0.15), value: showServerPicker)
             .onAppear {
-                let pubKey = KeychainManager.shared.getOrDerivePublicKey()
+                let pubKey = KeychainManager.shared.getOrDerivePublicKey(id: activeKeyId)
                 activePublicKey = pubKey
                 print(">>> CURRENT_PUBLIC_KEY: \(pubKey ?? "NONE") <<<")
                 fflush(stdout)
@@ -367,7 +367,7 @@ public struct MainTerminalView: View {
             withAnimation {
                 showPublicKeyBanner.toggle()
                 if showPublicKeyBanner {
-                    activePublicKey = KeychainManager.shared.getOrDerivePublicKey()
+                    activePublicKey = KeychainManager.shared.getOrDerivePublicKey(id: activeKeyId)
                 }
             }
             return
@@ -442,6 +442,11 @@ public struct MainTerminalView: View {
         return tabsManager.addSession(serverId: serverId)
     }
 
+    /// Key of the server behind the visible tab (`nil` = the default key).
+    private var activeKeyId: String? {
+        (serversManager.profile(for: tabsManager.activeSession?.serverId) ?? serversManager.activeProfile)?.keyId
+    }
+
     private func handleAddNewSession() {
         let profiles = serversManager.profiles
         guard profiles.count >= 2 else {
@@ -485,7 +490,7 @@ public struct MainTerminalView: View {
             }
             return
         }
-        guard let privateKey = KeychainManager.shared.getPrivateKey(), !privateKey.isEmpty else {
+        guard let privateKey = KeychainManager.shared.getPrivateKey(id: s.keyId), !privateKey.isEmpty else {
             print("[MainView] No private key found in Keychain. Showing Settings.")
             if activeSheet == nil {
                 activeSheet = .settings

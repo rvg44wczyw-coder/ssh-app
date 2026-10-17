@@ -10,6 +10,8 @@ public struct ServerProfile: Identifiable, Codable, Equatable, Hashable, Sendabl
     /// SHA-256 fingerprint of the host key pinned on first connect (`SHA256:...`); a different key
     /// afterwards is refused by the core as a possible man-in-the-middle.
     public var hostKeyFingerprint: String?
+    /// Which SSH key signs in to this server (`SSHKeyStore`); `nil` = the default key.
+    public var keyId: String?
 
     public init(
         id: UUID = UUID(),
@@ -18,7 +20,8 @@ public struct ServerProfile: Identifiable, Codable, Equatable, Hashable, Sendabl
         port: UInt16 = 22,
         username: String,
         isDefault: Bool = false,
-        hostKeyFingerprint: String? = nil
+        hostKeyFingerprint: String? = nil,
+        keyId: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -27,5 +30,6 @@ public struct ServerProfile: Identifiable, Codable, Equatable, Hashable, Sendabl
         self.username = username
         self.isDefault = isDefault
         self.hostKeyFingerprint = hostKeyFingerprint
+        self.keyId = keyId
     }
 }
