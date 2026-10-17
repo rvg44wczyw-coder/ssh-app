@@ -80,7 +80,7 @@ pub struct SshSessionHandle {
     host_key: Arc<Mutex<Option<String>>>,
 }
 
-#[uniffi::export]
+#[uniffi::export(async_runtime = "tokio")]
 impl SshSessionHandle {
     #[uniffi::constructor]
     pub fn new(config: SessionConfig) -> Arc<Self> {
@@ -447,7 +447,7 @@ pub async fn execute_remote_command_internal(
     Ok(out?.text())
 }
 
-#[uniffi::export]
+#[uniffi::export(async_runtime = "tokio")]
 pub async fn execute_remote_command(
     config: RemoteServerConfig,
     command: String,
@@ -459,7 +459,7 @@ pub async fn execute_remote_command(
     })?
 }
 
-#[uniffi::export]
+#[uniffi::export(async_runtime = "tokio")]
 pub async fn list_remote_tmux_sessions(
     config: RemoteServerConfig,
 ) -> Result<Vec<TmuxSessionInfo>, SshCoreError> {
@@ -473,7 +473,7 @@ pub async fn list_remote_tmux_sessions(
     })?
 }
 
-#[uniffi::export]
+#[uniffi::export(async_runtime = "tokio")]
 pub async fn kill_remote_tmux_session(
     config: RemoteServerConfig,
     session_name: String,

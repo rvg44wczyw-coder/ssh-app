@@ -7,7 +7,7 @@ use crate::session::{read_ok, SshSessionHandle};
 use crate::transport::DEFAULT_EXEC_TIMEOUT;
 use std::time::Duration;
 
-#[uniffi::export]
+#[uniffi::export(async_runtime = "tokio")]
 impl SshSessionHandle {
     /// Queries Ollama running locally on the remote host (http://127.0.0.1:11434/api/generate)
     /// through the active SSH session and returns the generated command suggestion.
