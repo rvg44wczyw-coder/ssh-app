@@ -31,12 +31,46 @@ Files app ──► File Provider extension (SSHAppFiles, own process, ~50 MB li
 - Item identifiers are `server-id:` + base64url(absolute remote path); the root is `.rootContainer` = the server's
   start folder (`$HOME` unless a favourite is set). Path is re-validated on every call, never trusted from the system.
 
+## 2a. Review decisions (rev, 2026-10-17)
+1. **Not `SshSessionHandle`.** It starts a tmux PTY session on `connect` and its exec path (`exec_raw` → `ExecOutput.text()`) is
+   text-only and capped at `MAX_EXEC_OUTPUT`. Files need a new object `RemoteFsClient` (UniFFI) built on
+   `transport::connect_authenticated` + a new binary-safe streaming primitive (`exec_stream(command, sink)` /
+   `exec_with_stdin` for upload) with no tmux and no PTY. `SessionConfig` is not reused: `RemoteFsConfig {host, port, username,
+   private_key_pem, pinned_host_key: String (required)}`.
+2. **Replicated extension needs a working set.** Even read-only, `NSFileProviderReplicatedExtension` requires
+   `itemVersion`, a working-set enumerator and sync anchors. Design: `itemVersion = mtime_ns:size`; anchor = counter persisted
+   in the App Group per domain; `enumerateChanges` re-lists the folders the system has materialized/visited, diffs against a
+   small per-domain SQLite/JSON snapshot (path → version) and reports updates/deletes. "Anchor-less full set" is not allowed.
+3. **Item identifiers must survive rename.** Path-based ids break the contract on rename/move. Stage 1 (read-only, no local
+   rename) keeps `server:base64url(path)`; stage 2 must replace it by stable ids (`dev:inode` from `stat`) with a path table in the
+   snapshot, or stay with delete+create semantics - decision recorded before stage 2 starts.
+4. **Portable listing.** The host may be macOS (BSD `stat -f`) or Linux (GNU `stat -c`). The listing script detects `stat --version`
+   and uses the matching format with `find <dir> -mindepth 1 -maxdepth 1 -print0`-style NUL separation; tests feed both dialects.
+5. **Symlink race.** `realpath` then read is not atomic; the read command re-checks `[ -f ]` on the resolved path and the cap
+   is enforced by the receiver, not by trust. Residual TOCTOU is accepted (same host user could read the file anyway) and documented.
+6. **Blocklist is a safety net, not a boundary.** Credential stores outside the list (`.docker/config.json`, `.config/gh`,
+   shell history, browser profiles) stay reachable; the user owns the host, so this is a guard against accidental sharing from
+   the Files UI. Extended list: `.docker/config.json`, `.config/gh/hosts.yml`, `.zsh_history`, `.bash_history`, `.gnupg`, `Library/Keychains`.
+7. **Connection reuse.** Per-request connect over Tailscale is slow for folders with many requests. The extension keeps one
+   connection per domain for an idle window of 15 s, then closes it (still no persistent socket).
+8. **Keychain migration safety.** Order: add item to the shared group → read it back and compare → only then delete the
+   old item; if anything fails keep the old one and retry next launch. Never delete first.
+9. **Locked device.** Items are served only after first unlock (Keychain class). Optional per-server "Require Face ID/passcode
+   to open in Files" (LocalAuthentication in the extension) is a stage 3 item.
+10. **Errors.** `SshCoreError` gets `FileNotFound`, `NotARegularFile`, `TooLarge`, `Cancelled` variants (typed, mapped in §5).
+
+## 2b. Examples
+- Listing: `list_remote_entries("/Users/ivs/Terminals", false)` → `[RemoteEntry{name:"notes.md", kind:File, size:812, modified_unix:1760650000, ...}]`.
+- Download: `download_remote_file("/Users/ivs/Terminals/notes.md", "<extension tmp>/notes.md", 2 GiB, progress)` → `TransferResult{bytes:812}`;
+  a path under `/.ssh/` → `InvalidInput`; a 3 GiB file → `TooLarge` before any byte is written when `stat` size is known.
+- Item id: `server-7:L1VzZXJzL2l2cy9UZXJtaW5hbHM` ↔ `/Users/ivs/Terminals`.
+
 ## 3. Rust core contracts (new module `crates/core/src/remote_fs.rs`)
 ```rust
 pub struct RemoteEntry { pub path: String, pub name: String, pub kind: RemoteFileKind,
                          pub size: u64, pub modified_unix: i64, pub mode: u32, pub link_target: Option<String> }
 pub struct RemoteStat   { pub entry: RemoteEntry }
-// on SshSessionHandle (async, typed errors, no unwrap)
+// on the new RemoteFsClient (async, typed errors, no unwrap; see 2a.1)
 fn stat_remote(path) -> Result<RemoteEntry>;
 fn list_remote_entries(path, include_hidden) -> Result<Vec<RemoteEntry>>;           // stat-format, not `ls -la` parsing
 fn download_remote_file(path, dest_local_path, max_bytes: u64, progress: Arc<dyn TransferProgress>) -> Result<TransferResult>;
@@ -54,7 +88,7 @@ fn make_remote_dir(path) / rename_remote(from, to) / delete_remote(path, recursi
 - Same blocklist as the browser (`validate_remote_dir_path` / `validate_remote_file_read_path`: `.ssh`, `.aws`, `.gnupg`,
   `.kube`, private keys, `.env*`, `*.pem`, `*.key`, ...) applied to the **resolved** path (`pwd -P` / `realpath`) so a
   symlink cannot expose a blocked file. Blocked items are not listed; a direct request returns `NSFileProviderError.noSuchItem`
-  or `.notAuthenticated`-free `.serverUnreachable` is not used for policy errors.
+  (`.serverUnreachable` is never used for policy errors).
 - Size cap per download (default 2 GiB, setting), disk-space check before start, per-request timeout.
 
 ## 4. Shared data (app ↔ extension)
