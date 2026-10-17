@@ -284,6 +284,16 @@ struct AgentProfileEditorView: View {
                         #endif
                 }
                 Section(
+                    header: Text("Start directory"),
+                    footer: Text("The agent starts here in every new tab (e.g. ~/projects/app). Empty = the host's home folder. `~` is expanded on the host.")
+                ) {
+                    TextField("~/projects/app", text: $profile.workingDir)
+                        .autocorrectionDisabled()
+                        #if os(iOS)
+                        .textInputAutocapitalization(.never)
+                        #endif
+                }
+                Section(
                     header: Text("Host shell environment"),
                     footer: Text("Tabs start through a login shell that does not read ~/.zshrc. Enable this to load it (PATH from nvm/npm, exports) before the agent starts.")
                 ) {
@@ -309,7 +319,7 @@ struct AgentProfileEditorView: View {
                     }
                 }
                 if let key = configEnvName {
-                    Section(header: Text(key), footer: Text("Config directory on the host, e.g. ~/.claude-personal. Hooks are installed into this directory's settings.json.")) {
+                    Section(header: Text(key), footer: Text("Where this agent keeps its settings on the host, e.g. ~/.claude-personal. Empty = the agent's default (~/.claude). Hooks and Permissions are read from and written to this folder, and the agent is started with it. Restart the agent in open tabs after changing it.")) {
                         TextField("~/.claude", text: $configDir)
                             .autocorrectionDisabled()
                             #if os(iOS)
@@ -382,13 +392,6 @@ struct AgentProfileEditorView: View {
                 }
                 Section(header: Text("Arguments (one per line)")) {
                     TextEditor(text: $argsText).font(.system(size: 13, design: .monospaced)).frame(minHeight: 50)
-                }
-                Section("Working directory (optional)") {
-                    TextField("~/projects/app", text: $profile.workingDir)
-                        .autocorrectionDisabled()
-                        #if os(iOS)
-                        .textInputAutocapitalization(.never)
-                        #endif
                 }
                 if compiled().args.contains(where: { $0.contains("dangerously-skip-permissions") || $0.contains("bypass") || $0.contains("yolo") }) {
                     Section {
