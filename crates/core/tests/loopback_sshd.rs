@@ -2007,6 +2007,83 @@ fn session_permissions_report_reads_profile_and_project_rules_for_the_pane_folde
 }
 
 #[test]
+fn session_permissions_use_the_config_dir_of_the_claude_running_in_the_pane() {
+    let Some(server) = start_sshd() else {
+        eprintln!("SKIP: sshd/ssh-keygen/tmux unavailable");
+        return;
+    };
+    let root = tempfile::tempdir().unwrap();
+    let root_path = root.path().canonicalize().unwrap();
+    let cfg = root_path.join("claude-other");
+    std::fs::create_dir_all(&cfg).unwrap();
+    std::fs::write(
+        cfg.join("settings.json"),
+        r#"{"permissions":{"allow":["Bash(make:*)"],"deny":["Bash(cd *\n*)"]}}"#,
+    )
+    .unwrap();
+    // A stand-in process called `claude` (a tiny program that waits) started with its own config
+    // dir. It is compiled here: system binaries do not expose their environment to `ps`.
+    let fake = root_path.join("claude");
+    let src = root_path.join("claude.c");
+    std::fs::write(
+        &src,
+        "#include <unistd.h>\nint main(void){sleep(120);return 0;}\n",
+    )
+    .unwrap();
+    let compiled = Command::new("cc").arg(&src).arg("-o").arg(&fake).status();
+    if !matches!(compiled, Ok(s) if s.success()) {
+        eprintln!("SKIP: no C compiler");
+        return;
+    }
+    let handle = connect(&server);
+    handle
+        .send_input(
+            format!(
+                "env CLAUDE_CONFIG_DIR='{}' '{}' 120\r",
+                cfg.display(),
+                fake.display()
+            )
+            .into_bytes(),
+        )
+        .unwrap();
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let report = loop {
+        let r = rt
+            .block_on(handle.inspect_session_permissions(AgentKind::ClaudeCode, None))
+            .expect("inspect");
+        if r.detected_config_dir.is_some() {
+            break r;
+        }
+        assert!(Instant::now() < deadline, "config dir never detected");
+        std::thread::sleep(Duration::from_millis(200));
+    };
+    assert_eq!(
+        report
+            .detected_config_dir
+            .as_deref()
+            .map(std::path::Path::new),
+        Some(cfg.as_path())
+    );
+    // The profile's rules come from that folder, not from ~/.claude (a rule with a line break
+    // in the file is skipped by this read-only view).
+    assert_eq!(report.user.unwrap().allow, vec!["Bash(make:*)".to_string()]);
+    // The editor's checked read shows the bad rule instead of failing.
+    let checked =
+        rt.block_on(handle.read_agent_permissions_checked(
+            AgentKind::ClaudeCode,
+            Some(cfg.display().to_string()),
+        ))
+        .expect("checked read");
+    assert_eq!(checked.invalid.len(), 1);
+    assert_eq!(checked.invalid[0].rule, "Bash(cd *\\n*)");
+    handle.disconnect();
+}
+
+#[test]
 fn the_very_first_attach_already_disables_the_alternate_screen() {
     // Scrolling in the app relies on tmux not switching clients to the alternate screen
     // (`smcup@:rmcup@`). On a host whose tmux server is not running yet, the options used to be

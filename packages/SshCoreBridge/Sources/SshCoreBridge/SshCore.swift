@@ -1001,6 +1001,12 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func readAgentPermissions(agent: AgentKind, configDir: String?) async throws  -> AgentPermissions
     
     /**
+     * Like `read_agent_permissions`, but rules the editor cannot represent (e.g. a line break
+     * inside a rule) are returned separately instead of failing the read.
+     */
+    func readAgentPermissionsChecked(agent: AgentKind, configDir: String?) async throws  -> CheckedPermissions
+    
+    /**
      * Reads a preview of a remote file (up to `max_bytes`, capped at 128 KB), blocking sensitive credential files.
      */
     func readRemoteFilePreview(path: String, maxBytes: UInt32) async throws  -> RemoteFilePreview
@@ -1594,6 +1600,26 @@ open func readAgentPermissions(agent: AgentKind, configDir: String?)async throws
             completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
             freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
             liftFunc: FfiConverterTypeAgentPermissions_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Like `read_agent_permissions`, but rules the editor cannot represent (e.g. a line break
+     * inside a rule) are returned separately instead of failing the read.
+     */
+open func readAgentPermissionsChecked(agent: AgentKind, configDir: String?)async throws  -> CheckedPermissions  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_read_agent_permissions_checked(
+                        self.uniffiCloneHandle(),FfiConverterTypeAgentKind_lower(agent),FfiConverterOptionString.lower(configDir)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeCheckedPermissions_lift,
             errorHandler: FfiConverterTypeSshCoreError_lift
         )
 }
@@ -2668,6 +2694,64 @@ public func FfiConverterTypeChatMessage_lower(_ value: ChatMessage) -> RustBuffe
 }
 
 
+/**
+ * The valid rules of the file plus the ones the editor cannot represent. Applying the editor
+ * drops the invalid ones, so the caller must show them and ask first.
+ */
+public struct CheckedPermissions: Equatable, Hashable {
+    public var permissions: AgentPermissions
+    public var invalid: [InvalidPermissionRule]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(permissions: AgentPermissions, invalid: [InvalidPermissionRule]) {
+        self.permissions = permissions
+        self.invalid = invalid
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension CheckedPermissions: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCheckedPermissions: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CheckedPermissions {
+        return
+            try CheckedPermissions(
+                permissions: FfiConverterTypeAgentPermissions.read(from: &buf), 
+                invalid: FfiConverterSequenceTypeInvalidPermissionRule.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: CheckedPermissions, into buf: inout [UInt8]) {
+        FfiConverterTypeAgentPermissions.write(value.permissions, into: &buf)
+        FfiConverterSequenceTypeInvalidPermissionRule.write(value.invalid, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCheckedPermissions_lift(_ buf: RustBuffer) throws -> CheckedPermissions {
+    return try FfiConverterTypeCheckedPermissions.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCheckedPermissions_lower(_ value: CheckedPermissions) -> RustBuffer {
+    return FfiConverterTypeCheckedPermissions.lower(value)
+}
+
+
 public struct EnvVar: Equatable, Hashable {
     public var key: String
     public var value: String
@@ -3150,6 +3234,67 @@ public func FfiConverterTypeHostUsageReport_lift(_ buf: RustBuffer) throws -> Ho
 #endif
 public func FfiConverterTypeHostUsageReport_lower(_ value: HostUsageReport) -> RustBuffer {
     return FfiConverterTypeHostUsageReport.lower(value)
+}
+
+
+/**
+ * A rule found in the file that cannot be written back (shown escaped so a newline is visible).
+ */
+public struct InvalidPermissionRule: Equatable, Hashable {
+    public var list: String
+    public var rule: String
+    public var reason: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(list: String, rule: String, reason: String) {
+        self.list = list
+        self.rule = rule
+        self.reason = reason
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension InvalidPermissionRule: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeInvalidPermissionRule: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> InvalidPermissionRule {
+        return
+            try InvalidPermissionRule(
+                list: FfiConverterString.read(from: &buf), 
+                rule: FfiConverterString.read(from: &buf), 
+                reason: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: InvalidPermissionRule, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.list, into: &buf)
+        FfiConverterString.write(value.rule, into: &buf)
+        FfiConverterString.write(value.reason, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeInvalidPermissionRule_lift(_ buf: RustBuffer) throws -> InvalidPermissionRule {
+    return try FfiConverterTypeInvalidPermissionRule.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeInvalidPermissionRule_lower(_ value: InvalidPermissionRule) -> RustBuffer {
+    return FfiConverterTypeInvalidPermissionRule.lower(value)
 }
 
 
@@ -4194,6 +4339,10 @@ public struct SessionPermissionsReport: Equatable, Hashable {
      * The session's working folder (tmux pane), if the session exists.
      */
     public var directory: String?
+    /**
+     * `CLAUDE_CONFIG_DIR` of the Claude process running in this session, when it has one.
+     */
+    public var detectedConfigDir: String?
     public var user: AgentPermissions?
     public var projectShared: AgentPermissions?
     public var projectLocal: AgentPermissions?
@@ -4204,8 +4353,12 @@ public struct SessionPermissionsReport: Equatable, Hashable {
     public init(
         /**
          * The session's working folder (tmux pane), if the session exists.
-         */directory: String?, user: AgentPermissions?, projectShared: AgentPermissions?, projectLocal: AgentPermissions?, suggestions: [PermissionSuggestion]) {
+         */directory: String?, 
+        /**
+         * `CLAUDE_CONFIG_DIR` of the Claude process running in this session, when it has one.
+         */detectedConfigDir: String?, user: AgentPermissions?, projectShared: AgentPermissions?, projectLocal: AgentPermissions?, suggestions: [PermissionSuggestion]) {
         self.directory = directory
+        self.detectedConfigDir = detectedConfigDir
         self.user = user
         self.projectShared = projectShared
         self.projectLocal = projectLocal
@@ -4229,6 +4382,7 @@ public struct FfiConverterTypeSessionPermissionsReport: FfiConverterRustBuffer {
         return
             try SessionPermissionsReport(
                 directory: FfiConverterOptionString.read(from: &buf), 
+                detectedConfigDir: FfiConverterOptionString.read(from: &buf), 
                 user: FfiConverterOptionTypeAgentPermissions.read(from: &buf), 
                 projectShared: FfiConverterOptionTypeAgentPermissions.read(from: &buf), 
                 projectLocal: FfiConverterOptionTypeAgentPermissions.read(from: &buf), 
@@ -4238,6 +4392,7 @@ public struct FfiConverterTypeSessionPermissionsReport: FfiConverterRustBuffer {
 
     public static func write(_ value: SessionPermissionsReport, into buf: inout [UInt8]) {
         FfiConverterOptionString.write(value.directory, into: &buf)
+        FfiConverterOptionString.write(value.detectedConfigDir, into: &buf)
         FfiConverterOptionTypeAgentPermissions.write(value.user, into: &buf)
         FfiConverterOptionTypeAgentPermissions.write(value.projectShared, into: &buf)
         FfiConverterOptionTypeAgentPermissions.write(value.projectLocal, into: &buf)
@@ -6609,6 +6764,31 @@ fileprivate struct FfiConverterSequenceTypeFuzzyMatchResult: FfiConverterRustBuf
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeInvalidPermissionRule: FfiConverterRustBuffer {
+    typealias SwiftType = [InvalidPermissionRule]
+
+    public static func write(_ value: [InvalidPermissionRule], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeInvalidPermissionRule.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [InvalidPermissionRule] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [InvalidPermissionRule]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeInvalidPermissionRule.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypePendingApproval: FfiConverterRustBuffer {
     typealias SwiftType = [PendingApproval]
 
@@ -7428,6 +7608,19 @@ public func permissionsFromSettings(agent: AgentKind, configJson: String)throws 
 })
 }
 /**
+ * Like `permissions_from_settings`, but a rule that is not valid is reported instead of failing
+ * the whole read, so a file with one bad entry can still be opened and repaired.
+ */
+public func permissionsFromSettingsChecked(agent: AgentKind, configJson: String)throws  -> CheckedPermissions  {
+    return try  FfiConverterTypeCheckedPermissions_lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_permissions_from_settings_checked(
+        FfiConverterTypeAgentKind_lower(agent),
+        FfiConverterString.lower(configJson),uniffiCallStatus
+    )
+})
+}
+/**
  * Only the `permissions` object, pretty-printed, so the preview never shows `env` or API keys.
  */
 public func permissionsSectionOf(agent: AgentKind, configJson: String)throws  -> String  {
@@ -7784,6 +7977,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_func_permissions_from_settings() != 3226) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_func_permissions_from_settings_checked() != 893) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_func_permissions_section_of() != 33011) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -7920,6 +8116,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_read_agent_permissions() != 20889) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_read_agent_permissions_checked() != 6139) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_read_remote_file_preview() != 57830) {

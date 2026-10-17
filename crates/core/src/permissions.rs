@@ -535,6 +535,8 @@ pub fn suggest_permission_changes(
 pub struct SessionPermissionsReport {
     /// The session's working folder (tmux pane), if the session exists.
     pub directory: Option<String>,
+    /// `CLAUDE_CONFIG_DIR` of the Claude process running in this session, when it has one.
+    pub detected_config_dir: Option<String>,
     pub user: Option<AgentPermissions>,
     pub project_shared: Option<AgentPermissions>,
     pub project_local: Option<AgentPermissions>,
@@ -545,14 +547,34 @@ const INSPECT_FILE_CAP: usize = 200_000;
 
 /// One exec that prints the pane's folder and the three settings files between markers. The
 /// folder is only used when it has no control characters; files are read, never written.
-pub(crate) fn build_inspect_permissions_command(session: &str, user_file_expr: &str) -> String {
+pub(crate) fn build_inspect_permissions_command(
+    session: &str,
+    user_file_expr: Option<&str>,
+) -> String {
     let sess = crate::tmux::shell_quote(&format!("={session}:"));
+    // Without an explicit profile folder, the running Claude's own CLAUDE_CONFIG_DIR is used
+    // (read from the environment of its process in this pane), else the default ~/.claude.
+    let user_file = match user_file_expr {
+        Some(expr) => format!("uf={expr}"),
+        None => "uf=\"${cfg:-$HOME/.claude}/settings.json\"".to_string(),
+    };
     format!(
         "PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\"; export PATH; \
          p=$(tmux display-message -p -t {sess} '#{{pane_current_path}}' 2>/dev/null); \
          case \"$p\" in *[![:print:]]*) p='';; esac; \
-         printf '===DIR===\\n%s\\n===USER===\\n' \"$p\"; \
-         head -c {INSPECT_FILE_CAP} {user_file_expr} 2>/dev/null; \
+         cfg=''; pp=$(tmux display-message -p -t {sess} '#{{pane_pid}}' 2>/dev/null); \
+         if [ -n \"$pp\" ]; then \
+           for pid in $(ps -Ao pid=,ppid= | awk -v root=\"$pp\" '{{par[$1]=$2}} END{{for(x in par){{q=x;n=0;while((q in par)&&q!=root&&n<50){{q=par[q];n++}} if(q==root)print x}}}}'); do \
+             c=$(ps -p \"$pid\" -o comm= 2>/dev/null); \
+             case \"${{c##*/}}\" in claude*) ;; *) continue;; esac; \
+             v=$(ps eww -p \"$pid\" -o command= 2>/dev/null | tr ' ' '\\n' | sed -n 's/^CLAUDE_CONFIG_DIR=//p' | head -n 1); \
+             if [ -n \"$v\" ]; then cfg=$v; break; fi; \
+           done; \
+         fi; \
+         case \"$cfg\" in *[![:print:]]*) cfg='';; esac; \
+         {user_file}; \
+         printf '===DIR===\\n%s\\n===CFG===\\n%s\\n===USER===\\n' \"$p\" \"$cfg\"; \
+         head -c {INSPECT_FILE_CAP} \"$uf\" 2>/dev/null; \
          printf '\\n===SHARED===\\n'; \
          if [ -n \"$p\" ]; then head -c {INSPECT_FILE_CAP} \"$p/.claude/settings.json\" 2>/dev/null; fi; \
          printf '\\n===LOCAL===\\n'; \
@@ -575,7 +597,8 @@ pub(crate) fn parse_inspect_permissions_output(out: &str) -> SessionPermissionsR
             .unwrap_or(rest.len());
         rest[..end].trim().to_string()
     };
-    let dir = section("DIR", "USER");
+    let dir = section("DIR", "CFG");
+    let cfg = section("CFG", "USER");
     let user = lenient_permissions(&section("USER", "SHARED"));
     let shared = lenient_permissions(&section("SHARED", "LOCAL"));
     let local = lenient_permissions(&section("LOCAL", "END"));
@@ -583,6 +606,9 @@ pub(crate) fn parse_inspect_permissions_output(out: &str) -> SessionPermissionsR
     let context: Vec<AgentPermissions> = shared.iter().chain(local.iter()).cloned().collect();
     SessionPermissionsReport {
         directory: Some(dir).filter(|d| !d.is_empty() && !d.chars().any(char::is_control)),
+        detected_config_dir: Some(cfg).filter(|d| {
+            !d.is_empty() && d.chars().count() <= 300 && !d.chars().any(char::is_control)
+        }),
         suggestions: suggest_permission_changes(current, context),
         user,
         project_shared: shared,
@@ -610,6 +636,101 @@ fn list_from(map: &Map<String, Value>, list: &str) -> Result<Vec<String>, SshCor
         validate_rule(list, r)?;
     }
     Ok(raw.into_iter().map(|r| r.trim().to_string()).collect())
+}
+
+/// A rule found in the file that cannot be written back (shown escaped so a newline is visible).
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct InvalidPermissionRule {
+    pub list: String,
+    pub rule: String,
+    pub reason: String,
+}
+
+/// The valid rules of the file plus the ones the editor cannot represent. Applying the editor
+/// drops the invalid ones, so the caller must show them and ask first.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct CheckedPermissions {
+    pub permissions: AgentPermissions,
+    pub invalid: Vec<InvalidPermissionRule>,
+}
+
+fn escaped(rule: &str) -> String {
+    let mut out = String::new();
+    for c in rule.chars().take(200) {
+        match c {
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if c.is_control() => out.push_str(&format!("\\u{{{:04x}}}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    crate::approval_queue::display_safe(&out)
+}
+
+/// Like `permissions_from_settings`, but a rule that is not valid is reported instead of failing
+/// the whole read, so a file with one bad entry can still be opened and repaired.
+#[uniffi::export]
+pub fn permissions_from_settings_checked(
+    agent: AgentKind,
+    config_json: String,
+) -> Result<CheckedPermissions, SshCoreError> {
+    require_claude(agent)?;
+    let root = parse_object(&config_json)?;
+    let Some(p) = root.get("permissions") else {
+        return Ok(CheckedPermissions {
+            permissions: AgentPermissions::default(),
+            invalid: vec![],
+        });
+    };
+    let map = p
+        .as_object()
+        .ok_or_else(|| invalid("`permissions` is not an object; refusing to read it"))?;
+    let default_mode = match map.get("defaultMode") {
+        None => None,
+        Some(Value::String(m)) => Some(validate_mode(m)?),
+        Some(_) => return Err(invalid("permissions.defaultMode is not a string")),
+    };
+    let mut bad = vec![];
+    let mut lists: Vec<Vec<String>> = vec![];
+    for list in ["allow", "ask", "deny"] {
+        let mut good = vec![];
+        if let Some(v) = map.get(list) {
+            let arr = v
+                .as_array()
+                .ok_or_else(|| invalid(format!("permissions.{list} is not an array")))?;
+            for item in arr {
+                let r = item.as_str().ok_or_else(|| {
+                    invalid(format!("permissions.{list} contains a non-string entry"))
+                })?;
+                match validate_rule(list, r) {
+                    Ok(_) => good.push(r.trim().to_string()),
+                    Err(_) => bad.push(InvalidPermissionRule {
+                        list: list.to_string(),
+                        rule: escaped(r),
+                        reason: if r.chars().any(char::is_control) {
+                            "contains control characters (for example a line break)".into()
+                        } else {
+                            "not a valid rule".into()
+                        },
+                    }),
+                }
+            }
+        }
+        lists.push(good);
+    }
+    let deny = lists.pop().unwrap_or_default();
+    let ask = lists.pop().unwrap_or_default();
+    let allow = lists.pop().unwrap_or_default();
+    Ok(CheckedPermissions {
+        permissions: AgentPermissions {
+            allow,
+            ask,
+            deny,
+            default_mode,
+        },
+        invalid: bad,
+    })
 }
 
 /// Reads the four permission fields. Unparsable JSON, duplicate keys, wrong types and invalid
@@ -1016,9 +1137,13 @@ mod tests {
 
     #[test]
     fn inspect_output_is_split_into_the_report() {
-        let out = "===DIR===\n/work/app\n===USER===\n{\"permissions\":{\"allow\":[\"Read\"],\"defaultMode\":\"plan\"}}\n===SHARED===\n\n===LOCAL===\n{\"permissions\":{\"allow\":[\"Bash(ls:*)\"]}}\n===END===\n";
+        let out = "===DIR===\n/work/app\n===CFG===\n/home/u/.claude-work\n===USER===\n{\"permissions\":{\"allow\":[\"Read\"],\"defaultMode\":\"plan\"}}\n===SHARED===\n\n===LOCAL===\n{\"permissions\":{\"allow\":[\"Bash(ls:*)\"]}}\n===END===\n";
         let r = parse_inspect_permissions_output(out);
         assert_eq!(r.directory.as_deref(), Some("/work/app"));
+        assert_eq!(
+            r.detected_config_dir.as_deref(),
+            Some("/home/u/.claude-work")
+        );
         assert_eq!(
             r.user.as_ref().unwrap().default_mode.as_deref(),
             Some("plan")
@@ -1032,5 +1157,22 @@ mod tests {
         // Nothing found at all still yields a report (no folder, no files).
         let empty = parse_inspect_permissions_output("");
         assert!(empty.directory.is_none() && empty.user.is_none());
+    }
+
+    #[test]
+    fn checked_read_reports_a_bad_rule_instead_of_failing() {
+        let json =
+            "{\"permissions\":{\"allow\":[\"Read\"],\"deny\":[\"Bash(cd *\\n*)\",\"Bash(rm:*)\"]}}";
+        assert!(permissions_from_settings(C, json.into()).is_err());
+        let r = permissions_from_settings_checked(C, json.into()).unwrap();
+        assert_eq!(r.permissions.allow, vec!["Read".to_string()]);
+        assert_eq!(r.permissions.deny, vec!["Bash(rm:*)".to_string()]);
+        assert_eq!(r.invalid.len(), 1);
+        assert_eq!(r.invalid[0].list, "deny");
+        assert_eq!(r.invalid[0].rule, "Bash(cd *\\n*)");
+        // Real structural problems are still errors.
+        assert!(
+            permissions_from_settings_checked(C, "{\"permissions\":{\"allow\":5}}".into()).is_err()
+        );
     }
 }

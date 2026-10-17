@@ -291,7 +291,16 @@ impl SshSessionHandle {
         agent: crate::agents::AgentKind,
         config_dir: Option<String>,
     ) -> Result<crate::permissions::SessionPermissionsReport, SshCoreError> {
-        let config_path = crate::agents::agent_hooks_config_path(agent, config_dir)?;
+        let explicit = config_dir
+            .as_deref()
+            .map(str::trim)
+            .is_some_and(|d| !d.is_empty());
+        let file_expr = if agent == crate::agents::AgentKind::ClaudeCode && !explicit {
+            None
+        } else {
+            let path = crate::agents::agent_hooks_config_path(agent, config_dir)?;
+            Some(crate::agents::remote_path_expr(&path))
+        };
         let session = self
             .config
             .read()
@@ -301,12 +310,22 @@ impl SshSessionHandle {
             .session_name
             .clone();
         crate::tmux::validate_session_name(&session)?;
-        let cmd = crate::permissions::build_inspect_permissions_command(
-            &session,
-            &crate::agents::remote_path_expr(&config_path),
-        );
+        let cmd =
+            crate::permissions::build_inspect_permissions_command(&session, file_expr.as_deref());
         let out = self.execute_command_on_active_session(cmd).await?;
         Ok(crate::permissions::parse_inspect_permissions_output(&out))
+    }
+
+    /// Like `read_agent_permissions`, but rules the editor cannot represent (e.g. a line break
+    /// inside a rule) are returned separately instead of failing the read.
+    pub async fn read_agent_permissions_checked(
+        &self,
+        agent: crate::agents::AgentKind,
+        config_dir: Option<String>,
+    ) -> Result<crate::permissions::CheckedPermissions, SshCoreError> {
+        let config_path = crate::agents::agent_hooks_config_path(agent, config_dir)?;
+        let existing = self.read_remote_config(&config_path).await?;
+        crate::permissions::permissions_from_settings_checked(agent, existing)
     }
 
     /// Dry run: only the resulting `permissions` object, never other settings (they may hold keys).

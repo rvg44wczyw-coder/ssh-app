@@ -41,6 +41,17 @@ struct SessionPermissionsSheetView: View {
         }
     }
 
+    /// For the editor: a profile without its own config folder uses the folder of the Claude
+    /// that is actually running in this tab (its CLAUDE_CONFIG_DIR), when it was found.
+    private var editorProfile: SavedAgentProfile? {
+        guard var p = effectiveProfile else { return nil }
+        if p.configDir == nil, let dir = report?.detectedConfigDir {
+            p.env.removeAll { $0.hasPrefix("CLAUDE_CONFIG_DIR=") }
+            p.env.append("CLAUDE_CONFIG_DIR=\(dir)")
+        }
+        return p
+    }
+
     var body: some View {
         NavigationStack {
             List {
@@ -51,6 +62,12 @@ struct SessionPermissionsSheetView: View {
                     LabeledContent("Tab", value: tab.title)
                     LabeledContent("tmux", value: tab.sessionName)
                     LabeledContent("Agent", value: effectiveProfile.map { $0.name } ?? tab.agentType.rawValue)
+                    if let cfg = report?.detectedConfigDir ?? effectiveProfile?.configDir {
+                        LabeledContent("Config folder") {
+                            Text(verbatim: cfg).font(.system(size: 12, design: .monospaced))
+                                .multilineTextAlignment(.trailing)
+                        }
+                    }
                     if let dir = report?.directory {
                         LabeledContent("Folder") {
                             Text(verbatim: dir).font(.system(size: 12, design: .monospaced))
@@ -80,7 +97,7 @@ struct SessionPermissionsSheetView: View {
             }
             .task { await load() }
             .sheet(item: $editor) { target in
-                if let p = effectiveProfile {
+                if let p = editorProfile {
                     PermissionsEditorSheetView(
                         profile: p,
                         handle: handle,

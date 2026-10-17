@@ -24,6 +24,8 @@ struct PermissionsEditorSheetView: View {
     @State private var confirmBypass = false
     @State private var pendingMode = ""
     @State private var applied = false
+    @State private var invalidRules: [InvalidPermissionRule] = []
+    @State private var confirmDropInvalid = false
 
     private static let modes = ["", "default", "acceptEdits", "plan", "bypassPermissions"]
 
@@ -50,6 +52,19 @@ struct PermissionsEditorSheetView: View {
                     if profile.configDir == nil {
                         Label("This profile has no config directory, so these rules go into the default Claude config (~/.claude). If that is a different account (e.g. work), close this screen and set the profile's config directory first.", systemImage: "exclamationmark.triangle.fill")
                             .font(.caption).foregroundColor(.orange)
+                    }
+                }
+                if !invalidRules.isEmpty {
+                    Section(
+                        header: Text("Rules the editor cannot keep"),
+                        footer: Text("These entries in the file are not valid rules (shown with escapes). Apply removes them from the file; everything else is kept.")
+                    ) {
+                        ForEach(Array(invalidRules.enumerated()), id: \.offset) { _, r in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(verbatim: r.rule).font(.system(size: 12, design: .monospaced)).foregroundColor(.orange)
+                                Text(verbatim: "\(r.list) · \(r.reason)").font(.caption2).foregroundColor(.secondary)
+                            }
+                        }
                     }
                 }
                 if handle == nil {
@@ -115,7 +130,9 @@ struct PermissionsEditorSheetView: View {
                             ProgressView()
                         } else {
                             Button("Preview") { Task { await runPreview() } }
-                            Button(applied ? "Applied" : "Apply to host") { Task { await apply() } }
+                            Button(applied ? "Applied" : "Apply to host") {
+                                if invalidRules.isEmpty { Task { await apply() } } else { confirmDropInvalid = true }
+                            }
                                 .disabled(preview == nil || applied)
                         }
                     }
@@ -131,6 +148,12 @@ struct PermissionsEditorSheetView: View {
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text("The agent stops asking, so nothing is sent to your phone and every tool runs unattended.")
+            }
+            .confirmationDialog("Remove the invalid rules?", isPresented: $confirmDropInvalid, titleVisibility: .visible) {
+                Button("Apply and remove \(invalidRules.count) invalid", role: .destructive) { Task { await apply() } }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("The file contains entries that are not valid rules. They are dropped when you apply.")
             }
             .task { await load() }
         }
@@ -174,7 +197,9 @@ struct PermissionsEditorSheetView: View {
     private func load() async {
         guard let handle else { return }
         do {
-            let p = try await handle.readAgentPermissions(agent: profile.agent, configDir: profile.configDir)
+            let checked = try await handle.readAgentPermissionsChecked(agent: profile.agent, configDir: profile.configDir)
+            let p = checked.permissions
+            invalidRules = checked.invalid
             allow = p.allow; ask = p.ask; deny = p.deny; mode = p.defaultMode ?? ""
             loaded = true
             error = nil
@@ -206,6 +231,7 @@ struct PermissionsEditorSheetView: View {
             let p = try validateAgentPermissions(agent: profile.agent, permissions: current)
             try await handle.applyAgentPermissions(agent: profile.agent, configDir: profile.configDir, permissions: p)
             allow = p.allow; ask = p.ask; deny = p.deny
+            invalidRules = []
             applied = true
             error = nil
         } catch {
