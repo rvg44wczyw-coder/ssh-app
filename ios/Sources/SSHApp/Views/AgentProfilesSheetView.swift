@@ -121,6 +121,8 @@ public struct AgentProfilesSheetView: View {
     private func profileRow(_ profile: SavedAgentProfile) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
+                Image(systemName: ProfileIcons.rowSymbol(profile))
+                    .foregroundColor(ProfileIcons.color(profile) ?? .secondary)
                 Text(profile.name).font(.headline)
                 Spacer()
                 Button("Open tab") {
@@ -241,6 +243,20 @@ struct AgentProfileEditorView: View {
 
     private var configEnvName: String? { agentConfigDirEnv(agent: profile.agent) }
 
+    private func iconCell(_ symbol: String, systemImage: String) -> some View {
+        let selected = profile.iconSymbol == symbol
+        let tint = AppAccent(rawValue: profile.iconColor)?.color ?? Color.appAccent
+        return Button { profile.iconSymbol = symbol } label: {
+            Image(systemName: systemImage)
+                .font(.system(size: 17))
+                .foregroundColor(selected ? .white : tint)
+                .frame(width: 38, height: 38)
+                .background(selected ? tint : Color.secondary.opacity(0.12))
+                .cornerRadius(8)
+        }
+        .buttonStyle(.plain)
+    }
+
     private func compiled() -> SavedAgentProfile {
         var p = profile
         var env = envText.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
@@ -348,6 +364,17 @@ struct AgentProfileEditorView: View {
                             }
                         }
                     }
+                }
+                Section(header: Text("Icon"), footer: Text("Shown on the tab and in this list. Default uses the agent's icon.")) {
+                    Picker("Color", selection: $profile.iconColor) {
+                        Text("Automatic").tag("")
+                        ForEach(AppAccent.allCases) { Text($0.title).tag($0.rawValue) }
+                    }
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 6), spacing: 10) {
+                        iconCell("", systemImage: ProfileIcons.defaultSymbol(for: profile.agent))
+                        ForEach(ProfileIcons.symbols, id: \.self) { iconCell($0, systemImage: $0) }
+                    }
+                    .padding(.vertical, 4)
                 }
                 Section(
                     header: Text("Terminal colors"),

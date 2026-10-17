@@ -17,6 +17,9 @@ public struct SavedAgentProfile: Identifiable, Codable, Equatable, Sendable {
     public var permissionMode: String
     /// Terminal colour scheme id for tabs of this profile ("" = the agent's default scheme).
     public var terminalSchemeId: String
+    /// Tab/profile icon (SF Symbol name, "" = by agent) and its color (`AppAccent` name, "" = automatic).
+    public var iconSymbol: String
+    public var iconColor: String
     /// Start through an interactive shell so `~/.zshrc` (PATH, exports) is loaded on the host.
     public var loadShellRc: Bool
     /// Approval-hook preset: "phoneApproval" (default), "notifyOnly" or "custom".
@@ -29,7 +32,7 @@ public struct SavedAgentProfile: Identifiable, Codable, Equatable, Sendable {
     public var approvalEvents: [String]
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, agentRaw, binary, env, args, workingDir, gitBranch, permissionMode, terminalSchemeId, loadShellRc
+        case id, name, agentRaw, binary, env, args, workingDir, gitBranch, permissionMode, terminalSchemeId, iconSymbol, iconColor, loadShellRc
         case hookKindRaw, customHookCommand, customHookEvents, customHookMatcher
         case approvalMatcher, approvalEvents
     }
@@ -46,6 +49,8 @@ public struct SavedAgentProfile: Identifiable, Codable, Equatable, Sendable {
         gitBranch = try c.decodeIfPresent(String.self, forKey: .gitBranch) ?? ""
         permissionMode = try c.decodeIfPresent(String.self, forKey: .permissionMode) ?? ""
         terminalSchemeId = try c.decodeIfPresent(String.self, forKey: .terminalSchemeId) ?? ""
+        iconSymbol = try c.decodeIfPresent(String.self, forKey: .iconSymbol) ?? ""
+        iconColor = try c.decodeIfPresent(String.self, forKey: .iconColor) ?? ""
         // Profiles saved before this option existed keep their previous (login-shell) behavior.
         loadShellRc = try c.decodeIfPresent(Bool.self, forKey: .loadShellRc) ?? false
         hookKindRaw = try c.decodeIfPresent(String.self, forKey: .hookKindRaw) ?? "phoneApproval"
@@ -79,6 +84,8 @@ public struct SavedAgentProfile: Identifiable, Codable, Equatable, Sendable {
         self.gitBranch = gitBranch
         self.permissionMode = permissionMode
         self.terminalSchemeId = terminalSchemeId
+        self.iconSymbol = ""
+        self.iconColor = ""
         self.loadShellRc = loadShellRc
         self.hookKindRaw = "phoneApproval"
         self.customHookCommand = ""

@@ -77,6 +77,10 @@ public struct MainTerminalView: View {
                     serverNameProvider: { session in
                         serversManager.profile(for: session.serverId)?.name ?? serversManager.activeProfile?.name
                     },
+                    iconProvider: { session in
+                        let profile = agentProfiles.profiles.first { $0.id == session.profileId }
+                        return (ProfileIcons.symbol(profile, tabType: session.agentType), ProfileIcons.color(profile))
+                    },
                     onSelect: { id in
                         tabsManager.selectedSessionId = id
                         ensureSessionStarted(for: id)

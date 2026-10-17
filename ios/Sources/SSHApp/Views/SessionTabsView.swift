@@ -6,6 +6,8 @@ public struct SessionTabsView: View {
     @Binding public var selectedSessionId: UUID
     public let sessionStates: [UUID: SessionState]
     public var serverNameProvider: ((TabSession) -> String?)? = nil
+    /// Icon (SF Symbol) and optional color of a tab; defaults to the agent type's icon.
+    public var iconProvider: ((TabSession) -> (symbol: String, color: Color?))? = nil
     public let onSelect: (UUID) -> Void
     public let onAddSession: () -> Void
     /// Presets listed in the long-press menu of the + button (id, title, detail).
@@ -23,6 +25,7 @@ public struct SessionTabsView: View {
         selectedSessionId: Binding<UUID>,
         sessionStates: [UUID: SessionState],
         serverNameProvider: ((TabSession) -> String?)? = nil,
+        iconProvider: ((TabSession) -> (symbol: String, color: Color?))? = nil,
         onSelect: @escaping (UUID) -> Void,
         onAddSession: @escaping () -> Void,
         presets: [(id: String, title: String, detail: String)] = [],
@@ -34,12 +37,18 @@ public struct SessionTabsView: View {
         self._selectedSessionId = selectedSessionId
         self.sessionStates = sessionStates
         self.serverNameProvider = serverNameProvider
+        self.iconProvider = iconProvider
         self.onSelect = onSelect
         self.onAddSession = onAddSession
         self.presets = presets
         self.onLaunchPreset = onLaunchPreset
         self.onRename = onRename
         self.onClose = onClose
+    }
+
+    private func icon(for session: TabSession) -> (symbol: String, color: Color?) {
+        if let provided = iconProvider?(session) { return provided }
+        return (session.agentType.iconName, nil)
     }
 
     public var body: some View {
@@ -61,8 +70,9 @@ public struct SessionTabsView: View {
 
                     Button(action: { onSelect(session.id) }) {
                         HStack(spacing: 5) {
-                            Image(systemName: session.agentType.iconName)
+                            Image(systemName: icon(for: session).symbol)
                                 .font(.system(size: 10))
+                                .foregroundColor(isSelected ? .white : (icon(for: session).color ?? .primary))
 
                             Text(displayTitle)
                                 .font(.system(size: 11, weight: isSelected ? .bold : .medium))

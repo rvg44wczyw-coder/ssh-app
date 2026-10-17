@@ -40,6 +40,43 @@ extension Color {
     public static var appAccent: Color { AppAccent.current.color }
 }
 
+// MARK: - Tab and profile icons
+
+public enum ProfileIcons {
+    /// Offered in the profile editor; names that this iOS does not have are skipped.
+    public static let symbols: [String] = [
+        "terminal", "brain", "sparkles", "cpu", "bolt.fill", "star.fill", "hammer.fill",
+        "wrench.and.screwdriver.fill", "briefcase.fill", "house.fill", "person.fill", "flame.fill",
+        "leaf.fill", "moon.fill", "sun.max.fill", "globe", "server.rack", "shippingbox.fill",
+        "ladybug.fill", "wand.and.stars", "flask.fill", "book.fill", "lock.fill", "heart.fill",
+    ].filter { UIImage(systemName: $0) != nil }
+
+    public static func defaultSymbol(for agent: AgentKind) -> String {
+        switch agent {
+        case .claudeCode: return AgentType.claudeCode.iconName
+        case .antigravity: return AgentType.antigravity.iconName
+        case .codex: return "chevron.left.forwardslash.chevron.right"
+        case .grok: return "bolt.horizontal"
+        }
+    }
+
+    /// The profile's own icon, else the one for the tab's agent.
+    public static func symbol(_ profile: SavedAgentProfile?, tabType: AgentType) -> String {
+        if let s = profile?.iconSymbol, !s.isEmpty, UIImage(systemName: s) != nil { return s }
+        return tabType.iconName
+    }
+
+    /// Icon of a profile in lists (before any tab exists).
+    public static func rowSymbol(_ profile: SavedAgentProfile) -> String {
+        if !profile.iconSymbol.isEmpty, UIImage(systemName: profile.iconSymbol) != nil { return profile.iconSymbol }
+        return defaultSymbol(for: profile.agent)
+    }
+
+    public static func color(_ profile: SavedAgentProfile?) -> Color? {
+        AppAccent(rawValue: profile?.iconColor ?? "")?.color
+    }
+}
+
 // MARK: - Terminal colour schemes
 
 /// Colours of the terminal itself: background, text, cursor and the 16 ANSI colours (hex RGB).
