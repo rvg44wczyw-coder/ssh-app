@@ -570,8 +570,10 @@ pub(crate) fn build_inspect_permissions_command(
            for pid in $(ps -Ao pid=,ppid= | awk -v root=\"$pp\" '{{par[$1]=$2}} END{{for(x in par){{q=x;n=0;while((q in par)&&q!=root&&n<50){{q=par[q];n++}} if(q==root)print x}}}}'); do \
              c=$(ps -p \"$pid\" -o comm= 2>/dev/null); \
              case \"${{c##*/}}\" in claude*) ;; *) continue;; esac; \
-             v=$(ps eww -p \"$pid\" -o command= 2>/dev/null | tr ' ' '\\n' | sed -n 's/^CLAUDE_CONFIG_DIR=//p' | head -n 1); \
-             if [ -n \"$v\" ]; then cfg=$v; break; fi; \
+             full=$(ps eww -p \"$pid\" -o command= 2>/dev/null); av=$(ps -p \"$pid\" -o command= 2>/dev/null); \
+             env_part=${{full#\"$av\"}}; \
+             v=$(printf '%s\\n' \"$env_part\" | tr ' ' '\\n' | sed -n 's/^CLAUDE_CONFIG_DIR=//p' | head -n 1); \
+             case \"$v\" in /*) [ -d \"$v\" ] && {{ cfg=$v; break; }};; esac; \
            done; \
          fi; \
          case \"$cfg\" in *[![:print:]]*) cfg='';; esac; \

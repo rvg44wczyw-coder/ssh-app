@@ -2039,9 +2039,11 @@ fn session_permissions_use_the_config_dir_of_the_claude_running_in_the_pane() {
     handle
         .send_input(
             format!(
-                "env CLAUDE_CONFIG_DIR='{}' '{}' 120\r",
+                // An argument that looks like the variable (to an existing folder) must not win.
+                "env CLAUDE_CONFIG_DIR='{}' '{}' CLAUDE_CONFIG_DIR='{}' 120\r",
                 cfg.display(),
-                fake.display()
+                fake.display(),
+                root_path.display()
             )
             .into_bytes(),
         )

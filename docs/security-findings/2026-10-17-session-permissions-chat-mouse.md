@@ -17,5 +17,10 @@
 4. **Informational (tmux mouse).** `mouse on` is set per session with a validated session name (no injection). Wheel/tap events are SGR sequences built from integers only (no user text). A tap is delivered to mouse-aware programs as a click, so terminal output that draws a fake button can receive a click; this equals desktop terminal behaviour and the user has to tap. `mouse on` also routes the mouse to tmux (copy-mode selection) instead of native text selection. No finding.
 5. **Checked, no finding.** Inspect output sections now use a per-call random tag (earlier forgeable-marker issue fixed, test added). Rule validation rejects control characters and bad syntax; invalid rules are dropped only after confirmation; apply compares a SHA-256 of the previous file and refuses on change; write is atomic, symlink-aware, mode-preserving, backup once. All paths and the chat payload go through `shell_quote` / `remote_path_expr`; ports are `u16`; detected config dir is length- and control-character-checked before it is shown.
 
-## 3. Verdict
-Findings, highest severity Low (items 1–3); nothing blocks merge.
+## 3. Resolution (same day)
+- Item 1 **fixed**: the command cuts the process's argv (`ps -o command=`) off the front of `ps eww` output before looking for `CLAUDE_CONFIG_DIR=`, and accepts only an absolute path to an existing directory. Loopback test now launches the stand-in `claude` with a forging argument pointing at an existing folder; the real variable still wins.
+- Item 2 **accepted, not fixed**: sshd passes the whole command line to the login shell, so the body is visible in `ps` however `curl` is fed; stdin is already used by `cancellable_sh` as its cancel signal. A real fix means writing the body to a 0600 temp file in a separate exec and cleaning it up on cancel — judged not worth it on a single-user host where the only reader of `ps` is the user. Revisit if the host service (feature 16) is built.
+- Item 3 **already covered**: exec output is capped at 4 MB (`MAX_EXEC_OUTPUT`, `push_capped`) and the request has a 300 s timeout; the finding overstated it.
+
+## 4. Verdict
+Findings, highest severity Low (items 1–3); item 1 fixed, item 3 already mitigated, item 2 accepted; nothing blocks merge.
