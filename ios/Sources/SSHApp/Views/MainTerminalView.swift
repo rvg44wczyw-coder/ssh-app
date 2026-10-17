@@ -154,7 +154,9 @@ public struct MainTerminalView: View {
                         let server = serversManager.profile(for: session?.serverId) ?? serversManager.activeProfile
                         let privateKey = KeychainManager.shared.getPrivateKey(id: server?.keyId)
                         tabsManager.closeSession(id: id, server: server, privateKey: privateKey)
-                    }
+                    },
+                    isChatMode: { tabsManager.viewModel(for: $0.id)?.isChatMode == true },
+                    onSessionAction: { runSessionAction($0, $1) }
                 )
                 }
             } else {
@@ -204,14 +206,7 @@ public struct MainTerminalView: View {
                         tabsManager.closeSession(id: id, server: server, privateKey: privateKey)
                     },
                     isChatMode: { tabsManager.viewModel(for: $0.id)?.isChatMode == true },
-                    onSessionAction: { id, action in
-                        // The menu belongs to the pressed tab, not necessarily the selected one.
-                        if id != tabsManager.selectedSessionId {
-                            tabsManager.selectedSessionId = id
-                            ensureSessionStarted(for: id)
-                        }
-                        performAction(action)
-                    }
+                    onSessionAction: { runSessionAction($0, $1) }
                 )
                 .frame(height: 32)
 
@@ -582,6 +577,17 @@ public struct MainTerminalView: View {
     /// Key of the server behind the visible tab (`nil` = the default key).
     private var activeKeyId: String? {
         (serversManager.profile(for: tabsManager.activeSession?.serverId) ?? serversManager.activeProfile)?.keyId
+    }
+
+    /// A session-menu action. It belongs to the pressed tab or card, not necessarily the selected
+    /// one, so that session is opened first (leaving the main screen).
+    private func runSessionAction(_ id: UUID, _ action: AppAction) {
+        if id != tabsManager.selectedSessionId {
+            tabsManager.selectedSessionId = id
+            ensureSessionStarted(for: id)
+        }
+        showHome = false
+        performAction(action)
     }
 
     /// Free tier: a limited number of open tabs. Past it the paywall opens instead.

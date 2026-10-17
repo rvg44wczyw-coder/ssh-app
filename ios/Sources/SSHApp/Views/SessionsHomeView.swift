@@ -2,7 +2,7 @@ import SshCoreBridge
 import SwiftUI
 
 /// Main screen: every open session as a card with a live preview of its screen. Tap opens the
-/// terminal; long press renames or closes; the last card starts a new session.
+/// terminal; long press opens the same session menu as the tabs; the last card starts a new session.
 struct SessionsHomeView: View {
     let sessions: [TabSession]
     let states: [UUID: SessionState]
@@ -16,6 +16,8 @@ struct SessionsHomeView: View {
     let onLaunchPreset: (String) -> Void
     let onRename: (UUID, String) -> Void
     let onClose: (UUID) -> Void
+    let isChatMode: (TabSession) -> Bool
+    let onSessionAction: (UUID, AppAction) -> Void
 
     @State private var renaming: TabSession?
     @State private var renameText = ""
@@ -89,10 +91,15 @@ struct SessionsHomeView: View {
         }
         .buttonStyle(.plain)
         .contextMenu {
-            Button { renaming = s; renameText = s.title } label: { Label("Rename", systemImage: "pencil") }
-            if sessions.count > 1 {
-                Button(role: .destructive) { onClose(s.id) } label: { Label("Close", systemImage: "xmark.circle") }
-            }
+            SessionMenuItems(
+                session: s,
+                isConnected: states[s.id] == .connected,
+                isChatMode: isChatMode(s),
+                canClose: sessions.count > 1,
+                onAction: { onSessionAction(s.id, $0) },
+                onRename: { renaming = s; renameText = s.title },
+                onClose: { onClose(s.id) }
+            )
         }
         .accessibilityLabel("\(s.title), \(serverName(s) ?? "")")
         .accessibilityHint("Opens this session")

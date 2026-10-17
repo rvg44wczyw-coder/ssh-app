@@ -55,17 +55,20 @@ public struct SessionTabsView: View {
     }
 
     @ViewBuilder
-    private func sessionActionButtons(for session: TabSession) -> some View {
-        if let run = onSessionAction {
-            let chat = isChatMode?(session) ?? false
-            let connected = sessionStates[session.id] == .connected
-            ForEach(AppAction.allCases.filter(\.isSessionAction)) { action in
-                Button { run(session.id, action) } label: {
-                    Label(action.title(isChatMode: chat), systemImage: action.systemImage(isChatMode: chat, keyVisible: false))
-                }
-                .disabled(action.requiresConnection && !connected)
-            }
-        }
+    private func menuItems(for session: TabSession) -> some View {
+        SessionMenuItems(
+            session: session,
+            isConnected: sessionStates[session.id] == .connected,
+            isChatMode: isChatMode?(session) ?? false,
+            canClose: sessions.count > 1,
+            onAction: { onSessionAction?(session.id, $0) },
+            onRename: {
+                tabToRename = session
+                renameText = session.title
+                showRenameAlert = true
+            },
+            onClose: { onClose(session.id) }
+        )
     }
 
     private func icon(for session: TabSession) -> (symbol: String, color: Color?) {
@@ -140,24 +143,7 @@ public struct SessionTabsView: View {
                         )
                         .cornerRadius(6)
                     }
-                    .contextMenu {
-                        sessionActionButtons(for: session)
-                        Button {
-                            tabToRename = session
-                            renameText = session.title
-                            showRenameAlert = true
-                        } label: {
-                            Label("Rename Tab", systemImage: "pencil")
-                        }
-
-                        if sessions.count > 1 {
-                            Button(role: .destructive) {
-                                onClose(session.id)
-                            } label: {
-                                Label("Close Tab", systemImage: "xmark.circle")
-                            }
-                        }
-                    }
+                    .contextMenu { menuItems(for: session) }
                 }
 
                 addMenu
@@ -167,17 +153,7 @@ public struct SessionTabsView: View {
         }
         .background(Color.appBackground)
         .confirmationDialog(tabForMenu?.title ?? "", isPresented: Binding(get: { tabForMenu != nil }, set: { if !$0 { tabForMenu = nil } }), titleVisibility: .visible) {
-            if let tab = tabForMenu {
-                sessionActionButtons(for: tab)
-                Button("Rename") {
-                    tabToRename = tab
-                    renameText = tab.title
-                    showRenameAlert = true
-                }
-                if sessions.count > 1 {
-                    Button("Close tab", role: .destructive) { onClose(tab.id) }
-                }
-            }
+            if let tab = tabForMenu { menuItems(for: tab) }
             Button("Cancel", role: .cancel) {}
         }
         .alert("Rename Tab", isPresented: $showRenameAlert) {
@@ -199,6 +175,31 @@ public struct SessionTabsView: View {
         case .connecting, .reconnecting: return .yellow
         case .failed: return .red
         case .disconnected: return .gray
+        }
+    }
+}
+
+/// The one session menu, used by the tab strip and the cards on the main screen so both show the
+/// same items: session actions, then Rename and Close.
+struct SessionMenuItems: View {
+    let session: TabSession
+    let isConnected: Bool
+    let isChatMode: Bool
+    let canClose: Bool
+    let onAction: (AppAction) -> Void
+    let onRename: () -> Void
+    let onClose: () -> Void
+
+    var body: some View {
+        ForEach(AppAction.allCases.filter(\.isSessionAction)) { action in
+            Button { onAction(action) } label: {
+                Label(action.title(isChatMode: isChatMode), systemImage: action.systemImage(isChatMode: isChatMode, keyVisible: false))
+            }
+            .disabled(action.requiresConnection && !isConnected)
+        }
+        Button(action: onRename) { Label("Rename", systemImage: "pencil") }
+        if canClose {
+            Button(role: .destructive, action: onClose) { Label("Close", systemImage: "xmark.circle") }
         }
     }
 }
