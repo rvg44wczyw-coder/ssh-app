@@ -54,6 +54,8 @@
 		AA000020 /* SshCoreBridge in Frameworks */ = {isa = PBXBuildFile; productRef = CC000001 /* SshCoreBridge */; };
 		AA000021 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = CC000002 /* SwiftTerm */; };
 		AA000030 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = BB000030 /* Assets.xcassets */; };
+		AA000050 /* SubscriptionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000050 /* SubscriptionManager.swift */; };
+		AA000051 /* PaywallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000051 /* PaywallView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -103,6 +105,8 @@
 		BB000035 /* ServerPickerPopup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/ServerPickerPopup.swift; sourceTree = "<group>"; };
 		BB000031 /* AgentProfilesSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/AgentProfilesSheetView.swift; sourceTree = "<group>"; };
 		BB000030 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		BB000050 /* SubscriptionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/SubscriptionManager.swift; sourceTree = "<group>"; };
+		BB000051 /* PaywallView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/PaywallView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -170,6 +174,8 @@
 				BB000043 /* AppAppearance.swift */,
 				BB000044 /* TerminalSchemeEditorView.swift */,
 				BB000045 /* SessionUsageStrip.swift */,
+				BB000051 /* PaywallView.swift */,
+				BB000050 /* SubscriptionManager.swift */,
 				BB000046 /* SessionsHomeView.swift */,
 				BB000047 /* SessionPreview.swift */,
 				BB000038 /* CommandPaletteSheetView.swift */,
@@ -311,6 +317,8 @@
 				AA000043 /* AppAppearance.swift in Sources */,
 				AA000044 /* TerminalSchemeEditorView.swift in Sources */,
 				AA000045 /* SessionUsageStrip.swift in Sources */,
+				AA000051 /* PaywallView.swift in Sources */,
+				AA000050 /* SubscriptionManager.swift in Sources */,
 				AA000046 /* SessionsHomeView.swift in Sources */,
 				AA000047 /* SessionPreview.swift in Sources */,
 				AA000038 /* CommandPaletteSheetView.swift in Sources */,
@@ -345,7 +353,7 @@
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
-				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG PAYMENTS";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
 			};
@@ -354,6 +362,7 @@
 		11000002 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = PAYMENTS;
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";

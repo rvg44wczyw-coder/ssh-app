@@ -43,6 +43,9 @@ public struct MainTerminalView: View {
     @State private var activeSheet: ActiveModalSheet? = nil
     @StateObject private var approvals = ApprovalsCenter()
 
+    @ObservedObject private var subscriptions = SubscriptionManager.shared
+    @State private var showPaywall: Bool = false
+
     @State private var showServerPicker: Bool = false
     @State private var showActionPanel: Bool = false
     /// Main screen is the list of session cards; opening a card shows the terminal.
@@ -135,6 +138,7 @@ public struct MainTerminalView: View {
                     },
                     onAdd: { handleAddNewSession() },
                     onLaunchPreset: { id in
+                        guard canOpenNewSession() else { return }
                         guard let profile = agentProfiles.profiles.first(where: { $0.id == id }),
                               case .success(let cmd) = profile.launchCommand() else { return }
                         let s = tabsManager.addAgentSession(
@@ -180,6 +184,7 @@ public struct MainTerminalView: View {
                             .filter { !$0.isEmpty }.joined(separator: " "))
                     },
                     onLaunchPreset: { id in
+                        guard canOpenNewSession() else { return }
                         guard let profile = agentProfiles.profiles.first(where: { $0.id == id }),
                               case .success(let cmd) = profile.launchCommand() else { return }
                         let s = tabsManager.addAgentSession(
@@ -324,6 +329,9 @@ public struct MainTerminalView: View {
                 }
                 }
             }
+            .sheet(isPresented: $showPaywall) {
+                PaywallView(reason: "The free version keeps up to \(FreeTier.maxSessions) open sessions. Pro removes the limit.")
+            }
             .sheet(item: $activeSheet) { sheet in
                 switch sheet {
                 case .settings:
@@ -336,6 +344,7 @@ public struct MainTerminalView: View {
                                     viewModel: vm,
                                     onLaunch: { profile, command in
                                         activeSheet = nil
+                                        guard canOpenNewSession() else { return }
                                         let s = tabsManager.addAgentSession(
                                             profile: profile,
                                             command: command,
@@ -363,6 +372,10 @@ public struct MainTerminalView: View {
                         initialServerId: tabsManager.activeSession?.serverId ?? serversManager.activeProfileId,
                         configDirs: agentProfiles.profiles.filter { $0.agent == .claudeCode }.compactMap { $0.configDir }
                     ) { sessionName, server in
+                        let alreadyOpen = tabsManager.sessions.contains {
+                            $0.sessionName == sessionName && $0.serverId == server.id
+                        }
+                        guard alreadyOpen || canOpenNewSession() else { return }
                         let newSession = tabsManager.openOrSwitchToSession(sessionName: sessionName, serverId: server.id)
                         ensureSessionStarted(for: newSession.id)
                     }
@@ -416,6 +429,7 @@ public struct MainTerminalView: View {
                             viewModel: activeVM,
                             onLaunch: { profile, command in
                                 activeSheet = nil
+                                guard canOpenNewSession() else { return }
                                 let s = tabsManager.addAgentSession(
                                     profile: profile,
                                     command: command,
@@ -570,7 +584,16 @@ public struct MainTerminalView: View {
         (serversManager.profile(for: tabsManager.activeSession?.serverId) ?? serversManager.activeProfile)?.keyId
     }
 
+    /// Free tier: a limited number of open tabs. Past it the paywall opens instead.
+    private func canOpenNewSession() -> Bool {
+        if FreeTier.canAddSession(open: tabsManager.sessions.count, isPro: subscriptions.unlocked) { return true }
+        // A sheet or popover may still be closing; presenting during that is dropped by UIKit.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { showPaywall = true }
+        return false
+    }
+
     private func handleAddNewSession() {
+        guard canOpenNewSession() else { return }
         let profiles = serversManager.profiles
         guard profiles.count >= 2 else {
             let newSession = addNewTab(serverId: serversManager.activeProfileId)

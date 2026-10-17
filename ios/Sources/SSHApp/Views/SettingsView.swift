@@ -12,6 +12,8 @@ public struct SettingsView: View {
 
     @State private var serverToEdit: ServerProfile? = nil
     @State private var showAddServerSheet: Bool = false
+    @State private var showPaywall: Bool = false
+    @ObservedObject private var subs = SubscriptionManager.shared
 
     @AppStorage("terminal_font_size") private var terminalFontSize: Double = 13.0
 
@@ -25,11 +27,24 @@ public struct SettingsView: View {
         self.agentsPage = agentsPage
     }
 
-    private enum Page: Hashable { case servers, keys, terminal, appearance, agents }
+    private enum Page: Hashable { case servers, keys, terminal, appearance, agents, subscription }
 
     public var body: some View {
         NavigationStack {
             List {
+                if Monetization.compiledIn {
+                    NavigationLink(value: Page.subscription) {
+                        HStack {
+                            Label("SSH-App Pro", systemImage: "star.circle.fill")
+                            Spacer()
+                            if subs.paymentsEnabled {
+                                Text(subs.isPro ? "Active" : "Free").foregroundColor(.secondary)
+                            } else {
+                                Text("Off").foregroundColor(.secondary)
+                            }
+                        }
+                    }
+                }
                 NavigationLink(value: Page.servers) { Label("Servers", systemImage: "server.rack") }
                 NavigationLink(value: Page.keys) { Label("SSH keys", systemImage: "key.fill") }
                 if agentsPage != nil {
@@ -51,6 +66,7 @@ public struct SettingsView: View {
                 case .terminal: terminalPage
                 case .appearance: appearancePage
                 case .agents: if let agentsPage { agentsPage }
+                case .subscription: PaywallView(embedded: true)
                 }
             }
         }
@@ -349,7 +365,11 @@ public struct SettingsView: View {
                     }
 
                     Button(action: {
-                        showAddServerSheet = true
+                        if FreeTier.canAddServer(count: serversManager.profiles.count, isPro: subs.unlocked) {
+                            showAddServerSheet = true
+                        } else {
+                            showPaywall = true
+                        }
                     }) {
                         Label("Add Server...", systemImage: "plus.circle.fill")
                             .font(.subheadline.bold())
@@ -358,6 +378,9 @@ public struct SettingsView: View {
 
         }
         .navigationTitle("Servers")
+            .sheet(isPresented: $showPaywall) {
+                PaywallView(reason: "The free version keeps up to \(FreeTier.maxServers) servers. Pro removes the limit.")
+            }
             .sheet(isPresented: $showAddServerSheet) {
                 AddEditServerSheetView(existingProfile: nil) { newProfile in
                     _ = serversManager.addProfile(
