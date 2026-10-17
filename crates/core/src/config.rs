@@ -8,6 +8,9 @@ pub struct SessionConfig {
     pub initial_cols: u16,
     pub initial_rows: u16,
     pub command: Option<String>,
+    /// Folder a **new** tmux session starts in (created if missing; `~/` is the home folder).
+    /// Ignored when the session already exists. `None` = the login shell's default (home).
+    pub start_dir: Option<String>,
     /// Pinned host key fingerprint (`SHA256:...`). `None` accepts the first key seen (see
     /// `SshSessionHandle::host_key_fingerprint`); `Some` refuses any other key.
     pub pinned_host_key: Option<String>,

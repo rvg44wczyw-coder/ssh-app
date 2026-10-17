@@ -76,6 +76,7 @@ public struct SettingsView: View {
     @AppStorage("always_show_ai_assistant") private var legacyAlwaysShowAi: Bool = false
 
     @AppStorage(AppAccent.storageKey) private var accentRaw: String = AppAccent.blue.rawValue
+    @AppStorage(TerminalFolder.storageKey) private var terminalFolder: String = TerminalFolder.fallback
     @State private var schemeRefresh = 0
     @AppStorage("usage_strip_enabled") private var usageStripEnabled: Bool = true
 
@@ -263,6 +264,18 @@ public struct SettingsView: View {
                     Text("Always").tag(AiAssistantVisibility.always.rawValue)
                     Text("Never").tag(AiAssistantVisibility.never.rawValue)
                 }
+            }
+            Section(
+                header: Text("New terminals"),
+                footer: Text(TerminalFolder.problem(terminalFolder) ?? "Plain terminals start in this folder on the host; it is created if it does not exist. Empty = the host's home folder. Agent tabs use the folder of their profile. Terminals that already exist stay where they are.")
+                    .foregroundColor(TerminalFolder.problem(terminalFolder) == nil ? .secondary : .red)
+            ) {
+                TextField("~/Terminals", text: $terminalFolder)
+                    .font(.system(.body, design: .monospaced))
+                    .autocorrectionDisabled()
+                    #if os(iOS)
+                    .textInputAutocapitalization(.never)
+                    #endif
             }
             Section(
                 header: Text("Model usage line"),

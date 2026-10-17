@@ -365,8 +365,11 @@ async fn run_ssh_connection(
         })?;
 
     // Dynamic login shell + tmux attach/create command.
-    let tmux_cmd =
-        build_tmux_attach_or_create_command(&config.session_name, config.command.as_deref())?;
+    let tmux_cmd = build_tmux_attach_or_create_command(
+        &config.session_name,
+        config.command.as_deref(),
+        config.start_dir.as_deref(),
+    )?;
     channel
         .exec(true, tmux_cmd)
         .await
@@ -545,6 +548,7 @@ mod tests {
             initial_cols: 80,
             initial_rows: 24,
             command: None,
+            start_dir: None,
             pinned_host_key: None,
         };
 
@@ -564,6 +568,7 @@ mod tests {
             initial_cols: 80,
             initial_rows: 24,
             command: None,
+            start_dir: None,
             pinned_host_key: None,
         };
 
@@ -583,6 +588,7 @@ mod tests {
             initial_cols: 80,
             initial_rows: 24,
             command: None,
+            start_dir: None,
             pinned_host_key: None,
         };
 
@@ -602,6 +608,7 @@ mod tests {
             initial_cols: 80,
             initial_rows: 24,
             command: None,
+            start_dir: None,
             pinned_host_key: None,
         };
 

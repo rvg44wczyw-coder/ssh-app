@@ -42,6 +42,9 @@ Status: implemented (Rust + iOS); on-device checks pending (scroll feel, alterna
 - The tab strip stays (also with one session). The session actions (Chat/Terminal, tmux sessions, Permissions, Agents) are no longer a toolbar button: they sit at the top of the tab's long-press menu and of the settings dialog (second tap on the selected tab), above Rename and Close. They act on the pressed tab (it is selected first); the ones that need a connection are disabled while that tab is not connected. The toolbar keeps only the quick menu.
 - Cards only show output for sessions that have been opened since the app started (the host session of the others is not attached in the background).
 
+## 8. Folder for new terminals
+- Settings → Terminal → New terminals: the folder on the host where **new plain terminals** start (default `~/Terminals`; empty = home). It is created with `mkdir -p` and passed to tmux as `new-session -d -c <dir>` (`SessionConfig.start_dir`, `build_tmux_attach_or_create_command`). A session that already exists keeps its own folder; agent tabs use their profile's working folder. Accepted values: `~`, `~/x` or an absolute path (400 characters, no control characters); the path goes through the same quoting as other host paths (test: shell text in the folder name stays text).
+
 ## Open
 - Per-tab quick scheme switch and `/theme` in the Commands palette.
 - Real subscription quota has no safe source.

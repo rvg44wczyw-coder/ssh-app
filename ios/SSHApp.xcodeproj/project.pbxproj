@@ -57,6 +57,7 @@
 		AA000050 /* SubscriptionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000050 /* SubscriptionManager.swift */; };
 		AA000051 /* PaywallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000051 /* PaywallView.swift */; };
 		AA000052 /* HookTemplatesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000052 /* HookTemplatesView.swift */; };
+		AA000053 /* TerminalFolder.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000053 /* TerminalFolder.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -109,6 +110,7 @@
 		BB000050 /* SubscriptionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/SubscriptionManager.swift; sourceTree = "<group>"; };
 		BB000051 /* PaywallView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/PaywallView.swift; sourceTree = "<group>"; };
 		BB000052 /* HookTemplatesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/HookTemplatesView.swift; sourceTree = "<group>"; };
+		BB000053 /* TerminalFolder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models/TerminalFolder.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -178,6 +180,7 @@
 				BB000045 /* SessionUsageStrip.swift */,
 				BB000051 /* PaywallView.swift */,
 				BB000052 /* HookTemplatesView.swift */,
+				BB000053 /* TerminalFolder.swift */,
 				BB000050 /* SubscriptionManager.swift */,
 				BB000046 /* SessionsHomeView.swift */,
 				BB000047 /* SessionPreview.swift */,
@@ -322,6 +325,7 @@
 				AA000045 /* SessionUsageStrip.swift in Sources */,
 				AA000051 /* PaywallView.swift in Sources */,
 				AA000052 /* HookTemplatesView.swift in Sources */,
+				AA000053 /* TerminalFolder.swift in Sources */,
 				AA000050 /* SubscriptionManager.swift in Sources */,
 				AA000046 /* SessionsHomeView.swift in Sources */,
 				AA000047 /* SessionPreview.swift in Sources */,

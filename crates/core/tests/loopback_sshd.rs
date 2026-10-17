@@ -172,6 +172,7 @@ fn connect(server: &Sshd) -> Arc<SshSessionHandle> {
         initial_cols: 80,
         initial_rows: 24,
         command: None,
+        start_dir: None,
         pinned_host_key: None,
     });
     handle.connect(Box::new(Noop)).expect("connect");
@@ -1231,6 +1232,7 @@ fn host_key_is_pinned_and_a_changed_key_is_refused() {
         initial_cols: 80,
         initial_rows: 24,
         command: None,
+        start_dir: None,
         pinned_host_key: Some("SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA".into()),
     });
     h.connect(Box::new(Noop)).unwrap();

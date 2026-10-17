@@ -4754,6 +4754,11 @@ public struct SessionConfig: Equatable, Hashable {
     public var initialRows: UInt16
     public var command: String?
     /**
+     * Folder a **new** tmux session starts in (created if missing; `~/` is the home folder).
+     * Ignored when the session already exists. `None` = the login shell's default (home).
+     */
+    public var startDir: String?
+    /**
      * Pinned host key fingerprint (`SHA256:...`). `None` accepts the first key seen (see
      * `SshSessionHandle::host_key_fingerprint`); `Some` refuses any other key.
      */
@@ -4762,6 +4767,10 @@ public struct SessionConfig: Equatable, Hashable {
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
     public init(host: String, port: UInt16, username: String, privateKeyPem: String, sessionName: String, initialCols: UInt16, initialRows: UInt16, command: String?, 
+        /**
+         * Folder a **new** tmux session starts in (created if missing; `~/` is the home folder).
+         * Ignored when the session already exists. `None` = the login shell's default (home).
+         */startDir: String?, 
         /**
          * Pinned host key fingerprint (`SHA256:...`). `None` accepts the first key seen (see
          * `SshSessionHandle::host_key_fingerprint`); `Some` refuses any other key.
@@ -4774,6 +4783,7 @@ public struct SessionConfig: Equatable, Hashable {
         self.initialCols = initialCols
         self.initialRows = initialRows
         self.command = command
+        self.startDir = startDir
         self.pinnedHostKey = pinnedHostKey
     }
 
@@ -4801,6 +4811,7 @@ public struct FfiConverterTypeSessionConfig: FfiConverterRustBuffer {
                 initialCols: FfiConverterUInt16.read(from: &buf), 
                 initialRows: FfiConverterUInt16.read(from: &buf), 
                 command: FfiConverterOptionString.read(from: &buf), 
+                startDir: FfiConverterOptionString.read(from: &buf), 
                 pinnedHostKey: FfiConverterOptionString.read(from: &buf)
         )
     }
@@ -4814,6 +4825,7 @@ public struct FfiConverterTypeSessionConfig: FfiConverterRustBuffer {
         FfiConverterUInt16.write(value.initialCols, into: &buf)
         FfiConverterUInt16.write(value.initialRows, into: &buf)
         FfiConverterOptionString.write(value.command, into: &buf)
+        FfiConverterOptionString.write(value.startDir, into: &buf)
         FfiConverterOptionString.write(value.pinnedHostKey, into: &buf)
     }
 }

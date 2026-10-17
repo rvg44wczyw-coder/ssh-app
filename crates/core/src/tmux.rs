@@ -54,14 +54,21 @@ const TERMINAL_OVERRIDES: &str = r#"tmux show-options -sv terminal-overrides 2>/
 pub fn build_tmux_attach_or_create_command(
     session_name: &str,
     initial_command: Option<&str>,
+    start_dir: Option<&str>,
 ) -> Result<String, SshCoreError> {
     validate_session_name(session_name)?;
+    let start_dir = validate_start_dir(start_dir)?;
 
     // The session is created first, detached, so the tmux server exists before its options are
     // set: on a host where no server runs yet (after a restart) `tmux set` fails and the first
     // attach would keep tmux's alternate screen, i.e. no scrollback in the app. `new-session -A`
     // then attaches to the session that is already there.
     let mut create = format!("tmux new-session -d -s {session_name}");
+    if let Some(dir) = &start_dir {
+        // The folder is made first (the session would silently start in $HOME without it).
+        create =
+            format!("mkdir -p {dir} 2>/dev/null; tmux new-session -d -s {session_name} -c {dir}");
+    }
     if let Some(cmd) = initial_command {
         let trimmed_cmd = cmd.trim();
         if !trimmed_cmd.is_empty() {
@@ -80,11 +87,34 @@ pub fn build_tmux_attach_or_create_command(
     // If tmux is installed: make sure the session (and server) exist, configure scrollback and
     // TrueColor, replay the last 1000 lines of history if available, then attach.
     // If tmux is absent, warn the user in yellow and fallback to a plain login shell.
+    let create_step = if start_dir.is_some() {
+        format!("{{ {escaped_create}; }}")
+    } else {
+        escaped_create
+    };
     let full_command = format!(
-        "exec ${{SHELL:-/bin/zsh}} -l -c 'if command -v tmux >/dev/null 2>&1; then tmux has-session -t {session_name} 2>/dev/null || {escaped_create}; tmux set -g history-limit 10000 2>/dev/null; tmux set -t {session_name} mouse on 2>/dev/null; {TERMINAL_OVERRIDES} tmux capture-pane -t {session_name} -e -p -J -S -1000 -E -1 2>/dev/null || true; {escaped_attach}; else printf \"\\033[1;33m[Warning] tmux is not installed on remote host. Falling back to plain login shell.\\033[0m\\r\\n\"; exec ${{SHELL:-/bin/zsh}} -l; fi'"
+        "exec ${{SHELL:-/bin/zsh}} -l -c 'if command -v tmux >/dev/null 2>&1; then tmux has-session -t {session_name} 2>/dev/null || {create_step}; tmux set -g history-limit 10000 2>/dev/null; tmux set -t {session_name} mouse on 2>/dev/null; {TERMINAL_OVERRIDES} tmux capture-pane -t {session_name} -e -p -J -S -1000 -E -1 2>/dev/null || true; {escaped_attach}; else printf \"\\033[1;33m[Warning] tmux is not installed on remote host. Falling back to plain login shell.\\033[0m\\r\\n\"; exec ${{SHELL:-/bin/zsh}} -l; fi'"
     );
 
     Ok(full_command)
+}
+
+/// The start folder as a shell expression (`~/x` keeps `$HOME` live), or `None` for "default".
+fn validate_start_dir(dir: Option<&str>) -> Result<Option<String>, SshCoreError> {
+    let Some(raw) = dir.map(str::trim).filter(|d| !d.is_empty()) else {
+        return Ok(None);
+    };
+    if raw.chars().count() > 400 || raw.chars().any(char::is_control) {
+        return Err(crate::agents::invalid(
+            "Terminal folder must be a path of up to 400 characters",
+        ));
+    }
+    if raw != "~" && !raw.starts_with("~/") && !raw.starts_with('/') {
+        return Err(crate::agents::invalid(
+            "Terminal folder must start with ~/ or /",
+        ));
+    }
+    Ok(Some(crate::agents::remote_path_expr(raw)))
 }
 
 /// Builds command to detach existing clients from a session.
@@ -159,6 +189,52 @@ mod tests {
     use super::*;
 
     #[test]
+    fn start_dir_creates_the_folder_and_starts_new_sessions_there() {
+        let cmd = build_tmux_attach_or_create_command("term-1", None, Some("~/Terminals")).unwrap();
+        assert!(cmd.contains("mkdir -p"), "{cmd}");
+        assert!(cmd.contains("-c \"$HOME\""), "{cmd}");
+        assert!(
+            cmd.contains("has-session -t term-1 2>/dev/null || { "),
+            "{cmd}"
+        );
+        // Attach is unchanged: an existing session keeps its own folder.
+        assert!(cmd.contains("tmux new-session -A -s term-1;"));
+        let abs = build_tmux_attach_or_create_command("t", None, Some("/srv/work dir")).unwrap();
+        assert!(abs.contains("work dir"), "{abs}");
+        // Syntax check only (`sh -n` parses and never runs anything, in particular no tmux).
+        for c in [&cmd, &abs] {
+            let ok = std::process::Command::new("sh")
+                .args(["-n", "-c", c])
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(true);
+            assert!(ok, "does not parse: {c}");
+        }
+        // Without a folder the command is exactly what it was.
+        let plain = build_tmux_attach_or_create_command("t", None, None).unwrap();
+        assert!(plain.contains("|| tmux new-session -d -s t;"), "{plain}");
+        assert_eq!(
+            build_tmux_attach_or_create_command("t", None, Some("  ")).unwrap(),
+            plain
+        );
+    }
+
+    #[test]
+    fn start_dir_cannot_inject_shell_text() {
+        for bad in ["relative/dir", "~user/x", "/a\nb", &"/x".repeat(300)] {
+            assert!(
+                build_tmux_attach_or_create_command("t", None, Some(bad)).is_err(),
+                "{bad:?}"
+            );
+        }
+        let evil = "/tmp/$(touch pwned);'x";
+        let cmd = build_tmux_attach_or_create_command("t", None, Some(evil)).unwrap();
+        // Quoted for the inner shell, which is itself single-quoted for the login shell.
+        assert!(cmd.contains("'\\''/tmp/$(touch pwned)"), "{cmd}");
+        assert!(!cmd.contains(" $(touch pwned)"));
+    }
+
+    #[test]
     fn test_valid_session_names() {
         assert!(validate_session_name("claude").is_ok());
         assert!(validate_session_name("agent-1").is_ok());
@@ -180,8 +256,8 @@ mod tests {
 
     #[test]
     fn test_build_attach_or_create_command() {
-        let cmd =
-            build_tmux_attach_or_create_command("claude-code", None).expect("Valid session name");
+        let cmd = build_tmux_attach_or_create_command("claude-code", None, None)
+            .expect("Valid session name");
         assert!(cmd.contains("tmux new-session -A -s claude-code"));
         assert!(cmd.contains(
             "has-session -t claude-code 2>/dev/null || tmux new-session -d -s claude-code;"
@@ -195,7 +271,7 @@ mod tests {
 
     #[test]
     fn test_build_command_with_initial_program() {
-        let cmd = build_tmux_attach_or_create_command("local-llm", Some("ollama run llama3"))
+        let cmd = build_tmux_attach_or_create_command("local-llm", Some("ollama run llama3"), None)
             .expect("Valid session name");
         assert!(cmd.contains("'ollama run llama3'"));
         // The program belongs to the creating call only; attaching never restarts it.

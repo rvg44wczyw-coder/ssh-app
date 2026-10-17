@@ -60,6 +60,12 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         print("[SwiftVM \(instanceId)] initialized for session '\(session.title)' (id=\(session.id))")
     }
 
+    /// Plain terminals start in the chosen terminal folder; agent tabs keep their profile's folder.
+    private var startDir: String? {
+        guard session.command == nil, session.profileId == nil else { return nil }
+        return TerminalFolder.normalized(TerminalFolder.stored)
+    }
+
     public func start(host: String, port: UInt16, username: String, privateKeyPEM: String) {
         print("[SwiftVM \(instanceId)] start() host=\(host), port=\(port), user=\(username), state=\(state)")
         guard state != .connected && state != .connecting else {
@@ -78,6 +84,7 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
             initialCols: lastCols,
             initialRows: lastRows,
             command: session.command,
+            startDir: startDir,
             pinnedHostKey: pinnedHostKey
         )
 
