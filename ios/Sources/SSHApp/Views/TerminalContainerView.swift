@@ -70,19 +70,32 @@ open class AppTerminalView: TerminalView {
         return (min(max(x, 1), cols), min(max(y, 1), rows))
     }
 
-    private var momentumLink: CADisplayLink?
+    private var scrollLink: CADisplayLink?
     private var wheelDismissedKeyboard = false
     private var momentumVelocity: CGFloat = 0
+    /// Wheel ticks computed but not yet sent (positive = wheel up). They are paced out one frame
+    /// at a time so tmux gets an even stream instead of bursts, which is what looks jerky.
+    private var pendingTicks = 0
 
     private func stopMomentum() {
-        momentumLink?.invalidate()
-        momentumLink = nil
+        momentumVelocity = 0
     }
 
-    /// Finger distance (points) per tmux wheel tick. One tick moves about five lines, so one row
-    /// of finger travel per tick makes the text move several times faster than the finger.
+    private func startScrollLink() {
+        guard scrollLink == nil else { return }
+        let link = CADisplayLink(target: self, selector: #selector(scrollTick(_:)))
+        link.add(to: .main, forMode: .common)
+        scrollLink = link
+    }
+
+    private func stopScrollLink() {
+        scrollLink?.invalidate()
+        scrollLink = nil
+    }
+
+    /// Finger distance (points) per tmux wheel tick (tmux moves about five lines per tick).
     private var wheelStep: CGFloat {
-        max(bounds.height / CGFloat(max(getTerminal().rows, 1)), 8)
+        max(bounds.height / CGFloat(max(getTerminal().rows, 1)) * 1.5, 12)
     }
 
     private func emitWheel(_ distance: CGFloat) {
@@ -90,22 +103,37 @@ open class AppTerminalView: TerminalView {
         let ticks = Int(wheelRemainder / wheelStep)
         guard ticks != 0 else { return }
         wheelRemainder -= CGFloat(ticks) * wheelStep
-        let terminal = getTerminal()
-        // Dragging down shows older output, which is a wheel-up event.
-        onWheel?(ticks > 0, min(abs(ticks), 40), max(terminal.cols / 2, 1), max(terminal.rows / 2, 1))
+        // A change of direction drops what is still queued the other way.
+        if (pendingTicks > 0) != (ticks > 0) { pendingTicks = 0 }
+        pendingTicks = max(-60, min(60, pendingTicks + ticks))
+        startScrollLink()
     }
 
-    @objc private func momentumTick(_ link: CADisplayLink) {
+    @objc private func scrollTick(_ link: CADisplayLink) {
         let dt = CGFloat(link.targetTimestamp - link.timestamp)
-        emitWheel(momentumVelocity * dt)
-        momentumVelocity *= 0.95
-        if abs(momentumVelocity) < 60 { stopMomentum() }
+        if momentumVelocity != 0 {
+            emitWheel(momentumVelocity * dt)
+            // Frame-rate independent decay (about 5% per frame at 60 Hz).
+            momentumVelocity *= exp(-3.0 * dt)
+            if abs(momentumVelocity) < 60 { momentumVelocity = 0 }
+        }
+        if pendingTicks != 0 {
+            // One tick per frame, a few more when a backlog builds up.
+            let n = min(abs(pendingTicks), max(1, abs(pendingTicks) / 4))
+            let up = pendingTicks > 0
+            pendingTicks += up ? -n : n
+            let terminal = getTerminal()
+            onWheel?(up, n, max(terminal.cols / 2, 1), max(terminal.rows / 2, 1))
+        } else if momentumVelocity == 0 {
+            stopScrollLink()
+        }
     }
 
     @objc private func handleWheelPan(_ pan: UIPanGestureRecognizer) {
         switch pan.state {
         case .began:
             stopMomentum()
+            pendingTicks = 0
             wheelRemainder = 0
             wheelDismissedKeyboard = false
         case .changed:
@@ -121,9 +149,7 @@ open class AppTerminalView: TerminalView {
             let v = pan.velocity(in: self).y
             guard abs(v) > 300 else { return }
             momentumVelocity = v
-            let link = CADisplayLink(target: self, selector: #selector(momentumTick(_:)))
-            link.add(to: .main, forMode: .common)
-            momentumLink = link
+            startScrollLink()
         default:
             break
         }
