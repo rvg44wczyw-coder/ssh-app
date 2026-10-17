@@ -10,7 +10,8 @@ pub const TELEMETRY_COLLECTION_SCRIPT: &str = concat!(
     "echo '===MEM==='; sysctl -n hw.memsize 2>/dev/null || true; vm_stat 2>/dev/null || cat /proc/meminfo 2>/dev/null || true; ",
     "echo '===DISK==='; df -k / 2>/dev/null | tail -n 1 || true; ",
     "echo '===BATT==='; pmset -g batt 2>/dev/null || true; ",
-    "echo '===PROC==='; ps -Ao pid=,pcpu=,pmem=,etime=,comm= 2>/dev/null | sort -k2 -nr | head -n 35 || true"
+    "echo '===ME==='; id -un 2>/dev/null; id -u 2>/dev/null; ",
+    "echo '===PROC==='; ps -Ao pid=,uid=,user=,pcpu=,pmem=,etime=,comm= 2>/dev/null | sort -k4 -nr | head -n 150 || true"
 );
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, uniffi::Enum)]
@@ -22,9 +23,23 @@ pub enum ProcessCategory {
     System,
 }
 
+/// Who a process belongs to, for the grouped full list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, uniffi::Enum)]
+pub enum ProcessGroup {
+    /// Root, service accounts (`_name`, low uids) and OS locations (`/System`, `/usr/libexec`, ...).
+    System,
+    /// Started by the account the app logs in with.
+    User,
+    /// Another regular account, or ownership that could not be determined.
+    Other,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, uniffi::Record)]
 pub struct RemoteProcessInfo {
     pub pid: u32,
+    /// Account that owns the process (as `ps` prints it, may be truncated).
+    pub owner: String,
+    pub group: ProcessGroup,
     pub name: String,
     pub command_line: String,
     pub cpu_percent: f64,
@@ -61,6 +76,34 @@ pub fn validate_kill_pid(pid: u32) -> Result<u32, SshCoreError> {
         });
     }
     Ok(pid)
+}
+
+const SYSTEM_PATHS: [&str; 6] = [
+    "/System/",
+    "/usr/libexec/",
+    "/usr/sbin/",
+    "/sbin/",
+    "/Library/Apple/",
+    "/usr/lib/systemd/",
+];
+
+/// `me_uid` is the login account's uid (`None` when the host did not report it: every
+/// non-system process then counts as the user's).
+#[uniffi::export]
+pub fn classify_process_group(
+    uid: u32,
+    owner: String,
+    command: String,
+    me_uid: Option<u32>,
+) -> ProcessGroup {
+    let system_account = uid == 0 || owner.starts_with('_') || (uid < 500 && Some(uid) != me_uid);
+    if system_account || SYSTEM_PATHS.iter().any(|p| command.starts_with(p)) {
+        ProcessGroup::System
+    } else if me_uid.is_none_or(|m| m == uid) {
+        ProcessGroup::User
+    } else {
+        ProcessGroup::Other
+    }
 }
 
 #[uniffi::export]
@@ -123,6 +166,7 @@ pub fn parse_host_telemetry(raw_output: String) -> HostTelemetrySnapshot {
     let mut disk_lines: Vec<&str> = Vec::new();
     let mut batt_lines: Vec<&str> = Vec::new();
     let mut proc_lines: Vec<&str> = Vec::new();
+    let mut me_lines: Vec<&str> = Vec::new();
 
     for line in cleaned.lines() {
         let trimmed = line.trim();
@@ -154,6 +198,10 @@ pub fn parse_host_telemetry(raw_output: String) -> HostTelemetrySnapshot {
                 current_section = "BATT";
                 continue;
             }
+            "===ME===" => {
+                current_section = "ME";
+                continue;
+            }
             "===PROC===" => {
                 current_section = "PROC";
                 continue;
@@ -168,6 +216,7 @@ pub fn parse_host_telemetry(raw_output: String) -> HostTelemetrySnapshot {
             "MEM" => mem_lines.push(trimmed),
             "DISK" => disk_lines.push(trimmed),
             "BATT" => batt_lines.push(trimmed),
+            "ME" => me_lines.push(trimmed),
             "PROC" => proc_lines.push(trimmed),
             _ => {}
         }
@@ -186,7 +235,8 @@ pub fn parse_host_telemetry(raw_output: String) -> HostTelemetrySnapshot {
     let (memory_used_mb, memory_total_mb, memory_usage_percent) = parse_memory_metrics(&mem_lines);
     let (disk_used_gb, disk_total_gb, disk_usage_percent) = parse_disk_metrics(&disk_lines);
     let (battery_percent, is_charging, power_source) = parse_battery_metrics(&batt_lines);
-    let processes = parse_process_list(&proc_lines);
+    let me_uid = me_lines.get(1).and_then(|s| s.parse::<u32>().ok());
+    let processes = parse_process_list(&proc_lines, me_uid);
 
     HostTelemetrySnapshot {
         hostname,
@@ -365,16 +415,22 @@ fn parse_battery_metrics(lines: &[&str]) -> (Option<u8>, Option<bool>, Option<St
     (battery_pct, is_charging, power_source)
 }
 
-fn parse_process_list(lines: &[&str]) -> Vec<RemoteProcessInfo> {
+fn parse_process_list(lines: &[&str], me_uid: Option<u32>) -> Vec<RemoteProcessInfo> {
     let mut results = Vec::new();
 
     for &line in lines {
-        // Expected format: PID %CPU %MEM ELAPSED COMMAND
+        // Expected format: PID UID USER %CPU %MEM ELAPSED COMMAND
         let mut parts = line.split_whitespace();
         let Some(pid_str) = parts.next() else {
             continue;
         };
         let Ok(pid) = pid_str.parse::<u32>() else {
+            continue;
+        };
+        let Some(uid) = parts.next().and_then(|u| u.parse::<u32>().ok()) else {
+            continue;
+        };
+        let Some(owner) = parts.next().map(str::to_string) else {
             continue;
         };
         let Some(cpu_str) = parts.next() else {
@@ -404,8 +460,11 @@ fn parse_process_list(lines: &[&str]) -> Vec<RemoteProcessInfo> {
             .to_string();
         let category = classify_process_category(truncated_comm.clone());
 
+        let group = classify_process_group(uid, owner.clone(), truncated_comm.clone(), me_uid);
         results.push(RemoteProcessInfo {
             pid,
+            owner,
+            group,
             name: short_name,
             command_line: truncated_comm,
             cpu_percent,
@@ -435,7 +494,7 @@ fn parse_process_list(lines: &[&str]) -> Vec<RemoteProcessInfo> {
             })
     });
 
-    results.truncate(25);
+    results.truncate(120);
     results
 }
 
@@ -502,11 +561,14 @@ Pages occupied by compressor:             148576.
 ===BATT===
 Now drawing from 'Battery Power'
  -InternalBattery-0 (id=1234567)\t84%; discharging; 4:12 remaining present: true
+===ME===
+ivs
+501
 ===PROC===
- 8412  85.4  4.2    12:04 /opt/homebrew/bin/ollama
- 9102  42.0  1.8    03:15 /Users/ivs/.cargo/bin/cargo
- 7310  14.5  2.1  1:05:22 /Users/ivs/.local/bin/claude
-    1   0.1  0.1 12:00:00 /sbin/launchd
+ 8412  501 ivs     85.4  4.2    12:04 /opt/homebrew/bin/ollama
+ 9102  501 ivs     42.0  1.8    03:15 /Users/ivs/.cargo/bin/cargo
+ 7310  501 ivs     14.5  2.1  1:05:22 /Users/ivs/.local/bin/claude
+    1    0 root     0.1  0.1 12:00:00 /sbin/launchd
 ";
 
         let snap = parse_host_telemetry(sample.to_string());
@@ -530,6 +592,50 @@ Now drawing from 'Battery Power'
         assert_eq!(snap.processes[1].category, ProcessCategory::LocalLlm);
         assert_eq!(snap.processes[2].name, "cargo");
         assert_eq!(snap.processes[2].category, ProcessCategory::BuildTool);
+        assert_eq!(snap.processes[0].owner, "ivs");
+        assert_eq!(snap.processes[0].group, ProcessGroup::User);
+        assert_eq!(snap.processes[3].group, ProcessGroup::System);
+    }
+
+    #[test]
+    fn process_groups_split_system_user_and_other() {
+        let g = |uid, owner: &str, cmd: &str, me| {
+            classify_process_group(uid, owner.into(), cmd.into(), me)
+        };
+        // The login account's own tools.
+        assert_eq!(
+            g(501, "ivs", "/Users/ivs/.local/bin/claude", Some(501)),
+            ProcessGroup::User
+        );
+        assert_eq!(g(501, "ivs", "/bin/zsh", Some(501)), ProcessGroup::User);
+        // Root, service accounts and OS locations are system, even when the login user runs them.
+        assert_eq!(
+            g(0, "root", "/sbin/launchd", Some(501)),
+            ProcessGroup::System
+        );
+        assert_eq!(
+            g(241, "_windowserver", "/System/Library/x", Some(501)),
+            ProcessGroup::System
+        );
+        assert_eq!(
+            g(501, "ivs", "/usr/libexec/cfprefsd", Some(501)),
+            ProcessGroup::System
+        );
+        assert_eq!(
+            g(1000, "dev", "/usr/lib/systemd/systemd", Some(1000)),
+            ProcessGroup::System
+        );
+        // Someone else's ordinary process, or ownership we cannot tell.
+        assert_eq!(
+            g(502, "guest", "/usr/bin/vim", Some(501)),
+            ProcessGroup::Other
+        );
+        assert_eq!(g(502, "guest", "/usr/bin/vim", None), ProcessGroup::User);
+        // A login account with a low uid (some Linux boxes) is still the user, not the system.
+        assert_eq!(
+            g(100, "me", "/home/me/bin/tool", Some(100)),
+            ProcessGroup::User
+        );
     }
 
     #[test]
@@ -549,8 +655,11 @@ MemAvailable:   32768000 kB
 ===DISK===
 /dev/nvme0n1p2 1048576000 524288000 524288000 50% /
 ===BATT===
+===ME===
+dev
+1000
 ===PROC===
- 2048 150.0 12.5 05:10 /usr/local/bin/ollama
+ 2048 1000 dev 150.0 12.5 05:10 /usr/local/bin/ollama
 ";
         let snap = parse_host_telemetry(sample.to_string());
         assert_eq!(snap.hostname, "gpu-workstation");

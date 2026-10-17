@@ -8,6 +8,8 @@ public struct HostTelemetrySheetView: View {
 
     @State private var selectedFilter: String = "All"
     @State private var processToForceKill: RemoteProcessInfo? = nil
+    /// System and other-account processes start collapsed: the user-space group is what is usually wanted.
+    @State private var collapsedGroups: Set<ProcessGroup> = [.system, .other]
 
     private let filters = ["All", "AI Agents", "Local LLM", "Build", "Runtime"]
 
@@ -238,35 +240,42 @@ public struct HostTelemetrySheetView: View {
     }
 
     // MARK: - Process Monitor
-    private func processMonitorSection(_ snap: HostTelemetrySnapshot) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("ACTIVE AGENTS & PROCESSES")
-                    .font(.system(size: 11, weight: .bold, design: .monospaced))
-                    .foregroundColor(.secondary)
+    private let groupOrder: [ProcessGroup] = [.user, .system, .other]
+
+    private func groupTitle(_ g: ProcessGroup) -> String {
+        switch g {
+        case .user: return "User-space"
+        case .system: return "System"
+        case .other: return "Other"
+        }
+    }
+
+    private func groupHint(_ g: ProcessGroup) -> String {
+        switch g {
+        case .user: return "started by the account the app logs in with"
+        case .system: return "root, service accounts and OS daemons"
+        case .other: return "other accounts"
+        }
+    }
+
+    private func groupHeader(_ g: ProcessGroup, count: Int) -> some View {
+        let collapsed = collapsedGroups.contains(g)
+        return Button {
+            if collapsed { collapsedGroups.remove(g) } else { collapsedGroups.insert(g) }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: collapsed ? "chevron.right" : "chevron.down").font(.system(size: 10, weight: .bold))
+                Text("\(groupTitle(g)) (\(count))").font(.system(size: 12, weight: .bold))
+                Text(groupHint(g)).font(.system(size: 10)).foregroundColor(.secondary).lineLimit(1)
                 Spacer()
-                Text("\(filteredProcesses.count) shown")
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
             }
+            .foregroundColor(.primary)
+            .padding(.top, 4)
+        }
+        .buttonStyle(.plain)
+    }
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(filters, id: \.self) { filter in
-                        Button(action: { selectedFilter = filter }) {
-                            Text(filter)
-                                .font(.system(size: 11, weight: selectedFilter == filter ? .bold : .medium))
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 5)
-                                .background(selectedFilter == filter ? Color.accentColor : Color.appSecondaryBackground)
-                                .foregroundColor(selectedFilter == filter ? .white : .primary)
-                                .cornerRadius(14)
-                        }
-                    }
-                }
-            }
-
-            ForEach(filteredProcesses, id: \.pid) { proc in
+    private func processRow(_ proc: RemoteProcessInfo) -> some View {
                 HStack(spacing: 10) {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(spacing: 6) {
@@ -274,7 +283,7 @@ public struct HostTelemetrySheetView: View {
                             Text(proc.name)
                                 .font(.system(size: 13, weight: .bold, design: .monospaced))
                                 .lineLimit(1)
-                            Text("PID \(proc.pid)")
+                            Text("PID \(proc.pid) · \(proc.owner)")
                                 .font(.system(size: 10, design: .monospaced))
                                 .foregroundColor(.secondary)
                         }
@@ -323,6 +332,48 @@ public struct HostTelemetrySheetView: View {
                 .padding(10)
                 .background(Color.appSecondaryBackground)
                 .cornerRadius(10)
+    }
+
+    private func processMonitorSection(_ snap: HostTelemetrySnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("ACTIVE AGENTS & PROCESSES")
+                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                    .foregroundColor(.secondary)
+                Spacer()
+                Text("\(filteredProcesses.count) shown")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+            }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(filters, id: \.self) { filter in
+                        Button(action: { selectedFilter = filter }) {
+                            Text(filter)
+                                .font(.system(size: 11, weight: selectedFilter == filter ? .bold : .medium))
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                                .background(selectedFilter == filter ? Color.accentColor : Color.appSecondaryBackground)
+                                .foregroundColor(selectedFilter == filter ? .white : .primary)
+                                .cornerRadius(14)
+                        }
+                    }
+                }
+            }
+
+            if selectedFilter == "All" {
+                ForEach(groupOrder, id: \.self) { group in
+                    let items = filteredProcesses.filter { $0.group == group }
+                    if !items.isEmpty {
+                        groupHeader(group, count: items.count)
+                        if !collapsedGroups.contains(group) {
+                            ForEach(items, id: \.pid) { proc in processRow(proc) }
+                        }
+                    }
+                }
+            } else {
+                ForEach(filteredProcesses, id: \.pid) { proc in processRow(proc) }
             }
         }
     }

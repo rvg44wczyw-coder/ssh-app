@@ -3722,6 +3722,11 @@ public func FfiConverterTypeRemoteFilePreview_lower(_ value: RemoteFilePreview) 
 
 public struct RemoteProcessInfo: Equatable, Hashable {
     public var pid: UInt32
+    /**
+     * Account that owns the process (as `ps` prints it, may be truncated).
+     */
+    public var owner: String
+    public var group: ProcessGroup
     public var name: String
     public var commandLine: String
     public var cpuPercent: Double
@@ -3731,8 +3736,13 @@ public struct RemoteProcessInfo: Equatable, Hashable {
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(pid: UInt32, name: String, commandLine: String, cpuPercent: Double, memPercent: Double, elapsed: String, category: ProcessCategory) {
+    public init(pid: UInt32, 
+        /**
+         * Account that owns the process (as `ps` prints it, may be truncated).
+         */owner: String, group: ProcessGroup, name: String, commandLine: String, cpuPercent: Double, memPercent: Double, elapsed: String, category: ProcessCategory) {
         self.pid = pid
+        self.owner = owner
+        self.group = group
         self.name = name
         self.commandLine = commandLine
         self.cpuPercent = cpuPercent
@@ -3758,6 +3768,8 @@ public struct FfiConverterTypeRemoteProcessInfo: FfiConverterRustBuffer {
         return
             try RemoteProcessInfo(
                 pid: FfiConverterUInt32.read(from: &buf), 
+                owner: FfiConverterString.read(from: &buf), 
+                group: FfiConverterTypeProcessGroup.read(from: &buf), 
                 name: FfiConverterString.read(from: &buf), 
                 commandLine: FfiConverterString.read(from: &buf), 
                 cpuPercent: FfiConverterDouble.read(from: &buf), 
@@ -3769,6 +3781,8 @@ public struct FfiConverterTypeRemoteProcessInfo: FfiConverterRustBuffer {
 
     public static func write(_ value: RemoteProcessInfo, into buf: inout [UInt8]) {
         FfiConverterUInt32.write(value.pid, into: &buf)
+        FfiConverterString.write(value.owner, into: &buf)
+        FfiConverterTypeProcessGroup.write(value.group, into: &buf)
         FfiConverterString.write(value.name, into: &buf)
         FfiConverterString.write(value.commandLine, into: &buf)
         FfiConverterDouble.write(value.cpuPercent, into: &buf)
@@ -4892,6 +4906,91 @@ public func FfiConverterTypeProcessCategory_lower(_ value: ProcessCategory) -> R
 
 
 
+/**
+ * Who a process belongs to, for the grouped full list.
+ */
+
+public enum ProcessGroup: Equatable, Hashable {
+    
+    /**
+     * Root, service accounts (`_name`, low uids) and OS locations (`/System`, `/usr/libexec`, ...).
+     */
+    case system
+    /**
+     * Started by the account the app logs in with.
+     */
+    case user
+    /**
+     * Another regular account, or ownership that could not be determined.
+     */
+    case other
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension ProcessGroup: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeProcessGroup: FfiConverterRustBuffer {
+    typealias SwiftType = ProcessGroup
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ProcessGroup {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .system
+        
+        case 2: return .user
+        
+        case 3: return .other
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: ProcessGroup, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .system:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .user:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .other:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeProcessGroup_lift(_ buf: RustBuffer) throws -> ProcessGroup {
+    return try FfiConverterTypeProcessGroup.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeProcessGroup_lower(_ value: ProcessGroup) -> RustBuffer {
+    return FfiConverterTypeProcessGroup.lower(value)
+}
+
+
+
 
 public enum RemoteFileKind: Equatable, Hashable {
     
@@ -5814,6 +5913,30 @@ fileprivate struct FfiConverterOptionUInt16: FfiConverterRustBuffer {
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterUInt16.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionUInt32: FfiConverterRustBuffer {
+    typealias SwiftType = UInt32?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterUInt32.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterUInt32.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -6974,6 +7097,21 @@ public func classifyProcessCategory(comm: String) -> ProcessCategory  {
     )
 })
 }
+/**
+ * `me_uid` is the login account's uid (`None` when the host did not report it: every
+ * non-system process then counts as the user's).
+ */
+public func classifyProcessGroup(uid: UInt32, owner: String, command: String, meUid: UInt32?) -> ProcessGroup  {
+    return try!  FfiConverterTypeProcessGroup_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_classify_process_group(
+        FfiConverterUInt32.lower(uid),
+        FfiConverterString.lower(owner),
+        FfiConverterString.lower(command),
+        FfiConverterOptionUInt32.lower(meUid),uniffiCallStatus
+    )
+})
+}
 public func parseHostTelemetry(rawOutput: String) -> HostTelemetrySnapshot  {
     return try!  FfiConverterTypeHostTelemetrySnapshot_lift(try! rustCall() {
         uniffiCallStatus in
@@ -7177,6 +7315,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_classify_process_category() != 7146) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_classify_process_group() != 48977) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_parse_host_telemetry() != 20873) {
