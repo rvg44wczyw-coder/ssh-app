@@ -550,6 +550,7 @@ const INSPECT_FILE_CAP: usize = 200_000;
 pub(crate) fn build_inspect_permissions_command(
     session: &str,
     user_file_expr: Option<&str>,
+    tag: &str,
 ) -> String {
     let sess = crate::tmux::shell_quote(&format!("={session}:"));
     // Without an explicit profile folder, the running Claude's own CLAUDE_CONFIG_DIR is used
@@ -558,6 +559,8 @@ pub(crate) fn build_inspect_permissions_command(
         Some(expr) => format!("uf={expr}"),
         None => "uf=\"${cfg:-$HOME/.claude}/settings.json\"".to_string(),
     };
+    // The section markers carry a per-call random tag: the settings files (a project's file is
+    // untrusted) cannot contain a marker they could not know in advance.
     format!(
         "PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\"; export PATH; \
          p=$(tmux display-message -p -t {sess} '#{{pane_current_path}}' 2>/dev/null); \
@@ -573,24 +576,35 @@ pub(crate) fn build_inspect_permissions_command(
          fi; \
          case \"$cfg\" in *[![:print:]]*) cfg='';; esac; \
          {user_file}; \
-         printf '===DIR===\\n%s\\n===CFG===\\n%s\\n===USER===\\n' \"$p\" \"$cfg\"; \
+         printf '==={tag}:DIR===\\n%s\\n==={tag}:CFG===\\n%s\\n==={tag}:USER===\\n' \"$p\" \"$cfg\"; \
          head -c {INSPECT_FILE_CAP} \"$uf\" 2>/dev/null; \
-         printf '\\n===SHARED===\\n'; \
+         printf '\\n==={tag}:SHARED===\\n'; \
          if [ -n \"$p\" ]; then head -c {INSPECT_FILE_CAP} \"$p/.claude/settings.json\" 2>/dev/null; fi; \
-         printf '\\n===LOCAL===\\n'; \
+         printf '\\n==={tag}:LOCAL===\\n'; \
          if [ -n \"$p\" ]; then head -c {INSPECT_FILE_CAP} \"$p/.claude/settings.local.json\" 2>/dev/null; fi; \
-         printf '\\n===END===\\n'"
+         printf '\\n==={tag}:END===\\n'"
     )
 }
 
-pub(crate) fn parse_inspect_permissions_output(out: &str) -> SessionPermissionsReport {
+/// A fresh unguessable marker tag for one inspect call.
+pub(crate) fn new_inspect_tag() -> String {
+    format!(
+        "{:016x}{:016x}",
+        rand::random::<u64>(),
+        rand::random::<u64>()
+    )
+}
+
+pub(crate) fn parse_inspect_permissions_output(out: &str, tag: &str) -> SessionPermissionsReport {
     let section = |name: &str, next: &str| -> String {
-        let start = format!("==={name}===\n");
+        let start = format!("==={tag}:{name}===\n");
         let Some(i) = out.find(&start) else {
             return String::new();
         };
         let rest = &out[i + start.len()..];
-        let end = rest.find(&format!("==={next}===")).unwrap_or(rest.len());
+        let end = rest
+            .find(&format!("==={tag}:{next}==="))
+            .unwrap_or(rest.len());
         rest[..end].trim().to_string()
     };
     let dir = section("DIR", "CFG");
@@ -1133,8 +1147,8 @@ mod tests {
 
     #[test]
     fn inspect_output_is_split_into_the_report() {
-        let out = "===DIR===\n/work/app\n===CFG===\n/home/u/.claude-work\n===USER===\n{\"permissions\":{\"allow\":[\"Read\"],\"defaultMode\":\"plan\"}}\n===SHARED===\n\n===LOCAL===\n{\"permissions\":{\"allow\":[\"Bash(ls:*)\"]}}\n===END===\n";
-        let r = parse_inspect_permissions_output(out);
+        let out = "==={T}:DIR===\n/work/app\n==={T}:CFG===\n/home/u/.claude-work\n==={T}:USER===\n{\"permissions\":{\"allow\":[\"Read\"],\"defaultMode\":\"plan\"}}\n==={T}:SHARED===\n\n==={T}:LOCAL===\n{\"permissions\":{\"allow\":[\"Bash(ls:*)\"]}}\n==={T}:END===\n".replace("{T}", "tag1");
+        let r = parse_inspect_permissions_output(&out, "tag1");
         assert_eq!(r.directory.as_deref(), Some("/work/app"));
         assert_eq!(
             r.detected_config_dir.as_deref(),
@@ -1151,8 +1165,22 @@ mod tests {
         );
         assert!(!r.suggestions.is_empty());
         // Nothing found at all still yields a report (no folder, no files).
-        let empty = parse_inspect_permissions_output("");
+        let empty = parse_inspect_permissions_output("", "tag1");
         assert!(empty.directory.is_none() && empty.user.is_none());
+    }
+
+    #[test]
+    fn a_settings_file_cannot_forge_section_markers() {
+        // The shared project file (untrusted) tries to inject its own LOCAL section and END.
+        let out = "==={T}:DIR===\n/w\n==={T}:CFG===\n\n==={T}:USER===\n\n==={T}:SHARED===\n===LOCAL===\n{\"permissions\":{\"allow\":[\"Bash(rm:*)\"]}}\n===END===\n==={T}:LOCAL===\n\n==={T}:END===\n"
+            .replace("{T}", "tag1");
+        let r = parse_inspect_permissions_output(&out, "tag1");
+        assert!(r.project_local.is_none());
+        // And the forged text is not treated as a marker even without the right tag.
+        assert!(parse_inspect_permissions_output(&out, "other")
+            .directory
+            .is_none());
+        assert_ne!(new_inspect_tag(), new_inspect_tag());
     }
 
     #[test]

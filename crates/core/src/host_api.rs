@@ -310,10 +310,16 @@ impl SshSessionHandle {
             .session_name
             .clone();
         crate::tmux::validate_session_name(&session)?;
-        let cmd =
-            crate::permissions::build_inspect_permissions_command(&session, file_expr.as_deref());
+        let tag = crate::permissions::new_inspect_tag();
+        let cmd = crate::permissions::build_inspect_permissions_command(
+            &session,
+            file_expr.as_deref(),
+            &tag,
+        );
         let out = self.execute_command_on_active_session(cmd).await?;
-        Ok(crate::permissions::parse_inspect_permissions_output(&out))
+        Ok(crate::permissions::parse_inspect_permissions_output(
+            &out, &tag,
+        ))
     }
 
     /// Like `read_agent_permissions`, but rules the editor cannot represent (e.g. a line break

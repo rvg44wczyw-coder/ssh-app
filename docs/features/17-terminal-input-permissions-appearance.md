@@ -37,7 +37,7 @@ Status: implemented (Rust + iOS); on-device checks pending (scroll feel, alterna
 ## Review notes (rev, 2026-10-17)
 - Verified: `cargo fmt`, `clippy -D warnings`, 128 unit + 17 hook + 21 loopback + 6 probe tests; tmux server pid unchanged (35350); generic `xcodebuild` clean.
 - Chat payload and every host path/config dir go through `shell_quote` / `remote_path_expr`; control characters and over-long config dirs are rejected; host ports are `u16`.
-- **Low, open:** the inspect command prints the user, shared and local settings files between `===SECTION===` markers. A project file (untrusted repo) that contains such a marker can forge another section. Impact is limited to what is shown and suggested; nothing is written from it. Fix when touched next: random per-call delimiter.
+- **Low, fixed:** the inspect command's section markers carry a per-call random tag (`===<tag>:SECTION===`), so a settings file from an untrusted repo cannot forge a section (test `a_settings_file_cannot_forge_section_markers`).
 - **Open:** no Swift tests for scheme resolution, custom-scheme JSON, accent `#rrggbb` (no iOS test target yet); covered only by build + manual checks.
 - **Tradeoffs:** `mouse on` makes tmux handle the mouse (native text selection of scrollback is replaced by tmux copy-mode); the ×5 scroll speed is fixed, not a setting; a free accent color can have poor contrast (e.g. on yellow); custom schemes live only on the phone (no sync); a deleted custom scheme that a profile still names falls back to the slot/general default.
 - Not yet run for these features: `hacker`.
