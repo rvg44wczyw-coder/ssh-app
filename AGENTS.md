@@ -50,6 +50,10 @@ ssh-app/
    - Sensitive memory zeroized on drop (`zeroize`).
    - Host key verification to prevent MITM.
 
+## Payments (switched off)
+
+StoreKit 2 Pro subscription (weekly/monthly/yearly) and lifetime purchase are implemented but **disabled**: the `PAYMENTS` compilation condition is not set, so the app is free with no limits. Do not remove the code and do not enable it without the owner's word. Spec and open items: `docs/features/18-payments.md` (M20 in `docs/roadmap.md`). Keep it in mind when touching session/server creation, Settings and the project's build settings.
+
 ## Development Workflow
 
 We follow the dev-chain workflow:

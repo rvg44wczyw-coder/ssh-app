@@ -18,12 +18,8 @@ The whole payment system is optional. It is a build option: the compilation cond
 ## Testing locally
 Select `ios/SSHApp.storekit` under Product → Scheme → Edit Scheme → Run → Options → StoreKit Configuration (the repo has no shared scheme). Then purchases, trials, renewals and refunds are simulated in Xcode (Debug → StoreKit → Manage Transactions). The unit tests (`SubscriptionTests`) cover limits, the on/off rule and entitlement expiry/revocation; they build but have not been run (no simulator on this machine).
 
-## Branch and worktree
-The work lives on branch `feature/payments` in its own git worktree, `../ssh-app-payments` (next to the main checkout), so it can be built, changed and reviewed without touching `main`.
-- Work there: `cd ../ssh-app-payments` (build with `xcodebuild -project ios/SSHApp.xcodeproj -scheme SSHApp ...` or `make iphone`; the worktree has its own `.build`).
-- Bring `main` changes in: `git merge main` (or rebase) inside the worktree.
-- Ship: after `rev` and `hacker`, merge `feature/payments` into `main`, then `git worktree remove ../ssh-app-payments` and `git branch -d feature/payments`.
-- The first commit of the feature (`583cc2b`) was made on `main` before the branch existed; `main` still contains it until it is reset or reverted there. Until that is done the two branches share the commit and the feature is not isolated.
+## Status
+Merged into `main` with the payment system **fully switched off** (no `PAYMENTS` build option): the app is free, has no limits and shows nothing about payments. The code stays in the tree so it does not rot; turn it on only when the plan below is done. It started on branch `feature/payments` (worktree removed after the merge).
 
 ## Open
 - Real prices, localized names and the subscription group in App Store Connect; screenshot of the paywall for review.
