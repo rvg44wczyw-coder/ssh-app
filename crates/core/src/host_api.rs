@@ -21,6 +21,18 @@ impl SshSessionHandle {
             .await
     }
 
+    /// One turn of a free-form chat with the host's Ollama: the whole history goes in, the
+    /// assistant's reply comes back as plain text. Dropping the call stops the request on the host.
+    pub async fn chat_host_ollama(
+        &self,
+        model: String,
+        system_prompt: String,
+        messages: Vec<crate::ai::ChatMessage>,
+    ) -> Result<String, SshCoreError> {
+        self.chat_ollama_on_port(11434, model, system_prompt, messages)
+            .await
+    }
+
     /// Reads and parses the latest transcript from the remote host.
     pub async fn read_remote_transcript(
         &self,
@@ -590,6 +602,26 @@ pub(crate) fn build_write_config_command(path: &str, previous: &str, content: &s
 }
 
 impl SshSessionHandle {
+    /// `chat_host_ollama` against another port (tests run a fake server).
+    #[doc(hidden)]
+    pub async fn chat_ollama_on_port(
+        &self,
+        port: u16,
+        model: String,
+        system_prompt: String,
+        messages: Vec<crate::ai::ChatMessage>,
+    ) -> Result<String, SshCoreError> {
+        let payload = crate::ai::build_ollama_chat_payload(&model, &system_prompt, &messages)?;
+        let curl_cmd = crate::hostprobe::cancellable_sh(&format!(
+            "curl -s --max-time 290 -X POST http://127.0.0.1:{port}/api/chat -H 'Content-Type: application/json' -d {}",
+            crate::tmux::shell_quote(&payload)
+        ));
+        let raw = self
+            .exec_with_timeout(&curl_cmd, Duration::from_secs(300))
+            .await?;
+        crate::ai::parse_ollama_chat_response(&raw)
+    }
+
     /// `query_host_ollama` against another port (tests run a fake server; the product uses 11434).
     #[doc(hidden)]
     pub async fn query_ollama_on_port(

@@ -892,6 +892,12 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func approvalStatus() async throws  -> ApprovalStatus
     
     /**
+     * One turn of a free-form chat with the host's Ollama: the whole history goes in, the
+     * assistant's reply comes back as plain text. Dropping the call stops the request on the host.
+     */
+    func chatHostOllama(model: String, systemPrompt: String, messages: [ChatMessage]) async throws  -> String
+    
+    /**
      * Resolves `binary` in a login shell and in an interactive shell (rc files loaded), so the
      * app can tell the user whether the agent is only reachable after sourcing `~/.zshrc`.
      */
@@ -1206,6 +1212,26 @@ open func approvalStatus()async throws  -> ApprovalStatus  {
             completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
             freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
             liftFunc: FfiConverterTypeApprovalStatus_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * One turn of a free-form chat with the host's Ollama: the whole history goes in, the
+     * assistant's reply comes back as plain text. Dropping the call stops the request on the host.
+     */
+open func chatHostOllama(model: String, systemPrompt: String, messages: [ChatMessage])async throws  -> String  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_chat_host_ollama(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(model),FfiConverterString.lower(systemPrompt),FfiConverterSequenceTypeChatMessage.lower(messages)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterString.lift,
             errorHandler: FfiConverterTypeSshCoreError_lift
         )
 }
@@ -2540,6 +2566,63 @@ public func FfiConverterTypeCanonicalSigningPayload_lift(_ buf: RustBuffer) thro
 #endif
 public func FfiConverterTypeCanonicalSigningPayload_lower(_ value: CanonicalSigningPayload) -> RustBuffer {
     return FfiConverterTypeCanonicalSigningPayload.lower(value)
+}
+
+
+/**
+ * One turn of the local-assistant chat. `role` is `user` or `assistant`.
+ */
+public struct ChatMessage: Equatable, Hashable {
+    public var role: String
+    public var content: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(role: String, content: String) {
+        self.role = role
+        self.content = content
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ChatMessage: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeChatMessage: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ChatMessage {
+        return
+            try ChatMessage(
+                role: FfiConverterString.read(from: &buf), 
+                content: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ChatMessage, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.role, into: &buf)
+        FfiConverterString.write(value.content, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeChatMessage_lift(_ buf: RustBuffer) throws -> ChatMessage {
+    return try FfiConverterTypeChatMessage.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeChatMessage_lower(_ value: ChatMessage) -> RustBuffer {
+    return FfiConverterTypeChatMessage.lower(value)
 }
 
 
@@ -6116,6 +6199,31 @@ fileprivate struct FfiConverterSequenceTypeAgentLaunchProfile: FfiConverterRustB
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeChatMessage: FfiConverterRustBuffer {
+    typealias SwiftType = [ChatMessage]
+
+    public static func write(_ value: [ChatMessage], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeChatMessage.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [ChatMessage] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [ChatMessage]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeChatMessage.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeEnvVar: FfiConverterRustBuffer {
     typealias SwiftType = [EnvVar]
 
@@ -7378,6 +7486,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_approval_status() != 60832) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_chat_host_ollama() != 1697) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_check_agent_environment() != 52079) {

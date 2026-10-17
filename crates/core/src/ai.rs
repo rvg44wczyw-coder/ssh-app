@@ -471,6 +471,80 @@ pub fn parse_ollama_generate_response(json_body: &str) -> Result<String, SshCore
         })
 }
 
+/// One turn of the local-assistant chat. `role` is `user` or `assistant`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, uniffi::Record)]
+pub struct ChatMessage {
+    pub role: String,
+    pub content: String,
+}
+
+const CHAT_MAX_MESSAGES: usize = 60;
+/// The request travels as one argument of a remote command line, so the whole history is capped.
+const CHAT_MAX_TOTAL_BYTES: usize = 96 * 1024;
+
+/// Builds the `/api/chat` body (non-streaming). The system prompt is sent as the first message;
+/// only `user`/`assistant` turns are accepted from the caller, and the history must end with a
+/// user turn.
+pub fn build_ollama_chat_payload(
+    model: &str,
+    system_prompt: &str,
+    messages: &[ChatMessage],
+) -> Result<String, SshCoreError> {
+    let bad = |reason: &str| SshCoreError::AiAssistantError {
+        reason: reason.to_string(),
+    };
+    if model.trim().is_empty() {
+        return Err(bad("No model selected"));
+    }
+    if messages.is_empty() || messages.len() > CHAT_MAX_MESSAGES {
+        return Err(bad("Chat history is empty or too long"));
+    }
+    if messages.last().map(|m| m.role.as_str()) != Some("user") {
+        return Err(bad("Chat must end with a user message"));
+    }
+    let total: usize =
+        messages.iter().map(|m| m.content.len()).sum::<usize>() + system_prompt.len();
+    if total > CHAT_MAX_TOTAL_BYTES {
+        return Err(bad("Chat is too long; start a new chat"));
+    }
+    let mut turns = vec![serde_json::json!({"role": "system", "content": system_prompt})];
+    for m in messages {
+        if m.role != "user" && m.role != "assistant" {
+            return Err(bad("Unknown chat role"));
+        }
+        turns.push(serde_json::json!({"role": m.role, "content": m.content}));
+    }
+    Ok(serde_json::json!({"model": model, "messages": turns, "stream": false}).to_string())
+}
+
+/// Parses the JSON response from Ollama's /api/chat endpoint into the assistant's text.
+pub fn parse_ollama_chat_response(json_body: &str) -> Result<String, SshCoreError> {
+    #[derive(Deserialize)]
+    struct Msg {
+        content: Option<String>,
+    }
+    #[derive(Deserialize)]
+    struct Resp {
+        message: Option<Msg>,
+        error: Option<String>,
+    }
+    let parsed: Resp =
+        serde_json::from_str(json_body).map_err(|e| SshCoreError::AiAssistantError {
+            reason: format!("Failed to parse Ollama JSON: {e}"),
+        })?;
+    if let Some(err) = parsed.error {
+        return Err(SshCoreError::AiAssistantError {
+            reason: format!("Ollama returned error: {err}"),
+        });
+    }
+    parsed
+        .message
+        .and_then(|m| m.content)
+        .ok_or_else(|| SshCoreError::AiAssistantError {
+            reason: "Ollama response missing 'message' field".to_string(),
+        })
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -680,5 +754,42 @@ mod tests {
         let json = r#"{"model":"qwen2.5-coder","response":"COMMAND: ls\nEXPLANATION: lists files","done":true}"#;
         let response_text = parse_ollama_generate_response(json).unwrap();
         assert!(response_text.contains("COMMAND: ls"));
+    }
+    fn turn(role: &str, content: &str) -> ChatMessage {
+        ChatMessage {
+            role: role.into(),
+            content: content.into(),
+        }
+    }
+
+    #[test]
+    fn chat_payload_carries_history_and_rejects_bad_input() {
+        let msgs = vec![
+            turn("user", "hi"),
+            turn("assistant", "hello"),
+            turn("user", "why?"),
+        ];
+        let v: serde_json::Value =
+            serde_json::from_str(&build_ollama_chat_payload("m", "sys", &msgs).unwrap()).unwrap();
+        assert_eq!(v["stream"], false);
+        assert_eq!(v["messages"].as_array().unwrap().len(), 4);
+        assert_eq!(v["messages"][0]["role"], "system");
+        assert_eq!(v["messages"][3]["content"], "why?");
+        assert!(build_ollama_chat_payload("", "s", &msgs).is_err());
+        assert!(build_ollama_chat_payload("m", "s", &[]).is_err());
+        assert!(build_ollama_chat_payload("m", "s", &[turn("assistant", "x")]).is_err());
+        assert!(
+            build_ollama_chat_payload("m", "s", &[turn("system", "x"), turn("user", "y")]).is_err()
+        );
+        let huge = turn("user", &"a".repeat(CHAT_MAX_TOTAL_BYTES + 1));
+        assert!(build_ollama_chat_payload("m", "s", &[huge]).is_err());
+    }
+
+    #[test]
+    fn chat_response_is_parsed_and_errors_surface() {
+        let ok = r#"{"message":{"role":"assistant","content":"42"},"done":true}"#;
+        assert_eq!(parse_ollama_chat_response(ok).unwrap(), "42");
+        assert!(parse_ollama_chat_response(r#"{"error":"model not found"}"#).is_err());
+        assert!(parse_ollama_chat_response("not json").is_err());
     }
 }

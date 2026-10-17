@@ -1753,6 +1753,85 @@ fn stopping_a_local_model_request_kills_it_on_the_host() {
 }
 
 #[test]
+fn local_assistant_chat_sends_the_whole_history_and_returns_the_reply() {
+    use std::io::{Read, Write};
+    // A fake Ollama on its own port (the developer's real one owns 11434).
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let fake_port = listener.local_addr().unwrap().port();
+    let Some(server) = start_sshd() else {
+        eprintln!("SKIP: sshd/ssh-keygen/tmux unavailable");
+        return;
+    };
+    let handle = connect(&server);
+    let (tx, rx) = std::sync::mpsc::channel::<String>();
+    std::thread::spawn(move || {
+        let (mut conn, _) = listener.accept().unwrap();
+        conn.set_read_timeout(Some(Duration::from_secs(20)))
+            .unwrap();
+        let mut req = Vec::new();
+        let mut buf = [0u8; 4096];
+        loop {
+            let n = conn.read(&mut buf).unwrap_or(0);
+            req.extend_from_slice(&buf[..n]);
+            let text = String::from_utf8_lossy(&req).to_string();
+            if let Some((head, body)) = text.split_once("\r\n\r\n") {
+                let want = head
+                    .lines()
+                    .find_map(|l| {
+                        l.to_ascii_lowercase()
+                            .strip_prefix("content-length:")
+                            .map(|v| v.trim().parse::<usize>().unwrap())
+                    })
+                    .unwrap_or(0);
+                if body.len() >= want {
+                    let _ = tx.send(format!("{} {}", head.lines().next().unwrap(), body));
+                    break;
+                }
+            }
+            if n == 0 {
+                break;
+            }
+        }
+        let reply = r#"{"message":{"role":"assistant","content":"because tmux"},"done":true}"#;
+        let _ = write!(
+            conn,
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            reply.len(),
+            reply
+        );
+    });
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let answer = rt.block_on(async {
+        let msg = |r: &str, c: &str| ssh_core::ai::ChatMessage {
+            role: r.into(),
+            content: c.into(),
+        };
+        handle
+            .chat_ollama_on_port(
+                fake_port,
+                "m".into(),
+                "be brief".into(),
+                vec![
+                    msg("user", "what is it'? "),
+                    msg("assistant", "a thing"),
+                    msg("user", "why?"),
+                ],
+            )
+            .await
+    });
+    assert_eq!(answer.unwrap(), "because tmux");
+    let seen = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert!(seen.starts_with("POST /api/chat"), "{seen}");
+    for needle in ["be brief", "what is it'? ", "a thing", "why?"] {
+        assert!(seen.contains(needle), "missing {needle}: {seen}");
+    }
+    handle.disconnect();
+}
+
+#[test]
 fn the_very_first_attach_already_disables_the_alternate_screen() {
     // Scrolling in the app relies on tmux not switching clients to the alternate screen
     // (`smcup@:rmcup@`). On a host whose tmux server is not running yet, the options used to be

@@ -17,6 +17,10 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     @Published public var isAiLoading: Bool = false
     @Published public var aiError: String? = nil
     private var aiTask: Task<Void, Never>? = nil
+    @Published public var chatMessages: [ChatMessage] = []
+    @Published public var isChatLoading: Bool = false
+    @Published public var chatError: String? = nil
+    private var chatTask: Task<Void, Never>? = nil
 
     // Structured Transcript / Dual-Mode State
     @Published public var isChatMode: Bool = false
@@ -115,7 +119,6 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         }
         do {
             try handle.sendInput(data: data)
-            print("[SwiftVM \(instanceId)] handle.sendInput succeeded")
         } catch {
             print("[SwiftVM \(instanceId)] handle.sendInput error: \(error)")
         }
@@ -160,6 +163,61 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         aiTask = Task { [weak self] in
             await self?.queryAiAssistant(userPrompt: userPrompt, modelName: modelName, targetOs: targetOs)
         }
+    }
+
+    private static let chatSystemPrompt =
+        "You are a concise assistant for a developer working on their own computer through a remote terminal. "
+        + "Answer questions about commands, code, tools and errors. Reply in the language of the question. "
+        + "You cannot run anything yourself; put commands in fenced code blocks so they can be copied."
+
+    /// Keeps the request small: the newest turns that fit, always starting with a user turn.
+    private func chatWindow() -> [ChatMessage] {
+        var kept: [ChatMessage] = []
+        var bytes = 0
+        for m in chatMessages.reversed() {
+            bytes += m.content.utf8.count
+            if bytes > 60_000 || kept.count >= 40 { break }
+            kept.append(m)
+        }
+        kept.reverse()
+        while let first = kept.first, first.role != "user" { kept.removeFirst() }
+        return kept
+    }
+
+    public func sendChat(_ text: String, modelName: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !isChatLoading, let handle = sessionHandle, state == .connected else { return }
+        chatMessages.append(ChatMessage(role: "user", content: trimmed))
+        chatError = nil
+        isChatLoading = true
+        let window = chatWindow()
+        chatTask = Task { [weak self] in
+            do {
+                let reply = try await handle.chatHostOllama(
+                    model: modelName, systemPrompt: Self.chatSystemPrompt, messages: window)
+                guard let self, !Task.isCancelled else { return }
+                self.chatMessages.append(ChatMessage(role: "assistant", content: reply))
+                self.isChatLoading = false
+            } catch {
+                guard let self, !Task.isCancelled else { return }
+                self.chatError = error.localizedDescription
+                self.isChatLoading = false
+            }
+        }
+    }
+
+    /// Stop drops the call (the host kills the request); the unanswered question stays in the
+    /// history so it can be edited and sent again.
+    public func stopChat() {
+        chatTask?.cancel()
+        chatTask = nil
+        isChatLoading = false
+    }
+
+    public func clearChat() {
+        stopChat()
+        chatMessages = []
+        chatError = nil
     }
 
     public func stopAiQuery() {
@@ -392,7 +450,6 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     }
 
     nonisolated public func onDataReceived(data: Data) {
-        print("[SwiftVM \(instanceId)] onDataReceived: \(data.count) bytes")
         Task { @MainActor in
             self.terminalDataBuffer.append(data)
             if self.terminalDataBuffer.count > 1024 * 1024 {

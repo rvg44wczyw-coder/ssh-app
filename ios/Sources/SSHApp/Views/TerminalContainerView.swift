@@ -74,14 +74,14 @@ public struct TerminalContainerView: UIViewRepresentable {
 
     public func makeUIView(context: Context) -> TerminalView {
         var options = TerminalOptions.default
-        options.scrollback = 1000
+        options.scrollback = 10_000
         let fontSize = CGFloat(terminalFontSize)
         let terminalView = AppTerminalView(
             frame: .zero,
             font: UIFont.monospacedSystemFont(ofSize: fontSize, weight: .regular),
             options: options
         )
-        terminalView.changeScrollback(1000)
+        terminalView.changeScrollback(10_000)
         terminalView.terminalDelegate = context.coordinator
         terminalView.delegate = context.coordinator
         terminalView.backgroundColor = .black
@@ -146,9 +146,7 @@ public struct TerminalContainerView: UIViewRepresentable {
         // Subscribe to throttled output stream from Rust Core
         context.coordinator.cancellable = viewModel.outputPublisher
             .receive(on: DispatchQueue.main)
-            .sink { [weak terminalView, weak viewModel] data in
-                let vmId = viewModel?.instanceId ?? "unknown"
-                print("[TerminalView \(vmId)] feeding live data: \(data.count) bytes")
+            .sink { [weak terminalView] data in
                 let bytes = ArraySlice([UInt8](data))
                 terminalView?.feed(byteArray: bytes)
             }
@@ -197,9 +195,7 @@ public struct TerminalContainerView: UIViewRepresentable {
             feedHistoryBuffer(history, to: terminalView)
             self.cancellable = newVM.outputPublisher
                 .receive(on: DispatchQueue.main)
-                .sink { [weak terminalView, weak newVM] data in
-                    let vmId = newVM?.instanceId ?? "unknown"
-                    print("[TerminalView \(vmId)] feeding live data: \(data.count) bytes")
+                .sink { [weak terminalView] data in
                     let bytes = ArraySlice([UInt8](data))
                     terminalView?.feed(byteArray: bytes)
                 }

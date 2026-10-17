@@ -7,6 +7,10 @@ public struct AiAssistantSheetView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var userPrompt: String = ""
+    @State private var chatInput: String = ""
+    @State private var mode: Mode = .command
+
+    private enum Mode: String, CaseIterable { case command = "Command", chat = "Chat" }
     @AppStorage("ai_last_model") private var lastModel: String = ""
     @State private var selectedModel: String = ""
     @State private var check: OllamaCheckState = .checking
@@ -46,12 +50,23 @@ public struct AiAssistantSheetView: View {
     private func closeSheet() {
         // Leaving while a request runs would leave the model generating for nobody.
         if viewModel.isAiLoading { viewModel.stopAiQuery() }
+        if viewModel.isChatLoading { viewModel.stopChat() }
         onClose?()
         dismiss()
     }
 
     public var body: some View {
         NavigationStack {
+            VStack(spacing: 0) {
+            Picker("Mode", selection: $mode) {
+                ForEach(Mode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            if mode == .chat {
+                chatBody
+            } else {
             ScrollView {
                 VStack(spacing: 18) {
                     headerSection
@@ -72,6 +87,8 @@ public struct AiAssistantSheetView: View {
                     }
                 }
                 .padding(16)
+            }
+            }
             }
             .background(Color(red: 0.08, green: 0.08, blue: 0.10).ignoresSafeArea())
             .navigationBarTitleDisplayMode(.inline)
@@ -97,6 +114,102 @@ public struct AiAssistantSheetView: View {
             }
         }
         .interactiveDismissDisabled()
+    }
+
+    // MARK: - Chat
+    private var chatBody: some View {
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 8) {
+                hostCheckSection
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 10)
+
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 10) {
+                        if viewModel.chatMessages.isEmpty {
+                            Text("Ask the local model anything about your work: commands, errors, code. It answers from the host's Ollama and cannot run anything.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .padding(.top, 20)
+                        }
+                        ForEach(Array(viewModel.chatMessages.enumerated()), id: \.offset) { index, message in
+                            chatBubble(message).id(index)
+                        }
+                        if viewModel.isChatLoading {
+                            HStack(spacing: 8) {
+                                ProgressView().scaleEffect(0.8)
+                                Text("Thinking…").font(.caption).foregroundColor(.secondary)
+                            }
+                            .id("loading")
+                        }
+                        if let error = viewModel.chatError {
+                            errorSection(error)
+                        }
+                    }
+                    .padding(16)
+                }
+                .onChange(of: viewModel.chatMessages.count) { _ in
+                    withAnimation { proxy.scrollTo(viewModel.chatMessages.count - 1, anchor: .bottom) }
+                }
+                .onChange(of: viewModel.isChatLoading) { loading in
+                    if loading { withAnimation { proxy.scrollTo("loading", anchor: .bottom) } }
+                }
+            }
+
+            HStack(alignment: .bottom, spacing: 8) {
+                TextField("Message…", text: $chatInput, axis: .vertical)
+                    .lineLimit(1...5)
+                    .font(.system(size: 14))
+                    .foregroundColor(.white)
+                    .padding(10)
+                    .background(Color(white: 0.12))
+                    .cornerRadius(10)
+                Button {
+                    if viewModel.isChatLoading {
+                        viewModel.stopChat()
+                    } else {
+                        viewModel.sendChat(chatInput, modelName: selectedModel)
+                        chatInput = ""
+                    }
+                } label: {
+                    Image(systemName: viewModel.isChatLoading ? "stop.fill" : "arrow.up")
+                        .font(.system(size: 16, weight: .bold))
+                        .frame(width: 40, height: 40)
+                        .background(viewModel.isChatLoading ? Color.red : Color.purple)
+                        .foregroundColor(.white)
+                        .clipShape(Circle())
+                }
+                .disabled(!viewModel.isChatLoading
+                          && (chatInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !isReady))
+                .opacity(!viewModel.isChatLoading
+                         && (chatInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !isReady) ? 0.4 : 1)
+                Menu {
+                    Button("New chat", role: .destructive) { viewModel.clearChat() }
+                        .disabled(viewModel.chatMessages.isEmpty)
+                } label: {
+                    Image(systemName: "ellipsis.circle").font(.system(size: 22)).foregroundColor(.secondary)
+                        .frame(width: 32, height: 40)
+                }
+            }
+            .padding(12)
+        }
+    }
+
+    private func chatBubble(_ message: ChatMessage) -> some View {
+        let isUser = message.role == "user"
+        return HStack {
+            if isUser { Spacer(minLength: 40) }
+            Text(message.content)
+                .font(.system(size: 14))
+                .foregroundColor(.white)
+                .textSelection(.enabled)
+                .padding(10)
+                .background(isUser ? Color.purple.opacity(0.35) : Color(white: 0.14))
+                .cornerRadius(12)
+            if !isUser { Spacer(minLength: 40) }
+        }
     }
 
     // MARK: - Header
