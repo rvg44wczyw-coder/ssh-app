@@ -2960,6 +2960,74 @@ public func FfiConverterTypeHostTelemetrySnapshot_lower(_ value: HostTelemetrySn
 }
 
 
+public struct HostUsageReport: Equatable, Hashable {
+    public var sessions: [SessionUsage]
+    public var fiveHour: UsageWindow
+    public var week: UsageWindow
+    /**
+     * The scan hit its time budget: the totals are a lower bound.
+     */
+    public var partial: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(sessions: [SessionUsage], fiveHour: UsageWindow, week: UsageWindow, 
+        /**
+         * The scan hit its time budget: the totals are a lower bound.
+         */partial: Bool) {
+        self.sessions = sessions
+        self.fiveHour = fiveHour
+        self.week = week
+        self.partial = partial
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension HostUsageReport: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHostUsageReport: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HostUsageReport {
+        return
+            try HostUsageReport(
+                sessions: FfiConverterSequenceTypeSessionUsage.read(from: &buf), 
+                fiveHour: FfiConverterTypeUsageWindow.read(from: &buf), 
+                week: FfiConverterTypeUsageWindow.read(from: &buf), 
+                partial: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: HostUsageReport, into buf: inout [UInt8]) {
+        FfiConverterSequenceTypeSessionUsage.write(value.sessions, into: &buf)
+        FfiConverterTypeUsageWindow.write(value.fiveHour, into: &buf)
+        FfiConverterTypeUsageWindow.write(value.week, into: &buf)
+        FfiConverterBool.write(value.partial, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHostUsageReport_lift(_ buf: RustBuffer) throws -> HostUsageReport {
+    return try FfiConverterTypeHostUsageReport.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHostUsageReport_lower(_ value: HostUsageReport) -> RustBuffer {
+    return FfiConverterTypeHostUsageReport.lower(value)
+}
+
+
 public struct KeypairResult: Equatable, Hashable {
     public var publicKeyOpenssh: String
     public var privateKeyOpenssh: String
@@ -3081,6 +3149,78 @@ public func FfiConverterTypeOllamaHostStatus_lift(_ buf: RustBuffer) throws -> O
 #endif
 public func FfiConverterTypeOllamaHostStatus_lower(_ value: OllamaHostStatus) -> RustBuffer {
     return FfiConverterTypeOllamaHostStatus.lower(value)
+}
+
+
+public struct OllamaLoad: Equatable, Hashable {
+    public var model: String
+    public var sizeBytes: UInt64
+    public var vramBytes: UInt64
+    public var contextLength: UInt64?
+    /**
+     * When the server unloads the model if it stays idle (epoch seconds).
+     */
+    public var expiresEpoch: UInt64?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(model: String, sizeBytes: UInt64, vramBytes: UInt64, contextLength: UInt64?, 
+        /**
+         * When the server unloads the model if it stays idle (epoch seconds).
+         */expiresEpoch: UInt64?) {
+        self.model = model
+        self.sizeBytes = sizeBytes
+        self.vramBytes = vramBytes
+        self.contextLength = contextLength
+        self.expiresEpoch = expiresEpoch
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension OllamaLoad: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeOllamaLoad: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> OllamaLoad {
+        return
+            try OllamaLoad(
+                model: FfiConverterString.read(from: &buf), 
+                sizeBytes: FfiConverterUInt64.read(from: &buf), 
+                vramBytes: FfiConverterUInt64.read(from: &buf), 
+                contextLength: FfiConverterOptionUInt64.read(from: &buf), 
+                expiresEpoch: FfiConverterOptionUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: OllamaLoad, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.model, into: &buf)
+        FfiConverterUInt64.write(value.sizeBytes, into: &buf)
+        FfiConverterUInt64.write(value.vramBytes, into: &buf)
+        FfiConverterOptionUInt64.write(value.contextLength, into: &buf)
+        FfiConverterOptionUInt64.write(value.expiresEpoch, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeOllamaLoad_lift(_ buf: RustBuffer) throws -> OllamaLoad {
+    return try FfiConverterTypeOllamaLoad.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeOllamaLoad_lower(_ value: OllamaLoad) -> RustBuffer {
+    return FfiConverterTypeOllamaLoad.lower(value)
 }
 
 
@@ -3810,6 +3950,96 @@ public func FfiConverterTypeSessionConfig_lower(_ value: SessionConfig) -> RustB
 }
 
 
+public struct SessionUsage: Equatable, Hashable {
+    public var session: String
+    /**
+     * "claude", "codex", "agy", "grok" or "ollama"; `None` when no model runs in the session.
+     */
+    public var agent: String?
+    public var model: String?
+    public var contextUsed: UInt64?
+    public var contextLimit: UInt64?
+    /**
+     * Text of a "limit reached" notice found in the recent transcript.
+     */
+    public var limitNote: String?
+    public var limitResetEpoch: UInt64?
+    public var ollama: OllamaLoad?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(session: String, 
+        /**
+         * "claude", "codex", "agy", "grok" or "ollama"; `None` when no model runs in the session.
+         */agent: String?, model: String?, contextUsed: UInt64?, contextLimit: UInt64?, 
+        /**
+         * Text of a "limit reached" notice found in the recent transcript.
+         */limitNote: String?, limitResetEpoch: UInt64?, ollama: OllamaLoad?) {
+        self.session = session
+        self.agent = agent
+        self.model = model
+        self.contextUsed = contextUsed
+        self.contextLimit = contextLimit
+        self.limitNote = limitNote
+        self.limitResetEpoch = limitResetEpoch
+        self.ollama = ollama
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension SessionUsage: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSessionUsage: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SessionUsage {
+        return
+            try SessionUsage(
+                session: FfiConverterString.read(from: &buf), 
+                agent: FfiConverterOptionString.read(from: &buf), 
+                model: FfiConverterOptionString.read(from: &buf), 
+                contextUsed: FfiConverterOptionUInt64.read(from: &buf), 
+                contextLimit: FfiConverterOptionUInt64.read(from: &buf), 
+                limitNote: FfiConverterOptionString.read(from: &buf), 
+                limitResetEpoch: FfiConverterOptionUInt64.read(from: &buf), 
+                ollama: FfiConverterOptionTypeOllamaLoad.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SessionUsage, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.session, into: &buf)
+        FfiConverterOptionString.write(value.agent, into: &buf)
+        FfiConverterOptionString.write(value.model, into: &buf)
+        FfiConverterOptionUInt64.write(value.contextUsed, into: &buf)
+        FfiConverterOptionUInt64.write(value.contextLimit, into: &buf)
+        FfiConverterOptionString.write(value.limitNote, into: &buf)
+        FfiConverterOptionUInt64.write(value.limitResetEpoch, into: &buf)
+        FfiConverterOptionTypeOllamaLoad.write(value.ollama, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSessionUsage_lift(_ buf: RustBuffer) throws -> SessionUsage {
+    return try FfiConverterTypeSessionUsage.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSessionUsage_lower(_ value: SessionUsage) -> RustBuffer {
+    return FfiConverterTypeSessionUsage.lower(value)
+}
+
+
 /**
  * Represents a reusable shell command snippet or history entry.
  */
@@ -4157,6 +4387,72 @@ public func FfiConverterTypeTranscriptTurn_lift(_ buf: RustBuffer) throws -> Tra
 #endif
 public func FfiConverterTypeTranscriptTurn_lower(_ value: TranscriptTurn) -> RustBuffer {
     return FfiConverterTypeTranscriptTurn.lower(value)
+}
+
+
+public struct UsageWindow: Equatable, Hashable {
+    public var input: UInt64
+    public var output: UInt64
+    public var cacheWrite: UInt64
+    public var cacheRead: UInt64
+    public var messages: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(input: UInt64, output: UInt64, cacheWrite: UInt64, cacheRead: UInt64, messages: UInt64) {
+        self.input = input
+        self.output = output
+        self.cacheWrite = cacheWrite
+        self.cacheRead = cacheRead
+        self.messages = messages
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension UsageWindow: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeUsageWindow: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> UsageWindow {
+        return
+            try UsageWindow(
+                input: FfiConverterUInt64.read(from: &buf), 
+                output: FfiConverterUInt64.read(from: &buf), 
+                cacheWrite: FfiConverterUInt64.read(from: &buf), 
+                cacheRead: FfiConverterUInt64.read(from: &buf), 
+                messages: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: UsageWindow, into buf: inout [UInt8]) {
+        FfiConverterUInt64.write(value.input, into: &buf)
+        FfiConverterUInt64.write(value.output, into: &buf)
+        FfiConverterUInt64.write(value.cacheWrite, into: &buf)
+        FfiConverterUInt64.write(value.cacheRead, into: &buf)
+        FfiConverterUInt64.write(value.messages, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeUsageWindow_lift(_ buf: RustBuffer) throws -> UsageWindow {
+    return try FfiConverterTypeUsageWindow.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeUsageWindow_lower(_ value: UsageWindow) -> RustBuffer {
+    return FfiConverterTypeUsageWindow.lower(value)
 }
 
 
@@ -5526,6 +5822,30 @@ fileprivate struct FfiConverterOptionUInt16: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionUInt64: FfiConverterRustBuffer {
+    typealias SwiftType = UInt64?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterUInt64.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterUInt64.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionBool: FfiConverterRustBuffer {
     typealias SwiftType = Bool?
 
@@ -5566,6 +5886,30 @@ fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterString.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeOllamaLoad: FfiConverterRustBuffer {
+    typealias SwiftType = OllamaLoad?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeOllamaLoad.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeOllamaLoad.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -5841,6 +6185,31 @@ fileprivate struct FfiConverterSequenceTypeRemoteProcessInfo: FfiConverterRustBu
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeRemoteProcessInfo.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeSessionUsage: FfiConverterRustBuffer {
+    typealias SwiftType = [SessionUsage]
+
+    public static func write(_ value: [SessionUsage], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeSessionUsage.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [SessionUsage] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [SessionUsage]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeSessionUsage.read(from: &buf))
         }
         return seq
     }
@@ -6505,6 +6874,24 @@ public func executeRemoteCommand(config: RemoteServerConfig, command: String)asy
             errorHandler: FfiConverterTypeSshCoreError_lift
         )
 }
+/**
+ * Which models run in the host's tmux sessions and how much context / usage they have used.
+ * `config_dirs` are the Claude config directories of the saved profiles (empty = `~/.claude`).
+ */
+public func fetchHostUsage(config: RemoteServerConfig, configDirs: [String])async throws  -> HostUsageReport  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_func_fetch_host_usage(FfiConverterTypeRemoteServerConfig_lower(config),FfiConverterSequenceString.lower(configDirs)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeHostUsageReport_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
 public func killRemoteTmuxSession(config: RemoteServerConfig, sessionName: String)async throws   {
     return
         try  await uniffiRustCallAsync(
@@ -6766,6 +7153,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_execute_remote_command() != 30132) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_fetch_host_usage() != 24017) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_kill_remote_tmux_session() != 45685) {

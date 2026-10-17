@@ -7,6 +7,10 @@ public final class TmuxSessionManagerViewModel: ObservableObject {
     @Published public var sessions: [TmuxSessionInfo] = []
     @Published public var isLoading: Bool = false
     @Published public var errorMessage: String? = nil
+    /// Models running in the sessions (by tmux session name) and rolling token totals.
+    @Published public var usage: [String: SessionUsage] = [:]
+    @Published public var usageReport: HostUsageReport? = nil
+    @Published public var usageError: String? = nil
 
     public init() {}
 
@@ -35,6 +39,30 @@ public final class TmuxSessionManagerViewModel: ObservableObject {
             } catch {
                 self.errorMessage = "Failed to list tmux sessions: \(error.localizedDescription)"
                 self.isLoading = false
+            }
+        }
+    }
+
+    /// Best effort: the session list must stay usable if the usage probe fails (no python3 on the host, ...).
+    public func fetchUsage(server: ServerProfile, privateKey: String, configDirs: [String]) {
+        guard !server.host.isEmpty, !server.username.isEmpty, !privateKey.isEmpty else { return }
+        let config = RemoteServerConfig(
+            host: server.host,
+            port: server.port,
+            username: server.username,
+            privateKeyPem: privateKey,
+            pinnedHostKey: server.hostKeyFingerprint
+        )
+        Task {
+            do {
+                let report = try await fetchHostUsage(config: config, configDirs: configDirs)
+                self.usageReport = report
+                self.usage = Dictionary(report.sessions.map { ($0.session, $0) }, uniquingKeysWith: { a, _ in a })
+                self.usageError = nil
+            } catch {
+                self.usage = [:]
+                self.usageReport = nil
+                self.usageError = error.localizedDescription
             }
         }
     }

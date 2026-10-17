@@ -238,7 +238,8 @@ public struct MainTerminalView: View {
                 case .tmuxSessions:
                     TmuxSessionsSheetView(
                         serversManager: serversManager,
-                        initialServerId: tabsManager.activeSession?.serverId ?? serversManager.activeProfileId
+                        initialServerId: tabsManager.activeSession?.serverId ?? serversManager.activeProfileId,
+                        configDirs: agentProfiles.profiles.filter { $0.agent == .claudeCode }.compactMap { $0.configDir }
                     ) { sessionName, server in
                         let newSession = tabsManager.openOrSwitchToSession(sessionName: sessionName, serverId: server.id)
                         ensureSessionStarted(for: newSession.id)
