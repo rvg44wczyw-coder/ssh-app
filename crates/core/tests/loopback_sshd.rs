@@ -1667,3 +1667,70 @@ fn usage_report_finds_models_in_tmux_sessions_and_reads_transcripts() {
         assert_eq!((r.week.messages, r.week.input), (2, 107));
     });
 }
+
+#[test]
+fn stopping_a_local_model_request_kills_it_on_the_host() {
+    use std::io::Read;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::mpsc;
+    // A fake Ollama on its own port that accepts the request and then never answers (the
+    // developer's real Ollama owns 11434 and must not be involved).
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let fake_port = listener.local_addr().unwrap().port();
+    let Some(server) = start_sshd() else {
+        eprintln!("SKIP: sshd/ssh-keygen/tmux unavailable");
+        return;
+    };
+    let handle = connect(&server);
+    let accepted = Arc::new(AtomicBool::new(false));
+    let (tx, rx) = mpsc::channel::<String>();
+    let flag = accepted.clone();
+    std::thread::spawn(move || {
+        let (mut conn, _) = listener.accept().unwrap();
+        flag.store(true, Ordering::SeqCst);
+        conn.set_read_timeout(Some(Duration::from_secs(20)))
+            .unwrap();
+        let mut buf = [0u8; 4096];
+        // Read the request, then wait for the client side to go away.
+        let outcome = loop {
+            match conn.read(&mut buf) {
+                Ok(0) => break "closed".to_string(),
+                Ok(_) => continue,
+                Err(e) => break format!("timeout: {e}"),
+            }
+        };
+        let _ = tx.send(outcome);
+    });
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    rt.block_on(async {
+        let h = handle.clone();
+        let task = tokio::spawn(async move {
+            h.query_ollama_on_port(fake_port, "m".into(), "system".into(), "user".into())
+                .await
+        });
+        let deadline = Instant::now() + Duration::from_secs(15);
+        while !accepted.load(Ordering::SeqCst) {
+            assert!(
+                Instant::now() < deadline,
+                "request never reached the fake Ollama"
+            );
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        // Stop: dropping the in-flight call is what the app's Task cancellation does.
+        task.abort();
+        let _ = task.await;
+        let deadline = Instant::now() + Duration::from_secs(15);
+        loop {
+            if let Ok(outcome) = rx.try_recv() {
+                assert_eq!(outcome, "closed", "host-side curl was not stopped");
+                break;
+            }
+            assert!(Instant::now() < deadline, "host kept the request running");
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    });
+    handle.disconnect();
+}

@@ -25,6 +25,19 @@ pub(crate) fn watchdog_sh(command: &str, secs: u32) -> String {
     format!("sh -c {}", shell_quote(&script))
 }
 
+/// Wraps `command` so it stops when the SSH channel closes: a watcher reads the channel's stdin,
+/// which reaches EOF when the client closes the channel (Stop pressed, connection lost), and then
+/// kills the command. Without it a cancelled Ollama request would keep the model generating on the
+/// host until it finished. The command's own exit status is passed through.
+pub(crate) fn cancellable_sh(command: &str) -> String {
+    let script = format!(
+        "exec 3<&0; {command} & c=$!; \
+         ( cat <&3 >/dev/null; kill $c ) >/dev/null 2>&1 & w=$!; \
+         wait $c; r=$?; kill $w >/dev/null 2>&1; exit $r"
+    );
+    format!("sh -c {}", shell_quote(&script))
+}
+
 /// Runs the POSIX `script` through the user's login shell (so `PATH` from `.zprofile` is set;
 /// never a hard-coded shell), then through `sh` (the login shell may be fish), under a host-side
 /// watchdog. `args` become `$1...` and must already be shell-quoted (or an expression such as

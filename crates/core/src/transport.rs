@@ -175,16 +175,36 @@ pub(crate) async fn exec_start(
     Ok(channel)
 }
 
+/// Closes the channel if the read is abandoned (the caller's future was dropped, e.g. the user
+/// pressed Stop): without it the remote command keeps running with nobody listening.
+struct CloseOnDrop(Option<russh::Channel<client::Msg>>);
+
+impl Drop for CloseOnDrop {
+    fn drop(&mut self) {
+        if let (Some(ch), Ok(rt)) = (self.0.take(), tokio::runtime::Handle::try_current()) {
+            rt.spawn(async move {
+                let _ = ch.eof().await;
+                let _ = ch.close().await;
+            });
+        }
+    }
+}
+
 /// Reads the channel to its end (or the output cap), giving up with `Timeout` after `limit`.
-/// The channel is closed either way; a dropped connection ends the read.
+/// The channel is closed either way, including when this future is dropped before it finishes;
+/// a dropped connection ends the read.
 pub(crate) async fn collect_output(
-    mut channel: russh::Channel<client::Msg>,
+    channel: russh::Channel<client::Msg>,
     limit: Duration,
 ) -> Result<ExecOutput, SshCoreError> {
+    let mut guard = CloseOnDrop(Some(channel));
     let read = async {
         let mut bytes = Vec::new();
         let mut exit_status = None;
-        while let Some(msg) = channel.wait().await {
+        while let Some(msg) = match guard.0.as_mut() {
+            Some(ch) => ch.wait().await,
+            None => None,
+        } {
             match msg {
                 ChannelMsg::Data { ref data } | ChannelMsg::ExtendedData { ref data, .. } => {
                     if push_capped(&mut bytes, data) {
@@ -200,8 +220,10 @@ pub(crate) async fn collect_output(
         ExecOutput { bytes, exit_status }
     };
     let out = tokio::time::timeout(limit, read).await;
-    let _ = channel.eof().await;
-    let _ = channel.close().await;
+    if let Some(ch) = guard.0.take() {
+        let _ = ch.eof().await;
+        let _ = ch.close().await;
+    }
     out.map_err(|_| SshCoreError::Timeout)
 }
 

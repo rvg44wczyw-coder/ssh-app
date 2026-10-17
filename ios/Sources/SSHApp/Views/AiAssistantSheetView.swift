@@ -44,6 +44,8 @@ public struct AiAssistantSheetView: View {
     }
 
     private func closeSheet() {
+        // Leaving while a request runs would leave the model generating for nobody.
+        if viewModel.isAiLoading { viewModel.stopAiQuery() }
         onClose?()
         dismiss()
     }
@@ -270,32 +272,28 @@ public struct AiAssistantSheetView: View {
             }
 
             Button {
-                Task {
-                    await viewModel.queryAiAssistant(
-                        userPrompt: userPrompt,
-                        modelName: selectedModel,
-                        targetOs: "macOS"
-                    )
+                if viewModel.isAiLoading {
+                    viewModel.stopAiQuery()
+                } else {
+                    viewModel.startAiQuery(userPrompt: userPrompt, modelName: selectedModel, targetOs: "macOS")
                 }
             } label: {
                 HStack {
                     if viewModel.isAiLoading {
-                        ProgressView()
-                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                            .scaleEffect(0.8)
+                        Image(systemName: "stop.fill")
                     } else {
                         Image(systemName: "sparkles")
                     }
-                    Text(viewModel.isAiLoading ? "Consulting Host Ollama..." : "Generate Command")
+                    Text(viewModel.isAiLoading ? "Stop" : "Generate Command")
                         .fontWeight(.semibold)
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
-                .background(userPrompt.trimmingCharacters(in: .whitespaces).isEmpty ? Color.purple.opacity(0.4) : Color.purple)
+                .background(viewModel.isAiLoading ? Color.red : (userPrompt.trimmingCharacters(in: .whitespaces).isEmpty ? Color.purple.opacity(0.4) : Color.purple))
                 .foregroundColor(.white)
                 .cornerRadius(10)
             }
-            .disabled(userPrompt.trimmingCharacters(in: .whitespaces).isEmpty || viewModel.isAiLoading || !isReady)
+            .disabled(!viewModel.isAiLoading && (userPrompt.trimmingCharacters(in: .whitespaces).isEmpty || !isReady))
         }
     }
 

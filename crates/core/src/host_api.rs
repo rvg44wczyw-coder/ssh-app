@@ -17,25 +17,8 @@ impl SshSessionHandle {
         system_prompt: String,
         user_prompt: String,
     ) -> Result<crate::ai::AiCommandSuggestion, SshCoreError> {
-        let full_prompt = format!("{system_prompt}\n\n{user_prompt}");
-        let payload = serde_json::json!({
-            "model": model,
-            "prompt": full_prompt,
-            "stream": false
-        });
-        let payload_str = payload.to_string();
-
-        let curl_cmd = format!(
-            "curl -s --max-time 290 -X POST http://127.0.0.1:11434/api/generate -H 'Content-Type: application/json' -d {}",
-            crate::tmux::shell_quote(&payload_str)
-        );
-
-        // Local models can be slow, but not forever.
-        let raw_response = self
-            .exec_with_timeout(&curl_cmd, Duration::from_secs(300))
-            .await?;
-        let generated_text = crate::ai::parse_ollama_generate_response(&raw_response)?;
-        crate::ai::parse_ai_response(&generated_text)
+        self.query_ollama_on_port(11434, model, system_prompt, user_prompt)
+            .await
     }
 
     /// Reads and parses the latest transcript from the remote host.
@@ -604,6 +587,38 @@ pub(crate) fn build_write_config_command(path: &str, previous: &str, content: &s
              if [ \"$h\" != '{expected}' ]; then rm -f \"$t\"; echo CONFIG_CHANGED; exit 0; fi; \
              mv \"$t\" \"$p\" && echo CONFIG_WRITTEN"
         )
+}
+
+impl SshSessionHandle {
+    /// `query_host_ollama` against another port (tests run a fake server; the product uses 11434).
+    #[doc(hidden)]
+    pub async fn query_ollama_on_port(
+        &self,
+        port: u16,
+        model: String,
+        system_prompt: String,
+        user_prompt: String,
+    ) -> Result<crate::ai::AiCommandSuggestion, SshCoreError> {
+        let full_prompt = format!("{system_prompt}\n\n{user_prompt}");
+        let payload = serde_json::json!({
+            "model": model,
+            "prompt": full_prompt,
+            "stream": false
+        });
+        let payload_str = payload.to_string();
+
+        let curl_cmd = crate::hostprobe::cancellable_sh(&format!(
+            "curl -s --max-time 290 -X POST http://127.0.0.1:{port}/api/generate -H 'Content-Type: application/json' -d {}",
+            crate::tmux::shell_quote(&payload_str)
+        ));
+
+        // Local models can be slow, but not forever.
+        let raw_response = self
+            .exec_with_timeout(&curl_cmd, Duration::from_secs(300))
+            .await?;
+        let generated_text = crate::ai::parse_ollama_generate_response(&raw_response)?;
+        crate::ai::parse_ai_response(&generated_text)
+    }
 }
 
 #[cfg(test)]

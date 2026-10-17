@@ -16,6 +16,7 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     @Published public var activeAiSuggestion: AiCommandSuggestion? = nil
     @Published public var isAiLoading: Bool = false
     @Published public var aiError: String? = nil
+    private var aiTask: Task<Void, Never>? = nil
 
     // Structured Transcript / Dual-Mode State
     @Published public var isChatMode: Bool = false
@@ -151,6 +152,22 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         return Array(lines.suffix(maxLines))
     }
 
+    /// Starts a request that Stop can cancel (cancelling drops the call; the core then closes the
+    /// channel and the host kills the request, so the model stops generating).
+    public func startAiQuery(userPrompt: String, modelName: String, targetOs: String = "macOS") {
+        aiTask?.cancel()
+        aiTask = Task { [weak self] in
+            await self?.queryAiAssistant(userPrompt: userPrompt, modelName: modelName, targetOs: targetOs)
+        }
+    }
+
+    public func stopAiQuery() {
+        aiTask?.cancel()
+        aiTask = nil
+        isAiLoading = false
+        aiError = nil
+    }
+
     public func queryAiAssistant(
         userPrompt: String,
         modelName: String = "qwen2.5-coder:7b",
@@ -181,9 +198,12 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
                 systemPrompt: systemPrompt,
                 userPrompt: assembledUserPrompt
             )
+            guard !Task.isCancelled else { return }
             self.activeAiSuggestion = suggestion
             self.isAiLoading = false
         } catch {
+            // Stop already reset the state; a late failure of the cancelled call is not an error.
+            guard !Task.isCancelled else { return }
             self.aiError = error.localizedDescription
             self.isAiLoading = false
         }
