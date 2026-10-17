@@ -4,7 +4,7 @@ Follows `15-hooks-capability-analysis.md` (what hooks can do) and `14-agent-perm
 Goal (decided 2026-10-17): use everything the agents' hooks allow, behind explicit switches.
 
 ## 1. Templates (`hook_templates.rs`, `HookTemplatesView`)
-34 ready-made setups, picked in the profile editor (Approval hooks → Templates). A template is a `HookPreset` plus text; picking one only fills the profile, the usual **Review & install** preview shows what is written.
+33 ready-made setups, picked in the profile editor (Approval hooks → Templates). A template is a `HookPreset` plus text; picking one only fills the profile, the usual **Review & install** preview shows what is written.
 
 | Category | Templates |
 |---|---|
