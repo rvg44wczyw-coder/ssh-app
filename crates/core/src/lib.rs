@@ -10,7 +10,10 @@ pub mod config;
 pub mod error;
 pub mod file_browser;
 pub mod gitdiff;
+pub mod hook_safety;
+pub mod hook_templates;
 pub(crate) mod host_api;
+pub mod host_guard;
 pub(crate) mod hostprobe;
 pub mod keys;
 pub mod permissions;
@@ -26,11 +29,11 @@ pub mod usage;
 pub use agents::{
     agent_config_dir_env, agent_hook_script, agent_hooks_config_path, agent_hooks_installed,
     build_agent_launch_command, build_binary_probe_command, default_hook_preset,
-    default_launch_profiles, hook_events_for, hook_preset_uses_script, hooks_section_of,
-    installed_hook_entries, merge_agent_hooks, merge_planned_hooks, parse_resolved_binary,
-    plan_agent_hooks, profile_config_dir, remove_agent_hooks, validate_launch_profile,
-    AgentEnvCheck, AgentHooksStatus, AgentKind, AgentLaunchProfile, EnvVar, HookPreset,
-    HookPresetKind, PlannedHook,
+    default_launch_profiles, hook_events_for, hook_preset_uses_script, hooks_drift,
+    hooks_section_of, installed_hook_entries, merge_agent_hooks, merge_planned_hooks,
+    parse_resolved_binary, plan_agent_hooks, profile_config_dir, remove_agent_hooks,
+    validate_launch_profile, AgentEnvCheck, AgentHooksStatus, AgentKind, AgentLaunchProfile,
+    EnvVar, HookPreset, HookPresetKind, PlannedHook,
 };
 pub use ai::{
     assemble_ai_system_prompt, assemble_ai_user_prompt, build_ollama_probe_command,
@@ -52,6 +55,13 @@ pub use file_browser::{
     RemoteFileEntry, RemoteFileKind, RemoteFilePreview,
 };
 pub use gitdiff::{GitDiffResult, GitDiffStatus};
+pub use hook_safety::{analyze_command, lint_custom_hook_command, CommandAnalysis};
+pub use hook_templates::{hook_templates, hook_templates_for, HookTemplate};
+pub use host_guard::{
+    host_guard_agent_support, host_guard_from_json, host_guard_presets, host_guard_to_json,
+    host_guard_warnings, parse_agent_sessions, validate_host_guard, AgentSessionInfo, HostGuard,
+    HostGuardPreset,
+};
 pub use keys::{derive_public_key, generate_keypair, KeypairResult};
 pub use permissions::{
     merge_permissions, permission_rule_templates, permission_warnings, permissions_from_settings,

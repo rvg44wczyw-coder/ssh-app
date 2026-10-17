@@ -21,6 +21,8 @@ pub struct AgentHooksStatus {
     pub config_path: String,
     pub hooks_installed: bool,
     pub script_installed: bool,
+    /// The ssh-app entries found in the config, to compare with the plan (`hooks_drift`).
+    pub installed: Vec<PlannedHook>,
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -282,7 +284,18 @@ pub fn default_hook_preset() -> HookPreset {
 #[uniffi::export]
 pub fn hook_events_for(agent: AgentKind) -> Vec<String> {
     let events: &[&str] = match agent {
-        AgentKind::ClaudeCode => &["PermissionRequest", "PreToolUse", "Notification", "Stop"],
+        AgentKind::ClaudeCode => &[
+            "PermissionRequest",
+            "PreToolUse",
+            "PostToolUse",
+            "UserPromptSubmit",
+            "Notification",
+            "SessionStart",
+            "SessionEnd",
+            "SubagentStop",
+            "PreCompact",
+            "Stop",
+        ],
         AgentKind::Antigravity => &["PreToolUse", "Stop"],
         AgentKind::Codex => &["PermissionRequest", "PreToolUse", "Stop"],
         AgentKind::Grok => &["PreToolUse", "Notification", "Stop"],
@@ -297,7 +310,7 @@ pub fn hook_preset_uses_script(preset: HookPreset) -> bool {
 }
 
 fn event_takes_matcher(event: &str) -> bool {
-    matches!(event, "PermissionRequest" | "PreToolUse")
+    matches!(event, "PermissionRequest" | "PreToolUse" | "PostToolUse")
 }
 
 /// Best-effort check that appending ` # marker` really appends a comment: no trailing backslash,
@@ -388,11 +401,15 @@ fn validate_approval_matcher(raw: &str) -> Result<Option<String>, SshCoreError> 
 fn validate_approval_events(
     chosen: &[String],
     defaults: &[&str],
+    optional: &[&str],
 ) -> Result<Vec<String>, SshCoreError> {
     if chosen.is_empty() {
         return Ok(defaults.iter().map(|e| (*e).to_string()).collect());
     }
-    if let Some(bad) = chosen.iter().find(|e| !defaults.contains(&e.as_str())) {
+    if let Some(bad) = chosen
+        .iter()
+        .find(|e| !defaults.contains(&e.as_str()) && !optional.contains(&e.as_str()))
+    {
         return Err(invalid(format!(
             "Event '{}' is not part of this preset (choose from {})",
             crate::approval_queue::display_safe(&bad.chars().take(40).collect::<String>()),
@@ -401,6 +418,7 @@ fn validate_approval_events(
     }
     Ok(defaults
         .iter()
+        .chain(optional.iter())
         .filter(|d| chosen.iter().any(|c| c == *d))
         .map(|e| (*e).to_string())
         .collect())
@@ -467,7 +485,17 @@ pub fn plan_agent_hooks(
             };
             let matcher = validate_approval_matcher(&preset.approval_matcher)?
                 .unwrap_or_else(|| default_matcher.to_string());
-            let chosen = validate_approval_events(&preset.approval_events, defaults)?;
+            // Recording events the script handles itself; never part of the default set.
+            let optional: &[&str] = match agent {
+                AgentKind::ClaudeCode => &[
+                    "SessionStart",
+                    "SessionEnd",
+                    "UserPromptSubmit",
+                    "PreToolUse",
+                ],
+                _ => &[],
+            };
+            let chosen = validate_approval_events(&preset.approval_events, defaults, optional)?;
             chosen
                 .iter()
                 .map(|event| {
@@ -565,6 +593,36 @@ fn entries_from(event: &str, list: &Value, out: &mut Vec<PlannedHook>) {
     }
 }
 
+/// Differences between what the profile plans and what the host config holds: entries that are
+/// missing, changed or not part of the plan any more. Empty when they match, and also when
+/// nothing is installed at all (that is "not installed", not a change).
+#[uniffi::export]
+pub fn hooks_drift(planned: Vec<PlannedHook>, installed: Vec<PlannedHook>) -> Vec<String> {
+    if installed.is_empty() {
+        return vec![];
+    }
+    let show = |h: &PlannedHook| match &h.matcher {
+        Some(m) => format!("{} ({m})", h.event),
+        None => h.event.clone(),
+    };
+    let mut out = vec![];
+    for p in &planned {
+        if installed.contains(p) {
+            continue;
+        }
+        match installed.iter().find(|i| i.event == p.event) {
+            Some(_) => out.push(format!("{}: differs from the plan", show(p))),
+            None => out.push(format!("{}: missing on the host", show(p))),
+        }
+    }
+    for i in &installed {
+        if !planned.iter().any(|p| p.event == i.event) {
+            out.push(format!("{}: on the host but not in the plan", show(i)));
+        }
+    }
+    out
+}
+
 /// The ssh-app entries currently present in an agent's config (unparsable/foreign content: none).
 #[uniffi::export]
 pub fn installed_hook_entries(agent: AgentKind, existing: String) -> Vec<PlannedHook> {
@@ -616,6 +674,24 @@ pub(crate) fn build_write_file_command(path_expr: &str, content: &str, mode: &st
 
 pub(crate) fn remote_script_path(hook_dir: &str) -> String {
     remote_path_expr(&format!("{}/{HOOK_MARKER}", hook_dir.trim_end_matches('/')))
+}
+
+#[cfg(test)]
+pub(crate) fn validate_custom_hook_for_tests(preset: &HookPreset) {
+    for agent in [
+        AgentKind::ClaudeCode,
+        AgentKind::Antigravity,
+        AgentKind::Codex,
+        AgentKind::Grok,
+    ] {
+        if preset
+            .custom_events
+            .iter()
+            .all(|e| hook_events_for(agent).contains(e))
+        {
+            validate_custom_hook(agent, preset).unwrap();
+        }
+    }
 }
 
 #[cfg(test)]

@@ -32,6 +32,8 @@ RUN = os.path.join(HOME_DIR, "run")
 PENDING = os.path.join(RUN, "pending")
 DECISIONS = os.path.join(RUN, "decisions")
 ALLOWED = os.path.join(HOME_DIR, "allowed_signers")
+GUARD = os.path.join(HOME_DIR, "guard.json")
+SESSIONS = os.path.join(RUN, "sessions")
 try:
     TIMEOUT = float(os.environ.get("SSH_APP_HOOK_TIMEOUT", "120"))
 except ValueError:
@@ -260,6 +262,241 @@ def submit(kind, base, wait):
             pass
 
 
+# ---------------------------------------------------------------------------------------------
+# Host guard: deny rules kept in ~/.ssh-app/guard.json ({"deny": ["Bash(rm:*)", "Read(~/.ssh/**)"]}),
+# checked here before anything reaches the phone. Same rule shape as the agents' permission rules.
+# A rule that cannot be understood is skipped; the guard only ever blocks, never approves.
+# ---------------------------------------------------------------------------------------------
+RULE_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)(?:\((.*)\))?$", re.S)
+SHELL_TOOLS = ("Bash", "run_command", "bash", "shell")
+EDIT_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit", "write_to_file", "replace_file_content", "edit_file")
+READ_TOOLS = ("Read", "view_file", "read_file")
+MAX_RULES = 200
+
+
+def load_guard():
+    """The parsed guard file ({} when absent, not ours, or not a JSON object)."""
+    raw = read_small(GUARD, 65536)
+    if raw is None or not private_dir(HOME_DIR):
+        return {}
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def guard_rules(guard, key):
+    rules = guard.get(key)
+    if not isinstance(rules, list):
+        return []
+    return [r for r in rules if isinstance(r, str) and 0 < len(r) <= 400][:MAX_RULES]
+
+
+def guard_text(value):
+    return clean(value, 2000) if isinstance(value, str) else ""
+
+
+def tool_kind(tool):
+    if tool in SHELL_TOOLS:
+        return "Bash"
+    if tool in EDIT_TOOLS:
+        return "Edit"
+    if tool in READ_TOOLS:
+        return "Read"
+    return tool
+
+
+def rule_tool_matches(name, tool):
+    """`Edit` also covers Write/MultiEdit (as in Claude's rules); `Read` covers read tools."""
+    return name == tool or name == tool_kind(tool)
+
+
+def glob_regex(pattern):
+    out, i = [], 0
+    while i < len(pattern):
+        c = pattern[i]
+        if pattern.startswith("**/", i):
+            out.append("(?:.*/)?")
+            i += 3
+            continue
+        if c == "*":
+            if pattern.startswith("**", i):
+                out.append(".*")
+                i += 2
+                continue
+            out.append("[^/]*")
+        elif c == "?":
+            out.append("[^/]")
+        else:
+            out.append(re.escape(c))
+        i += 1
+    return re.compile("^" + "".join(out) + "$", re.S)
+
+
+def shell_segments(command):
+    return [seg.strip() for seg in re.split(r"\n|;|&&|\|\||\||&", command) if seg.strip()]
+
+
+def bash_spec_matches(spec, command):
+    for seg in [command] + shell_segments(command):
+        if spec.endswith(":*"):
+            prefix = spec[:-2]
+            if seg == prefix or seg.startswith(prefix + " "):
+                return True
+        elif glob_regex(spec).match(seg):
+            return True
+    return False
+
+
+def path_spec_matches(spec, path, cwd):
+    if not path:
+        return False
+    home = os.path.expanduser("~")
+    spec = home + spec[1:] if spec == "~" or spec.startswith("~/") else spec
+    if not spec.startswith("/"):
+        spec = os.path.join(cwd or "", spec[2:] if spec.startswith("./") else spec)
+    target = path if path.startswith("/") else os.path.join(cwd or "", path)
+    pattern = glob_regex(os.path.normpath(spec) if "*" not in spec else spec)
+    candidates = {os.path.normpath(target)}
+    try:
+        candidates.add(os.path.realpath(target))
+    except OSError:
+        pass
+    return any(pattern.match(c) for c in candidates)
+
+
+def guard_match(rules, tool, tool_input, cwd):
+    """The first rule of `rules` that matches this tool call, else None."""
+    if not rules:
+        return None
+    ti = tool_input if isinstance(tool_input, dict) else {}
+    command = ""
+    path = ""
+    for key in ("command",) + ANTIGRAVITY_CMD_KEYS[:4]:
+        if isinstance(ti.get(key), str) and ti[key]:
+            command = ti[key]
+            break
+    for key in ("file_path", "path", "AbsolutePath", "TargetFile", "notebook_path"):
+        if isinstance(ti.get(key), str) and ti[key]:
+            path = ti[key]
+            break
+    for rule in rules:
+        m = RULE_RE.match(rule.strip())
+        if not m:
+            continue
+        name, spec = m.group(1), m.group(2)
+        if not rule_tool_matches(name, tool):
+            continue
+        if spec is None or spec == "":
+            return rule
+        kind = tool_kind(tool)
+        try:
+            if kind == "Bash" and bash_spec_matches(spec, command):
+                return rule
+            if kind in ("Edit", "Read") and path_spec_matches(spec, path, cwd):
+                return rule
+        except re.error:
+            continue
+    return None
+
+
+def allow_output(agent, event, reason):
+    """The agent-specific "allow without asking" answer, or None where the agent cannot do that."""
+    if agent in ("claude", "codex"):
+        if event == "PermissionRequest":
+            return {"hookSpecificOutput": {"hookEventName": "PermissionRequest",
+                                           "decision": {"behavior": "allow"}}}
+        return {"hookSpecificOutput": {"hookEventName": event, "permissionDecision": "allow",
+                                       "permissionDecisionReason": reason}}
+    if agent == "antigravity":
+        return {"decision": "allow", "reason": reason}
+    return None
+
+
+def ask_output(agent, event, reason):
+    """Hand the decision to the user even where the agent's mode would not ask. None = go on to
+    the phone as usual (PermissionRequest only fires when the agent asks anyway)."""
+    if agent == "claude" and event == "PreToolUse":
+        return {"hookSpecificOutput": {"hookEventName": event, "permissionDecision": "ask",
+                                       "permissionDecisionReason": reason}}
+    if agent == "antigravity":
+        return {"decision": "ask", "reason": reason}
+    return None
+
+
+def deny_output(agent, event, reason):
+    if agent in ("claude", "codex"):
+        if event == "PermissionRequest":
+            return {"hookSpecificOutput": {"hookEventName": "PermissionRequest",
+                                           "decision": {"behavior": "deny", "message": reason}}}
+        return {"hookSpecificOutput": {"hookEventName": event, "permissionDecision": "deny",
+                                       "permissionDecisionReason": reason}}
+    return {"decision": "deny", "reason": reason}
+
+
+# ---------------------------------------------------------------------------------------------
+# Session registry: SessionStart notes which tmux session an agent session runs in, SessionEnd
+# removes it. The app reads it with `ctl sessions`.
+# ---------------------------------------------------------------------------------------------
+def session_file(agent, session):
+    return os.path.join(SESSIONS, hashlib.sha256(("%s\0%s" % (agent, session)).encode("utf-8")).hexdigest()[:32] + ".json")
+
+
+def tmux_session_name():
+    if not os.environ.get("TMUX"):
+        return ""
+    try:
+        out = subprocess.run(["tmux", "display-message", "-p", "#{session_name}"], capture_output=True,
+                             timeout=3, text=True)
+        return clean(out.stdout.strip(), 100) if out.returncode == 0 else ""
+    except Exception:
+        return ""
+
+
+def register_session(agent, event, session, cwd):
+    if not session or not private_dir(HOME_DIR):
+        return
+    try:
+        os.makedirs(RUN, mode=0o700, exist_ok=True)
+        os.makedirs(SESSIONS, mode=0o700, exist_ok=True)
+        if not private_dir(SESSIONS):
+            return
+        path = session_file(agent, session)
+        if event == "SessionEnd":
+            unlink(path)
+            return
+        if len(os.listdir(SESSIONS)) >= MAX_PENDING_FILES:
+            return
+        record = {"v": 1, "agent": agent, "session": clean(session, MAX_FIELD), "cwd": clean(cwd, MAX_FIELD),
+                  "tmux": tmux_session_name(), "ts": int(time.time())}
+        tmp = os.path.join(SESSIONS, ".tmp-" + os.urandom(8).hex())
+        write_new(tmp, json.dumps(record).encode("utf-8"))
+        os.rename(tmp, path)
+    except OSError:
+        pass
+
+
+def list_sessions():
+    items = []
+    if not private_dir(SESSIONS):
+        return items
+    cutoff = int(time.time()) - 7 * 86400
+    for name in sorted(os.listdir(SESSIONS))[:MAX_PENDING_FILES]:
+        if not re.match(r"^[0-9a-f]{32}\.json$", name):
+            continue
+        raw = read_small(os.path.join(SESSIONS, name))
+        try:
+            rec = json.loads(raw.decode("utf-8")) if raw else None
+        except Exception:
+            rec = None
+        if isinstance(rec, dict) and isinstance(rec.get("ts"), int) and rec["ts"] >= cutoff:
+            items.append({k: rec.get(k) for k in ("agent", "session", "cwd", "tmux", "ts")})
+        elif rec is not None:
+            unlink(os.path.join(SESSIONS, name))
+    return items
+
+
 def as_dict(value):
     return value if isinstance(value, dict) else {}
 
@@ -276,19 +513,22 @@ def main():
 
     if agent in ("claude", "codex"):  # Codex uses Claude's payload and PermissionRequest reply
         tool = str(data.get("tool_name", ""))
-        summary = summarize(data.get("tool_input", {}))
+        tool_input = data.get("tool_input", {})
+        summary = summarize(tool_input)
         cwd = str(data.get("cwd", ""))
         session = str(data.get("session_id", ""))
     elif agent == "antigravity":
         call = as_dict(data.get("toolCall"))
         tool = str(call.get("name", ""))
-        summary = summarize(call.get("args", {}))
+        tool_input = call.get("args", {})
+        summary = summarize(tool_input)
         paths = data.get("workspacePaths")
         cwd = str(paths[0]) if isinstance(paths, list) and paths else ""
         session = str(data.get("conversationId", ""))
     elif agent == "grok":
         tool = str(data.get("toolName", ""))
-        summary = summarize(data.get("toolInput", {}))
+        tool_input = data.get("toolInput", {})
+        summary = summarize(tool_input)
         cwd = str(data.get("cwd", ""))
         session = str(data.get("sessionId", ""))
     else:
@@ -296,7 +536,42 @@ def main():
 
     base = {"agent": agent, "event": event, "tool": tool, "command": summary, "cwd": cwd, "session": session}
 
+    if event in ("SessionStart", "SessionEnd"):
+        register_session(agent, event, session, cwd)
+        text = guard_text((as_dict(load_guard().get("context"))).get("SessionStart"))
+        if event == "SessionStart" and text and agent == "claude":
+            sys.stdout.write(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart",
+                                                                "additionalContext": text}}))
+        return 0
+
+    if event == "UserPromptSubmit":
+        # Text the user wrote in the app is added to the prompt's context. Never the prompt itself.
+        text = guard_text((as_dict(load_guard().get("context"))).get("UserPromptSubmit"))
+        if text and agent == "claude":
+            sys.stdout.write(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
+                                                                "additionalContext": text}}))
+        return 0
+
     if event in ("PermissionRequest", "PreToolUse"):
+        guard = load_guard()
+        hit = guard_match(guard_rules(guard, "deny"), tool, tool_input, cwd)
+        if hit is not None:
+            reason = "Blocked by a host guard rule: " + clean(hit, 120)
+            sys.stdout.write(json.dumps(deny_output(agent, event, reason)))
+            return 0
+        hit = guard_match(guard_rules(guard, "ask"), tool, tool_input, cwd)
+        if hit is not None:
+            out = ask_output(agent, event, "A host guard rule asks you first: " + clean(hit, 120))
+            if out is not None:
+                sys.stdout.write(json.dumps(out))
+                return 0
+        else:
+            hit = guard_match(guard_rules(guard, "allow"), tool, tool_input, cwd)
+            if hit is not None:
+                out = allow_output(agent, event, "Allowed by a host guard rule: " + clean(hit, 120))
+                if out is not None:
+                    sys.stdout.write(json.dumps(out))
+                    return 0
         approved = submit("approval", base, wait=True)
         if agent == "grok":
             # Grok can only block: deny is explicit, everything else (including a phone approval)
@@ -307,9 +582,15 @@ def main():
         if agent in ("claude", "codex"):
             if approved is None:
                 return 0  # no opinion -> Claude shows its normal permission prompt
-            decision = {"behavior": "allow"} if approved else {
-                "behavior": "deny", "message": "Denied from ssh-app on your phone"}
-            out = {"hookSpecificOutput": {"hookEventName": "PermissionRequest", "decision": decision}}
+            if event == "PreToolUse":
+                out = {"hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "allow" if approved else "deny",
+                    "permissionDecisionReason": "Approved from ssh-app" if approved else "Denied from ssh-app on your phone"}}
+            else:
+                decision = {"behavior": "allow"} if approved else {
+                    "behavior": "deny", "message": "Denied from ssh-app on your phone"}
+                out = {"hookSpecificOutput": {"hookEventName": "PermissionRequest", "decision": decision}}
         else:
             if approved is None:
                 # "allow" would auto-approve (agy docs); "ask" hands the decision back to the user.
@@ -320,6 +601,14 @@ def main():
                 out = {"decision": "deny", "reason": "Denied from ssh-app on your phone"}
         sys.stdout.write(json.dumps(out))
         return 0
+
+    # Stop: the user may have asked for one more round (once per stop; the flag below is what
+    # keeps this from looping when the agent stops again after that round).
+    if event == "Stop" and agent == "claude" and data.get("stop_hook_active") is not True:
+        message = guard_text(as_dict(load_guard().get("on_stop")).get("message"))
+        if message:
+            sys.stdout.write(json.dumps({"decision": "block", "reason": message}))
+            return 0
 
     # Notification / Stop and other passive events: fire-and-forget.
     submit("notify", base, wait=False)
@@ -380,6 +669,8 @@ def ctl(sub):
                       "allowed_signers": allowed_signers_trusted(), "pending": pending})
     if not queue_trusted():
         return reply({"ok": False, "error": "approval queue is missing or not private"})
+    if sub == "sessions":
+        return reply({"host_time": now, "items": list_sessions()})
     if sub == "list":
         items = []
         for name in os.listdir(PENDING):

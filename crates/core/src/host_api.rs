@@ -232,6 +232,7 @@ impl SshSessionHandle {
             .execute_command_on_active_session(format!("[ -f {script} ] && echo yes || echo no"))
             .await?;
         Ok(crate::agents::AgentHooksStatus {
+            installed: crate::agents::installed_hook_entries(agent, existing.clone()),
             hooks_installed: crate::agents::agent_hooks_installed(agent, existing),
             config_path,
             script_installed: present.trim() == "yes",
@@ -524,6 +525,40 @@ impl SshSessionHandle {
             .execute_command_on_active_session(build_ctl_command(CtlSubcommand::Status))
             .await?;
         Ok(parse_ctl_status(&out))
+    }
+
+    /// The host guard (`~/.ssh-app/guard.json`); a missing file is an empty guard. A file the app
+    /// cannot understand is an error, so it is never overwritten by accident.
+    pub async fn read_host_guard(&self) -> Result<crate::host_guard::HostGuard, SshCoreError> {
+        let text = self
+            .read_remote_config(crate::host_guard::GUARD_FILE)
+            .await?;
+        crate::host_guard::host_guard_from_json(text)
+    }
+
+    /// Validates and writes the host guard (folder `0700`, file `0600`).
+    pub async fn apply_host_guard(
+        &self,
+        guard: crate::host_guard::HostGuard,
+    ) -> Result<(), SshCoreError> {
+        let json = crate::host_guard::host_guard_to_json(guard)?;
+        let path = crate::agents::remote_path_expr(crate::host_guard::GUARD_FILE);
+        self.execute_command_on_active_session(format!(
+            "umask 077; mkdir -p \"$HOME/.ssh-app\" && chmod 700 \"$HOME/.ssh-app\"; {}",
+            crate::agents::build_write_file_command(&path, &json, "600")
+        ))
+        .await?;
+        Ok(())
+    }
+
+    /// Agent sessions the hook script registered (needs the "Register sessions" template).
+    pub async fn list_agent_sessions(
+        &self,
+    ) -> Result<Vec<crate::host_guard::AgentSessionInfo>, SshCoreError> {
+        let out = self
+            .execute_command_on_active_session(crate::host_guard::SESSIONS_COMMAND.to_string())
+            .await?;
+        Ok(crate::host_guard::parse_agent_sessions(out))
     }
 
     /// Removes only the ssh-app hook entries from the agent's config (the script is left in place).

@@ -167,7 +167,7 @@ fn shown(rule: &str) -> String {
 }
 
 /// `Tool` or `Tool(specifier)`; returns the trimmed rule.
-fn validate_rule(list: &str, rule: &str) -> Result<String, SshCoreError> {
+pub(crate) fn validate_rule(list: &str, rule: &str) -> Result<String, SshCoreError> {
     let r = rule.trim();
     let bad = |why: &str| invalid(format!("Invalid {list} rule \"{}\": {why}", shown(r)));
     if r.is_empty() || r.chars().count() > MAX_RULE {
