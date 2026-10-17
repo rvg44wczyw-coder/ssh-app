@@ -25,6 +25,11 @@ let package = Package(
                 .product(name: "SwiftTerm", package: "SwiftTerm")
             ],
             path: "Sources/SSHApp"
+        ),
+        .testTarget(
+            name: "SSHAppTests",
+            dependencies: ["SSHApp"],
+            path: "Tests/SSHAppTests"
         )
     ]
 )
