@@ -635,7 +635,6 @@ struct ActiveTerminalSessionView: View {
             #if canImport(UIKit)
             if !viewModel.isChatMode {
                 KeyboardAccessoryView(
-                    isCtrlLocked: $isCtrlLocked,
                     onSendBytes: { bytes in
                         viewModel.sendInput(Data(bytes))
                     },
