@@ -172,11 +172,11 @@ public struct HostTelemetrySheetView: View {
         HStack(spacing: 12) {
             ZStack {
                 RoundedRectangle(cornerRadius: 10)
-                    .fill(Color.accentColor.opacity(0.18))
+                    .fill(Color.appAccent.opacity(0.18))
                     .frame(width: 44, height: 44)
                 Image(systemName: "laptopcomputer")
                     .font(.system(size: 20, weight: .semibold))
-                    .foregroundColor(.accentColor)
+                    .foregroundColor(.appAccent)
             }
 
             VStack(alignment: .leading, spacing: 3) {
@@ -385,7 +385,7 @@ public struct HostTelemetrySheetView: View {
                                 .font(.system(size: 11, weight: selectedFilter == filter ? .bold : .medium))
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 5)
-                                .background(selectedFilter == filter ? Color.accentColor : Color.appSecondaryBackground)
+                                .background(selectedFilter == filter ? Color.appAccent : Color.appSecondaryBackground)
                                 .foregroundColor(selectedFilter == filter ? .white : .primary)
                                 .cornerRadius(14)
                         }

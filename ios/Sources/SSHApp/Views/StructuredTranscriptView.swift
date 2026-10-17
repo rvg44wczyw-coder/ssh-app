@@ -17,7 +17,7 @@ public struct StructuredTranscriptView: View {
             HStack(spacing: 8) {
                 Image(systemName: "doc.text.magnifyingglass")
                     .font(.system(size: 11))
-                    .foregroundColor(.accentColor)
+                    .foregroundColor(.appAccent)
 
                 if let path = viewModel.activeTranscriptPath {
                     Text(path)
@@ -45,7 +45,7 @@ public struct StructuredTranscriptView: View {
                             Text("Refresh")
                         }
                         .font(.system(size: 10, weight: .semibold))
-                        .foregroundColor(.accentColor)
+                        .foregroundColor(.appAccent)
                     }
                 }
             }
@@ -80,7 +80,7 @@ public struct StructuredTranscriptView: View {
                         .font(.system(size: 13, weight: .semibold))
                         .padding(.horizontal, 16)
                         .padding(.vertical, 8)
-                        .background(Color.accentColor)
+                        .background(Color.appAccent)
                         .foregroundColor(.white)
                         .cornerRadius(8)
                     }
@@ -118,7 +118,7 @@ public struct StructuredTranscriptView: View {
                             .font(.system(size: 13, weight: .semibold))
                             .padding(.horizontal, 16)
                             .padding(.vertical, 8)
-                            .background(Color.accentColor)
+                            .background(Color.appAccent)
                             .foregroundColor(.white)
                             .cornerRadius(8)
                     }
@@ -180,7 +180,7 @@ public struct StructuredTranscriptView: View {
                 }) {
                     Image(systemName: "arrow.up.circle.fill")
                         .font(.system(size: 26))
-                        .foregroundColor(promptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .secondary : .accentColor)
+                        .foregroundColor(promptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .secondary : .appAccent)
                 }
                 .disabled(promptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }

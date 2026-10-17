@@ -147,11 +147,13 @@ open class AppTerminalView: TerminalView {
 public struct TerminalContainerView: UIViewRepresentable {
     @ObservedObject public var viewModel: TerminalSessionViewModel
     @Binding public var isCtrlLocked: Bool
+    public var scheme: TerminalScheme = .fallback
     @AppStorage("terminal_font_size") private var terminalFontSize: Double = 13.0
 
-    public init(viewModel: TerminalSessionViewModel, isCtrlLocked: Binding<Bool>) {
+    public init(viewModel: TerminalSessionViewModel, isCtrlLocked: Binding<Bool>, scheme: TerminalScheme = .fallback) {
         self.viewModel = viewModel
         self._isCtrlLocked = isCtrlLocked
+        self.scheme = scheme
     }
 
     public func makeCoordinator() -> Coordinator {
@@ -170,12 +172,12 @@ public struct TerminalContainerView: UIViewRepresentable {
         terminalView.changeScrollback(10_000)
         terminalView.terminalDelegate = context.coordinator
         terminalView.delegate = context.coordinator
-        terminalView.backgroundColor = .black
+        context.coordinator.applyScheme(scheme, to: terminalView)
         terminalView.isUserInteractionEnabled = true
         terminalView.allowMouseReporting = false
 
         // Setup text selection appearance
-        terminalView.selectionHandleColor = UIColor.systemBlue
+        terminalView.selectionHandleColor = UIColor(AppAccent.current.color)
 
         // Setup modern iOS Edit Menu Interaction for text selection actions
         let editInteraction = UIEditMenuInteraction(delegate: context.coordinator)
@@ -249,6 +251,7 @@ public struct TerminalContainerView: UIViewRepresentable {
     }
 
     public func updateUIView(_ uiView: TerminalView, context: Context) {
+        context.coordinator.applyScheme(scheme, to: uiView)
         let currentSize = CGFloat(terminalFontSize)
         if abs(uiView.font.pointSize - currentSize) >= 0.5 {
             print("[TerminalView] Updating font size to \(currentSize) pt")
@@ -272,6 +275,25 @@ public struct TerminalContainerView: UIViewRepresentable {
         init(viewModel: TerminalSessionViewModel, isCtrlLocked: Binding<Bool>) {
             self.viewModel = viewModel
             self._isCtrlLocked = isCtrlLocked
+        }
+
+        private var appliedSchemeId: String?
+
+        /// Colours of the terminal; applied only when the scheme changes.
+        func applyScheme(_ scheme: TerminalScheme, to tv: TerminalView) {
+            guard appliedSchemeId != scheme.id else { return }
+            appliedSchemeId = scheme.id
+            let palette = scheme.ansi.map { hex -> SwiftTerm.Color in
+                let rgb = UInt32(hex, radix: 16) ?? 0
+                return SwiftTerm.Color(
+                    red8: UInt16((rgb >> 16) & 0xff), green8: UInt16((rgb >> 8) & 0xff), blue8: UInt16(rgb & 0xff))
+            }
+            tv.installColors(palette)
+            tv.nativeBackgroundColor = UIColor(hex: scheme.background)
+            tv.nativeForegroundColor = UIColor(hex: scheme.foreground)
+            tv.caretColor = UIColor(hex: scheme.cursor)
+            tv.backgroundColor = UIColor(hex: scheme.background)
+            tv.setNeedsDisplay()
         }
 
         func feedHistoryBuffer(_ history: Data, to terminalView: TerminalView) {

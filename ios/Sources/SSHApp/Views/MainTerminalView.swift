@@ -31,6 +31,15 @@ public struct MainTerminalView: View {
     }
 
     @State private var isCtrlLocked: Bool = false
+    @AppStorage(AppAccent.storageKey) private var accentRaw: String = AppAccent.blue.rawValue
+
+    /// Profile override, else the scheme chosen for the tab's agent, else the default one.
+    private var activeScheme: TerminalScheme {
+        guard let tab = tabsManager.activeSession else { return .fallback }
+        let profile = agentProfiles.profiles.first { $0.id == tab.profileId }
+        let slot = profile.map { SchemeSlot.forAgent($0.agent) } ?? SchemeSlot.forTab(tab.agentType)
+        return TerminalSchemes.resolve(profileSchemeId: profile?.terminalSchemeId, slot: slot)
+    }
     @State private var activeSheet: ActiveModalSheet? = nil
     @StateObject private var approvals = ApprovalsCenter()
 
@@ -127,6 +136,7 @@ public struct MainTerminalView: View {
                     ActiveTerminalSessionView(
                         viewModel: activeVM,
                         isCtrlLocked: $isCtrlLocked,
+                        scheme: activeScheme,
                         onRetry: {
                             ensureSessionStarted(for: tabsManager.selectedSessionId, force: true)
                         },
@@ -150,7 +160,7 @@ public struct MainTerminalView: View {
                         VStack(spacing: 12) {
                             Image(systemName: "lock.shield.fill")
                                 .font(.system(size: 44))
-                                .foregroundColor(.accentColor)
+                                .foregroundColor(.appAccent)
                             Text("Session Suspended")
                                 .font(.headline)
                                 .foregroundColor(.white)
@@ -170,7 +180,7 @@ public struct MainTerminalView: View {
                     HStack(spacing: 4) {
                         Image(systemName: "terminal")
                             .font(.system(size: 11, weight: .semibold))
-                            .foregroundColor(.accentColor)
+                            .foregroundColor(.appAccent)
                         Text(tabsManager.activeSession?.title ?? "Terminal")
                             .font(.system(size: 13, weight: .bold))
                             .foregroundColor(.primary)
@@ -548,6 +558,7 @@ public struct MainTerminalView: View {
 struct ActiveTerminalSessionView: View {
     @ObservedObject var viewModel: TerminalSessionViewModel
     @Binding var isCtrlLocked: Bool
+    let scheme: TerminalScheme
     let onRetry: () -> Void
     let onOpenAiAssistant: () -> Void
     let onOpenSnippets: () -> Void
@@ -564,7 +575,8 @@ struct ActiveTerminalSessionView: View {
                     #if canImport(UIKit)
                     TerminalContainerView(
                         viewModel: viewModel,
-                        isCtrlLocked: $isCtrlLocked
+                        isCtrlLocked: $isCtrlLocked,
+                        scheme: scheme
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     #else
@@ -586,7 +598,7 @@ struct ActiveTerminalSessionView: View {
                     }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
-                    .background(Color.blue.opacity(0.85))
+                    .background(Color.appAccent.opacity(0.85))
                     .cornerRadius(20)
                     .padding(.top, 8)
                     .shadow(radius: 4)
@@ -630,7 +642,7 @@ struct ActiveTerminalSessionView: View {
                                 .foregroundColor(.white)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 4)
-                                .background(Color.accentColor)
+                                .background(Color.appAccent)
                                 .cornerRadius(6)
                         }
                     }

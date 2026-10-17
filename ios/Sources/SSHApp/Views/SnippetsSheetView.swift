@@ -101,7 +101,7 @@ public struct SnippetsSheetView: View {
                                     .font(.system(size: 12, weight: selectedCategory == category ? .bold : .medium))
                                     .padding(.horizontal, 12)
                                     .padding(.vertical, 6)
-                                    .background(selectedCategory == category ? Color.accentColor : Color.appSecondaryBackground)
+                                    .background(selectedCategory == category ? Color.appAccent : Color.appSecondaryBackground)
                                     .foregroundColor(selectedCategory == category ? .white : .primary)
                                     .cornerRadius(16)
                             }
@@ -191,13 +191,13 @@ public struct SnippetsSheetView: View {
                                 .font(.system(size: 13, weight: .bold))
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 8)
-                                .background(Color.accentColor)
+                                .background(Color.appAccent)
                                 .foregroundColor(.white)
                                 .cornerRadius(8)
                         }
                     }
                     .padding(12)
-                    .background(Color.accentColor.opacity(0.1))
+                    .background(Color.appAccent.opacity(0.1))
                     Divider()
                 }
 
@@ -370,8 +370,8 @@ private struct SnippetRowView: View {
                     .font(.system(size: 10, weight: .bold))
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
-                    .background(Color.accentColor.opacity(0.15))
-                    .foregroundColor(.accentColor)
+                    .background(Color.appAccent.opacity(0.15))
+                    .foregroundColor(.appAccent)
                     .cornerRadius(4)
             }
 
@@ -401,7 +401,7 @@ private struct SnippetRowView: View {
                         .font(.system(size: 11, weight: .bold))
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5)
-                        .background(Color.accentColor)
+                        .background(Color.appAccent)
                         .foregroundColor(.white)
                         .cornerRadius(6)
                 }

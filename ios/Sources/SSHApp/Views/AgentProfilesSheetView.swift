@@ -350,6 +350,15 @@ struct AgentProfileEditorView: View {
                     }
                 }
                 Section(
+                    header: Text("Terminal colors"),
+                    footer: Text("Colors of tabs started from this profile. Default uses the scheme chosen for this agent in Settings → Appearance.")
+                ) {
+                    Picker("Scheme", selection: $profile.terminalSchemeId) {
+                        Text("Agent default").tag("")
+                        ForEach(TerminalScheme.builtIn) { Text($0.name).tag($0.id) }
+                    }
+                }
+                Section(
                     header: Text("Host shell environment"),
                     footer: Text("Tabs start through a login shell that does not read ~/.zshrc. Enable this to load it (PATH from nvm/npm, exports) before the agent starts.")
                 ) {

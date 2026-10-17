@@ -25,7 +25,7 @@ public struct SettingsView: View {
         self.agentsPage = agentsPage
     }
 
-    private enum Page: Hashable { case servers, keys, terminal, agents }
+    private enum Page: Hashable { case servers, keys, terminal, appearance, agents }
 
     public var body: some View {
         NavigationStack {
@@ -36,6 +36,7 @@ public struct SettingsView: View {
                     NavigationLink(value: Page.agents) { Label("Agents", systemImage: "play.rectangle.on.rectangle.fill") }
                 }
                 NavigationLink(value: Page.terminal) { Label("Terminal", systemImage: "terminal") }
+                NavigationLink(value: Page.appearance) { Label("Appearance", systemImage: "paintpalette") }
             }
             .navigationTitle("Settings")
             .toolbar {
@@ -48,6 +49,7 @@ public struct SettingsView: View {
                 case .servers: serversPage
                 case .keys: keysPage
                 case .terminal: terminalPage
+                case .appearance: appearancePage
                 case .agents: if let agentsPage { agentsPage }
                 }
             }
@@ -56,6 +58,60 @@ public struct SettingsView: View {
 
     @AppStorage(AiAssistantVisibility.storageKey) private var aiVisibilityRaw: String = ""
     @AppStorage("always_show_ai_assistant") private var legacyAlwaysShowAi: Bool = false
+
+    @AppStorage(AppAccent.storageKey) private var accentRaw: String = AppAccent.blue.rawValue
+    @State private var schemeRefresh = 0
+
+    private var appearancePage: some View {
+        Form {
+            Section(header: Text("Accent color"), footer: Text("Buttons, selected chips and links. Open sheets update when you reopen them.")) {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: 14) {
+                    ForEach(AppAccent.allCases) { accent in
+                        Button { accentRaw = accent.rawValue } label: {
+                            VStack(spacing: 4) {
+                                Circle().fill(accent.color).frame(width: 34, height: 34)
+                                    .overlay(Circle().stroke(Color.primary, lineWidth: accentRaw == accent.rawValue ? 3 : 0).padding(-3))
+                                Text(accent.title).font(.caption2).foregroundColor(.secondary)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.vertical, 6)
+            }
+            Section(
+                header: Text("Terminal colors"),
+                footer: Text("The scheme a tab gets by agent. A profile can override it (Agents → profile → Terminal colors). Reopen a tab or switch to it to see a change.")
+            ) {
+                ForEach(SchemeSlot.allCases) { slot in
+                    Picker(slot.title, selection: Binding(
+                        get: { _ = schemeRefresh; return TerminalSchemes.choice(for: slot) },
+                        set: { TerminalSchemes.setChoice($0, for: slot); schemeRefresh += 1 }
+                    )) {
+                        ForEach(TerminalScheme.builtIn) { Text($0.name).tag($0.id) }
+                    }
+                }
+            }
+            Section("Preview") {
+                ForEach(TerminalScheme.builtIn) { scheme in
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(scheme.name).font(.caption).foregroundColor(.secondary)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("$ claude --resume").font(.system(size: 12, design: .monospaced))
+                                .foregroundColor(Color(hex: scheme.foreground))
+                            HStack(spacing: 0) {
+                                ForEach(0..<16, id: \.self) { Color(hex: scheme.ansi[$0]).frame(height: 10) }
+                            }
+                        }
+                        .padding(8)
+                        .background(Color(hex: scheme.background))
+                        .cornerRadius(8)
+                    }
+                }
+            }
+        }
+        .navigationTitle("Appearance")
+    }
 
     private var terminalPage: some View {
         Form {
@@ -140,7 +196,7 @@ public struct SettingsView: View {
 
                                 if serversManager.activeProfileId == server.id {
                                     Image(systemName: "checkmark.circle.fill")
-                                        .foregroundColor(.accentColor)
+                                        .foregroundColor(.appAccent)
                                         .font(.title3)
                                 }
 
@@ -218,7 +274,7 @@ public struct SettingsView: View {
                                     Text("Copy Public Key to Clipboard")
                                 }
                                 .font(.subheadline)
-                                .foregroundColor(.accentColor)
+                                .foregroundColor(.appAccent)
                             }
                             .padding(.top, 4)
                         }

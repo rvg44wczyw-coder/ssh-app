@@ -118,7 +118,7 @@ public struct TmuxSessionsSheetView: View {
                             HStack(spacing: 12) {
                                 Image(systemName: "rectangle.stack.fill")
                                     .font(.title2)
-                                    .foregroundColor(.accentColor)
+                                    .foregroundColor(.appAccent)
 
                                 VStack(alignment: .leading, spacing: 4) {
                                     HStack(spacing: 8) {
@@ -176,7 +176,7 @@ public struct TmuxSessionsSheetView: View {
                                         .font(.subheadline.bold())
                                         .padding(.horizontal, 10)
                                         .padding(.vertical, 5)
-                                        .background(Color.accentColor)
+                                        .background(Color.appAccent)
                                         .foregroundColor(.white)
                                         .cornerRadius(8)
                                 }

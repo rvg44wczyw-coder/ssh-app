@@ -561,7 +561,7 @@ public struct AiAssistantSheetView: View {
                     .font(.subheadline.bold())
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 10)
-                    .background(suggestion.riskLevel == .destructive ? Color.red : Color.blue)
+                    .background(suggestion.riskLevel == .destructive ? Color.red : Color.appAccent)
                     .foregroundColor(.white)
                     .cornerRadius(8)
                 }

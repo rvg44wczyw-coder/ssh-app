@@ -57,7 +57,7 @@ public struct WebPreviewSheetView: View {
                     } else if isLoading {
                         VStack(spacing: 12) {
                             ProgressView()
-                                .tint(.accentColor)
+                                .tint(.appAccent)
                             Text("Opening SSH tunnel to port \(selectedPort)...")
                                 .font(.system(size: 14, weight: .medium, design: .monospaced))
                                 .foregroundColor(.secondary)
@@ -128,7 +128,7 @@ public struct WebPreviewSheetView: View {
                             .font(.system(size: 13, weight: .semibold, design: .monospaced))
                             .padding(.horizontal, 10)
                             .padding(.vertical, 6)
-                            .background(selectedPort == port ? Color.accentColor : Color(white: 0.16))
+                            .background(selectedPort == port ? Color.appAccent : Color(white: 0.16))
                             .foregroundColor(selectedPort == port ? .white : .primary)
                             .cornerRadius(8)
                     }
@@ -153,7 +153,7 @@ public struct WebPreviewSheetView: View {
                     .font(.system(size: 12, weight: .bold))
                     .padding(.horizontal, 8)
                     .padding(.vertical, 6)
-                    .background(Color.accentColor.opacity(0.8))
+                    .background(Color.appAccent.opacity(0.8))
                     .foregroundColor(.white)
                     .cornerRadius(6)
                 }
@@ -188,7 +188,7 @@ public struct WebPreviewSheetView: View {
                     .font(.system(size: 14, weight: .semibold))
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
-                    .background(Color.accentColor)
+                    .background(Color.appAccent)
                     .foregroundColor(.white)
                     .cornerRadius(8)
             }
@@ -223,7 +223,7 @@ public struct WebPreviewSheetView: View {
                     Text("Console (\(consoleLogs.count))")
                 }
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundColor(consoleLogs.isEmpty ? .secondary : .accentColor)
+                .foregroundColor(consoleLogs.isEmpty ? .secondary : .appAccent)
             }
         }
         .padding(.horizontal, 16)

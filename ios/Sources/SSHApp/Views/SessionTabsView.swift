@@ -77,7 +77,7 @@ public struct SessionTabsView: View {
                         .padding(.vertical, 4)
                         .background(
                             isSelected
-                                ? Color.accentColor
+                                ? Color.appAccent
                                 : Color.appSecondaryBackground
                         )
                         .cornerRadius(6)
@@ -112,7 +112,7 @@ public struct SessionTabsView: View {
                 } label: {
                     Image(systemName: "plus")
                         .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(.accentColor)
+                        .foregroundColor(.appAccent)
                         .padding(5)
                         .background(Color.appSecondaryBackground)
                         .clipShape(Circle())

@@ -89,7 +89,7 @@ struct ActionPanelView: View {
                         .font(.system(size: 11, weight: .bold))
                         .foregroundColor(.white)
                         .padding(4)
-                        .background(Circle().fill(isHidden ? Color.gray : Color.accentColor))
+                        .background(Circle().fill(isHidden ? Color.gray : Color.appAccent))
                         .offset(x: 6, y: -4)
                 }
             }

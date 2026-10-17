@@ -32,7 +32,7 @@ public struct ApprovalBannerView: View {
                     HStack(spacing: 4) {
                         Text(verbatim: entry.item.agent.capitalized)
                             .font(.system(size: 12, weight: .bold))
-                            .foregroundColor(.accentColor)
+                            .foregroundColor(.appAccent)
                         Text(verbatim: "wants to use \(entry.item.tool)")
                             .font(.system(size: 12, weight: .medium))
                     }
@@ -125,7 +125,7 @@ public struct ApprovalNoticeView: View {
 
     public var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: "bell.fill").foregroundColor(.accentColor).font(.system(size: 12))
+            Image(systemName: "bell.fill").foregroundColor(.appAccent).font(.system(size: 12))
             Text(verbatim: "\(entry.item.agent.capitalized) · \(entry.serverName): \(entry.item.event)")
                 .font(.system(size: 12))
                 .lineLimit(1)

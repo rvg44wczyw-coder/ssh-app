@@ -56,7 +56,7 @@ public struct ServerPickerPopup: View {
                 }
                 Text("Cancel")
                     .font(.subheadline.weight(.semibold))
-                    .foregroundColor(.accentColor)
+                    .foregroundColor(.appAccent)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 6)
                     .contentShape(Rectangle())
@@ -100,7 +100,7 @@ public struct ServerPickerPopup: View {
             }
             Spacer()
             if server.id == currentId {
-                Image(systemName: "checkmark").foregroundColor(.accentColor)
+                Image(systemName: "checkmark").foregroundColor(.appAccent)
             }
         }
         .padding(10)

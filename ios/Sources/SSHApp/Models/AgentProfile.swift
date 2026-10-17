@@ -15,6 +15,8 @@ public struct SavedAgentProfile: Identifiable, Codable, Equatable, Sendable {
     public var gitBranch: String
     /// Permission mode the agent starts in ("" = the agent's default): Claude `acceptEdits`, `plan`, ...; Antigravity `accept-edits`, `auto`, `plan`.
     public var permissionMode: String
+    /// Terminal colour scheme id for tabs of this profile ("" = the agent's default scheme).
+    public var terminalSchemeId: String
     /// Start through an interactive shell so `~/.zshrc` (PATH, exports) is loaded on the host.
     public var loadShellRc: Bool
     /// Approval-hook preset: "phoneApproval" (default), "notifyOnly" or "custom".
@@ -27,7 +29,7 @@ public struct SavedAgentProfile: Identifiable, Codable, Equatable, Sendable {
     public var approvalEvents: [String]
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, agentRaw, binary, env, args, workingDir, gitBranch, permissionMode, loadShellRc
+        case id, name, agentRaw, binary, env, args, workingDir, gitBranch, permissionMode, terminalSchemeId, loadShellRc
         case hookKindRaw, customHookCommand, customHookEvents, customHookMatcher
         case approvalMatcher, approvalEvents
     }
@@ -43,6 +45,7 @@ public struct SavedAgentProfile: Identifiable, Codable, Equatable, Sendable {
         workingDir = try c.decode(String.self, forKey: .workingDir)
         gitBranch = try c.decodeIfPresent(String.self, forKey: .gitBranch) ?? ""
         permissionMode = try c.decodeIfPresent(String.self, forKey: .permissionMode) ?? ""
+        terminalSchemeId = try c.decodeIfPresent(String.self, forKey: .terminalSchemeId) ?? ""
         // Profiles saved before this option existed keep their previous (login-shell) behavior.
         loadShellRc = try c.decodeIfPresent(Bool.self, forKey: .loadShellRc) ?? false
         hookKindRaw = try c.decodeIfPresent(String.self, forKey: .hookKindRaw) ?? "phoneApproval"
@@ -63,6 +66,7 @@ public struct SavedAgentProfile: Identifiable, Codable, Equatable, Sendable {
         workingDir: String = "",
         gitBranch: String = "",
         permissionMode: String = "",
+        terminalSchemeId: String = "",
         loadShellRc: Bool = true
     ) {
         self.id = id
@@ -74,6 +78,7 @@ public struct SavedAgentProfile: Identifiable, Codable, Equatable, Sendable {
         self.workingDir = workingDir
         self.gitBranch = gitBranch
         self.permissionMode = permissionMode
+        self.terminalSchemeId = terminalSchemeId
         self.loadShellRc = loadShellRc
         self.hookKindRaw = "phoneApproval"
         self.customHookCommand = ""
