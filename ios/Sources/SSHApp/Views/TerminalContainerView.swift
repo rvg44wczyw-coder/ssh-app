@@ -61,6 +61,15 @@ open class AppTerminalView: TerminalView {
         allowSecondaryPan = false
     }
 
+    /// 1-based terminal cell under a point of this view (accounts for the scroll offset).
+    func cell(at point: CGPoint) -> (col: Int, row: Int) {
+        let terminal = getTerminal()
+        let cols = max(terminal.cols, 1), rows = max(terminal.rows, 1)
+        let x = Int(point.x / (bounds.width / CGFloat(cols))) + 1
+        let y = Int((point.y - contentOffset.y) / (bounds.height / CGFloat(rows))) + 1
+        return (min(max(x, 1), cols), min(max(y, 1), rows))
+    }
+
     private var momentumLink: CADisplayLink?
     private var wheelDismissedKeyboard = false
     private var momentumVelocity: CGFloat = 0
@@ -323,6 +332,12 @@ public struct TerminalContainerView: UIViewRepresentable {
 
         @objc func handleSingleTap(_ gesture: UITapGestureRecognizer) {
             guard let tv = terminalView else { return }
+            // A tap is also a left click for the program in the pane (e.g. the "jump to bottom"
+            // button of an agent UI); tmux forwards it when the program asked for the mouse.
+            if let app = tv as? AppTerminalView, !tv.hasActiveSelection {
+                let c = app.cell(at: gesture.location(in: tv))
+                viewModel.sendInput(Data("\u{1b}[<0;\(c.col);\(c.row)M\u{1b}[<0;\(c.col);\(c.row)m".utf8))
+            }
             if tv.hasActiveSelection {
                 tv.clearSelection()
                 editMenuInteraction?.dismissMenu()

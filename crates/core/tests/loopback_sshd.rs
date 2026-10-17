@@ -1889,6 +1889,52 @@ fn wheel_events_from_the_app_scroll_tmux_history() {
 }
 
 #[test]
+fn a_tap_reaches_a_mouse_aware_program_in_the_pane_as_a_click() {
+    // Agent UIs ("jump to bottom") only react to mouse reports; the app sends a tap as an SGR
+    // press+release and tmux must hand it to the program that enabled mouse reporting.
+    let Some(server) = start_sshd() else {
+        eprintln!("SKIP: sshd/ssh-keygen/tmux unavailable");
+        return;
+    };
+    let out = tempfile::tempdir().unwrap();
+    let log = out.path().join("mouse.log");
+    let script = out.path().join("mouse.py");
+    std::fs::write(
+        &script,
+        format!(
+            "import sys,os,tty,termios\ntty.setraw(0)\nsys.stdout.write('\\x1b[?1000h\\x1b[?1006h')\nsys.stdout.flush()\nf=open({:?},'wb',buffering=0)\nf.write(b'READY\\n')\nwhile True:\n    f.write(os.read(0,64))\n",
+            log
+        ),
+    )
+    .unwrap();
+    let handle = connect(&server);
+    handle
+        .send_input(format!("python3 {}\r", script.display()).into_bytes())
+        .expect("start program");
+    let read = || std::fs::read_to_string(&log).unwrap_or_default();
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while !read().contains("READY") {
+        assert!(Instant::now() < deadline, "program did not start");
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    // Give tmux a moment to see the program's mouse request.
+    std::thread::sleep(Duration::from_millis(500));
+    handle
+        .send_input(b"\x1b[<0;7;3M\x1b[<0;7;3m".to_vec())
+        .expect("tap");
+    let deadline = Instant::now() + Duration::from_secs(15);
+    loop {
+        let got = read();
+        if got.contains("\x1b[<0;7;3M") && got.contains("\x1b[<0;7;3m") {
+            break;
+        }
+        assert!(Instant::now() < deadline, "click never arrived: {got:?}");
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    handle.disconnect();
+}
+
+#[test]
 fn the_very_first_attach_already_disables_the_alternate_screen() {
     // Scrolling in the app relies on tmux not switching clients to the alternate screen
     // (`smcup@:rmcup@`). On a host whose tmux server is not running yet, the options used to be
