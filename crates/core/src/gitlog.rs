@@ -35,7 +35,16 @@ pub struct GitLogResult {
     pub has_more: bool,
 }
 
-const GIT_LOG_SCRIPT: &str = r#"PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"; export PATH
+/// Options for every git call: a repository's own config must not be able to start programs
+/// (`gpg.program` with `log.showSignature`) or a filesystem monitor.
+macro_rules! git_safe {
+    () => {
+        "-c core.fsmonitor=false -c log.showSignature=false -c gpg.program=false"
+    };
+}
+
+const GIT_LOG_SCRIPT: &str = concat!(
+    r#"PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"; export PATH
 p=$(tmux display-message -p -t "=$1:" '#{pane_current_path}' 2>/dev/null)
 if [ -z "$p" ]; then printf 'GD_STATUS=no_session\n'; exit 0; fi
 case "$p" in *[![:print:]]*) printf 'GD_STATUS=no_session\n'; exit 0;; esac
@@ -47,10 +56,14 @@ b=$(git -C "$r" rev-parse --abbrev-ref HEAD 2>/dev/null)
 case "$b" in *[![:print:]]*) b="";; esac
 printf 'GD_BRANCH=%s\n' "$b"
 printf 'GD_DIFF_BEGIN\n'
-git -C "$r" -c core.fsmonitor=false log -n "$2" --no-color --no-ext-diff --date=relative --decorate=short --pretty=format:'%H%x1f%h%x1f%an%x1f%ar%x1f%D%x1f%s%x1e' 2>/dev/null | head -c 400000
-exit 0"#;
+git -C "$r" "#,
+    git_safe!(),
+    r#" log -n "$2" --no-color --no-ext-diff --date=relative --decorate=short --pretty=format:'%H%x1f%h%x1f%an%x1f%ar%x1f%D%x1f%s%x1e' 2>/dev/null | head -c 400000
+exit 0"#
+);
 
-const GIT_SHOW_SCRIPT: &str = r#"PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"; export PATH
+const GIT_SHOW_SCRIPT: &str = concat!(
+    r#"PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"; export PATH
 p=$(tmux display-message -p -t "=$1:" '#{pane_current_path}' 2>/dev/null)
 if [ -z "$p" ]; then printf 'GD_STATUS=no_session\n'; exit 0; fi
 case "$p" in *[![:print:]]*) printf 'GD_STATUS=no_session\n'; exit 0;; esac
@@ -60,8 +73,11 @@ case "$r" in ""|*[![:print:]]*) printf 'GD_STATUS=not_a_repo\n'; exit 0;; esac
 printf 'GD_STATUS=ok\nGD_ROOT=%s\n' "$r"
 printf 'GD_BRANCH=%s\n' "$2"
 printf 'GD_DIFF_BEGIN\n'
-git -C "$r" -c core.fsmonitor=false show --no-color --no-ext-diff --no-textconv --format=fuller --stat --patch "$2" -- 2>&1 | head -c 1000001
-exit 0"#;
+git -C "$r" "#,
+    git_safe!(),
+    r#" show --no-color --no-ext-diff --no-textconv --format=fuller --stat --patch "$2" -- 2>&1 | head -c 1000001
+exit 0"#
+);
 
 /// A commit id as typed by git: 7 to 40 lowercase hex digits. Anything else never reaches git.
 pub fn validate_commit_hash(hash: &str) -> Result<&str, SshCoreError> {
@@ -216,6 +232,96 @@ mod tests {
         assert!(parse_git_log_output("GD_STATUS=no_session\n", 5)
             .entries
             .is_empty());
+    }
+
+    #[test]
+    fn a_repository_config_cannot_start_programs_through_git_show() {
+        use std::process::Command;
+        let git = |dir: &std::path::Path, args: &[&str]| {
+            Command::new("git")
+                .arg("-C")
+                .arg(dir)
+                .args(args)
+                .env_remove("TMUX")
+                .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                .env("GIT_CONFIG_SYSTEM", "/dev/null")
+                .output()
+        };
+        let Ok(probe) = git(std::path::Path::new("."), &["--version"]) else {
+            return; // no git on this machine
+        };
+        if !probe.status.success() {
+            return;
+        }
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        std::fs::create_dir(&repo).unwrap();
+        git(&repo, &["init", "-q", "."]).unwrap();
+        git(
+            &repo,
+            &[
+                "-c",
+                "user.email=a@b",
+                "-c",
+                "user.name=a",
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                "base",
+            ],
+        )
+        .unwrap();
+        let tree =
+            String::from_utf8_lossy(&git(&repo, &["rev-parse", "HEAD^{tree}"]).unwrap().stdout)
+                .trim()
+                .to_string();
+        let parent = String::from_utf8_lossy(&git(&repo, &["rev-parse", "HEAD"]).unwrap().stdout)
+            .trim()
+            .to_string();
+        let raw = format!(
+            "tree {tree}\nparent {parent}\nauthor a <a@b> 1700000000 +0000\ncommitter a <a@b> 1700000000 +0000\n\
+             gpgsig -----BEGIN PGP SIGNATURE-----\n \n x\n -----END PGP SIGNATURE-----\n\nsigned\n"
+        );
+        let file = tmp.path().join("c.txt");
+        std::fs::write(&file, raw).unwrap();
+        let commit = String::from_utf8_lossy(
+            &git(
+                &repo,
+                &["hash-object", "-t", "commit", "-w", file.to_str().unwrap()],
+            )
+            .unwrap()
+            .stdout,
+        )
+        .trim()
+        .to_string();
+        let marker = tmp.path().join("PWNED");
+        let prog = tmp.path().join("fakegpg");
+        std::fs::write(
+            &prog,
+            format!("#!/bin/sh\ntouch {}\nexit 1\n", marker.display()),
+        )
+        .unwrap();
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&prog, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        git(&repo, &["config", "gpg.program", prog.to_str().unwrap()]).unwrap();
+        git(&repo, &["config", "log.showSignature", "true"]).unwrap();
+
+        // Without the options the hostile config runs the program (the attack is real)...
+        git(&repo, &["show", "--format=fuller", &commit]).unwrap();
+        assert!(
+            marker.exists(),
+            "the probe must be able to reproduce the attack"
+        );
+        std::fs::remove_file(&marker).unwrap();
+        // ...with the options used by the app's scripts it does not.
+        let mut args: Vec<&str> = git_safe!().split(' ').collect();
+        args.extend(["show", "--format=fuller", &commit]);
+        git(&repo, &args).unwrap();
+        assert!(!marker.exists());
+        assert!(GIT_SHOW_SCRIPT.contains(git_safe!()) && GIT_LOG_SCRIPT.contains(git_safe!()));
     }
 
     #[test]

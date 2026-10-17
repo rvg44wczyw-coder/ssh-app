@@ -8,25 +8,35 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
     private static let maxDownload: UInt64 = 2 * 1024 * 1024 * 1024
 
     private let domain: NSFileProviderDomain
-    private let pool: ConnectionPool?
+    private let keyGroup: String?
+    private var current: (server: SharedServer, pool: ConnectionPool)?
+    private let poolLock = NSLock()
     private let tempDir: URL
 
     required init(domain: NSFileProviderDomain) {
         self.domain = domain
-        let group = Bundle.main.object(forInfoDictionaryKey: "SSHAppKeychainGroup") as? String
-        let server = SharedStore.load(group: group).first { $0.id == domain.identifier.rawValue }
-        self.pool = server.map { ConnectionPool(server: $0, keyGroup: group) }
+        self.keyGroup = Bundle.main.object(forInfoDictionaryKey: "SSHAppKeychainGroup") as? String
         let manager = NSFileProviderManager(for: domain)
         self.tempDir = (try? manager?.temporaryDirectoryURL()) ?? FileManager.default.temporaryDirectory
         super.init()
     }
 
     func invalidate() {
-        if let pool { Task { await pool.close() } }
+        poolLock.lock(); let old = current?.pool; current = nil; poolLock.unlock()
+        if let old { Task { await old.close() } }
     }
 
+    /// The pool for this server as the app published it just now: a re-pinned host key, another SSH
+    /// key or another root folder takes effect on the next request, not after a restart.
     private func requirePool() throws -> ConnectionPool {
-        guard let pool else { throw NSFileProviderError(.notAuthenticated) }
+        guard let server = SharedStore.load(group: keyGroup).first(where: { $0.id == domain.identifier.rawValue }) else {
+            throw NSFileProviderError(.notAuthenticated)
+        }
+        poolLock.lock(); defer { poolLock.unlock() }
+        if let c = current, c.server == server { return c.pool }
+        if let old = current?.pool { Task { await old.close() } }
+        let pool = ConnectionPool(server: server, keyGroup: keyGroup)
+        current = (server, pool)
         return pool
     }
 

@@ -307,7 +307,8 @@ fn upload_command(path: &str, overwrite: bool) -> String {
     };
     let script = format!(
         "set -C; d={q}; t=\"$d.part.$$\"; umask 077; {check} || exit 4; cat > \"$t\" || {{ rm -f \"$t\"; exit 1; }}; \
-         {check} || {{ rm -f \"$t\"; exit 4; }}; mv -f \"$t\" \"$d\" || {{ rm -f \"$t\"; exit 1; }}"
+         {check} || {{ rm -f \"$t\"; exit 4; }}; if [ -f \"$d\" ]; then m=$(stat -c %a -- \"$d\" 2>/dev/null || stat -f %Lp -- \"$d\" 2>/dev/null); [ -n \"$m\" ] && chmod \"$m\" \"$t\"; fi; \
+         mv -f \"$t\" \"$d\" || {{ rm -f \"$t\"; exit 1; }}"
     );
     format!("sh -c {}", shell_quote(&script))
 }
@@ -973,6 +974,19 @@ mod script_tests {
         );
         assert_eq!(std::fs::read(&f).unwrap(), b"new");
         assert!(!root.join("it's.bin.part").exists());
+        // The mode of the replaced file is kept (a script stays executable).
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&f, std::fs::Permissions::from_mode(0o755)).unwrap();
+            assert_eq!(
+                run(&upload_command(fp, true), b"#!/bin/sh\n").status.code(),
+                Some(0)
+            );
+            assert_eq!(
+                std::fs::metadata(&f).unwrap().permissions().mode() & 0o777,
+                0o755
+            );
+        }
         // Download streams the exact bytes, refuses folders.
         std::fs::write(&f, &bytes).unwrap();
         assert_eq!(run(&download_command(fp), b"").stdout, bytes);

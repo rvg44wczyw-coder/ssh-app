@@ -28,9 +28,11 @@ public final class WatchBridge: NSObject, ObservableObject {
                     id: e.item.id,
                     agent: WatchProtocol.sanitize(e.item.agent, max: 20),
                     tool: WatchProtocol.sanitize(e.item.tool, max: 30),
-                    tail: WatchProtocol.sanitize(e.item.command, max: WatchProtocol.maxTail, keepEnd: true),
+                    tail: WatchProtocol.preview(e.item.command).text,
+                    truncated: WatchProtocol.preview(e.item.command).truncated,
+                    length: e.item.command.count,
                     dir: WatchProtocol.sanitize(dir, max: 40),
-                    flags: analysis.flags.prefix(4).map { WatchProtocol.sanitize($0, max: 40) },
+                    flags: analysis.flags.prefix(6).map { WatchProtocol.sanitize($0, max: 40) },
                     expiresIn: e.remainingSeconds(at: now),
                     server: WatchProtocol.sanitize(e.serverName, max: 30)
                 )
@@ -70,6 +72,8 @@ public final class WatchBridge: NSObject, ObservableObject {
         let matches = center.entries.filter { $0.isApproval && $0.item.id == id }
         guard matches.count == 1, let entry = matches.first else { return .notPending }
         guard entry.remainingSeconds() > 0 else { return .expired }
+        // A command that did not fit on the watch is not approved from there, whatever the watch says.
+        if approved, WatchProtocol.preview(entry.item.command).truncated { return .rejected }
         await center.decide(entry, approved: approved)
         if let err = center.errors[entry.id] {
             return err.contains("gone or has expired") ? .expired : .hostUnreachable

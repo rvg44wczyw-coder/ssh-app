@@ -290,17 +290,13 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         }
     }
 
-    /// What runs in the tab's pane right now (AI CLI or shell), asked from the host and kept for a
-    /// few seconds: the user can start or leave an agent at any time.
-    private var paneContextCache: (context: PaneContext, at: Date)?
-
+    /// What runs in the tab's pane right now (AI CLI or shell), asked from the host every time and
+    /// never cached: the user can start or leave an agent at any moment, and a stale "AI CLI" answer
+    /// would send `!cmd` to a shell, where `!` is history expansion (it re-runs an earlier command).
     public func currentPaneContext() async -> PaneContext {
-        if let c = paneContextCache, Date().timeIntervalSince(c.at) < 5 { return c.context }
         guard let handle = handle, state == .connected else { return PaneContext(kind: .unknown, agent: "") }
-        let context = (try? await handle.detectPaneContext(sessionName: session.sessionName))
+        return (try? await handle.detectPaneContext(sessionName: session.sessionName))
             ?? PaneContext(kind: .unknown, agent: "")
-        paneContextCache = (context, Date())
-        return context
     }
 
     /// Types a **shell** command: as it is in a shell, with a leading `!` inside an AI CLI

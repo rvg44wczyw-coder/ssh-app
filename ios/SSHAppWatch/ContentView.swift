@@ -73,6 +73,10 @@ struct DetailView: View {
                 Text(verbatim: "\(item.agent) · \(item.server)").font(.caption2).foregroundStyle(.secondary)
                 Text(verbatim: item.tool).font(.headline)
                 Text(verbatim: item.tail).font(.system(size: 12, design: .monospaced))
+                if item.truncated {
+                    Label("Long command (\(item.length) characters). Approve it on the iPhone.", systemImage: "iphone")
+                        .font(.caption2).foregroundStyle(.orange)
+                }
                 if !item.dir.isEmpty {
                     Text(verbatim: item.dir).font(.caption2).foregroundStyle(.secondary)
                 }
@@ -95,7 +99,7 @@ struct DetailView: View {
                     Label("Approve", systemImage: "checkmark")
                 }
                 .tint(.green)
-                .disabled(sending || !model.phoneReachable)
+                .disabled(sending || !model.phoneReachable || item.truncated)
             }
         }
         .confirmationDialog("This request is flagged", isPresented: $confirmApprove, titleVisibility: .visible) {

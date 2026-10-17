@@ -7,8 +7,12 @@ public struct WatchApproval: Codable, Equatable, Identifiable, Sendable {
     public var id: String
     public var agent: String
     public var tool: String
-    /// Last part of the command (the end of a long command must not hide below the fold).
+    /// The command as far as it fits: all of it, or its start and its end with "…" between.
     public var tail: String
+    /// The command did not fit; the watch can only deny it, approval needs the iPhone.
+    public var truncated: Bool
+    /// Characters in the full command.
+    public var length: Int
     /// Last folder name of the working directory.
     public var dir: String
     public var flags: [String]
@@ -16,12 +20,14 @@ public struct WatchApproval: Codable, Equatable, Identifiable, Sendable {
     public var expiresIn: Int
     public var server: String
 
-    public init(id: String, agent: String, tool: String, tail: String, dir: String,
-                flags: [String], expiresIn: Int, server: String) {
+    public init(id: String, agent: String, tool: String, tail: String, truncated: Bool = false, length: Int = 0,
+                dir: String, flags: [String], expiresIn: Int, server: String) {
         self.id = id
         self.agent = agent
         self.tool = tool
         self.tail = tail
+        self.truncated = truncated
+        self.length = length
         self.dir = dir
         self.flags = flags
         self.expiresIn = expiresIn
@@ -48,7 +54,15 @@ public enum WatchReply: String, Sendable {
 public enum WatchProtocol {
     public static let version = 1
     public static let maxItems = 5
+    /// Longest command the watch may approve; anything longer is deny-only on the watch.
     public static let maxTail = 160
+
+    /// Start and end of a long command (a padded command cannot hide its beginning), or all of it.
+    public static func preview(_ command: String) -> (text: String, truncated: Bool) {
+        let clean = sanitize(command, max: Int.max)
+        guard clean.count > maxTail else { return (clean, false) }
+        return (String(clean.prefix(60)) + " … " + String(clean.suffix(90)), true)
+    }
 
     /// A request id as the host makes it: 32 lowercase hex characters.
     public static func isValidId(_ s: String) -> Bool {
