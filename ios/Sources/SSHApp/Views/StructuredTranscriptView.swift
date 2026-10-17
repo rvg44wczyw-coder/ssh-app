@@ -149,7 +149,7 @@ public struct StructuredTranscriptView: View {
                         .padding(.vertical, 12)
                     }
                     .background(Color.appBackground)
-                    .onChange(of: viewModel.transcriptTurns.count) { _ in
+                    .onChange(of: viewModel.transcriptTurns.count) { _, _ in
                         if let lastId = viewModel.transcriptTurns.last?.id {
                             withAnimation {
                                 proxy.scrollTo(lastId, anchor: .bottom)

@@ -33,7 +33,7 @@ public final class ServerProfilesManager: ObservableObject {
         isDefault: Bool = false,
         keyId: String? = nil
     ) -> ServerProfile {
-        var shouldBeDefault = isDefault || profiles.isEmpty
+        let shouldBeDefault = isDefault || profiles.isEmpty
         if shouldBeDefault {
             for i in 0..<profiles.count {
                 profiles[i].isDefault = false

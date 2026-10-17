@@ -150,10 +150,10 @@ public struct AiAssistantSheetView: View {
                     }
                     .padding(16)
                 }
-                .onChange(of: viewModel.chatMessages.count) { _ in
+                .onChange(of: viewModel.chatMessages.count) { _, _ in
                     withAnimation { proxy.scrollTo(viewModel.chatMessages.count - 1, anchor: .bottom) }
                 }
-                .onChange(of: viewModel.isChatLoading) { loading in
+                .onChange(of: viewModel.isChatLoading) { _, loading in
                     if loading { withAnimation { proxy.scrollTo("loading", anchor: .bottom) } }
                 }
             }

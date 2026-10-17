@@ -261,7 +261,7 @@ public struct TerminalContainerView: UIViewRepresentable {
     }
 
     @MainActor
-    public final class Coordinator: NSObject, TerminalViewDelegate, UIScrollViewDelegate, UIEditMenuInteractionDelegate {
+    public final class Coordinator: NSObject, @preconcurrency TerminalViewDelegate, UIScrollViewDelegate, @preconcurrency UIEditMenuInteractionDelegate {
         var viewModel: TerminalSessionViewModel
         @Binding private var isCtrlLocked: Bool
         var cancellable: AnyCancellable?
@@ -423,7 +423,7 @@ public struct TerminalContainerView: UIViewRepresentable {
         public func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
             // Dismiss keyboard when dragging begins (scrolling on top or history)
             if let tv = terminalView, tv.isFirstResponder {
-                tv.resignFirstResponder()
+                _ = tv.resignFirstResponder()
             }
             editMenuInteraction?.dismissMenu()
         }
@@ -431,7 +431,7 @@ public struct TerminalContainerView: UIViewRepresentable {
         public func scrollViewDidScroll(_ scrollView: UIScrollView) {
             // Guarantee keyboard is hidden when user scrolls
             if let tv = terminalView, tv.isFirstResponder, (scrollView.isTracking || scrollView.isDragging) {
-                tv.resignFirstResponder()
+                _ = tv.resignFirstResponder()
             }
         }
 
