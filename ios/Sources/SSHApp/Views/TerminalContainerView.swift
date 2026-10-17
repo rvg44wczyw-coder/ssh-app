@@ -62,6 +62,7 @@ open class AppTerminalView: TerminalView {
     }
 
     private var momentumLink: CADisplayLink?
+    private var wheelDismissedKeyboard = false
     private var momentumVelocity: CGFloat = 0
 
     private func stopMomentum() {
@@ -97,7 +98,13 @@ open class AppTerminalView: TerminalView {
         case .began:
             stopMomentum()
             wheelRemainder = 0
+            wheelDismissedKeyboard = false
         case .changed:
+            // Same as the scroll view's `.onDrag`, which the wheel pan replaced: a drag hides the keyboard.
+            if !wheelDismissedKeyboard, abs(pan.translation(in: self).y) > 8 {
+                wheelDismissedKeyboard = true
+                if isFirstResponder { _ = resignFirstResponder() }
+            }
             let dy = pan.translation(in: self).y
             pan.setTranslation(.zero, in: self)
             emitWheel(dy)
