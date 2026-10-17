@@ -6,6 +6,10 @@ import SshCoreBridge
 struct PermissionsEditorSheetView: View {
     let profile: SavedAgentProfile
     let handle: SshSessionHandle?
+    /// Rules that come from the project's own settings (read-only), used to tailor suggestions.
+    var context: [AgentPermissions] = []
+    /// A suggestion to apply to the lists as soon as they are loaded.
+    var initial: PermissionSuggestion? = nil
     var onClose: () -> Void
 
     @State private var allow: [String] = []
@@ -61,6 +65,25 @@ struct PermissionsEditorSheetView: View {
                         })) {
                             ForEach(modeOptions, id: \.self) { m in
                                 Text(verbatim: m.isEmpty ? "Agent default" : m).tag(m)
+                            }
+                        }
+                    }
+                    let suggestions = suggestPermissionChanges(current: current, context: context)
+                    if !suggestions.isEmpty {
+                        Section(
+                            header: Text("Suggestions for what is installed"),
+                            footer: Text("Based on the rules above and the project's own settings. A suggestion only changes the lists; nothing is written until Apply.")
+                        ) {
+                            ForEach(suggestions, id: \.id) { s in
+                                Button { apply(s) } label: {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Label { Text(verbatim: s.title) } icon: {
+                                            Image(systemName: s.kind == .risk ? "exclamationmark.triangle.fill" : "lightbulb")
+                                                .foregroundColor(s.kind == .risk ? .orange : .yellow)
+                                        }
+                                        Text(verbatim: s.detail).font(.caption).foregroundColor(.secondary)
+                                    }
+                                }
                             }
                         }
                     }
@@ -130,10 +153,21 @@ struct PermissionsEditorSheetView: View {
         }
     }
 
+    private func apply(_ s: PermissionSuggestion) {
+        allow.removeAll { s.removeAllow.contains($0) }
+        for (rules, new) in [($allow, s.addAllow), ($ask, s.addAsk), ($deny, s.addDeny)] {
+            for r in new where !rules.wrappedValue.contains(r) { rules.wrappedValue.append(r) }
+        }
+        if let m = s.defaultMode { mode = m }
+        preview = nil
+        applied = false
+    }
+
     private func add(_ t: PermissionTemplate) {
         for (rules, new) in [($allow, t.allow), ($ask, t.ask), ($deny, t.deny)] {
             for r in new where !rules.wrappedValue.contains(r) { rules.wrappedValue.append(r) }
         }
+        if let m = t.defaultMode { mode = m }
         preview = nil
     }
 
@@ -144,6 +178,7 @@ struct PermissionsEditorSheetView: View {
             allow = p.allow; ask = p.ask; deny = p.deny; mode = p.defaultMode ?? ""
             loaded = true
             error = nil
+            if let initial { apply(initial) }
         } catch {
             self.error = error.localizedDescription
         }

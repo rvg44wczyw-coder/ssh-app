@@ -45,6 +45,10 @@ pub struct AgentLaunchProfile {
     /// Git branch to switch to (in the start directory) before the agent starts. A failed
     /// switch (no such branch, dirty tree) is reported in the tab and the agent still starts.
     pub git_branch: Option<String>,
+    /// Permission mode the agent starts in: Claude `default|acceptEdits|plan|bypassPermissions`
+    /// (`--permission-mode`), Antigravity `accept-edits|auto|plan` (`--mode`). `None` = the
+    /// agent's own default. Other agents reject a mode.
+    pub permission_mode: Option<String>,
     /// Start the agent through an interactive shell (`$SHELL -i -c`) so `~/.zshrc` (PATH from
     /// nvm/npm/asdf, exports) is loaded. Login non-interactive shells do not read it.
     pub load_shell_rc: bool,
@@ -81,6 +85,7 @@ pub fn default_launch_profiles() -> Vec<AgentLaunchProfile> {
         args: vec![],
         working_dir: None,
         git_branch: None,
+        permission_mode: None,
         load_shell_rc: true,
     };
     vec![
@@ -188,7 +193,37 @@ pub fn validate_launch_profile(profile: AgentLaunchProfile) -> Result<(), SshCor
     if let Some(b) = &profile.git_branch {
         validate_git_branch(b)?;
     }
+    permission_mode_args(&profile)?;
     Ok(())
+}
+
+/// The launch flags for the profile's permission mode (empty when none is set).
+fn permission_mode_args(profile: &AgentLaunchProfile) -> Result<Vec<String>, SshCoreError> {
+    let Some(mode) = profile.permission_mode.as_deref().map(str::trim) else {
+        return Ok(vec![]);
+    };
+    if mode.is_empty() {
+        return Ok(vec![]);
+    }
+    let (flag, allowed): (&str, &[&str]) = match profile.agent {
+        AgentKind::ClaudeCode => (
+            "--permission-mode",
+            &["default", "acceptEdits", "plan", "bypassPermissions"],
+        ),
+        AgentKind::Antigravity => ("--mode", &["accept-edits", "auto", "plan"]),
+        _ => {
+            return Err(invalid(
+                "This agent has no permission mode option; leave it unset",
+            ))
+        }
+    };
+    if !allowed.contains(&mode) {
+        return Err(invalid(format!(
+            "Permission mode must be one of: {}",
+            allowed.join(", ")
+        )));
+    }
+    Ok(vec![flag.to_string(), mode.to_string()])
 }
 
 /// A branch name that is safe to pass to `git switch` unquoted-by-meaning: no leading `-`, no
@@ -260,7 +295,7 @@ pub fn build_agent_launch_command(profile: AgentLaunchProfile) -> Result<String,
     } else {
         inner.push_str(&format!(" {}", profile.binary));
     }
-    for a in &profile.args {
+    for a in permission_mode_args(&profile)?.iter().chain(&profile.args) {
         inner.push_str(&format!(" {}", shell_quote(a)));
     }
     if profile.load_shell_rc {
@@ -333,6 +368,7 @@ mod tests {
             args: vec![],
             working_dir: None,
             git_branch: None,
+            permission_mode: None,
             load_shell_rc: false,
         }
     }
@@ -376,6 +412,37 @@ mod tests {
             p.git_branch = Some(bad.into());
             assert!(validate_launch_profile(p).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn permission_mode_becomes_the_agents_own_flag() {
+        let mut p = profile(AgentKind::ClaudeCode, "claude", &[]);
+        p.args = vec!["--model".into(), "x".into()];
+        p.permission_mode = Some("acceptEdits".into());
+        let c = build_agent_launch_command(p).unwrap();
+        assert!(
+            c.contains("claude '--permission-mode' 'acceptEdits' '--model' 'x'"),
+            "{c}"
+        );
+        let mut p = profile(AgentKind::Antigravity, "agy", &[]);
+        p.permission_mode = Some("accept-edits".into());
+        let c = build_agent_launch_command(p).unwrap();
+        assert!(c.contains("agy '--mode' 'accept-edits'"), "{c}");
+        // Unset or blank adds nothing; wrong mode for the agent, unknown mode, or an agent
+        // without the option is refused (never passed through to the shell).
+        for (agent, mode) in [
+            (AgentKind::ClaudeCode, "accept-edits"),
+            (AgentKind::Antigravity, "acceptEdits"),
+            (AgentKind::ClaudeCode, "x; rm -rf /"),
+            (AgentKind::Codex, "auto"),
+        ] {
+            let mut p = profile(agent, "bin", &[]);
+            p.permission_mode = Some(mode.into());
+            assert!(validate_launch_profile(p).is_err(), "{mode}");
+        }
+        let mut p = profile(AgentKind::Codex, "codex", &[]);
+        p.permission_mode = Some("  ".into());
+        assert!(!build_agent_launch_command(p).unwrap().contains("--mode"));
     }
 
     #[test]

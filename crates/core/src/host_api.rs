@@ -283,6 +283,32 @@ impl SshSessionHandle {
         crate::permissions::permissions_from_settings(agent, existing)
     }
 
+    /// Reads what is in effect for this session: its folder (tmux pane), the profile's rules and the
+    /// folder's `.claude/settings.json` / `settings.local.json` (read-only), plus suggestions.
+    /// Only Claude Code has readable rule files; other agents get an empty report.
+    pub async fn inspect_session_permissions(
+        &self,
+        agent: crate::agents::AgentKind,
+        config_dir: Option<String>,
+    ) -> Result<crate::permissions::SessionPermissionsReport, SshCoreError> {
+        let config_path = crate::agents::agent_hooks_config_path(agent, config_dir)?;
+        let session = self
+            .config
+            .read()
+            .map_err(|_| SshCoreError::IoError {
+                reason: "session state unavailable".to_string(),
+            })?
+            .session_name
+            .clone();
+        crate::tmux::validate_session_name(&session)?;
+        let cmd = crate::permissions::build_inspect_permissions_command(
+            &session,
+            &crate::agents::remote_path_expr(&config_path),
+        );
+        let out = self.execute_command_on_active_session(cmd).await?;
+        Ok(crate::permissions::parse_inspect_permissions_output(&out))
+    }
+
     /// Dry run: only the resulting `permissions` object, never other settings (they may hold keys).
     pub async fn preview_agent_permissions(
         &self,

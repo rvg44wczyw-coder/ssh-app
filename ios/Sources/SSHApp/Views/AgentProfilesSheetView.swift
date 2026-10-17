@@ -331,6 +331,24 @@ struct AgentProfileEditorView: View {
                         .textInputAutocapitalization(.never)
                         #endif
                 }
+                if profile.agent == .claudeCode || profile.agent == .antigravity {
+                    Section(
+                        header: Text("Permission mode"),
+                        footer: Text("The mode the agent starts in. Accept edits: file edits in the start folder go through without asking. Commands still follow the agent's rules (Claude: Permissions → template \"Work in the project\" adds a list of allowed commands). Antigravity has no command list we can write; its Auto mode runs commands without asking.")
+                    ) {
+                        Picker("Mode", selection: $profile.permissionMode) {
+                            Text("Agent default").tag("")
+                            if profile.agent == .claudeCode {
+                                Text("Accept edits").tag("acceptEdits")
+                                Text("Plan (read-only)").tag("plan")
+                            } else {
+                                Text("Accept edits").tag("accept-edits")
+                                Text("Auto").tag("auto")
+                                Text("Plan (read-only)").tag("plan")
+                            }
+                        }
+                    }
+                }
                 Section(
                     header: Text("Host shell environment"),
                     footer: Text("Tabs start through a login shell that does not read ~/.zshrc. Enable this to load it (PATH from nvm/npm, exports) before the agent starts.")
@@ -473,6 +491,7 @@ struct AgentProfileEditorView: View {
                 }
             }
             .onChange(of: profile.agent) { _, agent in
+                profile.permissionMode = ""  // the modes differ per agent
                 // Events differ per agent; drop ones the new agent does not have (they would be
                 // invisible in the toggle list yet still fail validation).
                 let allowed = hookEventsFor(agent: agent)

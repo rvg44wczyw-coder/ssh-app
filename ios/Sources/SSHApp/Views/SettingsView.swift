@@ -54,15 +54,23 @@ public struct SettingsView: View {
         }
     }
 
-    @AppStorage("always_show_ai_assistant") private var alwaysShowAi: Bool = false
+    @AppStorage(AiAssistantVisibility.storageKey) private var aiVisibilityRaw: String = ""
+    @AppStorage("always_show_ai_assistant") private var legacyAlwaysShowAi: Bool = false
 
     private var terminalPage: some View {
         Form {
             Section(
                 header: Text("Quick menu"),
-                footer: Text("Without a connection the AI Assistant tile is left out of the quick menu, since it needs the host. Turn this on to keep showing it (disabled until connected).")
+                footer: Text("Auto shows the AI Assistant (quick menu tile and the key above the keyboard) only while connected, since it needs the host. Always keeps the tile without a connection (disabled until connected). Never hides it everywhere.")
             ) {
-                Toggle("Always show AI Assistant", isOn: $alwaysShowAi)
+                Picker("AI Assistant", selection: Binding(
+                    get: { AiAssistantVisibility.resolved(raw: aiVisibilityRaw, legacyAlways: legacyAlwaysShowAi).rawValue },
+                    set: { aiVisibilityRaw = $0 }
+                )) {
+                    Text("Auto").tag(AiAssistantVisibility.auto.rawValue)
+                    Text("Always").tag(AiAssistantVisibility.always.rawValue)
+                    Text("Never").tag(AiAssistantVisibility.never.rawValue)
+                }
             }
                 Section(header: Text("Terminal Font Size")) {
                     HStack {

@@ -22,6 +22,7 @@ public struct MainTerminalView: View {
         case aiAssistant
         case snippets
         case commands
+        case sessionPermissions
         case telemetry
         case fileBrowser
         case agentProfiles
@@ -267,6 +268,15 @@ public struct MainTerminalView: View {
                             onClose: { activeSheet = nil }
                         )
                     }
+                case .sessionPermissions:
+                    if let activeVM = tabsManager.activeViewModel, let tab = tabsManager.activeSession {
+                        SessionPermissionsSheetView(
+                            tab: tab,
+                            profile: agentProfiles.profiles.first(where: { $0.id == tab.profileId }),
+                            handle: activeVM.state == .connected ? activeVM.sessionHandle : nil,
+                            onClose: { activeSheet = nil }
+                        )
+                    }
                 case .snippets:
                     if let activeVM = tabsManager.activeViewModel {
                         SnippetsSheetView(viewModel: activeVM) {
@@ -352,6 +362,7 @@ public struct MainTerminalView: View {
         case .aiAssistant: sheet = .aiAssistant
         case .snippets: sheet = .snippets
         case .commands: sheet = .commands
+        case .sessionPermissions: sheet = .sessionPermissions
         case .agentProfiles: sheet = .agentProfiles
         case .fileBrowser: sheet = .fileBrowser
         case .telemetry: sheet = .telemetry
@@ -540,6 +551,8 @@ struct ActiveTerminalSessionView: View {
     let onRetry: () -> Void
     let onOpenAiAssistant: () -> Void
     let onOpenSnippets: () -> Void
+    @AppStorage(AiAssistantVisibility.storageKey) private var aiVisibilityRaw: String = ""
+    @AppStorage("always_show_ai_assistant") private var legacyAlwaysShowAi: Bool = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -638,9 +651,9 @@ struct ActiveTerminalSessionView: View {
                     onSendBytes: { bytes in
                         viewModel.sendInput(Data(bytes))
                     },
-                    onAiAssistantTap: {
-                        onOpenAiAssistant()
-                    },
+                    onAiAssistantTap: AiAssistantVisibility
+                        .resolved(raw: aiVisibilityRaw, legacyAlways: legacyAlwaysShowAi)
+                        .isVisible(connected: true) ? { onOpenAiAssistant() } : nil,
                     onSnippetsTap: {
                         onOpenSnippets()
                     }

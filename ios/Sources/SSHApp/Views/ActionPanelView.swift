@@ -34,7 +34,7 @@ struct ActionPanelView: View {
                 }
             }
             LazyVGrid(columns: columns, spacing: 14) {
-                ForEach(editing ? AppAction.allCases : AppAction.allCases.filter { !hidden.contains($0) && shownWithoutHost($0) }) { action in
+                ForEach(AppAction.allCases.filter { shownWithoutHost($0) && (editing || !hidden.contains($0)) }) { action in
                     tile(action)
                 }
             }
@@ -53,12 +53,14 @@ struct ActionPanelView: View {
         .frame(minWidth: 300, idealWidth: 340)
     }
 
-    /// The AI assistant only works through a live host, so without one its tile is left out
-    /// (Settings → Terminal → "Always show AI Assistant" brings it back).
-    @AppStorage("always_show_ai_assistant") private var alwaysShowAi: Bool = false
+    /// Settings → Terminal → AI Assistant decides: only while connected (default), always, or never.
+    @AppStorage(AiAssistantVisibility.storageKey) private var aiVisibilityRaw: String = ""
+    @AppStorage("always_show_ai_assistant") private var legacyAlwaysShowAi: Bool = false
 
     private func shownWithoutHost(_ action: AppAction) -> Bool {
-        action != .aiAssistant || isConnected || alwaysShowAi
+        action != .aiAssistant
+            || AiAssistantVisibility.resolved(raw: aiVisibilityRaw, legacyAlways: legacyAlwaysShowAi)
+                .isVisible(connected: isConnected)
     }
 
     private var hidden: Set<AppAction> { QuickMenuPrefs.hidden(from: hiddenRaw) }

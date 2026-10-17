@@ -8,6 +8,7 @@ public enum AppAction: String, CaseIterable, Identifiable, Sendable {
     case aiAssistant
     case snippets
     case commands
+    case sessionPermissions
     case agentProfiles
     case fileBrowser
     case telemetry
@@ -26,6 +27,7 @@ public enum AppAction: String, CaseIterable, Identifiable, Sendable {
         case .aiAssistant: return "AI assistant"
         case .snippets: return "Snippets"
         case .commands: return "Commands"
+        case .sessionPermissions: return "Permissions"
         case .agentProfiles: return "Agents"
         case .fileBrowser: return "Files"
         case .telemetry: return "Host monitor"
@@ -43,6 +45,7 @@ public enum AppAction: String, CaseIterable, Identifiable, Sendable {
         case .aiAssistant: return "wand.and.stars"
         case .snippets: return "bolt.fill"
         case .commands: return "slash.circle"
+        case .sessionPermissions: return "checkmark.shield"
         case .agentProfiles: return "play.rectangle.on.rectangle.fill"
         case .fileBrowser: return "folder.fill"
         case .telemetry: return "gauge.with.dots.needle.33percent"
@@ -60,6 +63,7 @@ public enum AppAction: String, CaseIterable, Identifiable, Sendable {
         case .aiAssistant: return .purple
         case .snippets: return .orange
         case .commands: return .brown
+        case .sessionPermissions: return .red
         case .agentProfiles: return .mint
         case .fileBrowser: return .yellow
         case .telemetry: return .green
@@ -83,6 +87,8 @@ public enum AppAction: String, CaseIterable, Identifiable, Sendable {
             return "Saved commands and fuzzy search over your shell history."
         case .commands:
             return "Slash commands of the agent in this tab (/model, /config, /compact, ...): insert at the prompt or run in one tap."
+        case .sessionPermissions:
+            return "What this tab's agent may do: its folder, the rules in effect (profile and project), the start mode, and suggestions such as accepting edits in the project folder."
         case .agentProfiles:
             return "Start Claude Code, Antigravity and others in a new tab, choose what starts automatically, and manage their approval hooks."
         case .fileBrowser:
@@ -103,10 +109,37 @@ public enum AppAction: String, CaseIterable, Identifiable, Sendable {
     /// Needs a live connection to the active host (shown disabled otherwise, never hidden).
     public var requiresConnection: Bool {
         switch self {
-        case .chatToggle, .aiAssistant, .snippets, .commands, .agentProfiles, .fileBrowser, .telemetry, .webPreview:
+        case .chatToggle, .aiAssistant, .snippets, .commands, .sessionPermissions, .agentProfiles, .fileBrowser, .telemetry, .webPreview:
             return true
         case .tmuxSessions, .diffViewer, .publicKey, .settings:
             return false
+        }
+    }
+}
+
+/// Where the AI assistant shows up (quick-menu tile and the key above the keyboard).
+/// Stored as `ai_assistant_visibility`; before that setting existed only the boolean
+/// `always_show_ai_assistant` was stored, which is honoured until the new one is chosen.
+public enum AiAssistantVisibility: String, CaseIterable, Identifiable {
+    /// Only while connected to a host (it needs one).
+    case auto
+    /// Also without a connection (tile disabled until connected).
+    case always
+    /// Nowhere.
+    case never
+
+    public var id: String { rawValue }
+    public static let storageKey = "ai_assistant_visibility"
+
+    public static func resolved(raw: String, legacyAlways: Bool) -> AiAssistantVisibility {
+        AiAssistantVisibility(rawValue: raw) ?? (legacyAlways ? .always : .auto)
+    }
+
+    public func isVisible(connected: Bool) -> Bool {
+        switch self {
+        case .auto: return connected
+        case .always: return true
+        case .never: return false
         }
     }
 }

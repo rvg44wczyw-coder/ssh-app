@@ -13,6 +13,8 @@ public struct SavedAgentProfile: Identifiable, Codable, Equatable, Sendable {
     public var workingDir: String
     /// Git branch switched to in `workingDir` before the agent starts (empty = leave as is).
     public var gitBranch: String
+    /// Permission mode the agent starts in ("" = the agent's default): Claude `acceptEdits`, `plan`, ...; Antigravity `accept-edits`, `auto`, `plan`.
+    public var permissionMode: String
     /// Start through an interactive shell so `~/.zshrc` (PATH, exports) is loaded on the host.
     public var loadShellRc: Bool
     /// Approval-hook preset: "phoneApproval" (default), "notifyOnly" or "custom".
@@ -25,7 +27,7 @@ public struct SavedAgentProfile: Identifiable, Codable, Equatable, Sendable {
     public var approvalEvents: [String]
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, agentRaw, binary, env, args, workingDir, gitBranch, loadShellRc
+        case id, name, agentRaw, binary, env, args, workingDir, gitBranch, permissionMode, loadShellRc
         case hookKindRaw, customHookCommand, customHookEvents, customHookMatcher
         case approvalMatcher, approvalEvents
     }
@@ -40,6 +42,7 @@ public struct SavedAgentProfile: Identifiable, Codable, Equatable, Sendable {
         args = try c.decode([String].self, forKey: .args)
         workingDir = try c.decode(String.self, forKey: .workingDir)
         gitBranch = try c.decodeIfPresent(String.self, forKey: .gitBranch) ?? ""
+        permissionMode = try c.decodeIfPresent(String.self, forKey: .permissionMode) ?? ""
         // Profiles saved before this option existed keep their previous (login-shell) behavior.
         loadShellRc = try c.decodeIfPresent(Bool.self, forKey: .loadShellRc) ?? false
         hookKindRaw = try c.decodeIfPresent(String.self, forKey: .hookKindRaw) ?? "phoneApproval"
@@ -59,6 +62,7 @@ public struct SavedAgentProfile: Identifiable, Codable, Equatable, Sendable {
         args: [String] = [],
         workingDir: String = "",
         gitBranch: String = "",
+        permissionMode: String = "",
         loadShellRc: Bool = true
     ) {
         self.id = id
@@ -69,6 +73,7 @@ public struct SavedAgentProfile: Identifiable, Codable, Equatable, Sendable {
         self.args = args
         self.workingDir = workingDir
         self.gitBranch = gitBranch
+        self.permissionMode = permissionMode
         self.loadShellRc = loadShellRc
         self.hookKindRaw = "phoneApproval"
         self.customHookCommand = ""
@@ -111,6 +116,7 @@ public struct SavedAgentProfile: Identifiable, Codable, Equatable, Sendable {
             args: p.args,
             workingDir: p.workingDir ?? "",
             gitBranch: p.gitBranch ?? "",
+            permissionMode: p.permissionMode ?? "",
             loadShellRc: p.loadShellRc
         )
     }
@@ -148,6 +154,7 @@ public struct SavedAgentProfile: Identifiable, Codable, Equatable, Sendable {
             args: args,
             workingDir: dir.isEmpty ? nil : dir,
             gitBranch: branch.isEmpty ? nil : branch,
+            permissionMode: permissionMode.isEmpty ? nil : permissionMode,
             loadShellRc: loadShellRc
         )
     }

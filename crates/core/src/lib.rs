@@ -55,7 +55,9 @@ pub use gitdiff::{GitDiffResult, GitDiffStatus};
 pub use keys::{derive_public_key, generate_keypair, KeypairResult};
 pub use permissions::{
     merge_permissions, permission_rule_templates, permission_warnings, permissions_from_settings,
-    permissions_section_of, validate_agent_permissions, AgentPermissions, PermissionTemplate,
+    permissions_section_of, suggest_permission_changes, validate_agent_permissions,
+    AgentPermissions, PermissionSuggestion, PermissionTemplate, SessionPermissionsReport,
+    SuggestionKind,
 };
 pub use port_forward::{PortForwardHandle, PortForwardInfo};
 pub use session::{

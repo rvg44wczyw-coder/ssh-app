@@ -503,6 +503,7 @@ fn launch_command_executes_with_literal_env_on_loopback_sshd() {
         args: vec![key.into()],
         working_dir: None,
         git_branch: None,
+        permission_mode: None,
         load_shell_rc: false,
     };
     rt.block_on(async {
@@ -1931,6 +1932,77 @@ fn a_tap_reaches_a_mouse_aware_program_in_the_pane_as_a_click() {
         assert!(Instant::now() < deadline, "click never arrived: {got:?}");
         std::thread::sleep(Duration::from_millis(100));
     }
+    handle.disconnect();
+}
+
+#[test]
+fn session_permissions_report_reads_profile_and_project_rules_for_the_pane_folder() {
+    let Some(server) = start_sshd() else {
+        eprintln!("SKIP: sshd/ssh-keygen/tmux unavailable");
+        return;
+    };
+    // The agent's profile folder and a project folder, both private temp dirs.
+    let root = tempfile::tempdir().unwrap();
+    let root_path = root.path().canonicalize().unwrap();
+    let cfg = root_path.join("cfg");
+    let project = root_path.join("proj");
+    std::fs::create_dir_all(&cfg).unwrap();
+    std::fs::create_dir_all(project.join(".claude")).unwrap();
+    std::fs::write(
+        cfg.join("settings.json"),
+        r#"{"permissions":{"allow":["Bash"],"defaultMode":"bypassPermissions"},"env":{"K":"never shown"}}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        project.join(".claude/settings.local.json"),
+        r#"{"permissions":{"allow":["Bash(make:*)"]}}"#,
+    )
+    .unwrap();
+    let handle = connect(&server);
+    let session = format!("itest-{}", server.port);
+    // Move the pane into the project folder, like the user (or the profile's start dir) would.
+    handle
+        .send_input(format!("cd '{}'\r", project.display()).into_bytes())
+        .unwrap();
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let report = loop {
+        let r = rt
+            .block_on(handle.inspect_session_permissions(
+                AgentKind::ClaudeCode,
+                Some(cfg.display().to_string()),
+            ))
+            .expect("inspect");
+        if r.directory.as_deref().map(std::path::Path::new) == Some(project.as_path()) {
+            break r;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "pane never moved: {:?} ({session})",
+            r.directory
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    };
+    let user = report.user.expect("profile rules");
+    assert_eq!(user.allow, vec!["Bash".to_string()]);
+    assert_eq!(user.default_mode.as_deref(), Some("bypassPermissions"));
+    assert!(report.project_shared.is_none());
+    assert_eq!(
+        report.project_local.unwrap().allow,
+        vec!["Bash(make:*)".to_string()]
+    );
+    let ids: Vec<_> = report.suggestions.iter().map(|s| s.id.as_str()).collect();
+    assert!(
+        ids.contains(&"unattended") && ids.contains(&"broad-allow"),
+        "{ids:?}"
+    );
+    // The settings file is only read: "env" never reaches the report and the file is untouched.
+    assert!(std::fs::read_to_string(cfg.join("settings.json"))
+        .unwrap()
+        .contains("never shown"));
     handle.disconnect();
 }
 

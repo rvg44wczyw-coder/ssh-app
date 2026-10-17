@@ -43,6 +43,8 @@ public struct TabSession: Identifiable, Equatable, Sendable, Codable {
     public var sessionName: String
     public var command: String?
     public var serverId: UUID?
+    /// The agent profile this tab was started from (permissions and config folder come from it).
+    public var profileId: String?
 
     public init(
         id: UUID = UUID(),
@@ -50,7 +52,8 @@ public struct TabSession: Identifiable, Equatable, Sendable, Codable {
         agentType: AgentType = .customShell,
         sessionName: String? = nil,
         command: String? = nil,
-        serverId: UUID? = nil
+        serverId: UUID? = nil,
+        profileId: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -58,6 +61,7 @@ public struct TabSession: Identifiable, Equatable, Sendable, Codable {
         self.sessionName = sessionName ?? "term-\(id.uuidString.prefix(6).lowercased())"
         self.command = command
         self.serverId = serverId
+        self.profileId = profileId
     }
 
     public static func defaultSessions() -> [TabSession] {

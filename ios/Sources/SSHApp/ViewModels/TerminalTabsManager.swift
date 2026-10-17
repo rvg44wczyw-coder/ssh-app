@@ -185,7 +185,8 @@ public final class TerminalTabsManager: ObservableObject {
             agentType: agentType,
             sessionName: "\(base)-\(n)",
             command: command,
-            serverId: serverId
+            serverId: serverId,
+            profileId: profile.id
         )
         sessions.append(newSession)
         registerSession(newSession)
