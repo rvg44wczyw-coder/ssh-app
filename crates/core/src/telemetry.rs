@@ -2,6 +2,14 @@ use crate::error::SshCoreError;
 use crate::transcript::strip_ansi_codes;
 use serde::{Deserialize, Serialize};
 
+/// The process list is cut to the 150 busiest, but agents and local-LLM servers are always kept:
+/// an idle `ollama` sits far below the CPU cut-off on a busy machine and would never show up.
+macro_rules! proc_filter {
+    () => {
+        "awk 'NR<=150 || tolower($0) ~ /claude|antigravity|agy|codex|aider|cursor|ollama|llama|lmstudio|vllm|mlx/'"
+    };
+}
+
 /// Static, zero-interpolation remote shell script that gathers host telemetry in a single round-trip.
 pub const TELEMETRY_COLLECTION_SCRIPT: &str = concat!(
     "echo '===HOST==='; hostname 2>/dev/null || echo unknown; uname -srm 2>/dev/null || echo unknown; ",
@@ -11,7 +19,7 @@ pub const TELEMETRY_COLLECTION_SCRIPT: &str = concat!(
     "echo '===DISK==='; df -k / 2>/dev/null | tail -n 1 || true; ",
     "echo '===BATT==='; pmset -g batt 2>/dev/null || true; ",
     "echo '===ME==='; id -un 2>/dev/null; id -u 2>/dev/null; ",
-    "echo '===PROC==='; ps -Ao pid=,uid=,user=,pcpu=,pmem=,etime=,comm= 2>/dev/null | sort -k4 -nr | head -n 150 || true"
+    "echo '===PROC==='; ps -Ao pid=,uid=,user=,pcpu=,pmem=,etime=,comm= 2>/dev/null | sort -k4 -nr | ", proc_filter!(), " || true"
 );
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, uniffi::Enum)]
@@ -500,6 +508,39 @@ fn parse_process_list(lines: &[&str], me_uid: Option<u32>) -> Vec<RemoteProcessI
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn idle_agents_and_llm_servers_survive_the_process_cut() {
+        // 400 busy processes, then an idle ollama and an idle claude at the very end.
+        let mut input = String::new();
+        for i in 0..400 {
+            input.push_str(&format!(
+                "{} 501 u 5.0 0.1 01:00 /usr/bin/busy{}\n",
+                1000 + i,
+                i
+            ));
+        }
+        input.push_str("9001 501 u 0.0 0.2 04:54:07 ollama\n");
+        input.push_str("9002 501 u 0.0 0.9 01:10:00 /usr/local/bin/claude\n");
+        input.push_str("9003 501 u 0.0 0.1 01:10:00 /usr/bin/idle-other\n");
+        let out = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(proc_filter!())
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .and_then(|mut child| {
+                use std::io::Write;
+                child.stdin.take().unwrap().write_all(input.as_bytes())?;
+                child.wait_with_output()
+            })
+            .expect("awk filter runs");
+        let text = String::from_utf8_lossy(&out.stdout);
+        assert_eq!(text.lines().count(), 152, "150 busiest + ollama + claude");
+        assert!(text.contains("ollama"));
+        assert!(text.contains("claude"));
+        assert!(!text.contains("idle-other"));
+    }
+
     use super::*;
 
     #[test]
