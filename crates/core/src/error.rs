@@ -64,6 +64,21 @@ pub enum SshCoreError {
 
     #[error("Transcript error: {reason}")]
     TranscriptError { reason: String },
+
+    #[error("No such file or directory: {path}")]
+    FileNotFound { path: String },
+
+    #[error("Not a regular file: {path}")]
+    NotARegularFile { path: String },
+
+    #[error("Already exists: {path}")]
+    AlreadyExists { path: String },
+
+    #[error("File is larger than the allowed {limit} bytes")]
+    TooLarge { limit: u64 },
+
+    #[error("Transfer cancelled")]
+    Cancelled,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, uniffi::Error)]

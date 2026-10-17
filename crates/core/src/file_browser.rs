@@ -55,6 +55,7 @@ pub fn validate_remote_dir_path(path: &str) -> Result<String, SshCoreError> {
         "/.aws",
         "/.gnupg",
         "/.kube",
+        "/library/keychains",
         "/etc/shadow",
         "/etc/master.passwd",
     ];
@@ -86,6 +87,8 @@ pub fn validate_remote_file_read_path(path: &str) -> Result<String, SshCoreError
         ".pypirc",
         ".git-credentials",
         "credentials",
+        ".zsh_history",
+        ".bash_history",
         "shadow",
         "master.passwd",
     ];

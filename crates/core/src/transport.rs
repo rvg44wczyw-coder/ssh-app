@@ -227,6 +227,81 @@ pub(crate) async fn collect_output(
     out.map_err(|_| SshCoreError::Timeout)
 }
 
+/// One step of a streamed exec call.
+pub(crate) enum StreamEvent {
+    /// Raw stdout bytes (stderr is not part of the stream).
+    Data(Vec<u8>),
+    Exit(u32),
+    End,
+}
+
+/// A running exec channel read piece by piece, for payloads too large for `collect_output`
+/// (file transfers). Dropping it closes the channel, so a cancelled transfer stops the remote command.
+pub(crate) struct ExecStream {
+    guard: CloseOnDrop,
+}
+
+impl ExecStream {
+    pub(crate) fn new(channel: russh::Channel<client::Msg>) -> Self {
+        ExecStream {
+            guard: CloseOnDrop(Some(channel)),
+        }
+    }
+
+    pub(crate) async fn next(&mut self) -> StreamEvent {
+        loop {
+            let msg = match self.guard.0.as_mut() {
+                Some(ch) => ch.wait().await,
+                None => None,
+            };
+            match msg {
+                Some(ChannelMsg::Data { ref data }) => return StreamEvent::Data(data.to_vec()),
+                Some(ChannelMsg::ExitStatus { exit_status }) => {
+                    return StreamEvent::Exit(exit_status)
+                }
+                Some(ChannelMsg::Close) | None => return StreamEvent::End,
+                Some(_) => {}
+            }
+        }
+    }
+
+    /// Waits for the exit status (None when the channel ends without one).
+    pub(crate) async fn exit_status(&mut self) -> Option<u32> {
+        loop {
+            match self.next().await {
+                StreamEvent::Exit(c) => return Some(c),
+                StreamEvent::Data(_) => {}
+                StreamEvent::End => return None,
+            }
+        }
+    }
+
+    pub(crate) async fn write(&self, chunk: Vec<u8>) -> Result<(), SshCoreError> {
+        match self.guard.0.as_ref() {
+            Some(ch) => ch
+                .data_bytes(chunk)
+                .await
+                .map_err(|e| SshCoreError::ChannelError {
+                    reason: format!("Sending data failed: {e}"),
+                }),
+            None => Err(SshCoreError::NotConnected),
+        }
+    }
+
+    pub(crate) async fn eof(&self) {
+        if let Some(ch) = self.guard.0.as_ref() {
+            let _ = ch.eof().await;
+        }
+    }
+
+    pub(crate) async fn finish(mut self) {
+        if let Some(ch) = self.guard.0.take() {
+            let _ = ch.eof().await;
+            let _ = ch.close().await;
+        }
+    }
+}
+
 /// `exec_start` + `collect_output` on a connection the caller owns.
 pub(crate) async fn exec_collect(
     handle: &ClientHandle,

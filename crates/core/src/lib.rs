@@ -20,6 +20,7 @@ pub mod keys;
 pub mod pane_context;
 pub mod permissions;
 pub mod port_forward;
+pub mod remote_fs;
 pub mod session;
 pub mod snippets;
 pub mod telemetry;
@@ -74,6 +75,7 @@ pub use permissions::{
     PermissionSuggestion, PermissionTemplate, SessionPermissionsReport, SuggestionKind,
 };
 pub use port_forward::{PortForwardHandle, PortForwardInfo};
+pub use remote_fs::{RemoteEntry, RemoteFsClient, TransferProgress, TransferResult};
 pub use session::{
     execute_remote_command, fetch_host_telemetry_once, fetch_host_usage, kill_remote_tmux_session,
     list_remote_tmux_sessions, SshSessionCallback, SshSessionHandle,

@@ -2146,3 +2146,227 @@ fn the_very_first_attach_already_disables_the_alternate_screen() {
     );
     handle.disconnect();
 }
+
+struct Progress(std::sync::atomic::AtomicBool, std::sync::atomic::AtomicU64);
+impl ssh_core::TransferProgress for Progress {
+    fn on_progress(&self, bytes: u64) {
+        self.1.store(bytes, std::sync::atomic::Ordering::SeqCst);
+    }
+    fn is_cancelled(&self) -> bool {
+        self.0.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+#[test]
+fn remote_fs_lists_downloads_uploads_and_edits_on_loopback_sshd() {
+    use ssh_core::{RemoteFsClient, RemoteServerConfig, SshCoreError};
+    let Some(server) = start_sshd() else {
+        eprintln!("SKIP: sshd/ssh-keygen/tmux unavailable");
+        return;
+    };
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let out = Command::new("ssh-keygen")
+        .args(["-lf"])
+        .arg(server._dir.path().join("host_key.pub"))
+        .output()
+        .unwrap();
+    let pin = String::from_utf8_lossy(&out.stdout)
+        .split_whitespace()
+        .nth(1)
+        .unwrap()
+        .to_string();
+    let cfg = |pin: Option<String>| RemoteServerConfig {
+        host: "127.0.0.1".into(),
+        port: server.port,
+        username: std::env::var("USER").unwrap_or_else(|_| "root".into()),
+        private_key_pem: server.private_key.clone(),
+        pinned_host_key: pin,
+    };
+    // No pin, no client.
+    assert!(RemoteFsClient::new(cfg(None)).is_err());
+
+    let home = std::fs::canonicalize(&server.home).unwrap();
+    let work = home.join("work");
+    std::fs::create_dir_all(home.join(".ssh")).unwrap();
+    std::fs::create_dir_all(&work).unwrap();
+    std::fs::write(home.join(".ssh/id_rsa"), "PRIVATE").unwrap();
+    let big: Vec<u8> = (0..=255u8).cycle().take(3_000_000).collect();
+    std::fs::write(work.join("big.bin"), &big).unwrap();
+    std::fs::write(work.join("note.txt"), "hi").unwrap();
+    symlink(home.join(".ssh/id_rsa"), work.join("innocent.txt")).unwrap();
+    symlink(home.join(".ssh"), work.join("keys")).unwrap();
+
+    let client = RemoteFsClient::new(cfg(Some(pin.clone()))).unwrap();
+    let prog = || Box::new(Progress(Default::default(), Default::default()));
+    rt.block_on(async {
+        assert_eq!(
+            client.home_directory().await.unwrap(),
+            server.home.to_str().unwrap()
+        );
+        let root = client
+            .list_remote_entries(home.to_str().unwrap().into(), false)
+            .await
+            .unwrap();
+        assert!(root.iter().any(|e| e.name == "work"));
+        assert!(!root.iter().any(|e| e.name == ".ssh"));
+        // Listing the keys folder is refused, also through a link.
+        assert!(client
+            .list_remote_entries(home.join(".ssh").to_str().unwrap().into(), true)
+            .await
+            .is_err());
+        assert!(client
+            .list_remote_entries(work.join("keys").to_str().unwrap().into(), true)
+            .await
+            .is_err());
+        let w = client
+            .list_remote_entries(work.to_str().unwrap().into(), false)
+            .await
+            .unwrap();
+        let names: Vec<_> = w.iter().map(|e| e.name.as_str()).collect();
+        assert!(names.contains(&"big.bin") && names.contains(&"note.txt"));
+        // Download: exact bytes, no .part left, progress reported.
+        let dl = server._dir.path().join("dl.bin");
+        let p = prog();
+        let r = client
+            .download_remote_file(
+                work.join("big.bin").to_str().unwrap().into(),
+                dl.to_str().unwrap().into(),
+                10_000_000,
+                p,
+            )
+            .await
+            .unwrap();
+        assert_eq!(r.bytes, big.len() as u64);
+        assert_eq!(std::fs::read(&dl).unwrap(), big);
+        assert!(!server._dir.path().join("dl.bin.part").exists());
+        // Too large, a symlink to a key, a folder, a missing file.
+        let to = |p: std::path::PathBuf| p.to_str().unwrap().to_string();
+        assert!(matches!(
+            client
+                .download_remote_file(
+                    to(work.join("big.bin")),
+                    to(server._dir.path().join("x")),
+                    1000,
+                    prog()
+                )
+                .await,
+            Err(SshCoreError::TooLarge { .. })
+        ));
+        assert!(client
+            .download_remote_file(
+                to(work.join("innocent.txt")),
+                to(server._dir.path().join("y")),
+                1000,
+                prog()
+            )
+            .await
+            .is_err());
+        assert!(!server._dir.path().join("y").exists());
+        assert!(client
+            .download_remote_file(
+                to(work.clone()),
+                to(server._dir.path().join("z")),
+                1000,
+                prog()
+            )
+            .await
+            .is_err());
+        assert!(client
+            .download_remote_file(
+                to(work.join("nope")),
+                to(server._dir.path().join("z")),
+                1000,
+                prog()
+            )
+            .await
+            .is_err());
+        // Cancelled before the first byte: nothing is left behind.
+        let cancelled = Box::new(Progress(true.into(), Default::default()));
+        assert!(matches!(
+            client
+                .download_remote_file(
+                    to(work.join("big.bin")),
+                    to(server._dir.path().join("c.bin")),
+                    10_000_000,
+                    cancelled
+                )
+                .await,
+            Err(SshCoreError::Cancelled)
+        ));
+        assert!(!server._dir.path().join("c.bin.part").exists());
+        // Upload, refuse overwrite, then overwrite.
+        let src = server._dir.path().join("up.bin");
+        std::fs::write(&src, &big).unwrap();
+        let dest = to(work.join("it's up.bin"));
+        client
+            .upload_remote_file(to(src.clone()), dest.clone(), false, prog())
+            .await
+            .unwrap();
+        assert_eq!(std::fs::read(work.join("it's up.bin")).unwrap(), big);
+        assert!(matches!(
+            client
+                .upload_remote_file(to(src.clone()), dest.clone(), false, prog())
+                .await,
+            Err(SshCoreError::AlreadyExists { .. })
+        ));
+        std::fs::write(&src, "small").unwrap();
+        client
+            .upload_remote_file(to(src.clone()), dest.clone(), true, prog())
+            .await
+            .unwrap();
+        assert_eq!(std::fs::read(work.join("it's up.bin")).unwrap(), b"small");
+        assert!(!work.join("it's up.bin.part").exists());
+        // Into the key folder: refused.
+        assert!(client
+            .upload_remote_file(to(src), to(home.join(".ssh/authorized_keys")), true, prog())
+            .await
+            .is_err());
+        // Folder, rename (no replace), delete (file, empty folder, not a full one).
+        client.make_remote_dir(to(work.join("d1"))).await.unwrap();
+        assert!(client.make_remote_dir(to(work.join("d1"))).await.is_err());
+        client
+            .rename_remote(to(work.join("note.txt")), to(work.join("d1/n.txt")))
+            .await
+            .unwrap();
+        assert!(work.join("d1/n.txt").exists() && !work.join("note.txt").exists());
+        assert!(matches!(
+            client
+                .rename_remote(to(work.join("big.bin")), to(work.join("d1/n.txt")))
+                .await,
+            Err(SshCoreError::AlreadyExists { .. })
+        ));
+        assert!(
+            client.delete_remote(to(work.join("d1"))).await.is_err(),
+            "full folder"
+        );
+        assert!(work.join("d1/n.txt").exists());
+        client
+            .delete_remote(to(work.join("d1/n.txt")))
+            .await
+            .unwrap();
+        client.delete_remote(to(work.join("d1"))).await.unwrap();
+        assert!(!work.join("d1").exists());
+        assert!(client.delete_remote("/".into()).await.is_err());
+        assert!(client
+            .delete_remote(to(home.join(".ssh/id_rsa")))
+            .await
+            .is_err());
+        assert!(home.join(".ssh/id_rsa").exists());
+        assert!(
+            client
+                .stat_remote(to(work.join("big.bin")))
+                .await
+                .unwrap()
+                .size
+                == big.len() as u64
+        );
+
+        client.close().await;
+        // Another pin: refused.
+        let bad = RemoteFsClient::new(cfg(Some("SHA256:AAAA".into()))).unwrap();
+        assert!(bad.home_directory().await.is_err());
+    });
+}
