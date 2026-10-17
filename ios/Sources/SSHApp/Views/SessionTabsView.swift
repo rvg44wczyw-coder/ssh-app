@@ -17,6 +17,7 @@ public struct SessionTabsView: View {
     public let onClose: (UUID) -> Void
 
     @State private var tabToRename: TabSession? = nil
+    @State private var tabForMenu: TabSession? = nil
     @State private var renameText: String = ""
     @State private var showRenameAlert: Bool = false
 
@@ -51,7 +52,31 @@ public struct SessionTabsView: View {
         return (session.agentType.iconName, nil)
     }
 
+    private var addMenu: some View {
+        Menu {
+            ForEach(presets, id: \.id) { p in
+                Button { onLaunchPreset?(p.id) } label: {
+                    Text(p.detail.isEmpty ? p.title : "\(p.title) — \(p.detail)")
+                }
+            }
+            Button { onAddSession() } label: { Label("New tab", systemImage: "plus") }
+        } label: {
+            Image(systemName: "plus")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundColor(.appAccent)
+                .padding(5)
+                .background(Color.appSecondaryBackground)
+                .clipShape(Circle())
+        } primaryAction: {
+            onAddSession()
+        }
+    }
+
     public var body: some View {
+        tabStrip
+    }
+
+    private var tabStrip: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 5) {
                 ForEach(sessions) { session in
@@ -68,7 +93,10 @@ public struct SessionTabsView: View {
                         return "\(session.title) (\(serverName))"
                     }()
 
-                    Button(action: { onSelect(session.id) }) {
+                    Button(action: {
+                        // A second tap on the selected tab opens its settings.
+                        if session.id == selectedSessionId { tabForMenu = session } else { onSelect(session.id) }
+                    }) {
                         HStack(spacing: 5) {
                             ProfileIconView(ref: icon(for: session).symbol, size: 10)
                                 .foregroundColor(isSelected ? .white : (icon(for: session).color ?? .primary))
@@ -110,29 +138,25 @@ public struct SessionTabsView: View {
                     }
                 }
 
-                // Add new tab button
-                Menu {
-                    ForEach(presets, id: \.id) { p in
-                        Button { onLaunchPreset?(p.id) } label: {
-                            Text(p.detail.isEmpty ? p.title : "\(p.title) — \(p.detail)")
-                        }
-                    }
-                    Button { onAddSession() } label: { Label("New tab", systemImage: "plus") }
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(.appAccent)
-                        .padding(5)
-                        .background(Color.appSecondaryBackground)
-                        .clipShape(Circle())
-                } primaryAction: {
-                    onAddSession()
-                }
+                addMenu
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 2)
         }
         .background(Color.appBackground)
+        .confirmationDialog(tabForMenu?.title ?? "", isPresented: Binding(get: { tabForMenu != nil }, set: { if !$0 { tabForMenu = nil } }), titleVisibility: .visible) {
+            if let tab = tabForMenu {
+                Button("Rename") {
+                    tabToRename = tab
+                    renameText = tab.title
+                    showRenameAlert = true
+                }
+                if sessions.count > 1 {
+                    Button("Close tab", role: .destructive) { onClose(tab.id) }
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        }
         .alert("Rename Tab", isPresented: $showRenameAlert) {
             TextField("Tab Name", text: $renameText)
             Button("Cancel", role: .cancel) {}

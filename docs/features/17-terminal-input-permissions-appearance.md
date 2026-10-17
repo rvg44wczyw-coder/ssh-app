@@ -35,6 +35,12 @@ Status: implemented (Rust + iOS); on-device checks pending (scroll feel, alterna
 - Data: the existing read-only usage probe (`fetch_host_usage`, own SSH connection, up to ~15 s on the host); first read 3 s after a tab is shown, then every 90 s and on reconnect, only while the app is in the foreground and the tab is connected; never in the background (zero battery drain rule). Results younger than 60 s are reused.
 - Not the plan's remaining quota (no safe source); numbers come from this host's transcripts.
 
+## 7. Sessions home screen
+- The app opens on a grid of session cards (`SessionsHomeView`): icon, title, server and tmux name, state dot, and a preview of the screen (last 7 non-empty lines, rendered through a headless SwiftTerm terminal from the tail of the tab's output, in the tab's color scheme; refreshed every 3 s while visible). Tap opens the terminal; long press renames or closes; the dashed card starts a new session (long press: agent profiles). Approval banners show on this screen too.
+- In the terminal the top-left button returns to the list. A new session started from anywhere opens straight in the terminal.
+- The tab strip stays (also with one session). A second tap on the selected tab opens its settings (Rename, Close); the long-press menu is unchanged.
+- Cards only show output for sessions that have been opened since the app started (the host session of the others is not attached in the background).
+
 ## Open
 - Per-tab quick scheme switch and `/theme` in the Commands palette.
 - Real subscription quota has no safe source.

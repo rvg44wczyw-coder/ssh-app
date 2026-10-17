@@ -107,6 +107,9 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
 
     private var terminalDataBuffer = Data()
 
+    /// Size of the terminal as last reported by the view (used to lay out previews).
+    public var terminalSize: (cols: Int, rows: Int) { (Int(lastCols), Int(lastRows)) }
+
     public func getHistoryBuffer() -> Data {
         return terminalDataBuffer
     }

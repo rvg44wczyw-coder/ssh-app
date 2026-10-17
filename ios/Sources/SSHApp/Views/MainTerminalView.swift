@@ -46,6 +46,8 @@ public struct MainTerminalView: View {
     @State private var showServerPicker: Bool = false
     @State private var showActionPanel: Bool = false
     @State private var showSessionPanel: Bool = false
+    /// Main screen is the list of session cards; opening a card shows the terminal.
+    @State private var showHome: Bool = true
     @StateObject private var usageMonitor = SessionUsageMonitor()
     @AppStorage("usage_strip_enabled") private var usageStripEnabled: Bool = true
     @State private var serverStatuses: [UUID: ServerReachability] = [:]
@@ -59,6 +61,26 @@ public struct MainTerminalView: View {
         #if canImport(UIKit)
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         #endif
+    }
+
+    @ViewBuilder
+    private var approvalViews: some View {
+                ForEach(approvals.notices) { notice in
+                    ApprovalNoticeView(entry: notice) {
+                        Task { await approvals.dismiss(notice) }
+                    }
+                }
+                if let approval = approvals.current {
+                    ApprovalBannerView(
+                        entry: approval,
+                        queuedBehind: approvals.queuedBehindCurrent,
+                        isBusy: approvals.busyIds.contains(approval.id),
+                        errorMessage: approvals.errors[approval.id],
+                        onDecision: { approved in
+                            Task { await approvals.decide(approval, approved: approved) }
+                        }
+                    )
+                }
     }
 
     private func refreshUsage(force: Bool = false) {
@@ -84,6 +106,55 @@ public struct MainTerminalView: View {
 
     public var body: some View {
         NavigationStack {
+            Group {
+            if showHome {
+                VStack(spacing: 0) {
+                approvalViews
+                SessionsHomeView(
+                    sessions: tabsManager.sessions,
+                    states: tabsManager.sessionStates,
+                    viewModel: { tabsManager.viewModel(for: $0) },
+                    serverName: { serversManager.profile(for: $0.serverId)?.name ?? serversManager.activeProfile?.name },
+                    icon: { session in
+                        let profile = agentProfiles.profiles.first { $0.id == session.profileId }
+                        return (ProfileIcons.symbol(profile, tabType: session.agentType), ProfileIcons.color(profile))
+                    },
+                    scheme: { session in
+                        let profile = agentProfiles.profiles.first { $0.id == session.profileId }
+                        let slot = profile.map { SchemeSlot.forAgent($0.agent) } ?? SchemeSlot.forTab(session.agentType)
+                        return TerminalSchemes.resolve(profileSchemeId: profile?.terminalSchemeId, slot: slot)
+                    },
+                    presets: agentProfiles.profiles.map { p in
+                        (id: p.id, title: p.name,
+                         detail: [p.workingDir, p.gitBranch.isEmpty ? "" : "⎇ " + p.gitBranch]
+                            .filter { !$0.isEmpty }.joined(separator: " "))
+                    },
+                    onOpen: { id in
+                        tabsManager.selectedSessionId = id
+                        showHome = false
+                        ensureSessionStarted(for: id)
+                    },
+                    onAdd: { handleAddNewSession() },
+                    onLaunchPreset: { id in
+                        guard let profile = agentProfiles.profiles.first(where: { $0.id == id }),
+                              case .success(let cmd) = profile.launchCommand() else { return }
+                        let s = tabsManager.addAgentSession(
+                            profile: profile,
+                            command: cmd,
+                            serverId: tabsManager.activeSession?.serverId ?? serversManager.activeProfileId
+                        )
+                        ensureSessionStarted(for: s.id)
+                    },
+                    onRename: { id, name in tabsManager.renameSession(id: id, newTitle: name) },
+                    onClose: { id in
+                        let session = tabsManager.sessions.first(where: { $0.id == id })
+                        let server = serversManager.profile(for: session?.serverId) ?? serversManager.activeProfile
+                        let privateKey = KeychainManager.shared.getPrivateKey(id: server?.keyId)
+                        tabsManager.closeSession(id: id, server: server, privateKey: privateKey)
+                    }
+                )
+                }
+            } else {
             VStack(spacing: 0) {
                 // Top Multi-Session Tab Switcher (Compact)
                 SessionTabsView(
@@ -138,22 +209,7 @@ public struct MainTerminalView: View {
                     SessionUsageStrip(monitor: usageMonitor) { refreshUsage(force: true) }
                 }
 
-                ForEach(approvals.notices) { notice in
-                    ApprovalNoticeView(entry: notice) {
-                        Task { await approvals.dismiss(notice) }
-                    }
-                }
-                if let approval = approvals.current {
-                    ApprovalBannerView(
-                        entry: approval,
-                        queuedBehind: approvals.queuedBehindCurrent,
-                        isBusy: approvals.busyIds.contains(approval.id),
-                        errorMessage: approvals.errors[approval.id],
-                        onDecision: { approved in
-                            Task { await approvals.decide(approval, approved: approved) }
-                        }
-                    )
-                }
+                approvalViews
 
                 // Main Terminal Rendering Area
                 if let activeVM = tabsManager.activeViewModel {
@@ -176,6 +232,8 @@ public struct MainTerminalView: View {
                     ProgressView("Initializing session...")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
+            }
+            }
             }
             .overlay {
                 if scenePhase == .background {
@@ -200,6 +258,23 @@ public struct MainTerminalView: View {
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar {
+                if showHome {
+                    ToolbarItem(placement: .principal) {
+                        Text("Sessions").font(.system(size: 15, weight: .bold))
+                    }
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button { presentSheet(.settings) } label: {
+                            Image(systemName: "gearshape").font(.system(size: 17))
+                        }
+                        .accessibilityLabel("Settings")
+                    }
+                } else {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { dismissKeyboard(); showHome = true } label: {
+                        Image(systemName: "square.grid.2x2").font(.system(size: 17))
+                    }
+                    .accessibilityLabel("All sessions")
+                }
                 ToolbarItem(placement: .principal) {
                     HStack(spacing: 4) {
                         Image(systemName: "terminal")
@@ -259,6 +334,7 @@ public struct MainTerminalView: View {
                         .presentationCompactAdaptation(.popover)
                     }
                     }
+                }
                 }
             }
             .sheet(item: $activeSheet) { sheet in
@@ -396,6 +472,10 @@ public struct MainTerminalView: View {
                 ensureSessionStarted(for: tabsManager.selectedSessionId)
                 checkStartupServersIfMultiple()
                 startApprovalPolling()
+            }
+            .onChange(of: tabsManager.sessions.count) { old, new in
+                // A session was just started (new tab, agent profile, tmux sheet): show it.
+                if new > old, showHome { showHome = false }
             }
             .onChange(of: scenePhase) { _, newPhase in
                 handleScenePhaseChange(newPhase)
