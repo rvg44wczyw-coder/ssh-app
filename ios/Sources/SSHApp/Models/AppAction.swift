@@ -88,7 +88,7 @@ public enum AppAction: String, CaseIterable, Identifiable, Sendable {
         case .diffViewer:
             return "Review the uncommitted changes of a repository on the host."
         case .publicKey:
-            return "Show or hide the key banner so you can copy this phone's public SSH key to a host."
+            return "Show the key banner when you need to copy this phone's public SSH key to a host; it stays hidden otherwise."
         case .settings:
             return "Servers, SSH key and app options."
         }

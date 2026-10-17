@@ -29,7 +29,7 @@ public struct MainTerminalView: View {
 
     @State private var isCtrlLocked: Bool = false
     @State private var activeSheet: ActiveModalSheet? = nil
-    @State private var showPublicKeyBanner: Bool = true
+    @State private var showPublicKeyBanner: Bool = false
     @State private var copiedKeyNotification: Bool = false
     @State private var activePublicKey: String? = nil
     @StateObject private var approvals = ApprovalsCenter()
@@ -88,7 +88,7 @@ public struct MainTerminalView: View {
                 .frame(height: 32)
 
 
-                // Public Key Banner shown on App Restart
+                // Public key banner: hidden by default, toggled from the quick menu ("Public key")
                 if showPublicKeyBanner, let pubKey = activePublicKey ?? KeychainManager.shared.getOrDerivePublicKey(), !pubKey.isEmpty {
                     HStack(spacing: 6) {
                         Image(systemName: "key.fill")
