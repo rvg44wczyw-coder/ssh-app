@@ -144,3 +144,7 @@ Results from an older check never overwrite a newer one (each check carries a to
 - Persistence: `@AppStorage("hidden_quick_actions")`, comma-separated action ids (`QuickMenuPrefs`). Unknown ids from another app version are ignored, non-hideable ones are dropped. Hiding is per device, applies to all tabs and servers, and only affects the menu (the features stay reachable, e.g. Files from the terminal flow).
 - Accessibility: in edit mode VoiceOver reads "<title>, shown/hidden" and "Double tap to show/hide this tile"; hardware keyboard Return/Space toggles.
 - Test: `QuickMenuPrefs` round trip, ignoring unknown ids and the Settings lock were checked with a standalone `swiftc` script (the iOS project has no test target); the layout itself is not checked on a device.
+
+## Addendum: separate session menu
+
+The toolbar has two buttons: **Session** (`rectangle.stack`, left) with the actions of the current session — Chat/Terminal, tmux sessions, Permissions, Agents — and **More** (`ellipsis.circle`) with the quick menu: AI assistant, Snippets, Commands, Files, Host monitor, Web preview, Git diff, Public key, Settings. `AppAction.isSessionAction` decides the split; both open `ActionPanelView` (`scope: .session` / `.quick`). The session panel has no hide/show customization; Customize applies to the quick menu only.

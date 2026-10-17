@@ -106,6 +106,14 @@ public enum AppAction: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
+    /// Belongs to the current session (its own toolbar button) rather than the quick menu.
+    public var isSessionAction: Bool {
+        switch self {
+        case .chatToggle, .tmuxSessions, .sessionPermissions, .agentProfiles: return true
+        default: return false
+        }
+    }
+
     /// Needs a live connection to the active host (shown disabled otherwise, never hidden).
     public var requiresConnection: Bool {
         switch self {

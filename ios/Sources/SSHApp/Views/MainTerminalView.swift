@@ -45,6 +45,7 @@ public struct MainTerminalView: View {
 
     @State private var showServerPicker: Bool = false
     @State private var showActionPanel: Bool = false
+    @State private var showSessionPanel: Bool = false
     @State private var serverStatuses: [UUID: ServerReachability] = [:]
     @State private var pingingServers: [ServerProfile] = []
     @State private var serverPickerContext: ServerPickerContext = .startup
@@ -200,13 +201,34 @@ public struct MainTerminalView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         dismissKeyboard()
+                        showSessionPanel = true
+                    } label: {
+                        Image(systemName: "rectangle.stack")
+                            .font(.system(size: 17))
+                    }
+                    .accessibilityLabel("Session menu")
+                    .accessibilityHint("Opens the actions of this session: chat mode, tmux sessions, permissions, agents")
+                    .popover(isPresented: $showSessionPanel, arrowEdge: .top) {
+                        ActionPanelView(
+                            scope: .session,
+                            isChatMode: tabsManager.activeViewModel?.isChatMode == true,
+                            keyVisible: false,
+                            isConnected: tabsManager.activeViewModel?.state == .connected,
+                            onSelect: { performAction($0) }
+                        )
+                        .presentationCompactAdaptation(.popover)
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        dismissKeyboard()
                         showActionPanel = true
                     } label: {
                         Image(systemName: "ellipsis.circle")
                             .font(.system(size: 17))
                     }
                     .accessibilityLabel("More actions")
-                    .accessibilityHint("Opens the list of actions: chat mode, tmux, AI assistant, files and more")
+                    .accessibilityHint("Opens the quick menu: AI assistant, snippets, commands, files, host monitor and more")
                     .popover(isPresented: $showActionPanel, arrowEdge: .top) {
                         ActionPanelView(
                             isChatMode: tabsManager.activeViewModel?.isChatMode == true,
@@ -364,6 +386,7 @@ public struct MainTerminalView: View {
     /// finished closing (presenting while a popover is still dismissing is dropped by UIKit).
     private func performAction(_ action: AppAction) {
         showActionPanel = false
+        showSessionPanel = false
         if action == .chatToggle {
             withAnimation(.easeInOut(duration: 0.2)) {
                 tabsManager.activeViewModel?.toggleChatMode()

@@ -3,6 +3,8 @@ import SwiftUI
 /// Popover opened by the single "More" toolbar button: a grid of labeled tiles. Tap runs the
 /// action; press-and-hold shows what it does without running it.
 struct ActionPanelView: View {
+    enum Scope { case quick, session }
+    var scope: Scope = .quick
     let isChatMode: Bool
     let keyVisible: Bool
     let isConnected: Bool
@@ -21,7 +23,7 @@ struct ActionPanelView: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            if editing || !hidden.isEmpty {
+            if scope == .quick, editing || !hidden.isEmpty {
                 HStack {
                     Text(editing ? "Tap a tile to show or hide it" : "\(hidden.count) hidden")
                         .font(.caption).foregroundColor(.secondary)
@@ -34,11 +36,13 @@ struct ActionPanelView: View {
                 }
             }
             LazyVGrid(columns: columns, spacing: 14) {
-                ForEach(AppAction.allCases.filter { shownWithoutHost($0) && (editing || !hidden.contains($0)) }) { action in
+                ForEach(AppAction.allCases.filter { $0.isSessionAction == (scope == .session) && shownWithoutHost($0) && (editing || !hidden.contains($0)) }) { action in
                     tile(action)
                 }
             }
-            if editing {
+            if scope == .session {
+                hintArea
+            } else if editing {
                 Text("Settings always stays, so you can get everything back.")
                     .font(.caption2).foregroundColor(.secondary)
             } else {
@@ -63,7 +67,7 @@ struct ActionPanelView: View {
                 .isVisible(connected: isConnected)
     }
 
-    private var hidden: Set<AppAction> { QuickMenuPrefs.hidden(from: hiddenRaw) }
+    private var hidden: Set<AppAction> { scope == .session ? [] : QuickMenuPrefs.hidden(from: hiddenRaw) }
 
     private func enabled(_ action: AppAction) -> Bool {
         !action.requiresConnection || isConnected
