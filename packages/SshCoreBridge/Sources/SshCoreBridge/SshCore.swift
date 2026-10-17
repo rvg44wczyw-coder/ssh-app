@@ -904,27 +904,9 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func checkHostOllama() async throws  -> OllamaHostStatus
     
     /**
-     * Establishes the SSH connection, launches tmux, and starts streaming I/O.
-     */
-    func connect(callback: SshSessionCallback) throws 
-    
-    /**
      * Automatically detects the path of the active agent transcript on the remote host.
      */
     func detectActiveTranscriptPath(baseDir: String?) async throws  -> String?
-    
-    /**
-     * Zero Battery Drain: gracefully closes the SSH channel, port forwards, and TCP socket.
-     * tmux continues running remote agent tasks detached on the MacBook.
-     */
-    func disconnect() 
-    
-    /**
-     * Executes a command on the remote host over the currently active SSH session (ephemeral
-     * channel). Output is capped at 4 MB; a command that does not finish within two minutes
-     * fails with `Timeout`.
-     */
-    func executeCommandOnActiveSession(command: String) async throws  -> String
     
     /**
      * Git diff (`HEAD`) of the repository the tmux session's pane is working in. The command runs
@@ -943,18 +925,6 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
      * and scrubs sensitive credentials before returning.
      */
     func fetchRemoteShellHistory(limit: UInt32) async throws  -> [String]
-    
-    /**
-     * Returns a list of all currently active port forwards.
-     */
-    func getActivePortForwards()  -> [PortForwardInfo]
-    
-    /**
-     * SHA-256 fingerprint (`SHA256:...`) of the host key the server presented on the last
-     * connection. Pin it in the server profile after the first successful connect and pass it
-     * back as `pinned_host_key`, so a changed key (possible MITM) is refused from then on.
-     */
-    func hostKeyFingerprint()  -> String?
     
     /**
      * Installs the default (phone approval) hooks; see `install_agent_hooks_with_preset`.
@@ -1028,6 +998,47 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func readRemoteTranscript(remotePath: String) async throws  -> [TranscriptTurn]
     
     /**
+     * Signs and submits the user's decision for request `id`. The signature covers the host's
+     * own id/hash/nonce and the host clock, so the host only honours it for that exact request.
+     */
+    func submitApprovalDecision(id: String, approved: Bool) async throws 
+    
+    /**
+     * Removes only the ssh-app hook entries from the agent's config (the script is left in place).
+     */
+    func uninstallAgentHooks(agent: AgentKind, configDir: String?) async throws 
+    
+    /**
+     * Establishes the SSH connection, launches tmux, and starts streaming I/O.
+     */
+    func connect(callback: SshSessionCallback) throws 
+    
+    /**
+     * Zero Battery Drain: gracefully closes the SSH channel, port forwards, and TCP socket.
+     * tmux continues running remote agent tasks detached on the MacBook.
+     */
+    func disconnect() 
+    
+    /**
+     * Executes a command on the remote host over the currently active SSH session (ephemeral
+     * channel). Output is capped at 4 MB; a command that does not finish within two minutes
+     * fails with `Timeout`.
+     */
+    func executeCommandOnActiveSession(command: String) async throws  -> String
+    
+    /**
+     * Returns a list of all currently active port forwards.
+     */
+    func getActivePortForwards()  -> [PortForwardInfo]
+    
+    /**
+     * SHA-256 fingerprint (`SHA256:...`) of the host key the server presented on the last
+     * connection. Pin it in the server profile after the first successful connect and pass it
+     * back as `pinned_host_key`, so a changed key (possible MITM) is refused from then on.
+     */
+    func hostKeyFingerprint()  -> String?
+    
+    /**
      * Instant reconnection on app foreground (didBecomeActive).
      * Re-attaches to the existing detached tmux session.
      */
@@ -1058,17 +1069,6 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
      * Stops all running port forwards (used during teardown/backgrounding).
      */
     func stopAllPortForwards() 
-    
-    /**
-     * Signs and submits the user's decision for request `id`. The signature covers the host's
-     * own id/hash/nonce and the host clock, so the host only honours it for that exact request.
-     */
-    func submitApprovalDecision(id: String, approved: Bool) async throws 
-    
-    /**
-     * Removes only the ssh-app hook entries from the agent's config (the script is left in place).
-     */
-    func uninstallAgentHooks(agent: AgentKind, configDir: String?) async throws 
     
 }
 open class SshSessionHandle: SshSessionHandleProtocol, @unchecked Sendable {
@@ -1251,18 +1251,6 @@ open func checkHostOllama()async throws  -> OllamaHostStatus  {
 }
     
     /**
-     * Establishes the SSH connection, launches tmux, and starts streaming I/O.
-     */
-open func connect(callback: SshSessionCallback)throws   {try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
-        uniffiCallStatus in
-    uniffi_ssh_core_fn_method_sshsessionhandle_connect(
-            self.uniffiCloneHandle(),
-        FfiConverterCallbackInterfaceSshSessionCallback_lower(callback),uniffiCallStatus
-    )
-}
-}
-    
-    /**
      * Automatically detects the path of the active agent transcript on the remote host.
      */
 open func detectActiveTranscriptPath(baseDir: String?)async throws  -> String?  {
@@ -1277,39 +1265,6 @@ open func detectActiveTranscriptPath(baseDir: String?)async throws  -> String?  
             completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
             freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
             liftFunc: FfiConverterOptionString.lift,
-            errorHandler: FfiConverterTypeSshCoreError_lift
-        )
-}
-    
-    /**
-     * Zero Battery Drain: gracefully closes the SSH channel, port forwards, and TCP socket.
-     * tmux continues running remote agent tasks detached on the MacBook.
-     */
-open func disconnect()  {try! rustCall() {
-        uniffiCallStatus in
-    uniffi_ssh_core_fn_method_sshsessionhandle_disconnect(
-            self.uniffiCloneHandle(),uniffiCallStatus
-    )
-}
-}
-    
-    /**
-     * Executes a command on the remote host over the currently active SSH session (ephemeral
-     * channel). Output is capped at 4 MB; a command that does not finish within two minutes
-     * fails with `Timeout`.
-     */
-open func executeCommandOnActiveSession(command: String)async throws  -> String  {
-    return
-        try  await uniffiRustCallAsync(
-            rustFutureFunc: {
-                uniffi_ssh_core_fn_method_sshsessionhandle_execute_command_on_active_session(
-                        self.uniffiCloneHandle(),FfiConverterString.lower(command)
-                )
-            },
-            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
-            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
-            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
-            liftFunc: FfiConverterString.lift,
             errorHandler: FfiConverterTypeSshCoreError_lift
         )
 }
@@ -1372,32 +1327,6 @@ open func fetchRemoteShellHistory(limit: UInt32)async throws  -> [String]  {
             liftFunc: FfiConverterSequenceString.lift,
             errorHandler: FfiConverterTypeSshCoreError_lift
         )
-}
-    
-    /**
-     * Returns a list of all currently active port forwards.
-     */
-open func getActivePortForwards() -> [PortForwardInfo]  {
-    return try!  FfiConverterSequenceTypePortForwardInfo.lift(try! rustCall() {
-        uniffiCallStatus in
-    uniffi_ssh_core_fn_method_sshsessionhandle_get_active_port_forwards(
-            self.uniffiCloneHandle(),uniffiCallStatus
-    )
-})
-}
-    
-    /**
-     * SHA-256 fingerprint (`SHA256:...`) of the host key the server presented on the last
-     * connection. Pin it in the server profile after the first successful connect and pass it
-     * back as `pinned_host_key`, so a changed key (possible MITM) is refused from then on.
-     */
-open func hostKeyFingerprint() -> String?  {
-    return try!  FfiConverterOptionString.lift(try! rustCall() {
-        uniffiCallStatus in
-    uniffi_ssh_core_fn_method_sshsessionhandle_host_key_fingerprint(
-            self.uniffiCloneHandle(),uniffiCallStatus
-    )
-})
 }
     
     /**
@@ -1654,6 +1583,116 @@ open func readRemoteTranscript(remotePath: String)async throws  -> [TranscriptTu
 }
     
     /**
+     * Signs and submits the user's decision for request `id`. The signature covers the host's
+     * own id/hash/nonce and the host clock, so the host only honours it for that exact request.
+     */
+open func submitApprovalDecision(id: String, approved: Bool)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_submit_approval_decision(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(id),FfiConverterBool.lower(approved)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_void,
+            completeFunc: ffi_ssh_core_rust_future_complete_void,
+            freeFunc: ffi_ssh_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Removes only the ssh-app hook entries from the agent's config (the script is left in place).
+     */
+open func uninstallAgentHooks(agent: AgentKind, configDir: String?)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_uninstall_agent_hooks(
+                        self.uniffiCloneHandle(),FfiConverterTypeAgentKind_lower(agent),FfiConverterOptionString.lower(configDir)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_void,
+            completeFunc: ffi_ssh_core_rust_future_complete_void,
+            freeFunc: ffi_ssh_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Establishes the SSH connection, launches tmux, and starts streaming I/O.
+     */
+open func connect(callback: SshSessionCallback)throws   {try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_method_sshsessionhandle_connect(
+            self.uniffiCloneHandle(),
+        FfiConverterCallbackInterfaceSshSessionCallback_lower(callback),uniffiCallStatus
+    )
+}
+}
+    
+    /**
+     * Zero Battery Drain: gracefully closes the SSH channel, port forwards, and TCP socket.
+     * tmux continues running remote agent tasks detached on the MacBook.
+     */
+open func disconnect()  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_method_sshsessionhandle_disconnect(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+}
+}
+    
+    /**
+     * Executes a command on the remote host over the currently active SSH session (ephemeral
+     * channel). Output is capped at 4 MB; a command that does not finish within two minutes
+     * fails with `Timeout`.
+     */
+open func executeCommandOnActiveSession(command: String)async throws  -> String  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_execute_command_on_active_session(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(command)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterString.lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Returns a list of all currently active port forwards.
+     */
+open func getActivePortForwards() -> [PortForwardInfo]  {
+    return try!  FfiConverterSequenceTypePortForwardInfo.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_method_sshsessionhandle_get_active_port_forwards(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * SHA-256 fingerprint (`SHA256:...`) of the host key the server presented on the last
+     * connection. Pin it in the server profile after the first successful connect and pass it
+     * back as `pinned_host_key`, so a changed key (possible MITM) is refused from then on.
+     */
+open func hostKeyFingerprint() -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_method_sshsessionhandle_host_key_fingerprint(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+    /**
      * Instant reconnection on app foreground (didBecomeActive).
      * Re-attaches to the existing detached tmux session.
      */
@@ -1731,45 +1770,6 @@ open func stopAllPortForwards()  {try! rustCall() {
             self.uniffiCloneHandle(),uniffiCallStatus
     )
 }
-}
-    
-    /**
-     * Signs and submits the user's decision for request `id`. The signature covers the host's
-     * own id/hash/nonce and the host clock, so the host only honours it for that exact request.
-     */
-open func submitApprovalDecision(id: String, approved: Bool)async throws   {
-    return
-        try  await uniffiRustCallAsync(
-            rustFutureFunc: {
-                uniffi_ssh_core_fn_method_sshsessionhandle_submit_approval_decision(
-                        self.uniffiCloneHandle(),FfiConverterString.lower(id),FfiConverterBool.lower(approved)
-                )
-            },
-            pollFunc: ffi_ssh_core_rust_future_poll_void,
-            completeFunc: ffi_ssh_core_rust_future_complete_void,
-            freeFunc: ffi_ssh_core_rust_future_free_void,
-            liftFunc: { $0 },
-            errorHandler: FfiConverterTypeSshCoreError_lift
-        )
-}
-    
-    /**
-     * Removes only the ssh-app hook entries from the agent's config (the script is left in place).
-     */
-open func uninstallAgentHooks(agent: AgentKind, configDir: String?)async throws   {
-    return
-        try  await uniffiRustCallAsync(
-            rustFutureFunc: {
-                uniffi_ssh_core_fn_method_sshsessionhandle_uninstall_agent_hooks(
-                        self.uniffiCloneHandle(),FfiConverterTypeAgentKind_lower(agent),FfiConverterOptionString.lower(configDir)
-                )
-            },
-            pollFunc: ffi_ssh_core_rust_future_poll_void,
-            completeFunc: ffi_ssh_core_rust_future_complete_void,
-            freeFunc: ffi_ssh_core_rust_future_free_void,
-            liftFunc: { $0 },
-            errorHandler: FfiConverterTypeSshCoreError_lift
-        )
 }
     
 
@@ -4768,6 +4768,11 @@ enum SshCoreError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
     )
     case IoError(reason: String
     )
+    /**
+     * The caller's input was refused before anything ran (bad rule, path, name, preset, ...).
+     */
+    case InvalidInput(reason: String
+    )
     case AlreadyConnected
     case NotConnected
     case Timeout
@@ -4844,31 +4849,34 @@ public struct FfiConverterTypeSshCoreError: FfiConverterRustBuffer {
         case 8: return .IoError(
             reason: try FfiConverterString.read(from: &buf)
             )
-        case 9: return .AlreadyConnected
-        case 10: return .NotConnected
-        case 11: return .Timeout
-        case 12: return .ApprovalVerificationError(
+        case 9: return .InvalidInput(
             reason: try FfiConverterString.read(from: &buf)
             )
-        case 13: return .InvalidApprovalPayload(
+        case 10: return .AlreadyConnected
+        case 11: return .NotConnected
+        case 12: return .Timeout
+        case 13: return .ApprovalVerificationError(
             reason: try FfiConverterString.read(from: &buf)
             )
-        case 14: return .PortForwardFailed(
+        case 14: return .InvalidApprovalPayload(
             reason: try FfiConverterString.read(from: &buf)
             )
-        case 15: return .LocalPortInUse(
+        case 15: return .PortForwardFailed(
+            reason: try FfiConverterString.read(from: &buf)
+            )
+        case 16: return .LocalPortInUse(
             port: try FfiConverterUInt16.read(from: &buf)
             )
-        case 16: return .RemotePortRefused(
+        case 17: return .RemotePortRefused(
             port: try FfiConverterUInt16.read(from: &buf)
             )
-        case 17: return .AiAssistantError(
+        case 18: return .AiAssistantError(
             reason: try FfiConverterString.read(from: &buf)
             )
-        case 18: return .AiResponseParseError(
+        case 19: return .AiResponseParseError(
             reason: try FfiConverterString.read(from: &buf)
             )
-        case 19: return .TranscriptError(
+        case 20: return .TranscriptError(
             reason: try FfiConverterString.read(from: &buf)
             )
 
@@ -4927,55 +4935,60 @@ public struct FfiConverterTypeSshCoreError: FfiConverterRustBuffer {
             FfiConverterString.write(reason, into: &buf)
             
         
-        case .AlreadyConnected:
+        case let .InvalidInput(reason):
             writeInt(&buf, Int32(9))
-        
-        
-        case .NotConnected:
-            writeInt(&buf, Int32(10))
-        
-        
-        case .Timeout:
-            writeInt(&buf, Int32(11))
-        
-        
-        case let .ApprovalVerificationError(reason):
-            writeInt(&buf, Int32(12))
             FfiConverterString.write(reason, into: &buf)
             
         
-        case let .InvalidApprovalPayload(reason):
+        case .AlreadyConnected:
+            writeInt(&buf, Int32(10))
+        
+        
+        case .NotConnected:
+            writeInt(&buf, Int32(11))
+        
+        
+        case .Timeout:
+            writeInt(&buf, Int32(12))
+        
+        
+        case let .ApprovalVerificationError(reason):
             writeInt(&buf, Int32(13))
             FfiConverterString.write(reason, into: &buf)
             
         
-        case let .PortForwardFailed(reason):
+        case let .InvalidApprovalPayload(reason):
             writeInt(&buf, Int32(14))
             FfiConverterString.write(reason, into: &buf)
             
         
-        case let .LocalPortInUse(port):
+        case let .PortForwardFailed(reason):
             writeInt(&buf, Int32(15))
-            FfiConverterUInt16.write(port, into: &buf)
+            FfiConverterString.write(reason, into: &buf)
             
         
-        case let .RemotePortRefused(port):
+        case let .LocalPortInUse(port):
             writeInt(&buf, Int32(16))
             FfiConverterUInt16.write(port, into: &buf)
             
         
-        case let .AiAssistantError(reason):
+        case let .RemotePortRefused(port):
             writeInt(&buf, Int32(17))
-            FfiConverterString.write(reason, into: &buf)
+            FfiConverterUInt16.write(port, into: &buf)
             
         
-        case let .AiResponseParseError(reason):
+        case let .AiAssistantError(reason):
             writeInt(&buf, Int32(18))
             FfiConverterString.write(reason, into: &buf)
             
         
-        case let .TranscriptError(reason):
+        case let .AiResponseParseError(reason):
             writeInt(&buf, Int32(19))
+            FfiConverterString.write(reason, into: &buf)
+            
+        
+        case let .TranscriptError(reason):
+            writeInt(&buf, Int32(20))
             FfiConverterString.write(reason, into: &buf)
             
         }
@@ -5982,17 +5995,6 @@ public func generateSshKeypair()throws  -> KeypairResult  {
     )
 })
 }
-/**
- * Name of the env var an agent uses to select its config directory, if it has one.
- */
-public func agentConfigDirEnv(agent: AgentKind) -> String?  {
-    return try!  FfiConverterOptionString.lift(try! rustCall() {
-        uniffiCallStatus in
-    uniffi_ssh_core_fn_func_agent_config_dir_env(
-        FfiConverterTypeAgentKind_lower(agent),uniffiCallStatus
-    )
-})
-}
 public func agentHookScript() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
         uniffiCallStatus in
@@ -6021,46 +6023,10 @@ public func agentHooksInstalled(agent: AgentKind, existing: String) -> Bool  {
     )
 })
 }
-/**
- * Builds the command run inside the new tmux session: `[cd dir &&] env K=V... bin args...`,
- * followed by a login shell so the tmux session survives the agent exiting.
- */
-public func buildAgentLaunchCommand(profile: AgentLaunchProfile)throws  -> String  {
-    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
-        uniffiCallStatus in
-    uniffi_ssh_core_fn_func_build_agent_launch_command(
-        FfiConverterTypeAgentLaunchProfile_lower(profile),uniffiCallStatus
-    )
-})
-}
-/**
- * Command that prints where `binary` resolves in a login shell (`interactive == false`) or an
- * interactive shell that has read `~/.zshrc`. Run it on the host and feed the output to
- * `parse_resolved_binary`.
- */
-public func buildBinaryProbeCommand(binary: String, interactive: Bool)throws  -> String  {
-    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
-        uniffiCallStatus in
-    uniffi_ssh_core_fn_func_build_binary_probe_command(
-        FfiConverterString.lower(binary),
-        FfiConverterBool.lower(interactive),uniffiCallStatus
-    )
-})
-}
 public func defaultHookPreset() -> HookPreset  {
     return try!  FfiConverterTypeHookPreset_lift(try! rustCall() {
         uniffiCallStatus in
     uniffi_ssh_core_fn_func_default_hook_preset(uniffiCallStatus
-    )
-})
-}
-/**
- * Default presets. Personal/work variants are user data (see `config_dir` env), not presets.
- */
-public func defaultLaunchProfiles() -> [AgentLaunchProfile]  {
-    return try!  FfiConverterSequenceTypeAgentLaunchProfile.lift(try! rustCall() {
-        uniffiCallStatus in
-    uniffi_ssh_core_fn_func_default_launch_profiles(uniffiCallStatus
     )
 })
 }
@@ -6139,19 +6105,6 @@ public func mergePlannedHooks(agent: AgentKind, existing: String, planned: [Plan
 })
 }
 /**
- * Extracts the resolved absolute path from probe output. Interactive shells may print noise
- * (banners, prompt frameworks) and `command -v` prints `alias ...` for aliases, so only the
- * last line that is an absolute path without control characters counts.
- */
-public func parseResolvedBinary(output: String) -> String?  {
-    return try!  FfiConverterOptionString.lift(try! rustCall() {
-        uniffiCallStatus in
-    uniffi_ssh_core_fn_func_parse_resolved_binary(
-        FfiConverterString.lower(output),uniffiCallStatus
-    )
-})
-}
-/**
  * Resolves a preset to the exact entries that will be written. Pure; used for the preview too.
  */
 public func planAgentHooks(agent: AgentKind, preset: HookPreset, hookDir: String?)throws  -> [PlannedHook]  {
@@ -6165,17 +6118,6 @@ public func planAgentHooks(agent: AgentKind, preset: HookPreset, hookDir: String
 })
 }
 /**
- * The config directory a profile points at (value of its config-dir env var), if set.
- */
-public func profileConfigDir(profile: AgentLaunchProfile) -> String?  {
-    return try!  FfiConverterOptionString.lift(try! rustCall() {
-        uniffiCallStatus in
-    uniffi_ssh_core_fn_func_profile_config_dir(
-        FfiConverterTypeAgentLaunchProfile_lower(profile),uniffiCallStatus
-    )
-})
-}
-/**
  * Removes the ssh-app hooks, leaving every other setting and hook untouched.
  */
 public func removeAgentHooks(agent: AgentKind, existing: String)throws  -> String  {
@@ -6184,6 +6126,77 @@ public func removeAgentHooks(agent: AgentKind, existing: String)throws  -> Strin
     uniffi_ssh_core_fn_func_remove_agent_hooks(
         FfiConverterTypeAgentKind_lower(agent),
         FfiConverterString.lower(existing),uniffiCallStatus
+    )
+})
+}
+/**
+ * Name of the env var an agent uses to select its config directory, if it has one.
+ */
+public func agentConfigDirEnv(agent: AgentKind) -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_agent_config_dir_env(
+        FfiConverterTypeAgentKind_lower(agent),uniffiCallStatus
+    )
+})
+}
+/**
+ * Builds the command run inside the new tmux session: `[cd dir &&] env K=V... bin args...`,
+ * followed by a login shell so the tmux session survives the agent exiting.
+ */
+public func buildAgentLaunchCommand(profile: AgentLaunchProfile)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_build_agent_launch_command(
+        FfiConverterTypeAgentLaunchProfile_lower(profile),uniffiCallStatus
+    )
+})
+}
+/**
+ * Command that prints where `binary` resolves in a login shell (`interactive == false`) or an
+ * interactive shell that has read `~/.zshrc`. Run it on the host and feed the output to
+ * `parse_resolved_binary`.
+ */
+public func buildBinaryProbeCommand(binary: String, interactive: Bool)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_build_binary_probe_command(
+        FfiConverterString.lower(binary),
+        FfiConverterBool.lower(interactive),uniffiCallStatus
+    )
+})
+}
+/**
+ * Default presets. Personal/work variants are user data (see `config_dir` env), not presets.
+ */
+public func defaultLaunchProfiles() -> [AgentLaunchProfile]  {
+    return try!  FfiConverterSequenceTypeAgentLaunchProfile.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_default_launch_profiles(uniffiCallStatus
+    )
+})
+}
+/**
+ * Extracts the resolved absolute path from probe output. Interactive shells may print noise
+ * (banners, prompt frameworks) and `command -v` prints `alias ...` for aliases, so only the
+ * last line that is an absolute path without control characters counts.
+ */
+public func parseResolvedBinary(output: String) -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_parse_resolved_binary(
+        FfiConverterString.lower(output),uniffiCallStatus
+    )
+})
+}
+/**
+ * The config directory a profile points at (value of its config-dir env var), if set.
+ */
+public func profileConfigDir(profile: AgentLaunchProfile) -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_profile_config_dir(
+        FfiConverterTypeAgentLaunchProfile_lower(profile),uniffiCallStatus
     )
 })
 }
@@ -6614,16 +6627,43 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_func_generate_ssh_keypair() != 25495) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_func_agent_hook_script() != 9745) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_agent_hooks_config_path() != 63324) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_agent_hooks_installed() != 7798) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_default_hook_preset() != 30389) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_hook_events_for() != 1761) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_hook_preset_uses_script() != 27106) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_hooks_section_of() != 42299) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_installed_hook_entries() != 57773) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_merge_agent_hooks() != 53276) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_merge_planned_hooks() != 23563) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_plan_agent_hooks() != 33874) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_remove_agent_hooks() != 40391) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_func_agent_config_dir_env() != 12240) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_ssh_core_checksum_func_agent_hook_script() != 54399) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_ssh_core_checksum_func_agent_hooks_config_path() != 43968) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_ssh_core_checksum_func_agent_hooks_installed() != 54659) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_build_agent_launch_command() != 42878) {
@@ -6632,40 +6672,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_func_build_binary_probe_command() != 57846) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_ssh_core_checksum_func_default_hook_preset() != 37463) {
-        return InitializationResult.apiChecksumMismatch
-    }
     if (uniffi_ssh_core_checksum_func_default_launch_profiles() != 49018) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_ssh_core_checksum_func_hook_events_for() != 9711) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_ssh_core_checksum_func_hook_preset_uses_script() != 31615) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_ssh_core_checksum_func_hooks_section_of() != 39095) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_ssh_core_checksum_func_installed_hook_entries() != 62815) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_ssh_core_checksum_func_merge_agent_hooks() != 40395) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_ssh_core_checksum_func_merge_planned_hooks() != 18776) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_parse_resolved_binary() != 3012) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_ssh_core_checksum_func_plan_agent_hooks() != 3645) {
-        return InitializationResult.apiChecksumMismatch
-    }
     if (uniffi_ssh_core_checksum_func_profile_config_dir() != 12994) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_ssh_core_checksum_func_remove_agent_hooks() != 55313) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_validate_launch_profile() != 49937) {
@@ -6791,28 +6804,82 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_method_portforwardhandle_stop() != 35538) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_ssh_core_checksum_method_sshsessionhandle_acknowledge_notification() != 14086) {
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_acknowledge_notification() != 18301) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_ssh_core_checksum_method_sshsessionhandle_agent_hooks_status() != 27994) {
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_agent_hooks_status() != 1061) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_ssh_core_checksum_method_sshsessionhandle_apply_agent_permissions() != 50812) {
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_apply_agent_permissions() != 31164) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_ssh_core_checksum_method_sshsessionhandle_approval_status() != 19458) {
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_approval_status() != 60832) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_ssh_core_checksum_method_sshsessionhandle_check_agent_environment() != 25185) {
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_check_agent_environment() != 52079) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_ssh_core_checksum_method_sshsessionhandle_check_host_ollama() != 37008) {
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_check_host_ollama() != 59178) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_detect_active_transcript_path() != 46936) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_fetch_git_diff() != 14960) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_fetch_host_telemetry() != 38116) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_fetch_remote_shell_history() != 12286) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_install_agent_hooks() != 19900) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_install_agent_hooks_with_preset() != 61991) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_install_approval_key() != 52293) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_installed_agent_hooks() != 44534) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_kill_remote_process() != 61505) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_list_pending_approvals() != 16470) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_list_remote_directory() != 41055) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_preview_agent_hooks() != 58880) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_preview_agent_permissions() != 21394) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_query_host_ollama() != 63133) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_read_agent_permissions() != 20889) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_read_remote_file_preview() != 57830) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_read_remote_transcript() != 17846) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_submit_approval_decision() != 15916) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_uninstall_agent_hooks() != 35310) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_connect() != 11069) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_ssh_core_checksum_method_sshsessionhandle_detect_active_transcript_path() != 42874) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_disconnect() != 45557) {
@@ -6821,58 +6888,10 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_execute_command_on_active_session() != 54977) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_ssh_core_checksum_method_sshsessionhandle_fetch_git_diff() != 14069) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_ssh_core_checksum_method_sshsessionhandle_fetch_host_telemetry() != 15867) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_ssh_core_checksum_method_sshsessionhandle_fetch_remote_shell_history() != 21948) {
-        return InitializationResult.apiChecksumMismatch
-    }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_get_active_port_forwards() != 9499) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_host_key_fingerprint() != 22331) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_ssh_core_checksum_method_sshsessionhandle_install_agent_hooks() != 25424) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_ssh_core_checksum_method_sshsessionhandle_install_agent_hooks_with_preset() != 57736) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_ssh_core_checksum_method_sshsessionhandle_install_approval_key() != 27232) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_ssh_core_checksum_method_sshsessionhandle_installed_agent_hooks() != 22063) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_ssh_core_checksum_method_sshsessionhandle_kill_remote_process() != 36526) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_ssh_core_checksum_method_sshsessionhandle_list_pending_approvals() != 61038) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_ssh_core_checksum_method_sshsessionhandle_list_remote_directory() != 25160) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_ssh_core_checksum_method_sshsessionhandle_preview_agent_hooks() != 1507) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_ssh_core_checksum_method_sshsessionhandle_preview_agent_permissions() != 17405) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_ssh_core_checksum_method_sshsessionhandle_query_host_ollama() != 61217) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_ssh_core_checksum_method_sshsessionhandle_read_agent_permissions() != 43059) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_ssh_core_checksum_method_sshsessionhandle_read_remote_file_preview() != 41827) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_ssh_core_checksum_method_sshsessionhandle_read_remote_transcript() != 7170) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_reconnect() != 62860) {
@@ -6891,12 +6910,6 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_stop_all_port_forwards() != 215) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_ssh_core_checksum_method_sshsessionhandle_submit_approval_decision() != 41088) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_ssh_core_checksum_method_sshsessionhandle_uninstall_agent_hooks() != 64089) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_constructor_sshsessionhandle_new() != 21965) {

@@ -1,5 +1,6 @@
 uniffi::setup_scaffolding!();
 
+pub mod agent_hooks;
 pub mod agents;
 pub mod ai;
 pub mod approval;

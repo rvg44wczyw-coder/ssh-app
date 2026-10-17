@@ -23,18 +23,32 @@ impl SshSessionCallback for Noop {
 struct Sshd {
     child: Child,
     home: PathBuf,
+    /// Private tmux socket directory: the tests must never touch the developer's real tmux
+    /// server (a test-started server would hand its fake `HOME` to every later session).
+    tmux_tmp: PathBuf,
     port: u16,
     private_key: String,
     _dir: tempfile::TempDir,
 }
 
+impl Sshd {
+    /// `tmux` against this server's private socket directory.
+    fn tmux(&self) -> Command {
+        let mut c = Command::new("tmux");
+        c.env("TMUX_TMPDIR", &self.tmux_tmp);
+        c
+    }
+}
+
 impl Drop for Sshd {
     fn drop(&mut self) {
-        // The session's tmux server lives on this same host; don't leave it behind.
-        let _ = Command::new("tmux")
-            .args(["kill-session", "-t", &format!("itest-{}", self.port)])
+        // The tests' own tmux server (private socket dir); don't leave it behind.
+        let _ = self
+            .tmux()
+            .arg("kill-server")
             .stderr(Stdio::null())
             .status();
+        let _ = std::fs::remove_dir_all(&self.tmux_tmp);
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
@@ -85,17 +99,21 @@ fn start_sshd() -> Option<Sshd> {
     // Sessions get a private HOME so installs never touch the developer's real ~/.ssh-app.
     let home = dir.path().join("home");
     std::fs::create_dir_all(&home).ok()?;
+    // A short path: tmux socket paths are limited to ~100 characters.
+    let tmux_tmp = std::env::temp_dir().join(format!("ssh-app-itest-tmux-{port}"));
+    std::fs::create_dir_all(&tmux_tmp).ok()?;
     let cfg = dir.path().join("sshd_config");
     std::fs::write(
         &cfg,
         format!(
             "Port {port}\nListenAddress 127.0.0.1\nHostKey {}\nAuthorizedKeysFile {}\n\
              PidFile {}\nUsePAM no\nStrictModes no\nPubkeyAuthentication yes\n\
-             PasswordAuthentication no\nKbdInteractiveAuthentication no\nSetEnv HOME={}\n",
+             PasswordAuthentication no\nKbdInteractiveAuthentication no\nSetEnv HOME={} TMUX_TMPDIR={}\n",
             host_key.display(),
             authorized.display(),
             dir.path().join("sshd.pid").display(),
-            home.display()
+            home.display(),
+            tmux_tmp.display()
         ),
     )
     .ok()?;
@@ -113,6 +131,7 @@ fn start_sshd() -> Option<Sshd> {
             return Some(Sshd {
                 child,
                 home,
+                tmux_tmp,
                 port,
                 private_key: keys.private_key_openssh,
                 _dir: dir,
@@ -772,25 +791,16 @@ fn git_diff_runs_in_the_terminals_directory_on_loopback_sshd() {
         .iter()
         .map(|n| format!("gd{port}{n}"))
         .collect();
-    // Sessions are killed even when an assertion below fails.
-    struct KillSessions(Vec<String>);
-    impl Drop for KillSessions {
-        fn drop(&mut self) {
-            for s in &self.0 {
-                let _ = Command::new("tmux")
-                    .args(["kill-session", "-t", s])
-                    .stderr(Stdio::null())
-                    .status();
-            }
-        }
-    }
-    let _cleanup = KillSessions(sessions.clone());
+    // The sessions live in the test server's private tmux and die with it (see `Sshd::drop`).
     let start = |name: &str, dir: &Path| {
-        run_in(
-            &root,
-            "tmux",
-            &["new-session", "-d", "-s", name, "-c", dir.to_str().unwrap()],
-        );
+        let ok = server
+            .tmux()
+            .current_dir(&root)
+            .args(["new-session", "-d", "-s", name, "-c", dir.to_str().unwrap()])
+            .status()
+            .unwrap()
+            .success();
+        assert!(ok, "tmux new-session {name}");
     };
 
     // A repo with a committed file that is then modified, plus an untracked file.
@@ -1307,6 +1317,183 @@ fn port_forward_proxies_through_ssh_and_releases_its_slots() {
         assert_eq!(handle.get_active_port_forwards().len(), 1);
         handle.stop_all_port_forwards();
         assert!(!fwd.is_active());
+    });
+    handle.disconnect();
+}
+
+#[test]
+fn history_transcript_kill_and_probes_against_loopback_sshd() {
+    use ssh_core::SshCoreError;
+    let Some(server) = start_sshd() else {
+        eprintln!("SKIP: sshd/ssh-keygen/tmux unavailable");
+        return;
+    };
+    let handle = connect(&server);
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    // Shell history lives in the sshd's private HOME; secrets must not come back.
+    std::fs::write(
+        server.home.join(".zsh_history"),
+        ": 1700000000:0;echo hello-history\n: 1700000001:0;export API_TOKEN=sk-supersecretvalue123456\n",
+    )
+    .unwrap();
+    // Transcript fixtures live directly under /tmp (the validator refuses /private/var).
+    let root = PathBuf::from(format!("/tmp/ssh-app-itest-host-{}", server.port));
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(
+        root.join("t.jsonl"),
+        "{\"role\":\"user\",\"content\":\"hi\"}\n{not json}\n",
+    )
+    .unwrap();
+    let ssh_dir = server.home.join(".ssh");
+    std::fs::create_dir_all(&ssh_dir).unwrap();
+    std::fs::write(
+        ssh_dir.join("id_secret"),
+        "{\"role\":\"user\",\"content\":\"PRIVATE\"}\n",
+    )
+    .unwrap();
+    symlink(ssh_dir.join("id_secret"), root.join("link.jsonl")).unwrap();
+
+    rt.block_on(async {
+        let history = handle.fetch_remote_shell_history(50).await.unwrap();
+        assert!(
+            history.iter().any(|c| c.contains("echo hello-history")),
+            "{history:?}"
+        );
+        assert!(
+            !history
+                .iter()
+                .any(|c| c.contains("sk-supersecretvalue123456")),
+            "{history:?}"
+        );
+
+        // Transcript: a normal file parses (bad lines are skipped), a missing file is an error,
+        // and a symlink into ~/.ssh is refused after the host resolved it.
+        let ok = handle
+            .read_remote_transcript(root.join("t.jsonl").to_str().unwrap().into())
+            .await;
+        assert!(ok.is_ok(), "{ok:?}");
+        let missing = handle
+            .read_remote_transcript(root.join("nope.jsonl").to_str().unwrap().into())
+            .await
+            .unwrap_err();
+        assert!(format!("{missing}").contains("not found"), "{missing}");
+        let linked = handle
+            .read_remote_transcript(root.join("link.jsonl").to_str().unwrap().into())
+            .await
+            .unwrap_err();
+        assert!(format!("{linked}").contains("prohibited"), "{linked}");
+        assert!(!format!("{linked}").contains("PRIVATE"));
+
+        // Kill: a real process dies, reserved and unknown pids are errors (not silent successes).
+        let mut victim = Command::new("sleep").arg("300").spawn().unwrap();
+        handle
+            .kill_remote_process(victim.id(), false)
+            .await
+            .unwrap();
+        assert!(!victim.wait().unwrap().success());
+        assert!(handle.kill_remote_process(1, true).await.is_err());
+        let gone = handle
+            .kill_remote_process(2_000_000_000, false)
+            .await
+            .unwrap_err();
+        assert!(matches!(gone, SshCoreError::IoError { .. }), "{gone:?}");
+
+        // Probes answer instead of hanging.
+        let env = handle.check_agent_environment("sh".into()).await.unwrap();
+        assert!(env.login_path.is_some(), "{env:?}");
+        let ollama = handle.check_host_ollama().await.unwrap();
+        assert_eq!(ollama.installed, ollama.binary_path.is_some());
+    });
+    let _ = std::fs::remove_dir_all(&root);
+    handle.disconnect();
+}
+
+#[test]
+fn reconnect_and_one_shot_tmux_calls_against_loopback_sshd() {
+    use ssh_core::{
+        execute_remote_command, kill_remote_tmux_session, list_remote_tmux_sessions,
+        RemoteServerConfig,
+    };
+    let Some(server) = start_sshd() else {
+        eprintln!("SKIP: sshd/ssh-keygen/tmux unavailable");
+        return;
+    };
+    let handle = connect(&server);
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let cfg = RemoteServerConfig {
+        host: "127.0.0.1".into(),
+        port: server.port,
+        username: std::env::var("USER").unwrap_or_else(|_| "root".into()),
+        private_key_pem: server.private_key.clone(),
+        pinned_host_key: None,
+    };
+    let name = format!("itest-{}", server.port);
+
+    // Isolation: the developer's real tmux server must not know the test's session, and the test
+    // server must not have been started with the fake HOME of its sessions in a shared socket.
+    let real = Command::new("tmux")
+        .arg("list-sessions")
+        .stderr(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(
+        !String::from_utf8_lossy(&real.stdout).contains(&name),
+        "test session leaked into the default tmux server"
+    );
+
+    // Foreground cycle: disconnect closes everything, reconnect re-attaches to the same tmux.
+    handle.disconnect();
+    assert_eq!(handle.state(), SessionState::Disconnected);
+    assert!(handle.send_input(b"x".to_vec()).is_err());
+    handle.reconnect().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while handle.state() != SessionState::Connected {
+        assert!(
+            Instant::now() < deadline,
+            "no reconnect: {:?}",
+            handle.state()
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    handle.send_input(b"echo reconnected\n".to_vec()).unwrap();
+    handle.resize(100, 30).unwrap();
+    // A second reconnect while connected is a no-op.
+    handle.reconnect().unwrap();
+    assert!(handle.connect(Box::new(Noop)).is_err());
+
+    rt.block_on(async {
+        // The session is visible through the one-shot API, and can be killed through it.
+        let mut listed = vec![];
+        for _ in 0..40 {
+            listed = list_remote_tmux_sessions(cfg.clone()).await.unwrap();
+            if listed.iter().any(|s| s.name == name) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        assert!(listed.iter().any(|s| s.name == name), "{listed:?}");
+        kill_remote_tmux_session(cfg.clone(), name.clone())
+            .await
+            .unwrap();
+        assert!(kill_remote_tmux_session(cfg.clone(), "bad name; rm".into())
+            .await
+            .is_err());
+        let after = list_remote_tmux_sessions(cfg.clone()).await.unwrap();
+        assert!(!after.iter().any(|s| s.name == name), "{after:?}");
+        // One-shot exec against a closed port fails fast with a typed error.
+        let mut dead = cfg.clone();
+        dead.port = TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        assert!(execute_remote_command(dead, "true".into()).await.is_err());
     });
     handle.disconnect();
 }

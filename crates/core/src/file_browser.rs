@@ -39,12 +39,12 @@ pub struct RemoteFilePreview {
 pub fn validate_remote_dir_path(path: &str) -> Result<String, SshCoreError> {
     let trimmed = path.trim();
     if trimmed.is_empty() {
-        return Err(SshCoreError::IoError {
+        return Err(SshCoreError::InvalidInput {
             reason: "Directory path cannot be empty".to_string(),
         });
     }
     if trimmed.contains('\0') || trimmed.contains('\n') || trimmed.contains('\r') {
-        return Err(SshCoreError::IoError {
+        return Err(SshCoreError::InvalidInput {
             reason: "Path contains forbidden control characters".to_string(),
         });
     }
@@ -60,7 +60,7 @@ pub fn validate_remote_dir_path(path: &str) -> Result<String, SshCoreError> {
     ];
     for blocked in blocked_dirs {
         if lowered.ends_with(blocked) || lowered.contains(&format!("{blocked}/")) {
-            return Err(SshCoreError::IoError {
+            return Err(SshCoreError::InvalidInput {
                 reason: format!("Access to sensitive directory '{blocked}' is restricted"),
             });
         }
@@ -95,7 +95,7 @@ pub fn validate_remote_file_read_path(path: &str) -> Result<String, SshCoreError
         || filename.ends_with(".pem")
         || filename.ends_with(".key")
     {
-        return Err(SshCoreError::IoError {
+        return Err(SshCoreError::InvalidInput {
             reason: format!("Reading sensitive credential file '{filename}' is restricted"),
         });
     }

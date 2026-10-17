@@ -49,10 +49,31 @@ impl SshSessionHandle {
             }
         })?;
 
-        let tail_cmd = format!("tail -n 500 -- {}", crate::tmux::shell_quote(&remote_path));
-        let raw_output = self.execute_command_on_active_session(tail_cmd).await?;
+        // The host resolves symlinks first and reports the real path; it is checked against the
+        // same blocklist before anything it returned is used (a link in an allowed folder must
+        // not be a way to read `~/.ssh`).
+        let p = crate::tmux::shell_quote(&remote_path);
+        let cmd = format!(
+            "r=$(realpath -- {p} 2>/dev/null || readlink -f -- {p} 2>/dev/null) && [ -f \"$r\" ] && \
+             {{ printf 'TP_PATH=%s\\n' \"$r\"; tail -n 500 -- \"$r\"; }}"
+        );
+        let raw_output = self.execute_command_on_active_session(cmd).await?;
+        let (first, rest) = raw_output
+            .split_once('\n')
+            .unwrap_or((raw_output.as_str(), ""));
+        let resolved =
+            first
+                .strip_prefix("TP_PATH=")
+                .ok_or_else(|| SshCoreError::TranscriptError {
+                    reason: "Transcript file not found".to_string(),
+                })?;
+        crate::transcript::validate_transcript_path(resolved).map_err(|e| {
+            SshCoreError::TranscriptError {
+                reason: e.to_string(),
+            }
+        })?;
 
-        crate::transcript::parse_transcript_jsonl(raw_output).map_err(|e| {
+        crate::transcript::parse_transcript_jsonl(rest.to_string()).map_err(|e| {
             SshCoreError::TranscriptError {
                 reason: e.to_string(),
             }

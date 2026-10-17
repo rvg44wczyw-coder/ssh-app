@@ -192,7 +192,8 @@ pub(crate) async fn collect_output(
                     }
                 }
                 ChannelMsg::ExitStatus { exit_status: s } => exit_status = Some(s),
-                ChannelMsg::Eof | ChannelMsg::Close => break,
+                // Eof can arrive before the exit status; only Close ends the exchange.
+                ChannelMsg::Close => break,
                 _ => {}
             }
         }

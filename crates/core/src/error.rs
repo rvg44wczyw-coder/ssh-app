@@ -28,6 +28,10 @@ pub enum SshCoreError {
     #[error("IO error: {reason}")]
     IoError { reason: String },
 
+    /// The caller's input was refused before anything ran (bad rule, path, name, preset, ...).
+    #[error("{reason}")]
+    InvalidInput { reason: String },
+
     #[error("Session is already connected")]
     AlreadyConnected,
 
