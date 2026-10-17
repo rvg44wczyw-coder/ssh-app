@@ -17,13 +17,53 @@ public struct SettingsView: View {
 
     @Environment(\.dismiss) private var dismiss
 
-    public init(serversManager: ServerProfilesManager) {
+    /// The agent profile manager, supplied by the main screen (needs the live session).
+    private let agentsPage: AnyView?
+
+    public init(serversManager: ServerProfilesManager, agentsPage: AnyView? = nil) {
         self.serversManager = serversManager
+        self.agentsPage = agentsPage
     }
+
+    private enum Page: Hashable { case servers, keys, terminal, agents }
 
     public var body: some View {
         NavigationStack {
-            Form {
+            List {
+                NavigationLink(value: Page.servers) { Label("Servers", systemImage: "server.rack") }
+                NavigationLink(value: Page.keys) { Label("SSH keys", systemImage: "key.fill") }
+                if agentsPage != nil {
+                    NavigationLink(value: Page.agents) { Label("Agents", systemImage: "play.rectangle.on.rectangle.fill") }
+                }
+                NavigationLink(value: Page.terminal) { Label("Terminal", systemImage: "terminal") }
+            }
+            .navigationTitle("Settings")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+            .navigationDestination(for: Page.self) { page in
+                switch page {
+                case .servers: serversPage
+                case .keys: keysPage
+                case .terminal: terminalPage
+                case .agents: if let agentsPage { agentsPage }
+                }
+            }
+        }
+    }
+
+    @AppStorage("always_show_ai_assistant") private var alwaysShowAi: Bool = false
+
+    private var terminalPage: some View {
+        Form {
+            Section(
+                header: Text("Quick menu"),
+                footer: Text("Without a connection the AI Assistant tile is left out of the quick menu, since it needs the host. Turn this on to keep showing it (disabled until connected).")
+            ) {
+                Toggle("Always show AI Assistant", isOn: $alwaysShowAi)
+            }
                 Section(header: Text("Terminal Font Size")) {
                     HStack {
                         Text("Size: \(Int(terminalFontSize)) pt")
@@ -55,6 +95,12 @@ public struct SettingsView: View {
                     .padding(.vertical, 2)
                 }
 
+        }
+        .navigationTitle("Terminal")
+    }
+
+    private var serversPage: some View {
+        Form {
                 Section(header: Text("SSH Servers"), footer: Text("Tap a server to set it as active. New terminal sessions connect to the active server.")) {
                     if serversManager.profiles.isEmpty {
                         Text("No servers configured")
@@ -120,6 +166,29 @@ public struct SettingsView: View {
                     }
                 }
 
+        }
+        .navigationTitle("Servers")
+            .sheet(isPresented: $showAddServerSheet) {
+                AddEditServerSheetView(existingProfile: nil) { newProfile in
+                    _ = serversManager.addProfile(
+                        name: newProfile.name,
+                        host: newProfile.host,
+                        port: newProfile.port,
+                        username: newProfile.username,
+                        isDefault: newProfile.isDefault,
+                        keyId: newProfile.keyId
+                    )
+                }
+            }
+            .sheet(item: $serverToEdit) { profile in
+                AddEditServerSheetView(existingProfile: profile) { updated in
+                    serversManager.updateProfile(updated)
+                }
+            }
+    }
+
+    private var keysPage: some View {
+        Form {
                 Section(
                     header: Text("SSH Key Management (Ed25519)"),
                     footer: Text("Add this public key to ~/.ssh/authorized_keys on all your remote machines to allow passwordless Ed25519 login.")
@@ -170,31 +239,9 @@ public struct SettingsView: View {
                             .font(.caption)
                     }
                 }
-            }
-            .navigationTitle("Settings")
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                }
-            }
-            .onAppear(perform: loadCurrentKeyStatus)
-            .sheet(isPresented: $showAddServerSheet) {
-                AddEditServerSheetView(existingProfile: nil) { newProfile in
-                    _ = serversManager.addProfile(
-                        name: newProfile.name,
-                        host: newProfile.host,
-                        port: newProfile.port,
-                        username: newProfile.username,
-                        isDefault: newProfile.isDefault,
-                        keyId: newProfile.keyId
-                    )
-                }
-            }
-            .sheet(item: $serverToEdit) { profile in
-                AddEditServerSheetView(existingProfile: profile) { updated in
-                    serversManager.updateProfile(updated)
-                }
-            }
+        }
+        .navigationTitle("SSH keys")
+        .onAppear(perform: loadCurrentKeyStatus)
             .alert("Copied!", isPresented: $showCopiedAlert) {
                 Button("OK", role: .cancel) {}
             } message: {
@@ -208,7 +255,6 @@ public struct SettingsView: View {
             } message: {
                 Text("Warning: Regenerating will permanently replace your current SSH key. You will lose access to all remote servers until you update ~/.ssh/authorized_keys with the new key.")
             }
-        }
     }
 
     @ObservedObject private var keyStore = SSHKeyStore.shared

@@ -205,7 +205,27 @@ public struct MainTerminalView: View {
             .sheet(item: $activeSheet) { sheet in
                 switch sheet {
                 case .settings:
-                    SettingsView(serversManager: serversManager)
+                    SettingsView(
+                        serversManager: serversManager,
+                        agentsPage: tabsManager.activeViewModel.map { vm in
+                            AnyView(
+                                AgentProfilesSheetView(
+                                    manager: agentProfiles,
+                                    viewModel: vm,
+                                    onLaunch: { profile, command in
+                                        activeSheet = nil
+                                        let s = tabsManager.addAgentSession(
+                                            profile: profile,
+                                            command: command,
+                                            serverId: tabsManager.activeSession?.serverId ?? serversManager.activeProfileId
+                                        )
+                                        ensureSessionStarted(for: s.id)
+                                    },
+                                    embedded: true
+                                )
+                            )
+                        }
+                    )
                         .onDisappear {
                             ensureSessionStarted(for: tabsManager.selectedSessionId)
                         }

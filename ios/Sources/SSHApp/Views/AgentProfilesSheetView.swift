@@ -7,6 +7,8 @@ public struct AgentProfilesSheetView: View {
     @ObservedObject var viewModel: TerminalSessionViewModel
     public var onLaunch: (SavedAgentProfile, String) -> Void
     public var onClose: (() -> Void)?
+    /// Shown inside another navigation stack (Settings): no own stack, no Close button.
+    private let embedded: Bool
 
     @State private var editing: SavedAgentProfile? = nil
     @State private var hookStatus: [String: AgentHooksStatus] = [:]
@@ -19,8 +21,10 @@ public struct AgentProfilesSheetView: View {
         manager: AgentProfilesManager,
         viewModel: TerminalSessionViewModel,
         onLaunch: @escaping (SavedAgentProfile, String) -> Void,
-        onClose: (() -> Void)? = nil
+        onClose: (() -> Void)? = nil,
+        embedded: Bool = false
     ) {
+        self.embedded = embedded
         self.manager = manager
         self.viewModel = viewModel
         self.onLaunch = onLaunch
@@ -30,7 +34,14 @@ public struct AgentProfilesSheetView: View {
     private var connected: Bool { viewModel.state == .connected }
 
     public var body: some View {
-        NavigationStack {
+        if embedded {
+            content
+        } else {
+            NavigationStack { content }
+        }
+    }
+
+    private var content: some View {
             List {
                 if let message {
                     Text(message).font(.caption).foregroundColor(.orange)
@@ -68,8 +79,10 @@ public struct AgentProfilesSheetView: View {
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") { onClose?() }
+                if !embedded {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Close") { onClose?() }
+                    }
                 }
             }
             .sheet(item: $editing) { profile in
@@ -102,7 +115,6 @@ public struct AgentProfilesSheetView: View {
                 )
             }
             .task { await refreshAll() }
-        }
     }
 
     @ViewBuilder
