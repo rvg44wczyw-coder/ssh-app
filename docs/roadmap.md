@@ -175,6 +175,8 @@
 ### M22 (planned): Files app integration, `docs/features/21-files-provider.md`
 - File Provider extension: servers as locations in the Files app. **Stages 1-2 implemented** (read, download, upload, create folder, rename/move, delete of files and empty folders), hacker pass done (`docs/security-findings/2026-10-17-files-provider.md`). Open: device test, Linux `stat` run, per-server Face ID gate, favourites.
 
-### M23 (planned): Apple Watch companion for approvals
+### M23: Apple Watch companion for approvals (stage 1 implemented, stage 2 push pending)
 - Goal: approve / deny agent requests (and see notices) from the watch. Phone-relay design: the SSHSIG is still produced on the iPhone (key stays in its Keychain); the watch shows the request (tool, command tail, analysis flags, countdown) and sends allow/deny to the phone via WatchConnectivity (`sendMessage` wakes the phone app); notification actions mirrored from the phone give the same buttons. A watch-held key or a direct SSH connection from the watch is rejected: the watch cannot reach the tailnet by itself and a second signing key would widen the trust list on the host.
 - Spec: `docs/features/22-watch-approvals.md` (delivery without push only works while the phone app is foreground; push channel awaits the owner's decision). Open: watchOS target in the hand-maintained `project.pbxproj`, behaviour when the phone is unreachable (show "open iPhone", never auto-approve), haptics, hacker gate (decisions over WatchConnectivity must carry only request id + verdict; the phone re-reads the request from the host before signing).
+
+- **M23 status**: stage 1 built (watchOS app + `WatchBridge`, `docs/features/22-watch-approvals.md` section 10). Needs a real watch to verify; push wake-up (A/B in the spec) is the owner's decision.

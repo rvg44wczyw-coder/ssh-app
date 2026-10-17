@@ -20,6 +20,8 @@ public final class ApprovalsCenter: ObservableObject {
     @Published public private(set) var entries: [ApprovalEntry] = []
     @Published public private(set) var busyIds: Set<String> = []
     @Published public private(set) var errors: [String: String] = [:]
+    /// True while the foreground poll runs; the Apple Watch only shows requests while it does.
+    @Published public private(set) var isPolling = false
 
     private var task: Task<Void, Never>?
     private var targets: () -> [ApprovalPollTarget] = { [] }
@@ -39,6 +41,7 @@ public final class ApprovalsCenter: ObservableObject {
 
     public func start(targets: @escaping () -> [ApprovalPollTarget]) {
         self.targets = targets
+        isPolling = true
         task?.cancel()
         task = Task { [weak self] in
             while !Task.isCancelled {
@@ -52,6 +55,7 @@ public final class ApprovalsCenter: ObservableObject {
     public func stop() {
         task?.cancel()
         task = nil
+        isPolling = false
     }
 
     public func pollNow() async { await pollOnce() }

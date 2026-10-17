@@ -70,6 +70,14 @@
 		AA000067 /* SSHAppFiles.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = BB000065 /* SSHAppFiles.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		AA000069 /* ItemPath.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000066 /* ItemPath.swift */; };
 		AA000068 /* SshCoreBridge in Frameworks */ = {isa = PBXBuildFile; productRef = CC000003 /* SshCoreBridge */; };
+		AA000070 /* SSHAppWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000070 /* SSHAppWatchApp.swift */; };
+		AA000071 /* WatchModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000071 /* WatchModel.swift */; };
+		AA000072 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000072 /* ContentView.swift */; };
+		AA000073 /* WatchProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000075 /* WatchProtocol.swift */; };
+		AA000074 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = BB000074 /* Assets.xcassets */; };
+		AA000075 /* WatchProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000075 /* WatchProtocol.swift */; };
+		AA000076 /* WatchBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000076 /* WatchBridge.swift */; };
+		AA000077 /* SSHAppWatch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = BB000073 /* SSHAppWatch.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -136,6 +144,13 @@
 		BB000063 /* SSHAppFiles.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SSHAppFiles.entitlements; sourceTree = "<group>"; };
 		BB000064 /* SSHApp.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SSHApp.entitlements; sourceTree = "<group>"; };
 		BB000065 /* SSHAppFiles.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = SSHAppFiles.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		BB000070 /* SSHAppWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHAppWatchApp.swift; sourceTree = "<group>"; };
+		BB000071 /* WatchModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchModel.swift; sourceTree = "<group>"; };
+		BB000072 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		BB000073 /* SSHAppWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SSHAppWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		BB000074 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		BB000075 /* WatchProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchProtocol.swift; sourceTree = "<group>"; };
+		BB000076 /* WatchBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/WatchBridge.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -170,6 +185,17 @@
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		DD000016 /* Embed Watch Content */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
+			dstSubfolderSpec = 16;
+			files = (
+				AA000077 /* SSHAppWatch.app in Embed Watch Content */,
+			);
+			name = "Embed Watch Content";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXContainerItemProxy section */
@@ -180,6 +206,13 @@
 			remoteGlobalIDString = FF000002;
 			remoteInfo = SSHAppFiles;
 		};
+		PX000002 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 00000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = FF000003;
+			remoteInfo = SSHAppWatch;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXTargetDependency section */
@@ -187,6 +220,11 @@
 			isa = PBXTargetDependency;
 			target = FF000002 /* SSHAppFiles */;
 			targetProxy = PX000001 /* PBXContainerItemProxy */;
+		};
+		TD000002 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = FF000003 /* SSHAppWatch */;
+			targetProxy = PX000002 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -201,6 +239,7 @@
 				BB000064 /* SSHApp.entitlements */,
 				EE000010 /* SSHAppFiles */,
 				EE000011 /* Shared */,
+				EE000012 /* SSHAppWatch */,
 			);
 			sourceTree = "<group>";
 		};
@@ -218,11 +257,23 @@
 			path = SSHAppFiles;
 			sourceTree = "<group>";
 		};
+		EE000012 /* SSHAppWatch */ = {
+			isa = PBXGroup;
+			children = (
+				BB000070 /* SSHAppWatchApp.swift */,
+				BB000071 /* WatchModel.swift */,
+				BB000072 /* ContentView.swift */,
+				BB000074 /* Assets.xcassets */,
+			);
+			path = SSHAppWatch;
+			sourceTree = "<group>";
+		};
 		EE000011 /* Shared */ = {
 			isa = PBXGroup;
 			children = (
 				BB000055 /* SharedServers.swift */,
 				BB000066 /* ItemPath.swift */,
+				BB000075 /* WatchProtocol.swift */,
 			);
 			path = Sources/Shared;
 			sourceTree = "<group>";
@@ -280,6 +331,7 @@
 				BB000039 /* HostMonitorClient.swift */,
 				BB000029 /* AgentProfile.swift */,
 				BB000056 /* FilesIntegration.swift */,
+				BB000076 /* WatchBridge.swift */,
 			);
 			path = Sources/SSHApp;
 			sourceTree = "<group>";
@@ -289,6 +341,7 @@
 			children = (
 				BB000000 /* SSHApp.app */,
 				BB000065 /* SSHAppFiles.appex */,
+				BB000073 /* SSHAppWatch.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -311,11 +364,13 @@
 				DD000001 /* Frameworks */,
 				DD000003 /* Resources */,
 				DD000013 /* Embed Foundation Extensions */,
+				DD000016 /* Embed Watch Content */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 				TD000001 /* PBXTargetDependency */,
+				TD000002 /* PBXTargetDependency */,
 			);
 			name = SSHApp;
 			packageProductDependencies = (
@@ -345,6 +400,22 @@
 			productReference = BB000065 /* SSHAppFiles.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		FF000003 /* SSHAppWatch */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = GG000003 /* Build configuration list for PBXNativeTarget "SSHAppWatch" */;
+			buildPhases = (
+				DD000014 /* Sources */,
+				DD000015 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = SSHAppWatch;
+			productName = SSHAppWatch;
+			productReference = BB000073 /* SSHAppWatch.app */;
+			productType = "com.apple.product-type.application";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -355,6 +426,11 @@
 				LastUpgradeCheck = 1520;
 				TargetAttributes = {
 					FF000001 = {
+						CreatedOnToolsVersion = 15.2;
+						DevelopmentTeam = JJ5UK9N5JM;
+						ProvisioningStyle = Automatic;
+					};
+					FF000003 = {
 						CreatedOnToolsVersion = 15.2;
 						DevelopmentTeam = JJ5UK9N5JM;
 						ProvisioningStyle = Automatic;
@@ -385,6 +461,7 @@
 			targets = (
 				FF000001 /* SSHApp */,
 				FF000002 /* SSHAppFiles */,
+				FF000003 /* SSHAppWatch */,
 			);
 		};
 /* End PBXProject section */
@@ -395,6 +472,14 @@
 			buildActionMask = 2147483647;
 			files = (
 				AA000030 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DD000015 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA000074 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -456,6 +541,8 @@
 				AA000029 /* AgentProfile.swift in Sources */,
 				AA000055 /* SharedServers.swift in Sources */,
 				AA000056 /* FilesIntegration.swift in Sources */,
+				AA000075 /* WatchProtocol.swift in Sources */,
+				AA000076 /* WatchBridge.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -470,6 +557,17 @@
 				AA000061 /* FileProviderExtension.swift in Sources */,
 				AA000066 /* SharedServers.swift in Sources */,
 				AA000069 /* ItemPath.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DD000014 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA000070 /* SSHAppWatchApp.swift in Sources */,
+				AA000071 /* WatchModel.swift in Sources */,
+				AA000072 /* ContentView.swift in Sources */,
+				AA000073 /* WatchProtocol.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -638,6 +736,55 @@
 			};
 			name = Release;
 		};
+		11000007 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = JJ5UK9N5JM;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "SSH Mobile";
+				INFOPLIST_KEY_WKApplication = YES;
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.semenov.sshapp;
+				MARKETING_VERSION = 1.0;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.semenov.sshapp.watchkitapp;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "watchos watchsimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Debug;
+		};
+		11000008 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = JJ5UK9N5JM;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "SSH Mobile";
+				INFOPLIST_KEY_WKApplication = YES;
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.semenov.sshapp;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.semenov.sshapp.watchkitapp;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "watchos watchsimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -664,6 +811,15 @@
 			buildConfigurations = (
 				11000005 /* Debug */,
 				11000006 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		GG000003 /* Build configuration list for PBXNativeTarget "SSHAppWatch" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				11000007 /* Debug */,
+				11000008 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

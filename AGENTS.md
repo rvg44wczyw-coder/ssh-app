@@ -18,7 +18,7 @@ ssh-app/
 │   └── core/                # Rust core library (crates/core)
 ├── packages/
 │   └── SshCoreBridge/       # Swift Package / UniFFI bridge
-├── ios/                     # Xcode SwiftUI project
+├── ios/                     # Xcode SwiftUI project (SSHApp; SSHAppFiles = Files extension; SSHAppWatch = watch app; Sources/Shared = code used by several targets)
 ├── docs/
 │   ├── features/            # Feature design specifications
 │   └── architecture/        # Architecture decisions and diagrams

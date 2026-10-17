@@ -2,7 +2,7 @@
 
 - **Slug**: `watch-approvals`
 - **Milestone**: M23
-- **Status**: Specification (not implemented)
+- **Status**: stage 1 implemented (relay without push); stage 2 (push wake-up) waits for the owner's decision on the channel. Not yet run on a watch (no simulator pairing here); builds for watchOS device and simulator.
 - **Roles**: `doc-dev` → `rev` → `swift-bridge-dev` → `ios-ui-dev` → `rev` → `hacker` (Rust core unchanged for stage 1)
 - **Hacker gate**: **Yes** (approval decisions, signing key, WatchConnectivity channel, notification actions)
 - **Builds on**: `13-host-approval-broker.md` (queue, SSHSIG decisions), `19-hooks-templates-and-host-guard.md` (analysis flags)
@@ -98,3 +98,20 @@ keys ignored; one verdict per id (second one answers `not_pending`). Messages fr
   watch app, embedding in the iOS app.
 - Whether risky-flag logic is shared from the Rust `analyze_command` result already attached to requests (preferred: reuse).
 - Payments (off): approvals on the watch stay free.
+
+## 10. Implementation notes (stage 1)
+- **Shared**: `ios/Sources/Shared/WatchProtocol.swift` (compiled into the iOS app, the watch app and the SPM test target): `WatchApproval`,
+  `WatchContext`, strict id check (32 lowercase hex), `sanitize` (control and bidi characters removed, length caps, `keepEnd` for the
+  command tail), `parseVerdict` (version, id, `allow`/`deny`, `seq`; unknown keys ignored), `WatchReply`.
+- **iPhone**: `Services/WatchBridge.swift` publishes up to 5 approvals (notices are not sent) with the command tail (160 characters),
+  last folder name, analysis flags and seconds left on the host's clock via `updateApplicationContext`; it publishes an empty list when
+  the foreground poll stops (`ApprovalsCenter.isPolling`), so the watch never shows stale requests. A verdict goes
+  `parse → seq not from the future → exactly one matching pending approval → not expired → ApprovalsCenter.decide` (re-reads the host,
+  signs the host's copy). Replies: `signed`, `expired`, `not_pending`, `host_unreachable`, `rejected`.
+- **Watch** `ios/SSHAppWatch` (watchOS 10, companion `com.semenov.sshapp.watchkitapp`, no key, no host address): list with countdown,
+  detail with the full tail and flags, **Deny first**, Approve asks for confirmation when the request has flags, haptics on arrival and
+  result, "iPhone not reachable" state. Nothing is approved automatically; a failed send leaves the request for the agent's own prompt.
+- **Not in stage 1**: notification actions and any wake-up of a suspended phone app (needs the push channel, section 2.4), complication.
+- **Tests**: `WatchProtocolTests` (ids, verdict validation incl. forged/odd messages, context limits, text cleaning, list building
+  from approvals only); the protocol file was also executed on macOS with a standalone script. Swift tests are built, not run (no
+  simulator).

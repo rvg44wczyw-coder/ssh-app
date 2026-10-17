@@ -762,6 +762,7 @@ public struct MainTerminalView: View {
     // MARK: - Zero Battery Drain Lifecycle Handling
 
     private func startApprovalPolling() {
+        WatchBridge.shared.attach(to: approvals)
         approvals.start {
             tabsManager.sessions.compactMap { session in
                 guard let vm = tabsManager.viewModel(for: session.id) else { return nil }
