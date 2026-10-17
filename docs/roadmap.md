@@ -171,3 +171,10 @@
 - **Cause**: the screen ran `git diff HEAD` on a fresh SSH exec channel, which starts in `$HOME`; outside a repository git falls back to `--no-index` and prints its usage text.
 - **Fix**: `fetch_git_diff(session_name)` asks tmux for the pane's current directory and runs `git -C <repo root> diff HEAD` there (`--no-ext-diff --no-textconv`, `core.fsmonitor=false`, 1 MB cap, 20 s host watchdog; repos without a commit show staged changes; untracked files listed). The screen uses the live tab session and shows repo, branch, untracked files and clear states for "not a git repository" / "session not found".
 - **Tests**: 5 unit (marker spoofing, caps, usage text not mistaken for a diff) and a loopback sshd end-to-end test with real git + tmux (changed repo, non-repo, no-commit repo, hostile directory name, missing session).
+
+### M22 (planned): Files app integration, `docs/features/21-files-provider.md`
+- File Provider extension: servers as locations in the Files app; stage 1 read-only, stage 2 write, stage 3 favourites. Spec reviewed by `rev` (own `RemoteFsClient`, working set, portable `stat`); next: `rust-core-dev`.
+
+### M23 (planned): Apple Watch companion for approvals
+- Goal: approve / deny agent requests (and see notices) from the watch. Phone-relay design: the SSHSIG is still produced on the iPhone (key stays in its Keychain); the watch shows the request (tool, command tail, analysis flags, countdown) and sends allow/deny to the phone via WatchConnectivity (`sendMessage` wakes the phone app); notification actions mirrored from the phone give the same buttons. A watch-held key or a direct SSH connection from the watch is rejected: the watch cannot reach the tailnet by itself and a second signing key would widen the trust list on the host.
+- Open: spec (`docs/features/22-watch-approvals.md`), watchOS target in the hand-maintained `project.pbxproj`, behaviour when the phone is unreachable (show "open iPhone", never auto-approve), haptics, hacker gate (decisions over WatchConnectivity must carry only request id + verdict; the phone re-reads the request from the host before signing).
