@@ -920,11 +920,27 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func detectActiveTranscriptPath(baseDir: String?) async throws  -> String?
     
     /**
+     * Whether the tab's pane runs an AI CLI or a plain shell (see `pane_context`). A host error
+     * is "unknown", which callers treat like a shell.
+     */
+    func detectPaneContext(sessionName: String) async throws  -> PaneContext
+    
+    /**
      * Git diff (`HEAD`) of the repository the tmux session's pane is working in. The command runs
      * in the pane's directory: an exec channel starts in `$HOME`, where `git diff` just prints
      * its usage text.
      */
     func fetchGitDiff(sessionName: String) async throws  -> GitDiffResult
+    
+    /**
+     * The latest commits of the repository the tab's pane is in (newest first).
+     */
+    func fetchGitLog(sessionName: String, limit: UInt32) async throws  -> GitLogResult
+    
+    /**
+     * The patch of one commit, shaped like a diff result for the diff viewer.
+     */
+    func fetchGitShow(sessionName: String, hash: String) async throws  -> GitDiffResult
     
     /**
      * Collects a snapshot of remote host telemetry (CPU load, RAM, Disk, Battery, and AI/dev processes).
@@ -1344,6 +1360,26 @@ open func detectActiveTranscriptPath(baseDir: String?)async throws  -> String?  
 }
     
     /**
+     * Whether the tab's pane runs an AI CLI or a plain shell (see `pane_context`). A host error
+     * is "unknown", which callers treat like a shell.
+     */
+open func detectPaneContext(sessionName: String)async throws  -> PaneContext  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_detect_pane_context(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(sessionName)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypePaneContext_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
      * Git diff (`HEAD`) of the repository the tmux session's pane is working in. The command runs
      * in the pane's directory: an exec channel starts in `$HOME`, where `git diff` just prints
      * its usage text.
@@ -1354,6 +1390,44 @@ open func fetchGitDiff(sessionName: String)async throws  -> GitDiffResult  {
             rustFutureFunc: {
                 uniffi_ssh_core_fn_method_sshsessionhandle_fetch_git_diff(
                         self.uniffiCloneHandle(),FfiConverterString.lower(sessionName)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeGitDiffResult_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * The latest commits of the repository the tab's pane is in (newest first).
+     */
+open func fetchGitLog(sessionName: String, limit: UInt32)async throws  -> GitLogResult  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_fetch_git_log(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(sessionName),FfiConverterUInt32.lower(limit)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeGitLogResult_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * The patch of one commit, shaped like a diff result for the diff viewer.
+     */
+open func fetchGitShow(sessionName: String, hash: String)async throws  -> GitDiffResult  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_fetch_git_show(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(sessionName),FfiConverterString.lower(hash)
                 )
             },
             pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
@@ -3203,6 +3277,164 @@ public func FfiConverterTypeGitDiffResult_lower(_ value: GitDiffResult) -> RustB
 }
 
 
+public struct GitLogEntry: Equatable, Hashable {
+    public var hash: String
+    public var shortHash: String
+    public var author: String
+    /**
+     * "3 hours ago".
+     */
+    public var when: String
+    /**
+     * Branch and tag names pointing at the commit (`HEAD -> main, origin/main`), may be empty.
+     */
+    public var refs: String
+    public var subject: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(hash: String, shortHash: String, author: String, 
+        /**
+         * "3 hours ago".
+         */when: String, 
+        /**
+         * Branch and tag names pointing at the commit (`HEAD -> main, origin/main`), may be empty.
+         */refs: String, subject: String) {
+        self.hash = hash
+        self.shortHash = shortHash
+        self.author = author
+        self.when = when
+        self.refs = refs
+        self.subject = subject
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension GitLogEntry: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeGitLogEntry: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> GitLogEntry {
+        return
+            try GitLogEntry(
+                hash: FfiConverterString.read(from: &buf), 
+                shortHash: FfiConverterString.read(from: &buf), 
+                author: FfiConverterString.read(from: &buf), 
+                when: FfiConverterString.read(from: &buf), 
+                refs: FfiConverterString.read(from: &buf), 
+                subject: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: GitLogEntry, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.hash, into: &buf)
+        FfiConverterString.write(value.shortHash, into: &buf)
+        FfiConverterString.write(value.author, into: &buf)
+        FfiConverterString.write(value.when, into: &buf)
+        FfiConverterString.write(value.refs, into: &buf)
+        FfiConverterString.write(value.subject, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGitLogEntry_lift(_ buf: RustBuffer) throws -> GitLogEntry {
+    return try FfiConverterTypeGitLogEntry.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGitLogEntry_lower(_ value: GitLogEntry) -> RustBuffer {
+    return FfiConverterTypeGitLogEntry.lower(value)
+}
+
+
+public struct GitLogResult: Equatable, Hashable {
+    public var status: GitDiffStatus
+    public var directory: String?
+    public var repoRoot: String?
+    public var branch: String?
+    public var entries: [GitLogEntry]
+    /**
+     * The history is longer than what was asked for.
+     */
+    public var hasMore: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(status: GitDiffStatus, directory: String?, repoRoot: String?, branch: String?, entries: [GitLogEntry], 
+        /**
+         * The history is longer than what was asked for.
+         */hasMore: Bool) {
+        self.status = status
+        self.directory = directory
+        self.repoRoot = repoRoot
+        self.branch = branch
+        self.entries = entries
+        self.hasMore = hasMore
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension GitLogResult: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeGitLogResult: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> GitLogResult {
+        return
+            try GitLogResult(
+                status: FfiConverterTypeGitDiffStatus.read(from: &buf), 
+                directory: FfiConverterOptionString.read(from: &buf), 
+                repoRoot: FfiConverterOptionString.read(from: &buf), 
+                branch: FfiConverterOptionString.read(from: &buf), 
+                entries: FfiConverterSequenceTypeGitLogEntry.read(from: &buf), 
+                hasMore: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: GitLogResult, into buf: inout [UInt8]) {
+        FfiConverterTypeGitDiffStatus.write(value.status, into: &buf)
+        FfiConverterOptionString.write(value.directory, into: &buf)
+        FfiConverterOptionString.write(value.repoRoot, into: &buf)
+        FfiConverterOptionString.write(value.branch, into: &buf)
+        FfiConverterSequenceTypeGitLogEntry.write(value.entries, into: &buf)
+        FfiConverterBool.write(value.hasMore, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGitLogResult_lift(_ buf: RustBuffer) throws -> GitLogResult {
+    return try FfiConverterTypeGitLogResult.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGitLogResult_lower(_ value: GitLogResult) -> RustBuffer {
+    return FfiConverterTypeGitLogResult.lower(value)
+}
+
+
 public struct HookPreset: Equatable, Hashable {
     public var kind: HookPresetKind
     /**
@@ -3995,6 +4227,66 @@ public func FfiConverterTypeOllamaLoad_lift(_ buf: RustBuffer) throws -> OllamaL
 #endif
 public func FfiConverterTypeOllamaLoad_lower(_ value: OllamaLoad) -> RustBuffer {
     return FfiConverterTypeOllamaLoad.lower(value)
+}
+
+
+public struct PaneContext: Equatable, Hashable {
+    public var kind: PaneKind
+    /**
+     * Name of the AI CLI that was recognised (`claude`, `agy`, `codex`, ...), empty otherwise.
+     */
+    public var agent: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(kind: PaneKind, 
+        /**
+         * Name of the AI CLI that was recognised (`claude`, `agy`, `codex`, ...), empty otherwise.
+         */agent: String) {
+        self.kind = kind
+        self.agent = agent
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension PaneContext: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePaneContext: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PaneContext {
+        return
+            try PaneContext(
+                kind: FfiConverterTypePaneKind.read(from: &buf), 
+                agent: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: PaneContext, into buf: inout [UInt8]) {
+        FfiConverterTypePaneKind.write(value.kind, into: &buf)
+        FfiConverterString.write(value.agent, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePaneContext_lift(_ buf: RustBuffer) throws -> PaneContext {
+    return try FfiConverterTypePaneContext.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePaneContext_lower(_ value: PaneContext) -> RustBuffer {
+    return FfiConverterTypePaneContext.lower(value)
 }
 
 
@@ -5788,6 +6080,88 @@ public func FfiConverterTypeHookPresetKind_lower(_ value: HookPresetKind) -> Rus
 
 
 
+public enum PaneKind: Equatable, Hashable {
+    
+    /**
+     * A shell (or any program that is not an AI CLI): commands are typed as they are.
+     */
+    case shell
+    /**
+     * An AI CLI is running in the pane: shell commands need a leading `!`.
+     */
+    case aiCli
+    /**
+     * The pane could not be inspected (no tmux session, host error): treated like a shell.
+     */
+    case unknown
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension PaneKind: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePaneKind: FfiConverterRustBuffer {
+    typealias SwiftType = PaneKind
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PaneKind {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .shell
+        
+        case 2: return .aiCli
+        
+        case 3: return .unknown
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: PaneKind, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .shell:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .aiCli:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .unknown:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePaneKind_lift(_ buf: RustBuffer) throws -> PaneKind {
+    return try FfiConverterTypePaneKind.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePaneKind_lower(_ value: PaneKind) -> RustBuffer {
+    return FfiConverterTypePaneKind.lower(value)
+}
+
+
+
+
 public enum ProcessCategory: Equatable, Hashable {
     
     case aiAgent
@@ -7305,6 +7679,31 @@ fileprivate struct FfiConverterSequenceTypeFuzzyMatchResult: FfiConverterRustBuf
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeGitLogEntry: FfiConverterRustBuffer {
+    typealias SwiftType = [GitLogEntry]
+
+    public static func write(_ value: [GitLogEntry], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeGitLogEntry.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [GitLogEntry] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [GitLogEntry]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeGitLogEntry.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeHookTemplate: FfiConverterRustBuffer {
     typealias SwiftType = [HookTemplate]
 
@@ -8308,6 +8707,19 @@ public func derivePublicKey(privateKeyOpenssh: String)throws  -> String  {
 })
 }
 /**
+ * What to type to run `command` as a **shell** command in this pane: with a leading `!` inside
+ * an AI CLI, unchanged in a shell. Already prefixed commands are left alone.
+ */
+public func shellCommandForPane(context: PaneContext, command: String) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_shell_command_for_pane(
+        FfiConverterTypePaneContext_lower(context),
+        FfiConverterString.lower(command),uniffiCallStatus
+    )
+})
+}
+/**
  * New settings text with only the four fields replaced; empty lists remove their key and an
  * empty `permissions` object is removed. All other keys are preserved.
  */
@@ -8749,6 +9161,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_func_derive_public_key() != 26782) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_func_shell_command_for_pane() != 50317) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_func_merge_permissions() != 24280) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -8860,7 +9275,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_detect_active_transcript_path() != 46936) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_detect_pane_context() != 3123) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_fetch_git_diff() != 14960) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_fetch_git_log() != 41416) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_fetch_git_show() != 11935) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_fetch_host_telemetry() != 38116) {

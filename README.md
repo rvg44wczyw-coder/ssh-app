@@ -67,7 +67,7 @@ Native iOS mobile application (**SwiftUI + Rust Core via UniFFI**) for securely 
 - **Terminal rendering**: SwiftTerm with TrueColor, tmux mouse scroll and tap, 17 built-in color schemes plus your own, per agent or profile.
 - **Approval banner**: agent, command with risk flags and the end of long commands, countdown on the host clock, Approve / Deny.
 - **Quick commands bar** above the keyboard (`^C`, `y`/`n`, your own buttons such as `/clear` with an optional confirmation); Esc, Tab, Ctrl and arrows stay on the system bar.
-- **Tools**: Git diff viewer, remote file browser, host monitor (CPU, memory, processes), in-app web preview over SSH port forwarding, snippets with fuzzy history search, AI command assistant and local chat through Ollama on the host, model usage line.
+- **Tools**: Git log viewer (commit patches; `git diff`/`status` run in the terminal, with `!` in front inside an AI CLI), remote file browser, host monitor (CPU, memory, processes), in-app web preview over SSH port forwarding, snippets with fuzzy history search, AI command assistant and local chat through Ollama on the host, model usage line.
 - **Privacy masking**: full-screen overlay when the app is backgrounded, so output does not appear in the App Switcher.
 
 ### 7. Payments (built, switched off)

@@ -38,6 +38,7 @@
 		AA000017 /* AddEditServerSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000017 /* AddEditServerSheetView.swift */; };
 		AA000018 /* ApprovalModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000018 /* ApprovalModel.swift */; };
 		AA000019 /* ApprovalBannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000019 /* ApprovalBannerView.swift */; };
+		AA000054 /* GitLogSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000054 /* GitLogSheetView.swift */; };
 		AA000022 /* DiffViewerSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000022 /* DiffViewerSheetView.swift */; };
 		AA000023 /* WebPreviewSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000023 /* WebPreviewSheetView.swift */; };
 		AA000024 /* AiAssistantSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000024 /* AiAssistantSheetView.swift */; };
@@ -93,6 +94,7 @@
 		BB000017 /* AddEditServerSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/AddEditServerSheetView.swift; sourceTree = "<group>"; };
 		BB000018 /* ApprovalModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models/ApprovalModel.swift; sourceTree = "<group>"; };
 		BB000019 /* ApprovalBannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/ApprovalBannerView.swift; sourceTree = "<group>"; };
+		BB000054 /* GitLogSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/GitLogSheetView.swift; sourceTree = "<group>"; };
 		BB000022 /* DiffViewerSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/DiffViewerSheetView.swift; sourceTree = "<group>"; };
 		BB000023 /* WebPreviewSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/WebPreviewSheetView.swift; sourceTree = "<group>"; };
 		BB000024 /* AiAssistantSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/AiAssistantSheetView.swift; sourceTree = "<group>"; };
@@ -160,6 +162,7 @@
 				BB000018 /* ApprovalModel.swift */,
 				BB000019 /* ApprovalBannerView.swift */,
 				BB000022 /* DiffViewerSheetView.swift */,
+				BB000054 /* GitLogSheetView.swift */,
 				BB000023 /* WebPreviewSheetView.swift */,
 				BB000024 /* AiAssistantSheetView.swift */,
 				BB000025 /* StructuredTranscriptView.swift */,
@@ -305,6 +308,7 @@
 				AA000018 /* ApprovalModel.swift in Sources */,
 				AA000019 /* ApprovalBannerView.swift in Sources */,
 				AA000022 /* DiffViewerSheetView.swift in Sources */,
+				AA000054 /* GitLogSheetView.swift in Sources */,
 				AA000023 /* WebPreviewSheetView.swift in Sources */,
 				AA000024 /* AiAssistantSheetView.swift in Sources */,
 				AA000025 /* StructuredTranscriptView.swift in Sources */,

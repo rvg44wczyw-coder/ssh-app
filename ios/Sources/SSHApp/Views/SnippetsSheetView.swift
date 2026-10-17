@@ -277,9 +277,9 @@ public struct SnippetsSheetView: View {
         }
 
         if execute {
-            viewModel.executeAiCommand(snippet.command)
+            viewModel.runShellCommand(snippet.command)
         } else {
-            viewModel.insertAiCommand(snippet.command)
+            viewModel.insertShellCommand(snippet.command)
         }
         closeSheet()
     }
@@ -292,9 +292,9 @@ public struct SnippetsSheetView: View {
         }
         activePlaceholderSnippet = nil
         if executeImmediatelyAfterFill {
-            viewModel.executeAiCommand(rendered)
+            viewModel.runShellCommand(rendered)
         } else {
-            viewModel.insertAiCommand(rendered)
+            viewModel.insertShellCommand(rendered)
         }
         closeSheet()
     }

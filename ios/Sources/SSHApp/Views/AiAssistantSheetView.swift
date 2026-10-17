@@ -105,7 +105,7 @@ public struct AiAssistantSheetView: View {
                 Button("Cancel", role: .cancel) {}
                 Button("Run Anyway", role: .destructive) {
                     if let cmd = viewModel.activeAiSuggestion?.command {
-                        viewModel.executeAiCommand(cmd)
+                        viewModel.runShellCommand(cmd)
                         closeSheet()
                     }
                 }
@@ -531,7 +531,7 @@ public struct AiAssistantSheetView: View {
             // Action Buttons
             HStack(spacing: 12) {
                 Button {
-                    viewModel.insertAiCommand(suggestion.command)
+                    viewModel.insertShellCommand(suggestion.command)
                     closeSheet()
                 } label: {
                     HStack {
@@ -550,7 +550,7 @@ public struct AiAssistantSheetView: View {
                     if suggestion.riskLevel == .destructive {
                         showDestructiveConfirm = true
                     } else {
-                        viewModel.executeAiCommand(suggestion.command)
+                        viewModel.runShellCommand(suggestion.command)
                         closeSheet()
                     }
                 } label: {

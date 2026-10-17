@@ -443,6 +443,39 @@ impl SshSessionHandle {
         Ok(crate::gitdiff::parse_git_diff_output(&out))
     }
 
+    /// The latest commits of the repository the tab's pane is in (newest first).
+    pub async fn fetch_git_log(
+        &self,
+        session_name: String,
+        limit: u32,
+    ) -> Result<crate::gitlog::GitLogResult, SshCoreError> {
+        let cmd = crate::gitlog::build_git_log_command(&session_name, limit)?;
+        let out = self.execute_command_on_active_session(cmd).await?;
+        Ok(crate::gitlog::parse_git_log_output(&out, limit))
+    }
+
+    /// The patch of one commit, shaped like a diff result for the diff viewer.
+    pub async fn fetch_git_show(
+        &self,
+        session_name: String,
+        hash: String,
+    ) -> Result<crate::gitdiff::GitDiffResult, SshCoreError> {
+        let cmd = crate::gitlog::build_git_show_command(&session_name, &hash)?;
+        let out = self.execute_command_on_active_session(cmd).await?;
+        Ok(crate::gitlog::parse_git_show_output(&out))
+    }
+
+    /// Whether the tab's pane runs an AI CLI or a plain shell (see `pane_context`). A host error
+    /// is "unknown", which callers treat like a shell.
+    pub async fn detect_pane_context(
+        &self,
+        session_name: String,
+    ) -> Result<crate::pane_context::PaneContext, SshCoreError> {
+        let cmd = crate::pane_context::build_pane_context_command(&session_name)?;
+        let out = self.execute_command_on_active_session(cmd).await?;
+        Ok(crate::pane_context::parse_pane_context(&out))
+    }
+
     /// Pending approval requests and notices on the host, with the host's clock. An empty list
     /// when the queue is not installed (see `approval_status`).
     pub async fn list_pending_approvals(

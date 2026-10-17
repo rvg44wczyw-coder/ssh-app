@@ -378,7 +378,7 @@ public struct MainTerminalView: View {
                     }
                 case .diffViewer:
                     if let activeVM = tabsManager.activeViewModel {
-                        DiffViewerSheetView(viewModel: activeVM)
+                        GitLogSheetView(viewModel: activeVM)
                     }
                 case .webPreview:
                     if let activeVM = tabsManager.activeViewModel {

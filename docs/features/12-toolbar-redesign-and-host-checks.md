@@ -40,7 +40,7 @@ Non-goals: changing what any action does; Android; installing Ollama for the use
 | fileBrowser | `folder.fill` | Files | Browse the host's folders, preview files, and insert a path into the terminal. |
 | telemetry | `gauge.with.dots.needle.33percent` | Host monitor | CPU, memory, disk and running agent processes on the host. |
 | webPreview | `globe` | Web preview | Open a dev server running on the host (localhost ports) inside the app. |
-| diffViewer | `arrow.triangle.pull` | Git diff | Review the uncommitted changes of a repository on the host. |
+| diffViewer | `clock.arrow.circlepath` | Git log | Commit history of the tab's repository; a tap shows the commit patch. `git diff` runs in the terminal. |
 | publicKey | `key` | Public key | Show or hide the key banner so you can copy this phone's public SSH key to a host. |
 | settings | `gearshape` | Settings | Servers, SSH key and app options. |
 
@@ -147,4 +147,4 @@ Results from an older check never overwrite a newer one (each check carries a to
 
 ## Addendum: separate session menu
 
-The toolbar has two buttons: **Session** (`rectangle.stack`, left) with the actions of the current session — Chat/Terminal, tmux sessions, Permissions, Agents — and **More** (`ellipsis.circle`) with the quick menu: AI assistant, Snippets, Commands, Files, Host monitor, Web preview, Git diff, Public key, Settings. `AppAction.isSessionAction` decides the split; both open `ActionPanelView` (`scope: .session` / `.quick`). The session panel has no hide/show customization; Customize applies to the quick menu only.
+The toolbar has two buttons: **Session** (`rectangle.stack`, left) with the actions of the current session — Chat/Terminal, tmux sessions, Permissions, Agents — and **More** (`ellipsis.circle`) with the quick menu: AI assistant, Snippets, Commands, Files, Host monitor, Web preview, Git log, Public key, Settings. `AppAction.isSessionAction` decides the split; both open `ActionPanelView` (`scope: .session` / `.quick`). The session panel has no hide/show customization; Customize applies to the quick menu only.

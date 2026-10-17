@@ -10,12 +10,14 @@ pub mod config;
 pub mod error;
 pub mod file_browser;
 pub mod gitdiff;
+pub mod gitlog;
 pub mod hook_safety;
 pub mod hook_templates;
 pub(crate) mod host_api;
 pub mod host_guard;
 pub(crate) mod hostprobe;
 pub mod keys;
+pub mod pane_context;
 pub mod permissions;
 pub mod port_forward;
 pub mod session;
@@ -55,6 +57,7 @@ pub use file_browser::{
     RemoteFileEntry, RemoteFileKind, RemoteFilePreview,
 };
 pub use gitdiff::{GitDiffResult, GitDiffStatus};
+pub use gitlog::{GitLogEntry, GitLogResult};
 pub use hook_safety::{analyze_command, lint_custom_hook_command, CommandAnalysis};
 pub use hook_templates::{hook_templates, hook_templates_for, HookTemplate};
 pub use host_guard::{
@@ -63,6 +66,7 @@ pub use host_guard::{
     HostGuardPreset,
 };
 pub use keys::{derive_public_key, generate_keypair, KeypairResult};
+pub use pane_context::{shell_command_for_pane, PaneContext, PaneKind};
 pub use permissions::{
     merge_permissions, permission_rule_templates, permission_warnings, permissions_from_settings,
     permissions_from_settings_checked, permissions_section_of, suggest_permission_changes,

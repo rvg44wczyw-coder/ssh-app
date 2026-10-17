@@ -32,7 +32,7 @@ public enum AppAction: String, CaseIterable, Identifiable, Sendable {
         case .fileBrowser: return "Files"
         case .telemetry: return "Host monitor"
         case .webPreview: return "Web preview"
-        case .diffViewer: return "Git diff"
+        case .diffViewer: return "Git log"
         case .publicKey: return "Public key"
         case .settings: return "Settings"
         }
@@ -50,7 +50,7 @@ public enum AppAction: String, CaseIterable, Identifiable, Sendable {
         case .fileBrowser: return "folder.fill"
         case .telemetry: return "gauge.with.dots.needle.33percent"
         case .webPreview: return "globe"
-        case .diffViewer: return "arrow.triangle.pull"
+        case .diffViewer: return "clock.arrow.circlepath"
         case .publicKey: return keyVisible ? "key.fill" : "key"
         case .settings: return "gearshape"
         }
@@ -98,7 +98,7 @@ public enum AppAction: String, CaseIterable, Identifiable, Sendable {
         case .webPreview:
             return "Open a dev server running on the host (localhost ports) inside the app."
         case .diffViewer:
-            return "Review the uncommitted changes of a repository on the host."
+            return "Browse the commit history of the tab's repository; git diff and status run in the terminal."
         case .publicKey:
             return "Show and copy this phone's public SSH keys to add them to a host's authorized_keys."
         case .settings:

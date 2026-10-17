@@ -290,6 +290,36 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         }
     }
 
+    /// What runs in the tab's pane right now (AI CLI or shell), asked from the host and kept for a
+    /// few seconds: the user can start or leave an agent at any time.
+    private var paneContextCache: (context: PaneContext, at: Date)?
+
+    public func currentPaneContext() async -> PaneContext {
+        if let c = paneContextCache, Date().timeIntervalSince(c.at) < 5 { return c.context }
+        guard let handle = handle, state == .connected else { return PaneContext(kind: .unknown, agent: "") }
+        let context = (try? await handle.detectPaneContext(sessionName: session.sessionName))
+            ?? PaneContext(kind: .unknown, agent: "")
+        paneContextCache = (context, Date())
+        return context
+    }
+
+    /// Types a **shell** command: as it is in a shell, with a leading `!` inside an AI CLI
+    /// (otherwise the agent would take it as a prompt). Agent slash commands (`/model`) are not
+    /// shell commands and go through `insertAiCommand` / `executeAiCommand`.
+    public func insertShellCommand(_ command: String) {
+        Task {
+            let context = await currentPaneContext()
+            insertAiCommand(shellCommandForPane(context: context, command: command))
+        }
+    }
+
+    public func runShellCommand(_ command: String) {
+        Task {
+            let context = await currentPaneContext()
+            executeAiCommand(shellCommandForPane(context: context, command: command))
+        }
+    }
+
     public func toggleChatMode() {
         isChatMode.toggle()
         if isChatMode && transcriptTurns.isEmpty {
