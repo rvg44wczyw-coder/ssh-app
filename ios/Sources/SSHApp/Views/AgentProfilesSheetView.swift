@@ -382,7 +382,7 @@ struct AgentProfileEditorView: View {
                 ) {
                     Picker("Scheme", selection: $profile.terminalSchemeId) {
                         Text("Agent default").tag("")
-                        ForEach(TerminalScheme.builtIn) { Text($0.name).tag($0.id) }
+                        ForEach(TerminalScheme.all) { Text($0.name).tag($0.id) }
                     }
                 }
                 Section(

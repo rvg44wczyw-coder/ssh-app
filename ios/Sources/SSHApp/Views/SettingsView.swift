@@ -63,6 +63,7 @@ public struct SettingsView: View {
     @State private var schemeRefresh = 0
 
     @State private var iconChoice: AppIconChoice = .standard
+    @State private var editingScheme: TerminalScheme?
     @State private var iconError: String?
 
     private var appearancePage: some View {
@@ -110,6 +111,31 @@ public struct SettingsView: View {
                 .padding(.vertical, 6)
             }
             Section(
+                header: Text("My color schemes"),
+                footer: Text("Make your own scheme or copy one and change it. It then appears in every list above and in the profile editor.")
+            ) {
+                ForEach(TerminalScheme.custom) { s in
+                    Button { editingScheme = s } label: {
+                        HStack {
+                            Text(s.name).foregroundColor(.primary)
+                            Spacer()
+                            HStack(spacing: 0) {
+                                ForEach(1..<7, id: \.self) { Color(hex: s.ansi[$0]).frame(width: 10, height: 14) }
+                            }
+                            .padding(3).background(Color(hex: s.background)).cornerRadius(4)
+                        }
+                    }
+                }
+                .onDelete { offsets in
+                    let list = TerminalScheme.custom
+                    for i in offsets { TerminalScheme.deleteCustom(id: list[i].id) }
+                    schemeRefresh += 1
+                }
+                Button {
+                    editingScheme = TerminalScheme.newCustom(from: .fallback, name: "My scheme")
+                } label: { Label("New scheme", systemImage: "plus") }
+            }
+            Section(
                 header: Text("Terminal colors"),
                 footer: Text("The scheme a tab gets by agent. A profile can override it (Agents → profile → Terminal colors). Reopen a tab or switch to it to see a change.")
             ) {
@@ -118,12 +144,12 @@ public struct SettingsView: View {
                         get: { _ = schemeRefresh; return TerminalSchemes.choice(for: slot) },
                         set: { TerminalSchemes.setChoice($0, for: slot); schemeRefresh += 1 }
                     )) {
-                        ForEach(TerminalScheme.builtIn) { Text($0.name).tag($0.id) }
+                        ForEach(TerminalScheme.all) { Text($0.name).tag($0.id) }
                     }
                 }
             }
             Section("Preview") {
-                ForEach(TerminalScheme.builtIn) { scheme in
+                ForEach(TerminalScheme.all) { scheme in
                     VStack(alignment: .leading, spacing: 6) {
                         Text(scheme.name).font(.caption).foregroundColor(.secondary)
                         VStack(alignment: .leading, spacing: 4) {
@@ -142,6 +168,17 @@ public struct SettingsView: View {
         }
         .navigationTitle("Appearance")
         .onAppear { iconChoice = AppIconChoice.current }
+        .sheet(item: $editingScheme) { s in
+            TerminalSchemeEditorView(
+                scheme: s,
+                onSave: { saved in
+                    TerminalScheme.upsertCustom(saved)
+                    schemeRefresh += 1
+                    editingScheme = nil
+                },
+                onCancel: { editingScheme = nil }
+            )
+        }
     }
 
     private var terminalPage: some View {

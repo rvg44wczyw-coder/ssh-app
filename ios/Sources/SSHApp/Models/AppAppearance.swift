@@ -9,7 +9,7 @@ import UIKit
 
 /// The app's accent colour (buttons, selected chips, links). Stored as `app_accent`.
 public enum AppAccent: String, CaseIterable, Identifiable {
-    case blue, teal, green, orange, red, pink, purple, graphite
+    case blue, indigo, teal, mint, green, yellow, orange, red, pink, purple, brown, graphite
 
     public var id: String { rawValue }
     public static let storageKey = "app_accent"
@@ -19,7 +19,11 @@ public enum AppAccent: String, CaseIterable, Identifiable {
     public var color: Color {
         switch self {
         case .blue: return Color(red: 0.04, green: 0.52, blue: 1.0)
+        case .indigo: return Color(red: 0.35, green: 0.34, blue: 0.84)
         case .teal: return Color(red: 0.19, green: 0.69, blue: 0.78)
+        case .mint: return Color(red: 0.0, green: 0.78, blue: 0.70)
+        case .yellow: return Color(red: 1.0, green: 0.80, blue: 0.0)
+        case .brown: return Color(red: 0.64, green: 0.52, blue: 0.37)
         case .green: return Color(red: 0.20, green: 0.78, blue: 0.35)
         case .orange: return Color(red: 1.0, green: 0.58, blue: 0.0)
         case .red: return Color(red: 1.0, green: 0.27, blue: 0.23)
@@ -120,14 +124,14 @@ public enum ProfileIcons {
 // MARK: - Terminal colour schemes
 
 /// Colours of the terminal itself: background, text, cursor and the 16 ANSI colours (hex RGB).
-public struct TerminalScheme: Identifiable, Equatable {
-    public let id: String
-    public let name: String
-    public let background: String
-    public let foreground: String
-    public let cursor: String
+public struct TerminalScheme: Identifiable, Equatable, Codable {
+    public var id: String
+    public var name: String
+    public var background: String
+    public var foreground: String
+    public var cursor: String
     /// Normal 0-7 then bright 8-15.
-    public let ansi: [String]
+    public var ansi: [String]
 
     public static let builtIn: [TerminalScheme] = [
         TerminalScheme(id: "default", name: "Default", background: "000000", foreground: "e5e5e5", cursor: "ffffff",
@@ -151,9 +155,80 @@ public struct TerminalScheme: Identifiable, Equatable {
         TerminalScheme(id: "light", name: "Paper (light)", background: "fafafa", foreground: "383a42", cursor: "526fff",
             ansi: ["383a42", "e45649", "50a14f", "c18401", "4078f2", "a626a4", "0184bc", "a0a1a4",
                    "4f525e", "e06c75", "98c379", "e5c07b", "61afef", "c678dd", "56b6c2", "ffffff"]),
+        TerminalScheme(id: "catppuccin", name: "Catppuccin Mocha", background: "1e1e2e", foreground: "cdd6f4", cursor: "f5e0dc",
+            ansi: ["45475a", "f38ba8", "a6e3a1", "f9e2af", "89b4fa", "f5c2e7", "94e2d5", "bac2de",
+                   "585b70", "f38ba8", "a6e3a1", "f9e2af", "89b4fa", "f5c2e7", "94e2d5", "a6adc8"]),
+        TerminalScheme(id: "monokai", name: "Monokai", background: "272822", foreground: "f8f8f2", cursor: "f8f8f0",
+            ansi: ["272822", "f92672", "a6e22e", "f4bf75", "66d9ef", "ae81ff", "a1efe4", "f8f8f2",
+                   "75715e", "f92672", "a6e22e", "f4bf75", "66d9ef", "ae81ff", "a1efe4", "f9f8f5"]),
+        TerminalScheme(id: "onedark", name: "One Dark", background: "282c34", foreground: "abb2bf", cursor: "528bff",
+            ansi: ["282c34", "e06c75", "98c379", "e5c07b", "61afef", "c678dd", "56b6c2", "abb2bf",
+                   "545862", "e06c75", "98c379", "e5c07b", "61afef", "c678dd", "56b6c2", "c8ccd4"]),
+        TerminalScheme(id: "rosepine", name: "Rosé Pine", background: "191724", foreground: "e0def4", cursor: "e0def4",
+            ansi: ["26233a", "eb6f92", "31748f", "f6c177", "9ccfd8", "c4a7e7", "ebbcba", "e0def4",
+                   "6e6a86", "eb6f92", "31748f", "f6c177", "9ccfd8", "c4a7e7", "ebbcba", "e0def4"]),
+        TerminalScheme(id: "everforest", name: "Everforest", background: "2d353b", foreground: "d3c6aa", cursor: "d3c6aa",
+            ansi: ["475258", "e67e80", "a7c080", "dbbc7f", "7fbbb3", "d699b6", "83c092", "d3c6aa",
+                   "475258", "e67e80", "a7c080", "dbbc7f", "7fbbb3", "d699b6", "83c092", "d3c6aa"]),
+        TerminalScheme(id: "githubdark", name: "GitHub Dark", background: "0d1117", foreground: "c9d1d9", cursor: "58a6ff",
+            ansi: ["484f58", "ff7b72", "3fb950", "d29922", "58a6ff", "bc8cff", "39c5cf", "b1bac4",
+                   "6e7681", "ffa198", "56d364", "e3b341", "79c0ff", "d2a8ff", "56d4dd", "f0f6fc"]),
+        TerminalScheme(id: "highcontrast", name: "High contrast", background: "000000", foreground: "ffffff", cursor: "ffffff",
+            ansi: ["000000", "ff5555", "55ff55", "ffff55", "5599ff", "ff55ff", "55ffff", "ffffff",
+                   "7f7f7f", "ff8080", "80ff80", "ffff80", "80b3ff", "ff80ff", "80ffff", "ffffff"]),
+        TerminalScheme(id: "retrogreen", name: "Retro green", background: "000000", foreground: "33ff33", cursor: "33ff33",
+            ansi: ["000000", "ff3333", "33ff33", "cccc33", "3366ff", "cc33cc", "33cccc", "33ff33",
+                   "1a801a", "ff6666", "66ff66", "ffff66", "6699ff", "ff66ff", "66ffff", "99ff99"]),
+        TerminalScheme(id: "solarizedlight", name: "Solarized Light", background: "fdf6e3", foreground: "657b83", cursor: "586e75",
+            ansi: ["073642", "dc322f", "859900", "b58900", "268bd2", "d33682", "2aa198", "eee8d5",
+                   "002b36", "cb4b16", "586e75", "657b83", "839496", "6c71c4", "93a1a1", "fdf6e3"]),
+        TerminalScheme(id: "latte", name: "Catppuccin Latte", background: "eff1f5", foreground: "4c4f69", cursor: "dc8a78",
+            ansi: ["5c5f77", "d20f39", "40a02b", "df8e1d", "1e66f5", "ea76cb", "179299", "acb0be",
+                   "6c6f85", "d20f39", "40a02b", "df8e1d", "1e66f5", "ea76cb", "179299", "bcc0cc"]),
     ]
 
-    public static func scheme(id: String) -> TerminalScheme? { builtIn.first { $0.id == id } }
+    public init(id: String, name: String, background: String, foreground: String, cursor: String, ansi: [String]) {
+        self.id = id
+        self.name = name
+        self.background = background
+        self.foreground = foreground
+        self.cursor = cursor
+        self.ansi = ansi
+    }
+
+    public var isCustom: Bool { id.hasPrefix("custom-") }
+
+    private static let customKey = "terminal_custom_schemes"
+
+    /// Schemes the user made in the editor (stored on the phone).
+    public static var custom: [TerminalScheme] {
+        get {
+            guard let data = UserDefaults.standard.data(forKey: customKey),
+                  let list = try? JSONDecoder().decode([TerminalScheme].self, from: data) else { return [] }
+            return list.filter { $0.ansi.count == 16 }
+        }
+        set {
+            if let data = try? JSONEncoder().encode(newValue) { UserDefaults.standard.set(data, forKey: customKey) }
+        }
+    }
+
+    public static var all: [TerminalScheme] { builtIn + custom }
+
+    public static func upsertCustom(_ scheme: TerminalScheme) {
+        var list = custom
+        if let i = list.firstIndex(where: { $0.id == scheme.id }) { list[i] = scheme } else { list.append(scheme) }
+        custom = list
+    }
+
+    public static func deleteCustom(id: String) { custom = custom.filter { $0.id != id } }
+
+    /// A fresh custom scheme starting from `base`.
+    public static func newCustom(from base: TerminalScheme, name: String) -> TerminalScheme {
+        TerminalScheme(id: "custom-\(UUID().uuidString.prefix(8).lowercased())", name: name,
+                       background: base.background, foreground: base.foreground, cursor: base.cursor, ansi: base.ansi)
+    }
+
+    public static func scheme(id: String) -> TerminalScheme? { all.first { $0.id == id } }
     public static let fallback = builtIn[0]
 }
 
@@ -224,6 +299,17 @@ public enum TerminalSchemes {
 }
 
 extension Color {
+    /// `rrggbb` of this color (sRGB).
+    var hexString: String {
+        #if canImport(UIKit)
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        UIColor(self).getRed(&r, green: &g, blue: &b, alpha: &a)
+        return String(format: "%02x%02x%02x", Int((r * 255).rounded()), Int((g * 255).rounded()), Int((b * 255).rounded()))
+        #else
+        return "000000"
+        #endif
+    }
+
     init(hex: String) {
         let v = UInt32(hex, radix: 16) ?? 0
         self.init(red: Double((v >> 16) & 0xff) / 255, green: Double((v >> 8) & 0xff) / 255, blue: Double(v & 0xff) / 255)
