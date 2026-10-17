@@ -33,6 +33,18 @@ public enum AppAccent: String, CaseIterable, Identifiable {
         }
     }
 
+    /// Color for a stored value: a preset name, or `#rrggbb` picked in the editor.
+    public static func color(for raw: String) -> Color {
+        if raw.hasPrefix("#"), raw.count == 7 { return Color(hex: String(raw.dropFirst())) }
+        return (AppAccent(rawValue: raw) ?? .blue).color
+    }
+
+    public static var storedRaw: String {
+        UserDefaults.standard.string(forKey: storageKey) ?? ""
+    }
+
+    public static var currentColor: Color { color(for: storedRaw) }
+
     public static var current: AppAccent {
         AppAccent(rawValue: UserDefaults.standard.string(forKey: storageKey) ?? "") ?? .blue
     }
@@ -41,7 +53,7 @@ public enum AppAccent: String, CaseIterable, Identifiable {
 extension Color {
     /// The chosen accent. Read when a view is built, so sheets pick up a change when they are
     /// opened again; the main screen observes the setting and rebuilds at once.
-    public static var appAccent: Color { AppAccent.current.color }
+    public static var appAccent: Color { AppAccent.currentColor }
 }
 
 // MARK: - Home screen icon

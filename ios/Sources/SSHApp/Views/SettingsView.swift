@@ -109,6 +109,20 @@ public struct SettingsView: View {
                     }
                 }
                 .padding(.vertical, 6)
+                ColorPicker(selection: Binding(
+                    get: { AppAccent.color(for: accentRaw) },
+                    set: { accentRaw = "#" + $0.hexString }
+                ), supportsOpacity: false) {
+                    HStack {
+                        Text("Custom color")
+                        if accentRaw.hasPrefix("#") {
+                            Text(accentRaw).font(.system(size: 12, design: .monospaced)).foregroundColor(.secondary)
+                        }
+                    }
+                }
+                if accentRaw.hasPrefix("#") {
+                    Button("Back to Blue") { accentRaw = AppAccent.blue.rawValue }
+                }
             }
             Section(
                 header: Text("My color schemes"),

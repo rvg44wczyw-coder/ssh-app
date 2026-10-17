@@ -17,6 +17,6 @@ private struct RootView: View {
 
     var body: some View {
         MainTerminalView()
-            .tint((AppAccent(rawValue: accentRaw) ?? .blue).color)
+            .tint(AppAccent.color(for: accentRaw))
     }
 }

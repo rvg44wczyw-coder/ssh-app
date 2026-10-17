@@ -177,7 +177,7 @@ public struct TerminalContainerView: UIViewRepresentable {
         terminalView.allowMouseReporting = false
 
         // Setup text selection appearance
-        terminalView.selectionHandleColor = UIColor(AppAccent.current.color)
+        terminalView.selectionHandleColor = UIColor(AppAccent.currentColor)
 
         // Setup modern iOS Edit Menu Interaction for text selection actions
         let editInteraction = UIEditMenuInteraction(delegate: context.coordinator)
