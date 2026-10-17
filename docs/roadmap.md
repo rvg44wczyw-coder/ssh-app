@@ -173,7 +173,7 @@
 - **Tests**: 5 unit (marker spoofing, caps, usage text not mistaken for a diff) and a loopback sshd end-to-end test with real git + tmux (changed repo, non-repo, no-commit repo, hostile directory name, missing session).
 
 ### M22 (planned): Files app integration, `docs/features/21-files-provider.md`
-- File Provider extension: servers as locations in the Files app; stage 1 read-only, stage 2 write, stage 3 favourites. Spec reviewed by `rev` (own `RemoteFsClient`, working set, portable `stat`); next: `rust-core-dev`.
+- File Provider extension: servers as locations in the Files app. **Stages 1-2 implemented** (read, download, upload, create folder, rename/move, delete of files and empty folders), hacker pass done (`docs/security-findings/2026-10-17-files-provider.md`). Open: device test, Linux `stat` run, per-server Face ID gate, favourites.
 
 ### M23 (planned): Apple Watch companion for approvals
 - Goal: approve / deny agent requests (and see notices) from the watch. Phone-relay design: the SSHSIG is still produced on the iPhone (key stays in its Keychain); the watch shows the request (tool, command tail, analysis flags, countdown) and sends allow/deny to the phone via WatchConnectivity (`sendMessage` wakes the phone app); notification actions mirrored from the phone give the same buttons. A watch-held key or a direct SSH connection from the watch is rejected: the watch cannot reach the tailnet by itself and a second signing key would widen the trust list on the host.

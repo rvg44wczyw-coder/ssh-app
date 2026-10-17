@@ -868,6 +868,317 @@ public func FfiConverterTypePortForwardHandle_lower(_ value: PortForwardHandle) 
 
 
 
+public protocol RemoteFsClientProtocol: AnyObject, Sendable {
+    
+    func close() async 
+    
+    /**
+     * Deletes a file or an empty folder. Never recursive.
+     */
+    func deleteRemote(path: String) async throws 
+    
+    /**
+     * Streams a regular file to `dest_local_path` (written as `<dest>.part`, renamed when complete).
+     */
+    func downloadRemoteFile(path: String, destLocalPath: String, maxBytes: UInt64, progress: TransferProgress) async throws  -> TransferResult
+    
+    /**
+     * `$HOME` of the login user: the root of the server in the Files app.
+     */
+    func homeDirectory() async throws  -> String
+    
+    func listRemoteEntries(path: String, includeHidden: Bool) async throws  -> [RemoteEntry]
+    
+    func makeRemoteDir(path: String) async throws 
+    
+    /**
+     * Renames or moves `from` to `to`; an existing target is never replaced.
+     */
+    func renameRemote(from: String, to: String) async throws 
+    
+    func statRemote(path: String) async throws  -> RemoteEntry
+    
+    /**
+     * Sends a local file to `dest_path`; without `overwrite` an existing file is never touched.
+     */
+    func uploadRemoteFile(srcLocalPath: String, destPath: String, overwrite: Bool, progress: TransferProgress) async throws  -> TransferResult
+    
+}
+open class RemoteFsClient: RemoteFsClientProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_ssh_core_fn_clone_remotefsclient(self.handle, $0) }
+    }
+    /**
+     * A pinned host key is mandatory: this client never trusts a key on first use.
+     */
+public convenience init(config: RemoteServerConfig)throws  {
+    let handle =
+        try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_constructor_remotefsclient_new(
+        FfiConverterTypeRemoteServerConfig_lower(config),uniffiCallStatus
+    )
+}
+    self.init(unsafeFromHandle: handle)
+}
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_ssh_core_fn_free_remotefsclient(handle, $0) }
+    }
+
+    
+
+    
+open func close()async   {
+    return
+        try!  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_remotefsclient_close(
+                        self.uniffiCloneHandle()
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_void,
+            completeFunc: ffi_ssh_core_rust_future_complete_void,
+            freeFunc: ffi_ssh_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: nil
+            
+        )
+}
+    
+    /**
+     * Deletes a file or an empty folder. Never recursive.
+     */
+open func deleteRemote(path: String)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_remotefsclient_delete_remote(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(path)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_void,
+            completeFunc: ffi_ssh_core_rust_future_complete_void,
+            freeFunc: ffi_ssh_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Streams a regular file to `dest_local_path` (written as `<dest>.part`, renamed when complete).
+     */
+open func downloadRemoteFile(path: String, destLocalPath: String, maxBytes: UInt64, progress: TransferProgress)async throws  -> TransferResult  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_remotefsclient_download_remote_file(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(path),FfiConverterString.lower(destLocalPath),FfiConverterUInt64.lower(maxBytes),FfiConverterCallbackInterfaceTransferProgress_lower(progress)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeTransferResult_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * `$HOME` of the login user: the root of the server in the Files app.
+     */
+open func homeDirectory()async throws  -> String  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_remotefsclient_home_directory(
+                        self.uniffiCloneHandle()
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterString.lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+open func listRemoteEntries(path: String, includeHidden: Bool)async throws  -> [RemoteEntry]  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_remotefsclient_list_remote_entries(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(path),FfiConverterBool.lower(includeHidden)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceTypeRemoteEntry.lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+open func makeRemoteDir(path: String)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_remotefsclient_make_remote_dir(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(path)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_void,
+            completeFunc: ffi_ssh_core_rust_future_complete_void,
+            freeFunc: ffi_ssh_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Renames or moves `from` to `to`; an existing target is never replaced.
+     */
+open func renameRemote(from: String, to: String)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_remotefsclient_rename_remote(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(from),FfiConverterString.lower(to)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_void,
+            completeFunc: ffi_ssh_core_rust_future_complete_void,
+            freeFunc: ffi_ssh_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+open func statRemote(path: String)async throws  -> RemoteEntry  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_remotefsclient_stat_remote(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(path)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeRemoteEntry_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Sends a local file to `dest_path`; without `overwrite` an existing file is never touched.
+     */
+open func uploadRemoteFile(srcLocalPath: String, destPath: String, overwrite: Bool, progress: TransferProgress)async throws  -> TransferResult  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_remotefsclient_upload_remote_file(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(srcLocalPath),FfiConverterString.lower(destPath),FfiConverterBool.lower(overwrite),FfiConverterCallbackInterfaceTransferProgress_lower(progress)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeTransferResult_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRemoteFsClient: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = RemoteFsClient
+
+    public static func lift(_ handle: UInt64) throws -> RemoteFsClient {
+        return RemoteFsClient(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: RemoteFsClient) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RemoteFsClient {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: RemoteFsClient, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRemoteFsClient_lift(_ handle: UInt64) throws -> RemoteFsClient {
+    return try FfiConverterTypeRemoteFsClient.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRemoteFsClient_lower(_ value: RemoteFsClient) -> UInt64 {
+    return FfiConverterTypeRemoteFsClient.lower(value)
+}
+
+
+
+
+
+
 public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     
     /**
@@ -4742,6 +5053,88 @@ public func FfiConverterTypeRemoteDirectoryListing_lower(_ value: RemoteDirector
 }
 
 
+public struct RemoteEntry: Equatable, Hashable {
+    /**
+     * Absolute path on the host.
+     */
+    public var path: String
+    public var name: String
+    /**
+     * `Directory` or `File` (symlinks are reported as what they point to).
+     */
+    public var kind: RemoteFileKind
+    public var size: UInt64
+    public var modifiedUnix: Int64
+    public var mode: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Absolute path on the host.
+         */path: String, name: String, 
+        /**
+         * `Directory` or `File` (symlinks are reported as what they point to).
+         */kind: RemoteFileKind, size: UInt64, modifiedUnix: Int64, mode: UInt32) {
+        self.path = path
+        self.name = name
+        self.kind = kind
+        self.size = size
+        self.modifiedUnix = modifiedUnix
+        self.mode = mode
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension RemoteEntry: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRemoteEntry: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RemoteEntry {
+        return
+            try RemoteEntry(
+                path: FfiConverterString.read(from: &buf), 
+                name: FfiConverterString.read(from: &buf), 
+                kind: FfiConverterTypeRemoteFileKind.read(from: &buf), 
+                size: FfiConverterUInt64.read(from: &buf), 
+                modifiedUnix: FfiConverterInt64.read(from: &buf), 
+                mode: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: RemoteEntry, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.path, into: &buf)
+        FfiConverterString.write(value.name, into: &buf)
+        FfiConverterTypeRemoteFileKind.write(value.kind, into: &buf)
+        FfiConverterUInt64.write(value.size, into: &buf)
+        FfiConverterInt64.write(value.modifiedUnix, into: &buf)
+        FfiConverterUInt32.write(value.mode, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRemoteEntry_lift(_ buf: RustBuffer) throws -> RemoteEntry {
+    return try FfiConverterTypeRemoteEntry.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRemoteEntry_lower(_ value: RemoteEntry) -> RustBuffer {
+    return FfiConverterTypeRemoteEntry.lower(value)
+}
+
+
 public struct RemoteFileEntry: Equatable, Hashable {
     public var name: String
     public var path: String
@@ -5664,6 +6057,56 @@ public func FfiConverterTypeTranscriptTurn_lower(_ value: TranscriptTurn) -> Rus
 }
 
 
+public struct TransferResult: Equatable, Hashable {
+    public var bytes: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(bytes: UInt64) {
+        self.bytes = bytes
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension TransferResult: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTransferResult: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TransferResult {
+        return
+            try TransferResult(
+                bytes: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: TransferResult, into buf: inout [UInt8]) {
+        FfiConverterUInt64.write(value.bytes, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTransferResult_lift(_ buf: RustBuffer) throws -> TransferResult {
+    return try FfiConverterTypeTransferResult.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTransferResult_lower(_ value: TransferResult) -> RustBuffer {
+    return FfiConverterTypeTransferResult.lower(value)
+}
+
+
 public struct UsageWindow: Equatable, Hashable {
     public var input: UInt64
     public var output: UInt64
@@ -6541,6 +6984,15 @@ enum SshCoreError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
     )
     case TranscriptError(reason: String
     )
+    case FileNotFound(path: String
+    )
+    case NotARegularFile(path: String
+    )
+    case AlreadyExists(path: String
+    )
+    case TooLarge(limit: UInt64
+    )
+    case Cancelled
 
     
 
@@ -6628,6 +7080,19 @@ public struct FfiConverterTypeSshCoreError: FfiConverterRustBuffer {
         case 20: return .TranscriptError(
             reason: try FfiConverterString.read(from: &buf)
             )
+        case 21: return .FileNotFound(
+            path: try FfiConverterString.read(from: &buf)
+            )
+        case 22: return .NotARegularFile(
+            path: try FfiConverterString.read(from: &buf)
+            )
+        case 23: return .AlreadyExists(
+            path: try FfiConverterString.read(from: &buf)
+            )
+        case 24: return .TooLarge(
+            limit: try FfiConverterUInt64.read(from: &buf)
+            )
+        case 25: return .Cancelled
 
          default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -6740,6 +7205,30 @@ public struct FfiConverterTypeSshCoreError: FfiConverterRustBuffer {
             writeInt(&buf, Int32(20))
             FfiConverterString.write(reason, into: &buf)
             
+        
+        case let .FileNotFound(path):
+            writeInt(&buf, Int32(21))
+            FfiConverterString.write(path, into: &buf)
+            
+        
+        case let .NotARegularFile(path):
+            writeInt(&buf, Int32(22))
+            FfiConverterString.write(path, into: &buf)
+            
+        
+        case let .AlreadyExists(path):
+            writeInt(&buf, Int32(23))
+            FfiConverterString.write(path, into: &buf)
+            
+        
+        case let .TooLarge(limit):
+            writeInt(&buf, Int32(24))
+            FfiConverterUInt64.write(limit, into: &buf)
+            
+        
+        case .Cancelled:
+            writeInt(&buf, Int32(25))
+        
         }
     }
 }
@@ -7282,6 +7771,165 @@ public func FfiConverterCallbackInterfaceSshSessionCallback_lift(_ handle: UInt6
 #endif
 public func FfiConverterCallbackInterfaceSshSessionCallback_lower(_ v: SshSessionCallback) -> UInt64 {
     return FfiConverterCallbackInterfaceSshSessionCallback.lower(v)
+}
+
+
+
+
+public protocol TransferProgress: AnyObject, Sendable {
+    
+    func onProgress(bytes: UInt64) 
+    
+    func isCancelled()  -> Bool
+    
+}
+
+
+// Put the implementation in a struct so we don't pollute the top-level namespace
+fileprivate struct UniffiCallbackInterfaceTransferProgress {
+
+    // Create the VTable using a series of closures.
+    // Swift automatically converts these into C callback functions.
+    //
+    // Store the vtable directly.
+    static let vtable: UniffiVTableCallbackInterfaceTransferProgress = UniffiVTableCallbackInterfaceTransferProgress(
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            do {
+                try FfiConverterCallbackInterfaceTransferProgress.handleMap.remove(handle: uniffiHandle)
+            } catch {
+                print("Uniffi callback interface TransferProgress: handle missing in uniffiFree")
+            }
+        },
+        uniffiClone: { (uniffiHandle: UInt64) -> UInt64 in
+            do {
+                return try FfiConverterCallbackInterfaceTransferProgress.handleMap.clone(handle: uniffiHandle)
+            } catch {
+                fatalError("Uniffi callback interface TransferProgress: handle missing in uniffiClone")
+            }
+        },
+        onProgress: { (
+            uniffiHandle: UInt64,
+            bytes: UInt64,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceTransferProgress.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onProgress(
+                     bytes: try FfiConverterUInt64.lift(bytes)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        isCancelled: { (
+            uniffiHandle: UInt64,
+            uniffiOutReturn: UnsafeMutablePointer<Int8>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> Bool in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceTransferProgress.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.isCancelled(
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterBool.lower($0) }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        }
+    )
+
+    // Rust stores this pointer for future callback invocations, so it must live
+    // for the process lifetime (not just for the init function call).
+    //
+    // `nonisolated(unsafe)` is needed under Swift 6 strict concurrency.
+    // This is safe because the pointee is initialized once during static init
+    // and never mutated by either side of the FFI.  Its fields are C function pointers.
+    nonisolated(unsafe) static let vtablePtr: UnsafePointer<UniffiVTableCallbackInterfaceTransferProgress> = {
+        let ptr = UnsafeMutablePointer<UniffiVTableCallbackInterfaceTransferProgress>.allocate(capacity: 1)
+        ptr.initialize(to: vtable)
+        return UnsafePointer(ptr)
+    }()
+}
+
+private func uniffiCallbackInitTransferProgress() {
+    uniffi_ssh_core_fn_init_callback_vtable_transferprogress(UniffiCallbackInterfaceTransferProgress.vtablePtr)
+}
+
+// FfiConverter protocol for callback interfaces
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterCallbackInterfaceTransferProgress {
+    fileprivate static let handleMap = UniffiHandleMap<TransferProgress>()
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+extension FfiConverterCallbackInterfaceTransferProgress : FfiConverter {
+    typealias SwiftType = TransferProgress
+    typealias FfiType = UInt64
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func lift(_ handle: UInt64) throws -> SwiftType {
+        try handleMap.get(handle: handle)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func lower(_ v: SwiftType) -> UInt64 {
+        return handleMap.insert(obj: v)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func write(_ v: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(v))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterCallbackInterfaceTransferProgress_lift(_ handle: UInt64) throws -> TransferProgress {
+    return try FfiConverterCallbackInterfaceTransferProgress.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterCallbackInterfaceTransferProgress_lower(_ v: TransferProgress) -> UInt64 {
+    return FfiConverterCallbackInterfaceTransferProgress.lower(v)
 }
 
 #if swift(>=5.8)
@@ -7896,6 +8544,31 @@ fileprivate struct FfiConverterSequenceTypePortForwardInfo: FfiConverterRustBuff
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypePortForwardInfo.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeRemoteEntry: FfiConverterRustBuffer {
+    typealias SwiftType = [RemoteEntry]
+
+    public static func write(_ value: [RemoteEntry], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeRemoteEntry.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [RemoteEntry] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [RemoteEntry]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeRemoteEntry.read(from: &buf))
         }
         return seq
     }
@@ -9248,6 +9921,33 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_method_portforwardhandle_stop() != 35538) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_method_remotefsclient_close() != 53057) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_remotefsclient_delete_remote() != 8090) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_remotefsclient_download_remote_file() != 61222) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_remotefsclient_home_directory() != 45289) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_remotefsclient_list_remote_entries() != 44732) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_remotefsclient_make_remote_dir() != 60537) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_remotefsclient_rename_remote() != 26838) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_remotefsclient_stat_remote() != 24929) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_remotefsclient_upload_remote_file() != 35010) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_acknowledge_notification() != 18301) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -9383,7 +10083,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_stop_all_port_forwards() != 215) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_constructor_remotefsclient_new() != 27458) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_constructor_sshsessionhandle_new() != 21965) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_transferprogress_on_progress() != 17866) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_transferprogress_is_cancelled() != 49798) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessioncallback_on_state_changed() != 19101) {
@@ -9397,6 +10106,7 @@ private let initializationResult: InitializationResult = {
     }
 
     uniffiCallbackInitSshSessionCallback()
+    uniffiCallbackInitTransferProgress()
     return InitializationResult.ok
 }()
 

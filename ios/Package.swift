@@ -24,7 +24,8 @@ let package = Package(
                 "SshCoreBridge",
                 .product(name: "SwiftTerm", package: "SwiftTerm")
             ],
-            path: "Sources/SSHApp"
+            path: "Sources",
+            sources: ["SSHApp", "Shared"]
         ),
         .testTarget(
             name: "SSHAppTests",

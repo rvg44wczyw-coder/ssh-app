@@ -1,5 +1,7 @@
 # 21. Files app integration (File Provider)
 
+> **Status: implemented (stages 1 and 2)**, see "11. Implementation notes" at the end. Not yet exercised on a device or in the Files app (no simulator on the dev machine; the signed install needs the unlocked login keychain).
+
 - **Slug**: `files-provider`
 - **Milestone**: M22 (stage 1 read-only, stage 2 write, stage 3 favourites)
 - **Roles**: `doc-dev` → `rev` → `rust-core-dev` → `rev` → `swift-bridge-dev` → `rev` → `ios-ui-dev` → `rev` → `hacker`
@@ -143,3 +145,37 @@ Rust coverage target >= 80 % for `remote_fs`.
 - Decide the default per-download cap and whether to show system-wide notifications for failed transfers.
 - Verify the Rust XCFramework size/linking works inside an app extension (same binary linked twice, +size).
 - Payments (off): file transfer stays free; keep it in mind if limits are enabled later.
+
+## 11. Implementation notes (what was built, and where it differs from the plan)
+- **Core**: `crates/core/src/remote_fs.rs` - `RemoteFsClient` (UniFFI object, own connection, pinned host key mandatory),
+  `home_directory`, `stat_remote`, `list_remote_entries`, `download_remote_file`, `upload_remote_file`, `make_remote_dir`,
+  `rename_remote`, `delete_remote` (files and empty folders only), `TransferProgress` callback (progress + cancel).
+  Transport additions: `ExecStream` (binary streaming exec channel). New errors: `FileNotFound`, `NotARegularFile`,
+  `AlreadyExists`, `TooLarge`, `Cancelled`. Blocklist extended (`/library/keychains`, `.zsh_history`, `.bash_history`,
+  `.docker/config.json`, `.config/gh/hosts.yml`).
+- **Listing** is portable: the script detects GNU or BSD `stat` (`-L`, symlinks reported as what they point to), one
+  tab-separated line per entry; broken links, sockets, devices and FIFOs are skipped. Header lines are only trusted before the
+  first entry (a file name with a newline cannot forge `FS_ERR`/`FS_DIR`). Checked here on BSD `stat` (macOS) only; the GNU
+  branch is covered by the parser tests but not run on a Linux host.
+- **Shared data without an App Group**: the servers (host, port, user, key id, pinned host key, root folder) are published as a
+  Keychain item in the app's own access group (`$(AppIdentifierPrefix)com.semenov.sshapp`, entitlement
+  `keychain-access-groups` on app and extension). The extension reads the item and the private key from that group. No migration
+  is needed (existing items already live in that group) and no portal setup beyond the extension's own App ID. This replaces
+  the App Group + key migration of section 4. Only servers with a pinned host key are published; "Show in Files" and the root
+  folder are per server (`ServerProfile.showInFiles`, `filesFolder`).
+- **Extension** `ios/SSHAppFiles` (`NSFileProviderReplicatedExtension`, bundle `com.semenov.sshapp.files`): one domain per server
+  (`FilesIntegration.refresh` adds/removes domains whenever servers change), `ConnectionPool` actor (one connection, closed after
+  15 s idle), enumerators with in-memory snapshots (anchor = folder fingerprint; after an extension restart the anchor is
+  `syncAnchorExpired` and the folder is listed again), empty working set (changes are found when a folder is opened or refreshed),
+  create/modify (content, rename, move)/delete, download to the provider's temporary directory. Item ids: `p:` + base64url(path).
+- **Differences from the plan**: no `itemVersion` based on `dev:inode` (stage 2 rename keeps path ids; a rename is reported as
+  update of the new id and deletion of the old); no Face ID gate (stage 3); "Save to Files" in the in-app browser not done
+  (the Files location covers the use case).
+- **Review findings fixed** (hacker pass, `docs/security-findings/2026-10-17-files-provider.md`): writes through a symlinked folder
+  (mkdir/rename/delete/upload) were only checked lexically - the parent is now resolved and re-checked; the upload temp file
+  is unique per process and opened with `set -C`; a first upload into an existing file stalled - existence is checked up front
+  and a stalled write ends with the command's exit status.
+- **Tests**: 13 unit + 2 real-shell script tests in `remote_fs.rs`, one loopback sshd end-to-end test (list, hostile links,
+  3 MB download/upload byte-exact, cancel, size cap, no-overwrite, mkdir/rename/delete, writes through links into `.ssh`, wrong
+  host key), Swift tests `FilesIntegrationTests` (item path codec, shared-server filter, old saved servers still decode); built
+  with `build-for-testing`, not run (no simulator).

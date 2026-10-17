@@ -11,6 +11,7 @@ public final class ServerProfilesManager: ObservableObject {
 
     public init() {
         loadProfiles()
+        FilesIntegration.refresh(profiles: profiles)
     }
 
     public var activeProfile: ServerProfile? {
@@ -141,5 +142,6 @@ public final class ServerProfilesManager: ObservableObject {
         if let activeId = activeProfileId {
             UserDefaults.standard.set(activeId.uuidString, forKey: Self.activeIdKey)
         }
+        FilesIntegration.refresh(profiles: profiles)
     }
 }

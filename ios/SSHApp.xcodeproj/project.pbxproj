@@ -59,6 +59,17 @@
 		AA000051 /* PaywallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000051 /* PaywallView.swift */; };
 		AA000052 /* HookTemplatesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000052 /* HookTemplatesView.swift */; };
 		AA000053 /* TerminalFolder.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000053 /* TerminalFolder.swift */; };
+		AA000055 /* SharedServers.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000055 /* SharedServers.swift */; };
+		AA000056 /* FilesIntegration.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000056 /* FilesIntegration.swift */; };
+		AA000057 /* ConnectionPool.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000057 /* ConnectionPool.swift */; };
+		AA000058 /* RemoteItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000058 /* RemoteItem.swift */; };
+		AA000059 /* ErrorMapping.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000059 /* ErrorMapping.swift */; };
+		AA000060 /* RemoteEnumerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000060 /* RemoteEnumerator.swift */; };
+		AA000061 /* FileProviderExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000061 /* FileProviderExtension.swift */; };
+		AA000066 /* SharedServers.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000055 /* SharedServers.swift */; };
+		AA000067 /* SSHAppFiles.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = BB000065 /* SSHAppFiles.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		AA000069 /* ItemPath.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000066 /* ItemPath.swift */; };
+		AA000068 /* SshCoreBridge in Frameworks */ = {isa = PBXBuildFile; productRef = CC000003 /* SshCoreBridge */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -113,6 +124,18 @@
 		BB000051 /* PaywallView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/PaywallView.swift; sourceTree = "<group>"; };
 		BB000052 /* HookTemplatesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/HookTemplatesView.swift; sourceTree = "<group>"; };
 		BB000053 /* TerminalFolder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models/TerminalFolder.swift; sourceTree = "<group>"; };
+		BB000055 /* SharedServers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedServers.swift; sourceTree = "<group>"; };
+		BB000056 /* FilesIntegration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/FilesIntegration.swift; sourceTree = "<group>"; };
+		BB000057 /* ConnectionPool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionPool.swift; sourceTree = "<group>"; };
+		BB000058 /* RemoteItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteItem.swift; sourceTree = "<group>"; };
+		BB000059 /* ErrorMapping.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ErrorMapping.swift; sourceTree = "<group>"; };
+		BB000060 /* RemoteEnumerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteEnumerator.swift; sourceTree = "<group>"; };
+		BB000061 /* FileProviderExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileProviderExtension.swift; sourceTree = "<group>"; };
+		BB000066 /* ItemPath.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ItemPath.swift; sourceTree = "<group>"; };
+		BB000062 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		BB000063 /* SSHAppFiles.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SSHAppFiles.entitlements; sourceTree = "<group>"; };
+		BB000064 /* SSHApp.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SSHApp.entitlements; sourceTree = "<group>"; };
+		BB000065 /* SSHAppFiles.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = SSHAppFiles.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -125,7 +148,47 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		DD000011 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA000068 /* SshCoreBridge in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		DD000013 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				AA000067 /* SSHAppFiles.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXContainerItemProxy section */
+		PX000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 00000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = FF000002;
+			remoteInfo = SSHAppFiles;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXTargetDependency section */
+		TD000001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = FF000002 /* SSHAppFiles */;
+			targetProxy = PX000001 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin PBXGroup section */
 		EE000000 = {
@@ -135,7 +198,33 @@
 				EE000002 /* Products */,
 				EE000003 /* Frameworks */,
 				BB000030 /* Assets.xcassets */,
+				BB000064 /* SSHApp.entitlements */,
+				EE000010 /* SSHAppFiles */,
+				EE000011 /* Shared */,
 			);
+			sourceTree = "<group>";
+		};
+		EE000010 /* SSHAppFiles */ = {
+			isa = PBXGroup;
+			children = (
+				BB000057 /* ConnectionPool.swift */,
+				BB000058 /* RemoteItem.swift */,
+				BB000059 /* ErrorMapping.swift */,
+				BB000060 /* RemoteEnumerator.swift */,
+				BB000061 /* FileProviderExtension.swift */,
+				BB000062 /* Info.plist */,
+				BB000063 /* SSHAppFiles.entitlements */,
+			);
+			path = SSHAppFiles;
+			sourceTree = "<group>";
+		};
+		EE000011 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				BB000055 /* SharedServers.swift */,
+				BB000066 /* ItemPath.swift */,
+			);
+			path = Sources/Shared;
 			sourceTree = "<group>";
 		};
 		EE000001 /* Sources */ = {
@@ -190,6 +279,7 @@
 				BB000038 /* CommandPaletteSheetView.swift */,
 				BB000039 /* HostMonitorClient.swift */,
 				BB000029 /* AgentProfile.swift */,
+				BB000056 /* FilesIntegration.swift */,
 			);
 			path = Sources/SSHApp;
 			sourceTree = "<group>";
@@ -198,6 +288,7 @@
 			isa = PBXGroup;
 			children = (
 				BB000000 /* SSHApp.app */,
+				BB000065 /* SSHAppFiles.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -219,10 +310,12 @@
 				DD000002 /* Sources */,
 				DD000001 /* Frameworks */,
 				DD000003 /* Resources */,
+				DD000013 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				TD000001 /* PBXTargetDependency */,
 			);
 			name = SSHApp;
 			packageProductDependencies = (
@@ -232,6 +325,25 @@
 			productName = SSHApp;
 			productReference = BB000000 /* SSHApp.app */;
 			productType = "com.apple.product-type.application";
+		};
+		FF000002 /* SSHAppFiles */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = GG000002 /* Build configuration list for PBXNativeTarget "SSHAppFiles" */;
+			buildPhases = (
+				DD000012 /* Sources */,
+				DD000011 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = SSHAppFiles;
+			packageProductDependencies = (
+				CC000003 /* SshCoreBridge */,
+			);
+			productName = SSHAppFiles;
+			productReference = BB000065 /* SSHAppFiles.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -243,6 +355,11 @@
 				LastUpgradeCheck = 1520;
 				TargetAttributes = {
 					FF000001 = {
+						CreatedOnToolsVersion = 15.2;
+						DevelopmentTeam = JJ5UK9N5JM;
+						ProvisioningStyle = Automatic;
+					};
+					FF000002 = {
 						CreatedOnToolsVersion = 15.2;
 						DevelopmentTeam = JJ5UK9N5JM;
 						ProvisioningStyle = Automatic;
@@ -267,6 +384,7 @@
 			projectRoot = "";
 			targets = (
 				FF000001 /* SSHApp */,
+				FF000002 /* SSHAppFiles */,
 			);
 		};
 /* End PBXProject section */
@@ -336,6 +454,22 @@
 				AA000038 /* CommandPaletteSheetView.swift in Sources */,
 				AA000039 /* HostMonitorClient.swift in Sources */,
 				AA000029 /* AgentProfile.swift in Sources */,
+				AA000055 /* SharedServers.swift in Sources */,
+				AA000056 /* FilesIntegration.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DD000012 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA000057 /* ConnectionPool.swift in Sources */,
+				AA000058 /* RemoteItem.swift in Sources */,
+				AA000059 /* ErrorMapping.swift in Sources */,
+				AA000060 /* RemoteEnumerator.swift in Sources */,
+				AA000061 /* FileProviderExtension.swift in Sources */,
+				AA000066 /* SharedServers.swift in Sources */,
+				AA000069 /* ItemPath.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -398,6 +532,7 @@
 				ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = "AppIcon-Blue AppIcon-Teal AppIcon-Green AppIcon-Orange AppIcon-Red AppIcon-Pink AppIcon-Purple AppIcon-Light AppIcon-GridMinimal AppIcon-GridMinimal-Blue AppIcon-GridMinimal-Teal AppIcon-GridMinimal-Green AppIcon-GridMinimal-Orange AppIcon-GridMinimal-Red AppIcon-GridMinimal-Pink AppIcon-GridMinimal-Purple AppIcon-GridPrompts AppIcon-GridPrompts-Blue AppIcon-GridPrompts-Teal AppIcon-GridPrompts-Green AppIcon-GridPrompts-Orange AppIcon-GridPrompts-Red AppIcon-GridPrompts-Pink AppIcon-GridPrompts-Purple AppIcon-GridRounded AppIcon-GridRounded-Blue AppIcon-GridRounded-Teal AppIcon-GridRounded-Green AppIcon-GridRounded-Orange AppIcon-GridRounded-Red AppIcon-GridRounded-Pink AppIcon-GridRounded-Purple AppIcon-GridSymbols AppIcon-GridSymbols-Blue AppIcon-GridSymbols-Teal AppIcon-GridSymbols-Green AppIcon-GridSymbols-Orange AppIcon-GridSymbols-Red AppIcon-GridSymbols-Pink AppIcon-GridSymbols-Purple AppIcon-GridSymbolsBold AppIcon-GridSymbolsBold-Blue AppIcon-GridSymbolsBold-Teal AppIcon-GridSymbolsBold-Green AppIcon-GridSymbolsBold-Orange AppIcon-GridSymbolsBold-Red AppIcon-GridSymbolsBold-Pink AppIcon-GridSymbolsBold-Purple";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = SSHApp.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "";
@@ -429,6 +564,7 @@
 				ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = "AppIcon-Blue AppIcon-Teal AppIcon-Green AppIcon-Orange AppIcon-Red AppIcon-Pink AppIcon-Purple AppIcon-Light AppIcon-GridMinimal AppIcon-GridMinimal-Blue AppIcon-GridMinimal-Teal AppIcon-GridMinimal-Green AppIcon-GridMinimal-Orange AppIcon-GridMinimal-Red AppIcon-GridMinimal-Pink AppIcon-GridMinimal-Purple AppIcon-GridPrompts AppIcon-GridPrompts-Blue AppIcon-GridPrompts-Teal AppIcon-GridPrompts-Green AppIcon-GridPrompts-Orange AppIcon-GridPrompts-Red AppIcon-GridPrompts-Pink AppIcon-GridPrompts-Purple AppIcon-GridRounded AppIcon-GridRounded-Blue AppIcon-GridRounded-Teal AppIcon-GridRounded-Green AppIcon-GridRounded-Orange AppIcon-GridRounded-Red AppIcon-GridRounded-Pink AppIcon-GridRounded-Purple AppIcon-GridSymbols AppIcon-GridSymbols-Blue AppIcon-GridSymbols-Teal AppIcon-GridSymbols-Green AppIcon-GridSymbols-Orange AppIcon-GridSymbols-Red AppIcon-GridSymbols-Pink AppIcon-GridSymbols-Purple AppIcon-GridSymbolsBold AppIcon-GridSymbolsBold-Blue AppIcon-GridSymbolsBold-Teal AppIcon-GridSymbolsBold-Green AppIcon-GridSymbolsBold-Orange AppIcon-GridSymbolsBold-Red AppIcon-GridSymbolsBold-Pink AppIcon-GridSymbolsBold-Purple";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = SSHApp.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "";
@@ -453,6 +589,55 @@
 			};
 			name = Release;
 		};
+		11000005 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = SSHAppFiles/SSHAppFiles.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = JJ5UK9N5JM;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = SSHAppFiles/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.semenov.sshapp.files;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		11000006 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = SSHAppFiles/SSHAppFiles.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = JJ5UK9N5JM;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = SSHAppFiles/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.semenov.sshapp.files;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -470,6 +655,15 @@
 			buildConfigurations = (
 				11000003 /* Debug */,
 				11000004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		GG000002 /* Build configuration list for PBXNativeTarget "SSHAppFiles" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				11000005 /* Debug */,
+				11000006 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
@@ -503,6 +697,10 @@
 			isa = XCSwiftPackageProductDependency;
 			package = PP000001 /* XCRemoteSwiftPackageReference "SwiftTerm" */;
 			productName = SwiftTerm;
+		};
+		CC000003 /* SshCoreBridge */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = SshCoreBridge;
 		};
 /* End CSProductDependency section */
 

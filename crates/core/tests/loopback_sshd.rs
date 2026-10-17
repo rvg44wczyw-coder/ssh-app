@@ -2349,6 +2349,40 @@ fn remote_fs_lists_downloads_uploads_and_edits_on_loopback_sshd() {
             .unwrap();
         client.delete_remote(to(work.join("d1"))).await.unwrap();
         assert!(!work.join("d1").exists());
+        // Writes through a link into the key folder are refused, nothing lands there.
+        std::fs::write(home.join(".ssh/known"), "k").unwrap();
+        assert!(client
+            .make_remote_dir(to(work.join("keys/newdir")))
+            .await
+            .is_err());
+        assert!(!home.join(".ssh/newdir").exists());
+        assert!(client
+            .delete_remote(to(work.join("keys/known")))
+            .await
+            .is_err());
+        assert!(client
+            .rename_remote(to(work.join("keys/known")), to(work.join("stolen")))
+            .await
+            .is_err());
+        assert!(client
+            .rename_remote(to(work.join("big.bin")), to(work.join("keys/planted")))
+            .await
+            .is_err());
+        assert!(
+            home.join(".ssh/known").exists()
+                && !work.join("stolen").exists()
+                && !home.join(".ssh/planted").exists()
+        );
+        assert!(client
+            .upload_remote_file(
+                to(server._dir.path().join("up.bin")),
+                to(work.join("keys/up")),
+                true,
+                prog()
+            )
+            .await
+            .is_err());
+        assert!(!home.join(".ssh/up").exists());
         assert!(client.delete_remote("/".into()).await.is_err());
         assert!(client
             .delete_remote(to(home.join(".ssh/id_rsa")))

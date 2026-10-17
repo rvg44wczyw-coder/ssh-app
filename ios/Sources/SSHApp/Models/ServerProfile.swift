@@ -12,6 +12,10 @@ public struct ServerProfile: Identifiable, Codable, Equatable, Hashable, Sendabl
     public var hostKeyFingerprint: String?
     /// Which SSH key signs in to this server (`SSHKeyStore`); `nil` = the default key.
     public var keyId: String?
+    /// Show this server in the Files app (`nil` = yes, once a host key is pinned).
+    public var showInFiles: Bool?
+    /// Folder that is the root of the server in Files (`nil` / empty = the home folder).
+    public var filesFolder: String?
 
     public init(
         id: UUID = UUID(),
@@ -21,7 +25,9 @@ public struct ServerProfile: Identifiable, Codable, Equatable, Hashable, Sendabl
         username: String,
         isDefault: Bool = false,
         hostKeyFingerprint: String? = nil,
-        keyId: String? = nil
+        keyId: String? = nil,
+        showInFiles: Bool? = nil,
+        filesFolder: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -31,5 +37,7 @@ public struct ServerProfile: Identifiable, Codable, Equatable, Hashable, Sendabl
         self.isDefault = isDefault
         self.hostKeyFingerprint = hostKeyFingerprint
         self.keyId = keyId
+        self.showInFiles = showInFiles
+        self.filesFolder = filesFolder
     }
 }

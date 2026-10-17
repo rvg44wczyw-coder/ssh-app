@@ -300,14 +300,13 @@ fn download_command(path: &str) -> String {
 
 fn upload_command(path: &str, overwrite: bool) -> String {
     let q = shell_quote(path);
-    let tmp = shell_quote(&format!("{path}.part"));
     let check = if overwrite {
         "[ ! -d \"$d\" ]".to_string()
     } else {
         "[ ! -e \"$d\" ]".to_string()
     };
     let script = format!(
-        "d={q}; t={tmp}; umask 077; {check} || exit 4; cat > \"$t\" || {{ rm -f \"$t\"; exit 1; }}; \
+        "set -C; d={q}; t=\"$d.part.$$\"; umask 077; {check} || exit 4; cat > \"$t\" || {{ rm -f \"$t\"; exit 1; }}; \
          {check} || {{ rm -f \"$t\"; exit 4; }}; mv -f \"$t\" \"$d\" || {{ rm -f \"$t\"; exit 1; }}"
     );
     format!("sh -c {}", shell_quote(&script))
@@ -382,6 +381,19 @@ impl RemoteFsClient {
             });
         }
         clean_allowed(resolved)
+    }
+
+    /// `path` with its folder resolved (symlinks followed) and checked again: a link inside an
+    /// allowed folder must not let a write land in a blocked one.
+    async fn resolved_child(&self, path: &str) -> Result<String, SshCoreError> {
+        let parent = self.resolve(&parent_of(path)).await?;
+        let child = if parent == "/" {
+            format!("/{}", name_of(path))
+        } else {
+            format!("{parent}/{}", name_of(path))
+        };
+        check_allowed(&child)?;
+        Ok(child)
     }
 
     async fn run_checked(&self, script: String, path: &str) -> Result<(), SshCoreError> {
@@ -516,14 +528,11 @@ impl RemoteFsClient {
         overwrite: bool,
         progress: Box<dyn TransferProgress>,
     ) -> Result<TransferResult, SshCoreError> {
-        let dest = clean_allowed(&dest_path)?;
-        let parent = self.resolve(&parent_of(&dest)).await?;
-        let dest = if parent == "/" {
-            format!("/{}", name_of(&dest))
-        } else {
-            format!("{parent}/{}", name_of(&dest))
-        };
-        check_allowed(&dest)?;
+        let dest = self.resolved_child(&clean_allowed(&dest_path)?).await?;
+        // Answer "exists" at once instead of streaming into a command that has already stopped.
+        if !overwrite && self.stat_remote(dest.clone()).await.is_ok() {
+            return Err(SshCoreError::AlreadyExists { path: dest });
+        }
         let mut file =
             tokio::fs::File::open(&src_local_path)
                 .await
@@ -591,7 +600,7 @@ impl RemoteFsClient {
     }
 
     pub async fn make_remote_dir(&self, path: String) -> Result<(), SshCoreError> {
-        let p = clean_allowed(&path)?;
+        let p = self.resolved_child(&clean_allowed(&path)?).await?;
         self.run_checked(format!("mkdir -- {}", shell_quote(&p)), &p)
             .await
     }
@@ -602,6 +611,10 @@ impl RemoteFsClient {
         if a == "/" || b == "/" {
             return Err(invalid("Cannot move the root"));
         }
+        let (a, b) = (
+            self.resolved_child(&a).await?,
+            self.resolved_child(&b).await?,
+        );
         let script = format!(
             "[ -e {a} ] || exit 3; [ ! -e {b} ] && [ ! -L {b} ] || exit 4; mv -- {a} {b}",
             a = shell_quote(&a),
@@ -616,6 +629,7 @@ impl RemoteFsClient {
         if p == "/" {
             return Err(invalid("Cannot delete the root"));
         }
+        let p = self.resolved_child(&p).await?;
         let q = shell_quote(&p);
         self.run_checked(
             format!("if [ -d {q} ] && [ ! -L {q} ]; then rmdir -- {q}; else rm -- {q}; fi"),

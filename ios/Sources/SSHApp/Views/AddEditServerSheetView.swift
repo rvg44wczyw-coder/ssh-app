@@ -14,6 +14,8 @@ public struct AddEditServerSheetView: View {
     @State private var errorMessage: String? = nil
     @State private var forgetHostKey = false
     @State private var keyId: String? = nil
+    @State private var showInFiles: Bool = true
+    @State private var filesFolder: String = ""
     @ObservedObject private var keys = SSHKeyStore.shared
 
     public init(
@@ -28,6 +30,8 @@ public struct AddEditServerSheetView: View {
         _username = State(initialValue: existingProfile?.username ?? "")
         _isDefault = State(initialValue: existingProfile?.isDefault ?? false)
         _keyId = State(initialValue: existingProfile?.keyId)
+        _showInFiles = State(initialValue: existingProfile?.showInFiles ?? true)
+        _filesFolder = State(initialValue: existingProfile?.filesFolder ?? "")
     }
 
     public var body: some View {
@@ -77,6 +81,19 @@ public struct AddEditServerSheetView: View {
                     Picker("Key", selection: $keyId) {
                         Text("Default key").tag(String?.none)
                         ForEach(keys.extra) { k in Text(k.name).tag(String?.some(k.id)) }
+                    }
+                }
+
+                Section(
+                    header: Text("Files app"),
+                    footer: Text("Shows this server as a location in the Files app: browse folders and save files to the phone. It appears after the first successful connection (the host key must be pinned). The root is the home folder unless you set another one, as an absolute path, e.g. /Users/me/Terminals.")
+                ) {
+                    Toggle("Show in Files", isOn: $showInFiles)
+                    if showInFiles {
+                        TextField("Root folder (absolute path, optional)", text: $filesFolder)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .font(.system(size: 14, design: .monospaced))
                     }
                 }
 
@@ -134,7 +151,9 @@ public struct AddEditServerSheetView: View {
             username: trimmedUser,
             isDefault: isDefault,
             hostKeyFingerprint: keptHostKey(host: trimmedHost),
-            keyId: keyId
+            keyId: keyId,
+            showInFiles: showInFiles ? nil : false,
+            filesFolder: filesFolder.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : filesFolder.trimmingCharacters(in: .whitespacesAndNewlines)
         )
 
         onSave(profile)
