@@ -13,7 +13,7 @@ Products (ids in `ProPlan`, must match App Store Connect): `com.semenov.sshapp.p
 - `Views/PaywallView.swift`: benefits, plans with trial text and price, **Restore Purchases** (`AppStore.sync()`), Manage subscription, auto-renewal terms. Opened from a limit or from Settings → SSH-App Pro.
 
 ## On/off switch
-The whole payment system is optional. It is a build option: the compilation condition `PAYMENTS` (Active Compilation Conditions; set for Debug and Release now). Remove it and the app has no limits, no paywall and no Settings row. Debug builds also have a runtime switch in Settings → SSH-App Pro. There is deliberately no switch in release builds, otherwise users could turn the limits off.
+The whole payment system is optional. It is a build option: the compilation condition `PAYMENTS` (Active Compilation Conditions). **On `main` it is currently off** (the app is free for now: no limits, no paywall, no Settings row); `feature/payments` has it on for Debug and Release. To switch on: add `PAYMENTS` to the project's Active Compilation Conditions (Debug: `DEBUG PAYMENTS`, Release: `PAYMENTS`). Remove it and the app has no limits, no paywall and no Settings row. Debug builds also have a runtime switch in Settings → SSH-App Pro. There is deliberately no switch in release builds, otherwise users could turn the limits off.
 
 ## Testing locally
 Select `ios/SSHApp.storekit` under Product → Scheme → Edit Scheme → Run → Options → StoreKit Configuration (the repo has no shared scheme). Then purchases, trials, renewals and refunds are simulated in Xcode (Debug → StoreKit → Manage Transactions). The unit tests (`SubscriptionTests`) cover limits, the on/off rule and entitlement expiry/revocation; they build but have not been run (no simulator on this machine).
