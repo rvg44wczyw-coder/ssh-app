@@ -61,6 +61,7 @@ public struct SettingsView: View {
 
     @AppStorage(AppAccent.storageKey) private var accentRaw: String = AppAccent.blue.rawValue
     @State private var schemeRefresh = 0
+    @AppStorage("usage_strip_enabled") private var usageStripEnabled: Bool = true
 
     @State private var iconChoice: AppIconChoice = .standard
     @State private var editingScheme: TerminalScheme?
@@ -246,6 +247,12 @@ public struct SettingsView: View {
                     Text("Always").tag(AiAssistantVisibility.always.rawValue)
                     Text("Never").tag(AiAssistantVisibility.never.rawValue)
                 }
+            }
+            Section(
+                header: Text("Model usage line"),
+                footer: Text("A thin line under the tabs: model, how full its context is, Claude tokens of the last 5 hours and a notice when a limit is reached. It asks the host every 90 s while the app is open and is not your plan's remaining quota. Tap it to refresh.")
+            ) {
+                Toggle("Show under the tabs", isOn: $usageStripEnabled)
             }
                 Section(header: Text("Terminal Font Size")) {
                     HStack {

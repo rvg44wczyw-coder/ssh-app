@@ -46,6 +46,8 @@ public struct MainTerminalView: View {
     @State private var showServerPicker: Bool = false
     @State private var showActionPanel: Bool = false
     @State private var showSessionPanel: Bool = false
+    @StateObject private var usageMonitor = SessionUsageMonitor()
+    @AppStorage("usage_strip_enabled") private var usageStripEnabled: Bool = true
     @State private var serverStatuses: [UUID: ServerReachability] = [:]
     @State private var pingingServers: [ServerProfile] = []
     @State private var serverPickerContext: ServerPickerContext = .startup
@@ -57,6 +59,19 @@ public struct MainTerminalView: View {
         #if canImport(UIKit)
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         #endif
+    }
+
+    private func refreshUsage(force: Bool = false) {
+        guard usageStripEnabled, scenePhase == .active,
+              let session = tabsManager.activeSession,
+              tabsManager.activeViewModel?.state == .connected else { return }
+        let server = serversManager.profile(for: session.serverId) ?? serversManager.activeProfile
+        usageMonitor.refresh(
+            sessionName: session.sessionName,
+            server: server,
+            configDirs: agentProfiles.profiles.filter { $0.agent == .claudeCode }.compactMap { $0.configDir },
+            force: force
+        )
     }
 
     private func presentSheet(_ sheet: ActiveModalSheet) {
@@ -118,6 +133,10 @@ public struct MainTerminalView: View {
 
 
                 Divider()
+
+                if usageStripEnabled {
+                    SessionUsageStrip(monitor: usageMonitor) { refreshUsage(force: true) }
+                }
 
                 ForEach(approvals.notices) { notice in
                     ApprovalNoticeView(entry: notice) {
@@ -378,6 +397,18 @@ public struct MainTerminalView: View {
             }
             .onChange(of: scenePhase) { _, newPhase in
                 handleScenePhaseChange(newPhase)
+            }
+            // Model usage line: first read shortly after a tab is shown (the host session is
+            // starting), then every 90 s while the app is in the foreground.
+            .task(id: tabsManager.selectedSessionId) {
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                while !Task.isCancelled {
+                    refreshUsage()
+                    try? await Task.sleep(nanoseconds: 90_000_000_000)
+                }
+            }
+            .onChange(of: tabsManager.activeViewModel?.state) { _, state in
+                if state == .connected { refreshUsage() }
             }
         }
     }

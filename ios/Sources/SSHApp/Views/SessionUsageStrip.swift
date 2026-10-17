@@ -1,0 +1,92 @@
+import SwiftUI
+import SshCoreBridge
+
+/// Reads the model usage of the current tab from the host (one read-only probe, own SSH
+/// connection) so the main screen can show it. Only runs while the app is in the foreground.
+@MainActor
+final class SessionUsageMonitor: ObservableObject {
+    @Published private(set) var usage: SessionUsage?
+    @Published private(set) var report: HostUsageReport?
+    @Published private(set) var loading = false
+    @Published private(set) var updated: Date?
+    private var shownSession: String?
+
+    /// Skips the probe when the data is younger than `minAge` seconds (unless `force`).
+    func refresh(sessionName: String, server: ServerProfile?, configDirs: [String], force: Bool = false, minAge: TimeInterval = 60) {
+        if shownSession != sessionName { usage = nil; shownSession = sessionName }
+        guard !loading, let server, !server.host.isEmpty, !server.username.isEmpty,
+              let key = KeychainManager.shared.getPrivateKey(id: server.keyId), !key.isEmpty else { return }
+        if !force, let updated, Date().timeIntervalSince(updated) < minAge, report != nil { 
+            usage = report?.sessions.first { $0.session == sessionName }
+            return
+        }
+        loading = true
+        let config = RemoteServerConfig(host: server.host, port: server.port, username: server.username,
+                                        privateKeyPem: key, pinnedHostKey: server.hostKeyFingerprint)
+        Task {
+            defer { loading = false }
+            guard let r = try? await fetchHostUsage(config: config, configDirs: configDirs) else { return }
+            report = r
+            updated = Date()
+            if shownSession == sessionName { usage = r.sessions.first { $0.session == sessionName } }
+        }
+    }
+}
+
+/// One thin line under the tabs: model, context fill, 5-hour tokens and a "limit reached" notice.
+/// Tap to refresh.
+struct SessionUsageStrip: View {
+    @ObservedObject var monitor: SessionUsageMonitor
+    var onTap: () -> Void
+
+    private func tokens(_ n: UInt64) -> String {
+        n >= 1_000_000 ? String(format: "%.1fM", Double(n) / 1e6) : n >= 1_000 ? String(format: "%.0fk", Double(n) / 1e3) : "\(n)"
+    }
+
+    private func clock(_ epoch: UInt64) -> String {
+        Date(timeIntervalSince1970: TimeInterval(epoch)).formatted(date: .omitted, time: .shortened)
+    }
+
+    private var visible: Bool { monitor.usage?.agent != nil || monitor.usage?.limitNote != nil }
+
+    var body: some View {
+        if visible, let u = monitor.usage {
+            Button(action: onTap) {
+                HStack(spacing: 8) {
+                    if let note = u.limitNote {
+                        Label {
+                            Text(u.limitResetEpoch.map { "Limit reached · resets \(clock($0))" } ?? (note.components(separatedBy: "|").first ?? note))
+                                .lineLimit(1)
+                        } icon: { Image(systemName: "exclamationmark.triangle.fill") }
+                        .foregroundColor(.red)
+                    } else {
+                        Text(u.model ?? u.agent ?? "").lineLimit(1).foregroundColor(.secondary)
+                    }
+                    if let used = u.contextUsed, let limit = u.contextLimit, limit > 0 {
+                        let frac = min(1, Double(used) / Double(limit))
+                        HStack(spacing: 4) {
+                            ProgressView(value: frac)
+                                .tint(frac < 0.7 ? .green : (frac < 0.9 ? .orange : .red))
+                                .frame(width: 54)
+                            Text("\(Int(frac * 100))% ctx").foregroundColor(frac < 0.9 ? .secondary : .red)
+                        }
+                    }
+                    if u.agent == "claude", let w = monitor.report?.fiveHour, w.messages > 0 {
+                        Text("5h \(tokens(w.input + w.output + w.cacheWrite))").foregroundColor(.secondary)
+                    }
+                    Spacer(minLength: 0)
+                    if monitor.loading { ProgressView().controlSize(.mini) }
+                }
+                .font(.system(size: 10, design: .monospaced))
+                .padding(.horizontal, 10)
+                .frame(height: 20)
+                .frame(maxWidth: .infinity)
+                .background(.bar)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Model usage of this session")
+            .accessibilityHint("Double tap to refresh")
+            Divider()
+        }
+    }
+}
