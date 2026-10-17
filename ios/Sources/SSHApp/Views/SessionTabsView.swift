@@ -70,8 +70,7 @@ public struct SessionTabsView: View {
 
                     Button(action: { onSelect(session.id) }) {
                         HStack(spacing: 5) {
-                            Image(systemName: icon(for: session).symbol)
-                                .font(.system(size: 10))
+                            ProfileIconView(ref: icon(for: session).symbol, size: 10)
                                 .foregroundColor(isSelected ? .white : (icon(for: session).color ?? .primary))
 
                             Text(displayTitle)

@@ -62,9 +62,25 @@ extension Color {
 public enum AppIconChoice: String, CaseIterable, Identifiable {
     case standard = "", blue = "Blue", teal = "Teal", green = "Green", orange = "Orange"
     case red = "Red", pink = "Pink", purple = "Purple", light = "Light"
+    // Designs from docs/icons (3×3 grids).
+    case gridMinimal = "GridMinimal", gridPrompts = "GridPrompts", gridRounded = "GridRounded"
+    case gridSymbols = "GridSymbols", gridSymbolsBold = "GridSymbolsBold"
 
     public var id: String { rawValue }
-    public var title: String { self == .standard ? "Classic" : rawValue }
+    public var title: String {
+        switch self {
+        case .standard: return "Classic"
+        case .gridMinimal: return "Grid minimal"
+        case .gridPrompts: return "Grid prompts"
+        case .gridRounded: return "Grid rounded"
+        case .gridSymbols: return "Grid symbols"
+        case .gridSymbolsBold: return "Grid bold"
+        default: return rawValue
+        }
+    }
+
+    /// Asset name of the picture shown in Settings for the grid designs.
+    public var previewImage: String? { rawValue.hasPrefix("Grid") ? "IconPreview-\(rawValue)" : nil }
     public var alternateName: String? { self == .standard ? nil : "AppIcon-\(rawValue)" }
 
     /// Glyph color for the in-app preview tile.
@@ -107,6 +123,63 @@ public enum ProfileIcons {
         "ladybug.fill", "wand.and.stars", "flask.fill", "book.fill", "lock.fill", "heart.fill",
     ].filter { UIImage(systemName: $0) != nil }
 
+    /// Text glyphs from the icon sheet in docs/icons; stored as `glyph:<text>`.
+    public static let glyphs: [String] = [">_", "$", "~", "#", "▮", ">", "[]", "—", "%"]
+    public static func glyphRef(_ g: String) -> String { "glyph:\(g)" }
+
+    private static var imageDir: URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        return base.appendingPathComponent("ProfileIcons", isDirectory: true)
+    }
+
+    /// Saves a picture the user picked as a small PNG; returns the stored reference `img:<file>`.
+    public static func storeImage(_ data: Data, replacing old: String = "") -> String? {
+        guard let image = UIImage(data: data) else { return nil }
+        let side: CGFloat = 96
+        let size = CGSize(width: side, height: side)
+        let fmt = UIGraphicsImageRendererFormat.default()
+        fmt.scale = 1
+        let scaled = UIGraphicsImageRenderer(size: size, format: fmt).image { _ in
+            // Fill the square, centered (crop the longer side).
+            let k = max(side / image.size.width, side / image.size.height)
+            let w = image.size.width * k, h = image.size.height * k
+            image.draw(in: CGRect(x: (side - w) / 2, y: (side - h) / 2, width: w, height: h))
+        }
+        guard let png = scaled.pngData() else { return nil }
+        let name = "\(UUID().uuidString.prefix(12).lowercased()).png"
+        do {
+            try FileManager.default.createDirectory(at: imageDir, withIntermediateDirectories: true)
+            try png.write(to: imageDir.appendingPathComponent(name), options: .atomic)
+        } catch { return nil }
+        removeImage(old)
+        return "img:\(name)"
+    }
+
+    public static func removeImage(_ ref: String) {
+        guard let file = imageFile(ref) else { return }
+        try? FileManager.default.removeItem(at: file)
+    }
+
+    private static func imageFile(_ ref: String) -> URL? {
+        guard ref.hasPrefix("img:") else { return nil }
+        let name = String(ref.dropFirst(4))
+        guard !name.isEmpty, !name.contains("/"), !name.contains("..") else { return nil }
+        return imageDir.appendingPathComponent(name)
+    }
+
+    public static func image(_ ref: String) -> UIImage? {
+        guard let file = imageFile(ref) else { return nil }
+        return UIImage(contentsOfFile: file.path)
+    }
+
+    /// Can this stored reference be drawn (SF Symbol, glyph or an existing picture)?
+    public static func isValid(_ ref: String) -> Bool {
+        if ref.isEmpty { return false }
+        if ref.hasPrefix("glyph:") { return ref.count > 6 && ref.count <= 10 }
+        if ref.hasPrefix("img:") { return image(ref) != nil }
+        return UIImage(systemName: ref) != nil
+    }
+
     public static func defaultSymbol(for agent: AgentKind) -> String {
         switch agent {
         case .claudeCode: return AgentType.claudeCode.iconName
@@ -118,18 +191,45 @@ public enum ProfileIcons {
 
     /// The profile's own icon, else the one for the tab's agent.
     public static func symbol(_ profile: SavedAgentProfile?, tabType: AgentType) -> String {
-        if let s = profile?.iconSymbol, !s.isEmpty, UIImage(systemName: s) != nil { return s }
+        if let s = profile?.iconSymbol, isValid(s) { return s }
         return tabType.iconName
     }
 
     /// Icon of a profile in lists (before any tab exists).
     public static func rowSymbol(_ profile: SavedAgentProfile) -> String {
-        if !profile.iconSymbol.isEmpty, UIImage(systemName: profile.iconSymbol) != nil { return profile.iconSymbol }
+        if isValid(profile.iconSymbol) { return profile.iconSymbol }
         return defaultSymbol(for: profile.agent)
     }
 
     public static func color(_ profile: SavedAgentProfile?) -> Color? {
         AppAccent(rawValue: profile?.iconColor ?? "")?.color
+    }
+}
+
+/// Draws a stored icon reference: SF Symbol, text glyph or the user's own picture.
+public struct ProfileIconView: View {
+    public let ref: String
+    public var size: CGFloat = 14
+
+    public init(ref: String, size: CGFloat = 14) {
+        self.ref = ref
+        self.size = size
+    }
+
+    public var body: some View {
+        if ref.hasPrefix("glyph:") {
+            Text(verbatim: String(ref.dropFirst(6)))
+                .font(.system(size: size, weight: .bold, design: .monospaced))
+                .lineLimit(1)
+        } else if ref.hasPrefix("img:"), let image = ProfileIcons.image(ref) {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
+                .frame(width: size * 1.3, height: size * 1.3)
+                .clipShape(RoundedRectangle(cornerRadius: size * 0.3))
+        } else {
+            Image(systemName: ref).font(.system(size: size))
+        }
     }
 }
 

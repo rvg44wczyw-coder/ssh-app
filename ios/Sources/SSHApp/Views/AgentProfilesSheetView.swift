@@ -1,4 +1,5 @@
 import SwiftUI
+import PhotosUI
 import SshCoreBridge
 
 /// Launch profiles (auto-start of Claude / Antigravity / ...) and approval-hook management.
@@ -121,7 +122,7 @@ public struct AgentProfilesSheetView: View {
     private func profileRow(_ profile: SavedAgentProfile) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Image(systemName: ProfileIcons.rowSymbol(profile))
+                ProfileIconView(ref: ProfileIcons.rowSymbol(profile), size: 16)
                     .foregroundColor(ProfileIcons.color(profile) ?? .secondary)
                 Text(profile.name).font(.headline)
                 Spacer()
@@ -214,6 +215,7 @@ public struct AgentProfilesSheetView: View {
 struct AgentProfileEditorView: View {
     @State var profile: SavedAgentProfile
     @State private var envText: String = ""
+    @State private var pickedPhoto: PhotosPickerItem? = nil
     @State private var argsText: String = ""
     @State private var configDir: String = ""
     @State private var envCheck: AgentEnvCheck? = nil
@@ -247,8 +249,7 @@ struct AgentProfileEditorView: View {
         let selected = profile.iconSymbol == symbol
         let tint = AppAccent(rawValue: profile.iconColor)?.color ?? Color.appAccent
         return Button { profile.iconSymbol = symbol } label: {
-            Image(systemName: systemImage)
-                .font(.system(size: 17))
+            ProfileIconView(ref: systemImage, size: 17)
                 .foregroundColor(selected ? .white : tint)
                 .frame(width: 38, height: 38)
                 .background(selected ? tint : Color.secondary.opacity(0.12))
@@ -372,9 +373,26 @@ struct AgentProfileEditorView: View {
                     }
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 6), spacing: 10) {
                         iconCell("", systemImage: ProfileIcons.defaultSymbol(for: profile.agent))
+                        ForEach(ProfileIcons.glyphs, id: \.self) { iconCell(ProfileIcons.glyphRef($0), systemImage: ProfileIcons.glyphRef($0)) }
                         ForEach(ProfileIcons.symbols, id: \.self) { iconCell($0, systemImage: $0) }
+                        if profile.iconSymbol.hasPrefix("img:") {
+                            iconCell(profile.iconSymbol, systemImage: profile.iconSymbol)
+                        }
                     }
                     .padding(.vertical, 4)
+                    PhotosPicker(selection: $pickedPhoto, matching: .images) {
+                        Label(profile.iconSymbol.hasPrefix("img:") ? "Change my picture" : "Use my own picture", systemImage: "photo")
+                    }
+                    .onChange(of: pickedPhoto) { _, item in
+                        guard let item else { return }
+                        Task {
+                            if let data = try? await item.loadTransferable(type: Data.self),
+                               let ref = ProfileIcons.storeImage(data, replacing: profile.iconSymbol) {
+                                profile.iconSymbol = ref
+                            }
+                            pickedPhoto = nil
+                        }
+                    }
                 }
                 Section(
                     header: Text("Terminal colors"),

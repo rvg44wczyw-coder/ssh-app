@@ -27,7 +27,8 @@ Status: implemented (Rust + iOS); on-device checks pending (scroll feel, alterna
 - Accent: 12 presets or a custom color (`#rrggbb` in `app_accent`); applied via `Color.appAccent` and root `.tint`.
 - Terminal color schemes: 18 built-in + user schemes. Defaults per slot (general, Claude, Antigravity, Codex, Grok, shell), per-profile override. Resolution: profile → slot → general → built-in pick.
 - Scheme editor: name, background, text, cursor, 16 ANSI colors, preview, "start from"; custom schemes in UserDefaults (`terminal_custom_schemes`, ids `custom-*`).
-- Icons: per-profile symbol + color (tabs, profile list); home-screen app icon (classic, 7 tints, light) through alternate icon sets.
+- Icons: per-profile symbol + color (tabs, profile list). The stored value is an SF Symbol name, `glyph:<text>` (the 9 terminal glyphs from the sheet in `docs/icons`: `>_ $ ~ # ▮ > [] — %`) or `img:<file>` (the user's own picture, chosen with the photo picker, cropped to a square, saved as 96 px PNG in Application Support/ProfileIcons, replaced pictures are deleted).
+- Home-screen app icon: classic, 7 tints, light, and the 5 designs from `docs/icons` (grid minimal / prompts / rounded / symbols / bold) through alternate icon sets (`AppIcon-<Name>`, previews `IconPreview-<Name>`). iOS only accepts icons bundled with the app, so a user-uploaded picture cannot be a home-screen icon.
 
 ## Open
 - Per-tab quick scheme switch and `/theme` in the Commands palette.

@@ -68,7 +68,7 @@ public struct SettingsView: View {
 
     private var appearancePage: some View {
         Form {
-            Section(header: Text("App icon"), footer: Text(iconError ?? "The icon on the home screen. iOS shows a confirmation when it changes.")) {
+            Section(header: Text("App icon"), footer: Text(iconError ?? "The icon on the home screen. iOS shows a confirmation when it changes. iOS only allows icons that ship inside the app, so your own picture can be used for tabs and profiles (Agent profiles → Icon), not for the home screen.")) {
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 5), spacing: 12) {
                     ForEach(AppIconChoice.allCases) { choice in
                         Button {
@@ -82,8 +82,14 @@ public struct SettingsView: View {
                                     .fill(choice.backdrop)
                                     .frame(width: 52, height: 52)
                                     .overlay(
-                                        RoundedRectangle(cornerRadius: 7).fill(choice.tile).padding(9)
-                                            .overlay(Image(systemName: "chevron.right").font(.system(size: 14, weight: .bold)).foregroundColor(choice.glyph))
+                                        Group {
+                                            if let preview = choice.previewImage {
+                                                Image(preview).resizable().scaledToFill().clipShape(RoundedRectangle(cornerRadius: 12))
+                                            } else {
+                                                RoundedRectangle(cornerRadius: 7).fill(choice.tile).padding(9)
+                                                    .overlay(Image(systemName: "chevron.right").font(.system(size: 14, weight: .bold)).foregroundColor(choice.glyph))
+                                            }
+                                        }
                                     )
                                     .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.primary.opacity(0.25), lineWidth: 1))
                                     .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.appAccent, lineWidth: iconChoice == choice ? 3 : 0).padding(-3))
