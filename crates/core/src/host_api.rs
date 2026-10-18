@@ -626,6 +626,104 @@ impl SshSessionHandle {
         Ok(crate::host_guard::parse_agent_sessions(out))
     }
 
+    /// Whether the plan-limits status line wrapper is in the Claude profile's `settings.json`.
+    pub async fn claude_statusline_status(
+        &self,
+        config_dir: Option<String>,
+    ) -> Result<bool, SshCoreError> {
+        let path = crate::agents::agent_hooks_config_path(
+            crate::agents::AgentKind::ClaudeCode,
+            config_dir,
+        )?;
+        let existing = self.read_remote_config(&path).await?;
+        Ok(crate::agents::claude_statusline_installed(existing))
+    }
+
+    /// Dry run: the `statusLine` entry that would be written (nothing else from the file).
+    pub async fn preview_claude_statusline(
+        &self,
+        config_dir: Option<String>,
+        hook_dir: Option<String>,
+    ) -> Result<String, SshCoreError> {
+        let path = crate::agents::agent_hooks_config_path(
+            crate::agents::AgentKind::ClaudeCode,
+            config_dir,
+        )?;
+        let existing = self.read_remote_config(&path).await?;
+        let merged = crate::agents::merge_claude_statusline(existing, hook_dir)?;
+        let map = crate::agent_hooks::parse_object(&merged)?;
+        let mut only = serde_json::Map::new();
+        if let Some(v) = map.get("statusLine") {
+            only.insert("statusLine".into(), v.clone());
+        }
+        crate::agent_hooks::render(only)
+    }
+
+    /// Installs the status line wrapper (and the host script it runs) into the Claude profile so
+    /// the real 5-hour / 7-day plan limits can be shown. Keeps the user's own status line: the
+    /// wrapper runs it. Backup, atomic write, refuses an unparsable config.
+    pub async fn install_claude_statusline(
+        &self,
+        config_dir: Option<String>,
+        hook_dir: Option<String>,
+    ) -> Result<(), SshCoreError> {
+        let path = crate::agents::agent_hooks_config_path(
+            crate::agents::AgentKind::ClaudeCode,
+            config_dir,
+        )?;
+        let hook_dir = hook_dir.unwrap_or_else(|| crate::agents::DEFAULT_HOOK_DIR.to_string());
+        let existing = self.read_remote_config(&path).await?;
+        let merged =
+            crate::agents::merge_claude_statusline(existing.clone(), Some(hook_dir.clone()))?;
+        let py = self
+            .execute_command_on_active_session(
+                "python3 --version >/dev/null 2>&1 && echo ok || echo missing".to_string(),
+            )
+            .await?;
+        if py.trim() != "ok" {
+            return Err(SshCoreError::IoError {
+                reason: "python3 is required on the host to read the plan limits".to_string(),
+            });
+        }
+        let script_path = crate::agents::remote_script_path(&hook_dir);
+        let dir_expr = crate::agents::remote_path_expr(hook_dir.trim_end_matches('/'));
+        let lock_default_parent = if hook_dir.trim_end_matches('/')
+            == crate::agents::DEFAULT_HOOK_DIR
+        {
+            "mkdir -p \"$HOME/.ssh-app/run\" && chmod 700 \"$HOME/.ssh-app\" \"$HOME/.ssh-app/run\"; "
+        } else {
+            ""
+        };
+        // Script first, so the settings never point at a missing script.
+        self.execute_command_on_active_session(format!(
+            "umask 077; if [ ! -d {dir_expr} ]; then mkdir -p {dir_expr} && chmod 700 {dir_expr}; fi; {lock_default_parent}{}",
+            crate::agents::build_write_file_command(
+                &script_path,
+                &crate::agents::agent_hook_script(),
+                "700"
+            )
+        ))
+        .await?;
+        self.write_remote_config(&path, &existing, &merged).await
+    }
+
+    /// Removes the wrapper and restores the user's previous status line.
+    pub async fn uninstall_claude_statusline(
+        &self,
+        config_dir: Option<String>,
+    ) -> Result<(), SshCoreError> {
+        let path = crate::agents::agent_hooks_config_path(
+            crate::agents::AgentKind::ClaudeCode,
+            config_dir,
+        )?;
+        let existing = self.read_remote_config(&path).await?;
+        if existing.trim().is_empty() {
+            return Ok(());
+        }
+        let cleaned = crate::agents::remove_claude_statusline(existing.clone())?;
+        self.write_remote_config(&path, &existing, &cleaned).await
+    }
+
     /// Removes only the ssh-app hook entries from the agent's config (the script is left in place).
     pub async fn uninstall_agent_hooks(
         &self,

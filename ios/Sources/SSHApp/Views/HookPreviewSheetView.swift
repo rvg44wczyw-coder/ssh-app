@@ -16,6 +16,8 @@ struct HookPreviewSheetView: View {
     @State private var error: String? = nil
     @State private var busy = false
     @State private var showScript = false
+    @State private var limitsInstalled = false
+    @State private var limitsPreview: String? = nil
 
     private var preset: HookPreset { profile.hookPreset }
     private var usesScript: Bool { hookPresetUsesScript(preset: preset) }
@@ -63,6 +65,9 @@ struct HookPreviewSheetView: View {
                         Label("A plugin file (~/.config/opencode/plugins/ssh-app.js) is written; OpenCode loads it at start. A phone Deny blocks the command. If the phone cannot be asked (script missing or crashed) the command is blocked, not allowed. OpenCode's own permission rules still apply after an Approve.", systemImage: "info.circle")
                             .font(.caption).foregroundColor(.secondary)
                     }
+                }
+                if profile.agent == .claudeCode {
+                    limitsSection
                 }
                 Section("Currently installed") {
                     if installed.isEmpty {
@@ -119,6 +124,45 @@ struct HookPreviewSheetView: View {
         .interactiveDismissDisabled()
     }
 
+    private var limitsSection: some View {
+        Section(
+            header: Text("Plan limits (5-hour and 7-day)"),
+            footer: Text("Claude Code only reports the real plan usage to its status line. This adds a small wrapper to \(configPath) that records it on the host (~/.ssh-app/run/limits) and then runs your own status line, if you have one. Remove restores it.")
+        ) {
+            Label(limitsInstalled ? "Installed" : "Not installed", systemImage: limitsInstalled ? "checkmark.circle.fill" : "circle")
+                .font(.caption).foregroundColor(limitsInstalled ? .green : .secondary)
+            if let limitsPreview, !limitsInstalled {
+                Text(limitsPreview).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
+            }
+            if busy {
+                ProgressView()
+            } else if limitsInstalled {
+                Button("Remove plan limits wrapper", role: .destructive) { Task { await runLimits(install: false) } }
+                    .disabled(handle == nil)
+            } else {
+                Button("Install plan limits wrapper") { Task { await runLimits(install: true) } }
+                    .disabled(handle == nil)
+            }
+        }
+    }
+
+    private func runLimits(install: Bool) async {
+        guard let handle else { return }
+        busy = true
+        defer { busy = false }
+        do {
+            if install {
+                try await handle.installClaudeStatusline(configDir: profile.configDir, hookDir: nil)
+            } else {
+                try await handle.uninstallClaudeStatusline(configDir: profile.configDir)
+            }
+            onChanged()
+        } catch {
+            self.error = (install ? "Install failed: " : "Remove failed: ") + error.localizedDescription
+        }
+        await load()
+    }
+
     private var presetTitle: String {
         switch profile.hookKindRaw {
         case "notifyOnly": return "notify only"
@@ -146,6 +190,10 @@ struct HookPreviewSheetView: View {
             self.error = error.localizedDescription
         }
         guard let handle else { return }
+        if profile.agent == .claudeCode {
+            limitsInstalled = (try? await handle.claudeStatuslineStatus(configDir: cfg)) ?? false
+            limitsPreview = limitsInstalled ? nil : try? await handle.previewClaudeStatusline(configDir: cfg, hookDir: nil)
+        }
         do {
             installed = try await handle.installedAgentHooks(agent: profile.agent, configDir: cfg)
             if !planned.isEmpty {

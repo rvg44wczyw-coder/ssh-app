@@ -280,6 +280,15 @@ public struct SavedAgentProfile: Identifiable, Codable, Equatable, Sendable {
 
 @MainActor
 public final class AgentProfilesManager: ObservableObject {
+    /// Config directories of every Claude profile, for the usage probe. A profile without one uses
+    /// the default `~/.claude`, which is then scanned too.
+    public var claudeConfigDirs: [String] {
+        let claude = profiles.filter { $0.agent == .claudeCode }
+        var dirs = claude.compactMap { $0.configDir }
+        if claude.contains(where: { $0.configDir == nil }) && !dirs.isEmpty { dirs.append("~/.claude") }
+        return Array(NSOrderedSet(array: dirs)) as? [String] ?? dirs
+    }
+
     private static let profilesKey = "saved_agent_profiles"
     private static let autoStartKey = "agent_autostart_profile_id"
 

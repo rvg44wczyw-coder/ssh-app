@@ -31,12 +31,13 @@ pub mod usage;
 
 pub use agents::{
     agent_config_dir_env, agent_hook_script, agent_hooks_config_path, agent_hooks_installed,
-    build_agent_launch_command, build_binary_probe_command, default_hook_preset,
-    default_launch_profiles, hook_events_for, hook_preset_uses_script, hooks_drift,
-    hooks_section_of, installed_hook_entries, merge_agent_hooks, merge_planned_hooks,
-    parse_resolved_binary, plan_agent_hooks, profile_config_dir, remove_agent_hooks,
-    validate_launch_profile, AgentEnvCheck, AgentHooksStatus, AgentKind, AgentLaunchProfile,
-    EnvVar, HookPreset, HookPresetKind, PlannedHook,
+    build_agent_launch_command, build_binary_probe_command, claude_statusline_installed,
+    default_hook_preset, default_launch_profiles, hook_events_for, hook_preset_uses_script,
+    hooks_drift, hooks_section_of, installed_hook_entries, merge_agent_hooks,
+    merge_claude_statusline, merge_planned_hooks, parse_resolved_binary, plan_agent_hooks,
+    profile_config_dir, remove_agent_hooks, remove_claude_statusline, validate_launch_profile,
+    AgentEnvCheck, AgentHooksStatus, AgentKind, AgentLaunchProfile, EnvVar, HookPreset,
+    HookPresetKind, PlannedHook,
 };
 pub use ai::{
     assemble_ai_system_prompt, assemble_ai_user_prompt, build_ollama_probe_command,

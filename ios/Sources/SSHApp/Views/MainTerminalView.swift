@@ -112,7 +112,7 @@ public struct MainTerminalView: View {
         usageMonitor.refresh(
             sessionName: session.sessionName,
             server: server,
-            configDirs: agentProfiles.profiles.filter { $0.agent == .claudeCode }.compactMap { $0.configDir },
+            configDirs: agentProfiles.claudeConfigDirs,
             force: force
         )
     }
@@ -395,7 +395,7 @@ public struct MainTerminalView: View {
                     TmuxSessionsSheetView(
                         serversManager: serversManager,
                         initialServerId: tabsManager.activeSession?.serverId ?? serversManager.activeProfileId,
-                        configDirs: agentProfiles.profiles.filter { $0.agent == .claudeCode }.compactMap { $0.configDir }
+                        configDirs: agentProfiles.claudeConfigDirs
                     ) { sessionName, server in
                         let alreadyOpen = tabsManager.sessions.contains {
                             $0.sessionName == sessionName && $0.serverId == server.id

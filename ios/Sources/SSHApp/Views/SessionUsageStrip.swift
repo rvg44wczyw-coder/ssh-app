@@ -71,7 +71,11 @@ struct SessionUsageStrip: View {
                             Text("\(Int(frac * 100))% ctx").foregroundColor(frac < 0.9 ? .secondary : .red)
                         }
                     }
-                    if u.agent == "claude", let w = monitor.report?.fiveHour, w.messages > 0 {
+                    ForEach(u.limits, id: \.label) { l in
+                        Text("\(l.label) \(l.percent)%")
+                            .foregroundColor(l.percent < 70 ? .secondary : (l.percent < 90 ? .orange : .red))
+                    }
+                    if u.limits.isEmpty, u.agent == "claude", let w = monitor.report?.fiveHour, w.messages > 0 {
                         Text("5h \(tokens(w.input + w.output + w.cacheWrite))").foregroundColor(.secondary)
                     }
                     Spacer(minLength: 0)

@@ -887,6 +887,58 @@ fn host_guard_deny_reaches_the_new_agents_in_their_own_shape() {
 }
 
 #[test]
+fn claude_statusline_records_plan_limits_per_config_dir_and_runs_the_previous_command() {
+    need_tools!();
+    let h = Host::new();
+    let input = json!({
+        "model": {"display_name": "Opus"},
+        "rate_limits": {
+            "five_hour": {"used_percentage": 42.4, "resets_at": 1900000000},
+            "seven_day": {"used_percentage": 180, "resets_at": "soon"},
+            "evil": {"used_percentage": 1}
+        }
+    })
+    .to_string();
+    let run = |prev: Option<&str>, cfg: &str| {
+        let mut args = vec!["claude", "statusline"];
+        let hex;
+        if let Some(p) = prev {
+            hex = p.bytes().map(|b| format!("{b:02x}")).collect::<String>();
+            args.push(&hex);
+        }
+        let mut c = h.cmd(&args, 1);
+        c.env("CLAUDE_CONFIG_DIR", cfg);
+        let mut child = c.spawn().unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(input.as_bytes())
+            .unwrap();
+        let out = child.wait_with_output().unwrap();
+        String::from_utf8(out.stdout).unwrap()
+    };
+    assert_eq!(
+        run(None, "/nonexistent/personal"),
+        "Opus · 5h 42% · 7d 100%"
+    );
+    assert_eq!(run(Some("printf PREV"), "/nonexistent/work"), "PREV");
+    let files: Vec<_> = std::fs::read_dir(h.run().join("limits")).unwrap().collect();
+    assert_eq!(files.len(), 2, "one file per config dir");
+    for f in files {
+        let v: Value =
+            serde_json::from_str(&std::fs::read_to_string(f.unwrap().path()).unwrap()).unwrap();
+        assert!(v["dir"].as_str().unwrap().starts_with("/nonexistent/"));
+        assert_eq!(v["five_hour"]["used_percentage"], 42.4);
+        assert!(v.get("evil").is_none());
+        assert!(
+            v["seven_day"].get("resets_at").is_none(),
+            "non-numeric reset dropped"
+        );
+    }
+}
+
+#[test]
 fn guard_file_rules_reach_the_file_tools_of_the_new_agents() {
     need_tools!();
     let h = Host::new();

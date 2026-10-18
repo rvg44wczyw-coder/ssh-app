@@ -185,3 +185,8 @@
 ### M24: Local-model agents and assistant card (`docs/features/23-local-models.md`)
 - **Stage 1 implemented**: OpenCode, Qwen Code, Crush (phone approvals), Cline, Aider, Goose, Ollama chat (launch only). Hook behaviour of the three approval-capable tools is from their docs and fake-driven tests, not run live.
 - Stage 2 (assistant as a card per server, chat state moved out of the terminal view model): not started.
+
+## Plan limits (2026-10-18)
+- Claude: real 5h/7d percentages come only from the `statusLine` JSON (`rate_limits`). The hook script has a `claude statusline` mode (wrapper that records them under `~/.ssh-app/run/limits/<hash of CLAUDE_CONFIG_DIR>.json` and runs the user's previous status line); installed per profile from the Hooks screen ("Plan limits"), so the personal profile (`~/.claude-personal`) is covered by its own config dir. The usage probe shows them in the strip (`5h 42% 7d 18%`).
+- Codex: read from its own session files (`token_count.rate_limits`). Format taken from memory/docs, not verified on a live Codex.
+- Antigravity, Grok: no source found; model and context only.

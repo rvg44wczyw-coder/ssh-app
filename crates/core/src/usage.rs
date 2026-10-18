@@ -23,6 +23,14 @@ pub struct OllamaLoad {
     pub expires_epoch: Option<u64>,
 }
 
+/// One plan-limit window as the agent itself reports it ("5h" 42 %).
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct LimitWindow {
+    pub label: String,
+    pub percent: u32,
+    pub resets_epoch: Option<u64>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct SessionUsage {
     pub session: String,
@@ -35,6 +43,8 @@ pub struct SessionUsage {
     pub limit_note: Option<String>,
     pub limit_reset_epoch: Option<u64>,
     pub ollama: Option<OllamaLoad>,
+    /// Real plan limits (percent used, reset time); empty when the agent does not expose them.
+    pub limits: Vec<LimitWindow>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, uniffi::Record)]
@@ -100,6 +110,18 @@ struct RawSession {
     limit_reset_epoch: Option<u64>,
     #[serde(default)]
     ollama_model: Option<String>,
+    #[serde(default)]
+    limits: Vec<RawLimit>,
+}
+
+#[derive(Deserialize)]
+struct RawLimit {
+    #[serde(default)]
+    label: String,
+    #[serde(default)]
+    percent: u32,
+    #[serde(default)]
+    resets_epoch: Option<u64>,
 }
 
 #[derive(Deserialize, Default)]
@@ -172,6 +194,17 @@ pub(crate) fn parse_usage_report(output: &str) -> Result<HostUsageReport, SshCor
                 limit_note: s.limit_note.map(|n| n.chars().take(160).collect()),
                 limit_reset_epoch: s.limit_reset_epoch,
                 ollama,
+                limits: s
+                    .limits
+                    .into_iter()
+                    .filter(|l| !l.label.is_empty() && l.label.len() <= 8)
+                    .take(4)
+                    .map(|l| LimitWindow {
+                        label: l.label,
+                        percent: l.percent.min(100),
+                        resets_epoch: l.resets_epoch,
+                    })
+                    .collect(),
             }
         })
         .collect();
@@ -229,6 +262,19 @@ mod tests {
         assert_eq!(r.five_hour.cache_read, 4);
         assert_eq!(r.week, UsageWindow::default());
         assert!(r.partial);
+    }
+
+    #[test]
+    fn parses_plan_limits_and_clamps_them() {
+        let out = r#"{"sessions":[{"session":"claude-1","agent":"claude","limits":[{"label":"5h","percent":42,"resets_epoch":1900000000},{"label":"7d","percent":250},{"label":"waytoolonglabel","percent":1}]}]}"#;
+        let r = parse_usage_report(out).unwrap();
+        let l = &r.sessions[0].limits;
+        assert_eq!(l.len(), 2);
+        assert_eq!(
+            (l[0].label.as_str(), l[0].percent, l[0].resets_epoch),
+            ("5h", 42, Some(1900000000))
+        );
+        assert_eq!(l[1].percent, 100);
     }
 
     #[test]

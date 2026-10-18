@@ -100,11 +100,63 @@ def ts_epoch(s):
         return None
 
 
+STATE_HOME = os.environ.get("SSH_APP_HOME") or os.path.expanduser("~/.ssh-app")
+LIMITS_DIR = os.path.join(STATE_HOME, "run", "limits")
+
+
+def limit_label(minutes):
+    if not isinstance(minutes, (int, float)) or minutes <= 0:
+        return "limit"
+    if minutes % 1440 == 0:
+        return "%dd" % (minutes // 1440)
+    if minutes % 60 == 0:
+        return "%dh" % (minutes // 60)
+    return "%dm" % minutes
+
+
+def recorded_limits(config_dir):
+    """Plan limits the Claude status line wrapper recorded for this config directory."""
+    want = os.path.realpath(config_dir)
+    best = None
+    try:
+        names = os.listdir(LIMITS_DIR)
+    except OSError:
+        return []
+    for name in names:
+        if not name.endswith(".json"):
+            continue
+        try:
+            st = os.lstat(os.path.join(LIMITS_DIR, name))
+            if st.st_size > 8192 or st.st_uid != os.geteuid():
+                continue
+            with open(os.path.join(LIMITS_DIR, name), "r", encoding="utf-8") as fh:
+                d = json.load(fh)
+        except Exception:
+            continue
+        if isinstance(d, dict) and d.get("dir") == want and (best is None or d.get("ts", 0) > best.get("ts", 0)):
+            best = d
+    out = []
+    for key, label in (("five_hour", "5h"), ("seven_day", "7d")):
+        w = (best or {}).get(key)
+        if not isinstance(w, dict) or not isinstance(w.get("used_percentage"), (int, float)):
+            continue
+        reset = w.get("resets_at")
+        reset = int(reset) if isinstance(reset, (int, float)) else None
+        if reset is not None and reset < NOW:
+            continue  # the window rolled over since this was recorded
+        out.append({"label": label, "percent": int(round(max(0, min(100, w["used_percentage"])))), "resets_epoch": reset})
+    return out
+
+
 def claude_state(cwd):
     f = newest_transcript(cwd)
     if not f:
         return {}
     out = {}
+    for d in dirs:
+        if f.startswith(os.path.join(d, "projects") + os.sep):
+            out["limits"] = recorded_limits(d)
+            break
     for line in reversed(tail_lines(f)):
         try:
             e = json.loads(line)
@@ -137,6 +189,49 @@ def claude_state(cwd):
         if "context_used" in out and "limit_note" in out:
             break
     return out
+
+
+# ---- Codex rate limits (recorded by Codex itself in its session files) ------------------------
+def codex_limits():
+    home = os.environ.get("CODEX_HOME") or os.path.expanduser("~/.codex")
+    best, best_m = None, 0
+    for f in glob.glob(os.path.join(home, "sessions", "*", "*", "*", "rollout-*.jsonl")):
+        try:
+            m = os.stat(f).st_mtime
+        except OSError:
+            continue
+        if m > best_m:
+            best, best_m = f, m
+    if not best:
+        return []
+    for line in reversed(tail_lines(best)):
+        if "rate_limits" not in line:
+            continue
+        try:
+            e = json.loads(line)
+        except Exception:
+            continue
+        payload = e.get("payload") if isinstance(e, dict) else None
+        rl = (payload or {}).get("rate_limits") if isinstance(payload, dict) else None
+        if not isinstance(rl, dict):
+            rl = e.get("rate_limits") if isinstance(e, dict) else None
+        if not isinstance(rl, dict):
+            continue
+        at = ts_epoch(e.get("timestamp") or "") or NOW
+        out = []
+        for key in ("primary", "secondary"):
+            w = rl.get(key)
+            if not isinstance(w, dict) or not isinstance(w.get("used_percent"), (int, float)):
+                continue
+            reset = w.get("resets_at")
+            if not isinstance(reset, (int, float)) and isinstance(w.get("resets_in_seconds"), (int, float)):
+                reset = at + w["resets_in_seconds"]
+            reset = int(reset) if isinstance(reset, (int, float)) else None
+            if reset is not None and reset < NOW:
+                continue
+            out.append({"label": limit_label(w.get("window_minutes")), "percent": int(round(max(0, min(100, w["used_percent"])))), "resets_epoch": reset})
+        return out
+    return []
 
 
 # ---- rolling window totals ----------------------------------------------------------------
@@ -218,6 +313,8 @@ for line in panes.splitlines():
     s = {"session": name, "agent": agent}
     if agent == "claude":
         s.update(claude_state(cwd))
+    elif agent == "codex":
+        s["limits"] = codex_limits()
     elif agent == "ollama" and arg:
         s["ollama_model"] = arg
     sessions.append(s)

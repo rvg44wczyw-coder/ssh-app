@@ -600,11 +600,81 @@ def as_dict(value):
     return value if isinstance(value, dict) else {}
 
 
+LIMITS = os.path.join(RUN, "limits")
+STATUS_MAX_INPUT = 262144
+
+
+def num(value):
+    return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def limit_window(raw):
+    raw = as_dict(raw)
+    pct = num(raw.get("used_percentage"))
+    if pct is None:
+        return None
+    out = {"used_percentage": max(0, min(100, pct))}
+    reset = num(raw.get("resets_at"))
+    if reset is not None:
+        out["resets_at"] = int(reset)
+    return out
+
+
+def statusline(prev_hex):
+    """Claude Code `statusLine` wrapper: records `rate_limits`, then prints the user's own status
+    line (when one was wrapped) or a short limits line. Never fails the status line."""
+    raw = sys.stdin.buffer.read(STATUS_MAX_INPUT + 1)
+    try:
+        data = as_dict(json.loads(raw.decode("utf-8"))) if len(raw) <= STATUS_MAX_INPUT else {}
+    except Exception:
+        data = {}
+    limits = as_dict(data.get("rate_limits"))
+    windows = {k: limit_window(limits.get(k)) for k in ("five_hour", "seven_day")}
+    windows = {k: v for k, v in windows.items() if v}
+    cfg = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
+    cfg = os.path.realpath(os.path.expanduser(cfg))
+    if windows and all(private_dir(d) for d in (HOME_DIR, RUN)):
+        try:
+            os.makedirs(LIMITS, mode=0o700, exist_ok=True)
+            if private_dir(LIMITS):
+                name = hashlib.sha256(cfg.encode("utf-8", "replace")).hexdigest()[:16]
+                tmp = os.path.join(LIMITS, "." + name + ".tmp")
+                unlink(tmp)
+                write_new(tmp, json.dumps({"dir": cfg, "ts": int(time.time()), **windows}).encode())
+                os.replace(tmp, os.path.join(LIMITS, name + ".json"))
+        except OSError:
+            pass
+    prev = None
+    if prev_hex:
+        try:
+            prev = bytes.fromhex(prev_hex).decode("utf-8")
+        except ValueError:
+            prev = None
+    if prev:
+        try:
+            out = subprocess.run(prev, shell=True, input=raw, capture_output=True, timeout=5).stdout
+            sys.stdout.buffer.write(out)
+        except Exception:
+            pass
+        return 0
+    parts = []
+    for key, label in (("five_hour", "5h"), ("seven_day", "7d")):
+        if key in windows:
+            parts.append("%s %d%%" % (label, round(windows[key]["used_percentage"])))
+    model = as_dict(data.get("model")).get("display_name")
+    if isinstance(model, str) and model:
+        parts.insert(0, clean(model, 40))
+    sys.stdout.write(" · ".join(parts))
+    return 0
+
+
 def main():
     agent = sys.argv[1] if len(sys.argv) > 1 else ""
     event = sys.argv[2] if len(sys.argv) > 2 else ""
     if agent == "ctl":
         return ctl(event)
+    if agent == "claude" and event == "statusline":
+        return statusline(sys.argv[3] if len(sys.argv) > 3 else "")
     try:
         data = as_dict(json.load(sys.stdin))
     except Exception:

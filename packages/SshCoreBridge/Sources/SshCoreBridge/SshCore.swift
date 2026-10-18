@@ -1226,6 +1226,11 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func checkHostOllama() async throws  -> OllamaHostStatus
     
     /**
+     * Whether the plan-limits status line wrapper is in the Claude profile's `settings.json`.
+     */
+    func claudeStatuslineStatus(configDir: String?) async throws  -> Bool
+    
+    /**
      * Automatically detects the path of the active agent transcript on the remote host.
      */
     func detectActiveTranscriptPath(baseDir: String?) async throws  -> String?
@@ -1289,6 +1294,13 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func installApprovalKey() async throws 
     
     /**
+     * Installs the status line wrapper (and the host script it runs) into the Claude profile so
+     * the real 5-hour / 7-day plan limits can be shown. Keeps the user's own status line: the
+     * wrapper runs it. Backup, atomic write, refuses an unparsable config.
+     */
+    func installClaudeStatusline(configDir: String?, hookDir: String?) async throws 
+    
+    /**
      * The ssh-app hook entries currently installed in the agent's config.
      */
     func installedAgentHooks(agent: AgentKind, configDir: String?) async throws  -> [PlannedHook]
@@ -1324,6 +1336,11 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
      * Dry run: only the resulting `permissions` object, never other settings (they may hold keys).
      */
     func previewAgentPermissions(agent: AgentKind, configDir: String?, permissions: AgentPermissions) async throws  -> String
+    
+    /**
+     * Dry run: the `statusLine` entry that would be written (nothing else from the file).
+     */
+    func previewClaudeStatusline(configDir: String?, hookDir: String?) async throws  -> String
     
     /**
      * Queries Ollama running locally on the remote host (http://127.0.0.1:11434/api/generate)
@@ -1369,6 +1386,11 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
      * Removes only the ssh-app hook entries from the agent's config (the script is left in place).
      */
     func uninstallAgentHooks(agent: AgentKind, configDir: String?) async throws 
+    
+    /**
+     * Removes the wrapper and restores the user's previous status line.
+     */
+    func uninstallClaudeStatusline(configDir: String?) async throws 
     
     /**
      * Like `list_pending_approvals`, but the host holds the call (up to ~20 s) until the pending
@@ -1660,6 +1682,25 @@ open func checkHostOllama()async throws  -> OllamaHostStatus  {
 }
     
     /**
+     * Whether the plan-limits status line wrapper is in the Claude profile's `settings.json`.
+     */
+open func claudeStatuslineStatus(configDir: String?)async throws  -> Bool  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_claude_statusline_status(
+                        self.uniffiCloneHandle(),FfiConverterOptionString.lower(configDir)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_i8,
+            completeFunc: ffi_ssh_core_rust_future_complete_i8,
+            freeFunc: ffi_ssh_core_rust_future_free_i8,
+            liftFunc: FfiConverterBool.lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
      * Automatically detects the path of the active agent transcript on the remote host.
      */
 open func detectActiveTranscriptPath(baseDir: String?)async throws  -> String?  {
@@ -1877,6 +1918,27 @@ open func installApprovalKey()async throws   {
 }
     
     /**
+     * Installs the status line wrapper (and the host script it runs) into the Claude profile so
+     * the real 5-hour / 7-day plan limits can be shown. Keeps the user's own status line: the
+     * wrapper runs it. Backup, atomic write, refuses an unparsable config.
+     */
+open func installClaudeStatusline(configDir: String?, hookDir: String?)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_install_claude_statusline(
+                        self.uniffiCloneHandle(),FfiConverterOptionString.lower(configDir),FfiConverterOptionString.lower(hookDir)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_void,
+            completeFunc: ffi_ssh_core_rust_future_complete_void,
+            freeFunc: ffi_ssh_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
      * The ssh-app hook entries currently installed in the agent's config.
      */
 open func installedAgentHooks(agent: AgentKind, configDir: String?)async throws  -> [PlannedHook]  {
@@ -2001,6 +2063,25 @@ open func previewAgentPermissions(agent: AgentKind, configDir: String?, permissi
             rustFutureFunc: {
                 uniffi_ssh_core_fn_method_sshsessionhandle_preview_agent_permissions(
                         self.uniffiCloneHandle(),FfiConverterTypeAgentKind_lower(agent),FfiConverterOptionString.lower(configDir),FfiConverterTypeAgentPermissions_lower(permissions)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterString.lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Dry run: the `statusLine` entry that would be written (nothing else from the file).
+     */
+open func previewClaudeStatusline(configDir: String?, hookDir: String?)async throws  -> String  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_preview_claude_statusline(
+                        self.uniffiCloneHandle(),FfiConverterOptionString.lower(configDir),FfiConverterOptionString.lower(hookDir)
                 )
             },
             pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
@@ -2158,6 +2239,25 @@ open func uninstallAgentHooks(agent: AgentKind, configDir: String?)async throws 
             rustFutureFunc: {
                 uniffi_ssh_core_fn_method_sshsessionhandle_uninstall_agent_hooks(
                         self.uniffiCloneHandle(),FfiConverterTypeAgentKind_lower(agent),FfiConverterOptionString.lower(configDir)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_void,
+            completeFunc: ffi_ssh_core_rust_future_complete_void,
+            freeFunc: ffi_ssh_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Removes the wrapper and restores the user's previous status line.
+     */
+open func uninstallClaudeStatusline(configDir: String?)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_uninstall_claude_statusline(
+                        self.uniffiCloneHandle(),FfiConverterOptionString.lower(configDir)
                 )
             },
             pollFunc: ffi_ssh_core_rust_future_poll_void,
@@ -4430,6 +4530,67 @@ public func FfiConverterTypeKeypairResult_lower(_ value: KeypairResult) -> RustB
 
 
 /**
+ * One plan-limit window as the agent itself reports it ("5h" 42 %).
+ */
+public struct LimitWindow: Equatable, Hashable {
+    public var label: String
+    public var percent: UInt32
+    public var resetsEpoch: UInt64?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(label: String, percent: UInt32, resetsEpoch: UInt64?) {
+        self.label = label
+        self.percent = percent
+        self.resetsEpoch = resetsEpoch
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension LimitWindow: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLimitWindow: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LimitWindow {
+        return
+            try LimitWindow(
+                label: FfiConverterString.read(from: &buf), 
+                percent: FfiConverterUInt32.read(from: &buf), 
+                resetsEpoch: FfiConverterOptionUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: LimitWindow, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.label, into: &buf)
+        FfiConverterUInt32.write(value.percent, into: &buf)
+        FfiConverterOptionUInt64.write(value.resetsEpoch, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLimitWindow_lift(_ buf: RustBuffer) throws -> LimitWindow {
+    return try FfiConverterTypeLimitWindow.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLimitWindow_lower(_ value: LimitWindow) -> RustBuffer {
+    return FfiConverterTypeLimitWindow.lower(value)
+}
+
+
+/**
  * One local-model tool the app can launch (see `local_agent_tools`).
  */
 public struct LocalAgentTool: Equatable, Hashable {
@@ -5753,6 +5914,10 @@ public struct SessionUsage: Equatable, Hashable {
     public var limitNote: String?
     public var limitResetEpoch: UInt64?
     public var ollama: OllamaLoad?
+    /**
+     * Real plan limits (percent used, reset time); empty when the agent does not expose them.
+     */
+    public var limits: [LimitWindow]
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -5762,7 +5927,10 @@ public struct SessionUsage: Equatable, Hashable {
          */agent: String?, model: String?, contextUsed: UInt64?, contextLimit: UInt64?, 
         /**
          * Text of a "limit reached" notice found in the recent transcript.
-         */limitNote: String?, limitResetEpoch: UInt64?, ollama: OllamaLoad?) {
+         */limitNote: String?, limitResetEpoch: UInt64?, ollama: OllamaLoad?, 
+        /**
+         * Real plan limits (percent used, reset time); empty when the agent does not expose them.
+         */limits: [LimitWindow]) {
         self.session = session
         self.agent = agent
         self.model = model
@@ -5771,6 +5939,7 @@ public struct SessionUsage: Equatable, Hashable {
         self.limitNote = limitNote
         self.limitResetEpoch = limitResetEpoch
         self.ollama = ollama
+        self.limits = limits
     }
 
     
@@ -5796,7 +5965,8 @@ public struct FfiConverterTypeSessionUsage: FfiConverterRustBuffer {
                 contextLimit: FfiConverterOptionUInt64.read(from: &buf), 
                 limitNote: FfiConverterOptionString.read(from: &buf), 
                 limitResetEpoch: FfiConverterOptionUInt64.read(from: &buf), 
-                ollama: FfiConverterOptionTypeOllamaLoad.read(from: &buf)
+                ollama: FfiConverterOptionTypeOllamaLoad.read(from: &buf), 
+                limits: FfiConverterSequenceTypeLimitWindow.read(from: &buf)
         )
     }
 
@@ -5809,6 +5979,7 @@ public struct FfiConverterTypeSessionUsage: FfiConverterRustBuffer {
         FfiConverterOptionString.write(value.limitNote, into: &buf)
         FfiConverterOptionUInt64.write(value.limitResetEpoch, into: &buf)
         FfiConverterOptionTypeOllamaLoad.write(value.ollama, into: &buf)
+        FfiConverterSequenceTypeLimitWindow.write(value.limits, into: &buf)
     }
 }
 
@@ -8601,6 +8772,31 @@ fileprivate struct FfiConverterSequenceTypeInvalidPermissionRule: FfiConverterRu
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeLimitWindow: FfiConverterRustBuffer {
+    typealias SwiftType = [LimitWindow]
+
+    public static func write(_ value: [LimitWindow], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeLimitWindow.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [LimitWindow] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [LimitWindow]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeLimitWindow.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeLocalAgentTool: FfiConverterRustBuffer {
     typealias SwiftType = [LocalAgentTool]
 
@@ -9062,6 +9258,14 @@ public func agentHooksInstalled(agent: AgentKind, existing: String) -> Bool  {
     )
 })
 }
+public func claudeStatuslineInstalled(existing: String) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_claude_statusline_installed(
+        FfiConverterString.lower(existing),uniffiCallStatus
+    )
+})
+}
 public func defaultHookPreset() -> HookPreset  {
     return try!  FfiConverterTypeHookPreset_lift(try! rustCall() {
         uniffiCallStatus in
@@ -9144,6 +9348,19 @@ public func mergeAgentHooks(agent: AgentKind, existing: String, hookDir: String?
 })
 }
 /**
+ * Installs the status-line wrapper into a Claude `settings.json` (idempotent). An existing
+ * command status line is kept and run by the wrapper; any other kind is refused.
+ */
+public func mergeClaudeStatusline(existing: String, hookDir: String?)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_merge_claude_statusline(
+        FfiConverterString.lower(existing),
+        FfiConverterOptionString.lower(hookDir),uniffiCallStatus
+    )
+})
+}
+/**
  * Idempotently writes `planned` into an agent's existing config JSON (replacing any previous
  * ssh-app entries, preserving everything else). Used for install and for the dry-run preview.
  */
@@ -9178,6 +9395,17 @@ public func removeAgentHooks(agent: AgentKind, existing: String)throws  -> Strin
         uniffiCallStatus in
     uniffi_ssh_core_fn_func_remove_agent_hooks(
         FfiConverterTypeAgentKind_lower(agent),
+        FfiConverterString.lower(existing),uniffiCallStatus
+    )
+})
+}
+/**
+ * Removes our wrapper and puts the user's previous status line back (or drops the key).
+ */
+public func removeClaudeStatusline(existing: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_remove_claude_statusline(
         FfiConverterString.lower(existing),uniffiCallStatus
     )
 })
@@ -9918,6 +10146,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_func_agent_hooks_installed() != 7798) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_func_claude_statusline_installed() != 59119) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_func_default_hook_preset() != 30389) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -9939,6 +10170,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_func_merge_agent_hooks() != 53276) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_func_merge_claude_statusline() != 64164) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_func_merge_planned_hooks() != 23563) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -9946,6 +10180,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_remove_agent_hooks() != 40391) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_remove_claude_statusline() != 33626) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_agent_config_dir_env() != 12240) {
@@ -10197,6 +10434,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_check_host_ollama() != 59178) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_claude_statusline_status() != 53582) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_detect_active_transcript_path() != 46936) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -10230,6 +10470,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_install_approval_key() != 52293) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_install_claude_statusline() != 23468) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_installed_agent_hooks() != 44534) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -10249,6 +10492,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_preview_agent_permissions() != 21394) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_preview_claude_statusline() != 11532) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_query_host_ollama() != 63133) {
@@ -10273,6 +10519,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_uninstall_agent_hooks() != 35310) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_uninstall_claude_statusline() != 55124) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_wait_pending_approvals() != 31103) {

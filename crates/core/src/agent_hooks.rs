@@ -929,6 +929,117 @@ pub(crate) fn remote_script_path(hook_dir: &str) -> String {
     remote_path_expr(&format!("{}/{HOOK_MARKER}", hook_dir.trim_end_matches('/')))
 }
 
+// ---- Claude Code status line (plan limits) -------------------------------------------------
+//
+// Claude Code hands the real plan limits (`rate_limits`: percent used and reset time of the
+// 5-hour and 7-day windows) only to its `statusLine` command. The wrapper below lets the host
+// script record them under `~/.ssh-app/run/limits/` and then runs whatever status line the user
+// had before (kept hex-encoded in our own command line, so nothing else is stored anywhere).
+
+const STATUSLINE_MAX_PREV: usize = 2000;
+
+fn statusline_command(hook_dir: &str, prev: Option<&str>) -> String {
+    let base = hook_command(hook_dir, "claude", "statusline");
+    match prev {
+        Some(p) => format!("{base} {}", hex::encode(p)),
+        None => base,
+    }
+}
+
+/// `Some(previous command)` (possibly none) when `value` is our wrapper, `None` otherwise.
+fn our_statusline_prev(value: &Value) -> Option<Option<String>> {
+    let command = value.get("command").and_then(Value::as_str)?;
+    if !is_our_command(command) {
+        return None;
+    }
+    let mut parts = command.split(' ').skip_while(|p| *p != "claude");
+    if (parts.next(), parts.next()) != (Some("claude"), Some("statusline")) {
+        return None;
+    }
+    Some(
+        parts
+            .next()
+            .and_then(|h| hex::decode(h).ok())
+            .and_then(|b| String::from_utf8(b).ok()),
+    )
+}
+
+/// Installs the status-line wrapper into a Claude `settings.json` (idempotent). An existing
+/// command status line is kept and run by the wrapper; any other kind is refused.
+#[uniffi::export]
+pub fn merge_claude_statusline(
+    existing: String,
+    hook_dir: Option<String>,
+) -> Result<String, SshCoreError> {
+    let dir = hook_dir.unwrap_or_else(|| DEFAULT_HOOK_DIR.to_string());
+    validate_hook_dir(&dir)?;
+    let mut map = parse_object(&existing)?;
+    let mut entry = Map::new();
+    let prev = match map.get("statusLine") {
+        None | Some(Value::Null) => None,
+        Some(v) => match our_statusline_prev(v) {
+            Some(prev) => prev,
+            None => {
+                let command = v
+                    .get("command")
+                    .and_then(Value::as_str)
+                    .filter(|_| v.get("type").and_then(Value::as_str) == Some("command"))
+                    .ok_or_else(|| {
+                        invalid("`statusLine` is not a command; refusing to replace it")
+                    })?;
+                if command.len() > STATUSLINE_MAX_PREV || command.chars().any(char::is_control) {
+                    return Err(invalid(
+                        "Your status line command is too long or odd to wrap",
+                    ));
+                }
+                Some(command.to_string())
+            }
+        },
+    };
+    if let Some(old) = map.get("statusLine").and_then(Value::as_object) {
+        for (k, v) in old {
+            if k != "type" && k != "command" {
+                entry.insert(k.clone(), v.clone());
+            }
+        }
+    }
+    entry.insert("type".into(), json!("command"));
+    entry.insert(
+        "command".into(),
+        json!(statusline_command(&dir, prev.as_deref())),
+    );
+    map.insert("statusLine".into(), Value::Object(entry));
+    render(map)
+}
+
+/// Removes our wrapper and puts the user's previous status line back (or drops the key).
+#[uniffi::export]
+pub fn remove_claude_statusline(existing: String) -> Result<String, SshCoreError> {
+    let mut map = parse_object(&existing)?;
+    let Some(prev) = map.get("statusLine").and_then(our_statusline_prev) else {
+        return render(map);
+    };
+    match prev {
+        Some(command) => {
+            if let Some(Value::Object(o)) = map.get_mut("statusLine") {
+                o.insert("command".into(), json!(command));
+            }
+        }
+        None => {
+            map.remove("statusLine");
+        }
+    }
+    render(map)
+}
+
+#[uniffi::export]
+pub fn claude_statusline_installed(existing: String) -> bool {
+    parse_object(&existing)
+        .ok()
+        .and_then(|m| m.get("statusLine").and_then(our_statusline_prev))
+        .is_some()
+}
+
 #[cfg(test)]
 pub(crate) fn validate_custom_hook_for_tests(preset: &HookPreset) {
     for agent in [
@@ -949,6 +1060,46 @@ pub(crate) fn validate_custom_hook_for_tests(preset: &HookPreset) {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn statusline_wraps_keeps_and_restores_the_users_command() {
+        let none = merge_claude_statusline("{}".into(), None).unwrap();
+        assert!(claude_statusline_installed(none.clone()));
+        assert!(none.contains("claude statusline"));
+        assert_eq!(merge_claude_statusline(none.clone(), None).unwrap(), none);
+        assert_eq!(remove_claude_statusline(none).unwrap().trim(), "{}");
+
+        let mine = r#"{"model":"x","statusLine":{"type":"command","command":"~/bin/sl.sh --a 'b'","padding":2}}"#;
+        let wrapped = merge_claude_statusline(mine.into(), None).unwrap();
+        let v: Value = serde_json::from_str(&wrapped).unwrap();
+        assert_eq!(v["statusLine"]["padding"], 2);
+        assert_eq!(v["model"], "x");
+        // Installing twice must not wrap the wrapper.
+        assert_eq!(
+            merge_claude_statusline(wrapped.clone(), None).unwrap(),
+            wrapped
+        );
+        let back: Value =
+            serde_json::from_str(&remove_claude_statusline(wrapped).unwrap()).unwrap();
+        assert_eq!(back["statusLine"]["command"], "~/bin/sl.sh --a 'b'");
+        assert!(!claude_statusline_installed(back.to_string()));
+    }
+
+    #[test]
+    fn statusline_refuses_what_it_cannot_wrap() {
+        for bad in [
+            r#"{"statusLine":{"type":"static","text":"x"}}"#,
+            r#"{"statusLine":"x"}"#,
+            "[1]",
+        ] {
+            assert!(merge_claude_statusline(bad.into(), None).is_err(), "{bad}");
+        }
+        let long = format!(
+            r#"{{"statusLine":{{"type":"command","command":"{}"}}}}"#,
+            "a".repeat(2001)
+        );
+        assert!(merge_claude_statusline(long, None).is_err());
+    }
     use super::*;
     #[test]
     fn claude_merge_is_idempotent_and_preserves_user_settings() {
