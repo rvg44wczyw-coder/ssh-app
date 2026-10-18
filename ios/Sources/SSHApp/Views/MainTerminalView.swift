@@ -19,16 +19,16 @@ struct AssistantRoute: Identifiable, Hashable {
 public struct MainTerminalView: View {
     @Environment(\.scenePhase) private var scenePhase
 
-    @StateObject private var serversManager = ServerProfilesManager()
-    @StateObject private var tabsManager = TerminalTabsManager()
-    @StateObject private var agentProfiles = AgentProfilesManager()
+    @StateObject var serversManager = ServerProfilesManager()
+    @StateObject var tabsManager = TerminalTabsManager()
+    @StateObject var agentProfiles = AgentProfilesManager()
 
     private enum ServerPickerContext {
         case startup
         case newTab
     }
 
-    private enum ActiveModalSheet: String, Identifiable {
+    enum ActiveModalSheet: String, Identifiable {
         case settings
         case publicKey
         case tmuxSessions
@@ -55,7 +55,7 @@ public struct MainTerminalView: View {
         let slot = profile.map { SchemeSlot.forAgent($0.agent) } ?? SchemeSlot.forTab(tab.agentType)
         return TerminalSchemes.resolve(tabSchemeId: tab.schemeId, profileSchemeId: profile?.terminalSchemeId, slot: slot)
     }
-    @State private var activeSheet: ActiveModalSheet? = nil
+    @State var activeSheet: ActiveModalSheet? = nil
     /// The AI assistant is a screen of its own (pushed on the navigation stack), not a card over
     /// the terminal. One value carries both "open" and "through which session", so the screen can
     /// never appear without its session.
@@ -374,104 +374,7 @@ public struct MainTerminalView: View {
                 Text(pendingLocal.map { localLaunchMessage($0.profile) } ?? "")
             }
             .sheet(item: $activeSheet) { sheet in
-                switch sheet {
-                case .settings:
-                    SettingsView(
-                        serversManager: serversManager,
-                        agentsPage: tabsManager.activeViewModel.map { vm in
-                            AnyView(
-                                AgentProfilesSheetView(
-                                    manager: agentProfiles,
-                                    viewModel: vm,
-                                    onLaunch: { profile, command in
-                                        activeSheet = nil
-                                        startProfile(profile, command: command)
-                                    },
-                                    embedded: true
-                                )
-                            )
-                        }
-                    )
-                        .onDisappear {
-                            ensureSessionStarted(for: tabsManager.selectedSessionId)
-                        }
-                case .publicKey:
-                    PublicKeySheetView(
-                        serverName: (serversManager.profile(for: tabsManager.activeSession?.serverId) ?? serversManager.activeProfile)?.name,
-                        activeKeyId: activeKeyId,
-                        onClose: { activeSheet = nil }
-                    )
-                case .tmuxSessions:
-                    TmuxSessionsSheetView(
-                        serversManager: serversManager,
-                        initialServerId: tabsManager.activeSession?.serverId ?? serversManager.activeProfileId,
-                        configDirs: agentProfiles.claudeConfigDirs
-                    ) { sessionName, server in
-                        let alreadyOpen = tabsManager.sessions.contains {
-                            $0.sessionName == sessionName && $0.serverId == server.id
-                        }
-                        guard alreadyOpen || canOpenNewSession() else { return }
-                        let newSession = tabsManager.openOrSwitchToSession(sessionName: sessionName, serverId: server.id)
-                        ensureSessionStarted(for: newSession.id)
-                    }
-                case .diffViewer:
-                    if let activeVM = tabsManager.activeViewModel {
-                        GitLogSheetView(viewModel: activeVM)
-                    }
-                case .webPreview:
-                    if let activeVM = tabsManager.activeViewModel {
-                        WebPreviewSheetView(viewModel: activeVM)
-                    }
-                case .aiAssistant:
-                    EmptyView() // pushed as a screen, see `assistantRoute`
-                case .commands:
-                    if let activeVM = tabsManager.activeViewModel {
-                        CommandPaletteSheetView(
-                            viewModel: activeVM,
-                            tabAgent: tabsManager.activeSession?.agentType ?? .customShell,
-                            onClose: { activeSheet = nil }
-                        )
-                    }
-                case .sessionPermissions:
-                    if let activeVM = tabsManager.activeViewModel, let tab = tabsManager.activeSession {
-                        SessionPermissionsSheetView(
-                            tab: tab,
-                            profile: agentProfiles.profiles.first(where: { $0.id == tab.profileId }),
-                            handle: activeVM.state == .connected ? activeVM.sessionHandle : nil,
-                            onClose: { activeSheet = nil }
-                        )
-                    }
-                case .snippets:
-                    if let activeVM = tabsManager.activeViewModel {
-                        SnippetsSheetView(viewModel: activeVM) {
-                            activeSheet = nil
-                        }
-                    }
-                case .telemetry:
-                    if let activeVM = tabsManager.activeViewModel {
-                        HostTelemetrySheetView(viewModel: activeVM) {
-                            activeSheet = nil
-                        }
-                    }
-                case .agentProfiles:
-                    if let activeVM = tabsManager.activeViewModel {
-                        AgentProfilesSheetView(
-                            manager: agentProfiles,
-                            viewModel: activeVM,
-                            onLaunch: { profile, command in
-                                activeSheet = nil
-                                startProfile(profile, command: command)
-                            },
-                            onClose: { activeSheet = nil }
-                        )
-                    }
-                case .fileBrowser:
-                    if let activeVM = tabsManager.activeViewModel {
-                        FileBrowserSheetView(viewModel: activeVM) {
-                            activeSheet = nil
-                        }
-                    }
-                }
+                sheetContent(sheet)
             }
             .overlay {
                 if showServerPicker {
@@ -606,7 +509,7 @@ public struct MainTerminalView: View {
     }
 
     /// Key of the server behind the visible tab (`nil` = the default key).
-    private var activeKeyId: String? {
+    var activeKeyId: String? {
         (serversManager.profile(for: tabsManager.activeSession?.serverId) ?? serversManager.activeProfile)?.keyId
     }
 
@@ -629,7 +532,7 @@ public struct MainTerminalView: View {
 
     /// Opens a tab running `profile`. A local-model agent asks for a one-time confirmation first
     /// (it may run without the phone gate, and `ollama launch` writes config on the host).
-    private func startProfile(_ profile: SavedAgentProfile, command: String) {
+    func startProfile(_ profile: SavedAgentProfile, command: String) {
         if profile.isLocal && !agentProfiles.isAcknowledged(profile.id) {
             // A sheet or menu may still be closing; an alert presented during that is dropped.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
@@ -821,7 +724,7 @@ public struct MainTerminalView: View {
     }
 
     /// Free tier: a limited number of open tabs. Past it the paywall opens instead.
-    private func canOpenNewSession() -> Bool {
+    func canOpenNewSession() -> Bool {
         if FreeTier.canAddSession(open: tabsManager.sessions.count, isPro: subscriptions.unlocked) { return true }
         // A sheet or popover may still be closing; presenting during that is dropped by UIKit.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { showPaywall = true }
@@ -861,7 +764,7 @@ public struct MainTerminalView: View {
         ensureSessionStarted(for: sessionId, force: true)
     }
 
-    private func ensureSessionStarted(for id: UUID, force: Bool = false) {
+    func ensureSessionStarted(for id: UUID, force: Bool = false) {
         guard let vm = tabsManager.viewModel(for: id) else { return }
         let session = vm.session
         let server = serversManager.profile(for: session.serverId) ?? serversManager.activeProfile

@@ -83,6 +83,7 @@
 		AA900101 /* PublicKeySheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB900101 /* PublicKeySheetView.swift */; };
 		AA900102 /* RemoteDirectoryPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB900102 /* RemoteDirectoryPickerView.swift */; };
 		AA900103 /* SchemePreviewsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB900103 /* SchemePreviewsView.swift */; };
+		AA900104 /* MainTerminalSheets.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB900104 /* MainTerminalSheets.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -161,6 +162,7 @@
 		BB900101 /* PublicKeySheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/PublicKeySheetView.swift; sourceTree = "<group>"; };
 		BB900102 /* RemoteDirectoryPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/RemoteDirectoryPickerView.swift; sourceTree = "<group>"; };
 		BB900103 /* SchemePreviewsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/SchemePreviewsView.swift; sourceTree = "<group>"; };
+		BB900104 /* MainTerminalSheets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/MainTerminalSheets.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -319,6 +321,7 @@
 				BB000024 /* AiAssistantSheetView.swift */,
 				BB000025 /* StructuredTranscriptView.swift */,
 				BB000026 /* SnippetsSheetView.swift */,
+				BB900104 /* MainTerminalSheets.swift */,
 				BB900103 /* SchemePreviewsView.swift */,
 				BB900102 /* RemoteDirectoryPickerView.swift */,
 				BB900101 /* PublicKeySheetView.swift */,
@@ -533,6 +536,7 @@
 				AA000024 /* AiAssistantSheetView.swift in Sources */,
 				AA000025 /* StructuredTranscriptView.swift in Sources */,
 				AA000026 /* SnippetsSheetView.swift in Sources */,
+				AA900104 /* MainTerminalSheets.swift in Sources */,
 				AA900103 /* SchemePreviewsView.swift in Sources */,
 				AA900102 /* RemoteDirectoryPickerView.swift in Sources */,
 				AA900101 /* PublicKeySheetView.swift in Sources */,
