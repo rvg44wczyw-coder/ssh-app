@@ -53,7 +53,8 @@ fn load_pending(p: &Paths, name: &str, now: i64) -> Option<Value> {
     (o["expires"].as_i64()? > now).then_some(req)
 }
 
-fn pending_items(p: &Paths, now: i64) -> Vec<Value> {
+/// Every valid pending entry, oldest first (not truncated; the agent derives state from it).
+pub fn all_pending(p: &Paths, now: i64) -> Vec<Value> {
     let mut items: Vec<Value> = std::fs::read_dir(&p.pending)
         .map(|rd| {
             rd.flatten()
@@ -64,6 +65,11 @@ fn pending_items(p: &Paths, now: i64) -> Vec<Value> {
     items.sort_by(|a, b| {
         (a["ts"].as_i64(), a["id"].as_str()).cmp(&(b["ts"].as_i64(), b["id"].as_str()))
     });
+    items
+}
+
+fn pending_items(p: &Paths, now: i64) -> Vec<Value> {
+    let mut items = all_pending(p, now);
     items.truncate(MAX_LIST);
     items
 }

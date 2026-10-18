@@ -5,7 +5,7 @@
 
 use serde_json::json;
 use ssh_app_host::queue::{install_signal_handlers, Paths};
-use ssh_app_host::{ctl, hook, statusline, usage};
+use ssh_app_host::{agent, ctl, hook, rpc, statusline, usage};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -16,7 +16,7 @@ fn main() {
         Some("hello") => {
             println!(
                 "{}",
-                json!({"v": 1, "name": "ssh-app-host", "version": VERSION, "caps": ["usage", "hook"]})
+                json!({"v": 1, "name": "ssh-app-host", "version": VERSION, "caps": ["usage", "hook", "agent"]})
             );
             0
         }
@@ -32,13 +32,15 @@ fn main() {
             hook::run(&Paths::from_env(), &args[1..])
         }),
         Some("statusline") => guarded(|| statusline::run(&Paths::from_env(), &args[1..])),
+        Some("agent") => agent::run(Paths::from_env(), rpc::parse_lease(&args[1..]), &agent::NoopSink),
+        Some("rpc") => rpc::run(&Paths::from_env(), rpc::parse_lease(&args[1..])),
         Some("ctl") => {
             let reply = std::panic::catch_unwind(|| ctl::run(&Paths::from_env(), &args[1..]))
                 .unwrap_or_else(|_| json!({"ok": false, "error": "internal error"}));
             println!("{reply}");
             0
         }
-        _ => fail("usage: ssh-app-host hello | usage [CONFIG_DIR...] | hook AGENT EVENT | ctl SUB | statusline [PREV_HEX]"),
+        _ => fail("usage: ssh-app-host hello | usage [CONFIG_DIR...] | hook AGENT EVENT | rpc [--lease SECS] | agent | ctl SUB | statusline [PREV_HEX]"),
     };
     std::process::exit(code);
 }
