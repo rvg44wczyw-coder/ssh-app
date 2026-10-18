@@ -1,5 +1,9 @@
 [workspace]
 members = [
     "crates/core",
+    "crates/host",
 ]
 resolver = "2"
+
+[profile.release.package.ssh-app-host]
+opt-level = "s"

@@ -1,0 +1,22 @@
+[package]
+name = "ssh-app-host"
+version = "0.1.0"
+edition = "2021"
+license = "BUSL-1.1"
+description = "Typed helper the app installs on the host (feature 24)"
+
+[lib]
+name = "ssh_app_host"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ssh-app-host"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+regex = "1"
+
+[dev-dependencies]
+tempfile = "3"
