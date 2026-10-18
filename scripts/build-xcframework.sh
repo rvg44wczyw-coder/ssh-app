@@ -4,6 +4,12 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
+echo "=== 0. Building the host helper (embedded into the core) ==="
+cargo build -p ssh-app-host --release --target aarch64-apple-darwin
+mkdir -p "${ROOT_DIR}/crates/core/embedded"
+cp "${ROOT_DIR}/target/aarch64-apple-darwin/release/ssh-app-host" "${ROOT_DIR}/crates/core/embedded/ssh-app-host"
+strip -x "${ROOT_DIR}/crates/core/embedded/ssh-app-host"
+
 echo "=== 1. Building cdylib for UniFFI bindgen ==="
 cargo build -p ssh-core --lib
 

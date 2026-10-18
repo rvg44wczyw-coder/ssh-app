@@ -17,6 +17,7 @@ const MAX_DIR_LEN: usize = 300;
 const BUDGET_SECS: f64 = 15.0;
 const TAIL_LIMIT: u64 = 1 << 20;
 const MAX_STATE_FILE: u64 = 8192;
+const MAX_LINE: usize = 8 << 20;
 
 pub fn validate_dirs(args: &[String]) -> Result<Vec<String>, String> {
     if args.len() > MAX_DIRS {
@@ -76,7 +77,7 @@ fn run(prog: &str, args: &[&str], secs: u64) -> String {
     };
     let reader = std::thread::spawn(move || {
         let mut buf = Vec::new();
-        let _ = out.read_to_end(&mut buf);
+        let _ = (&mut out).take(16 << 20).read_to_end(&mut buf);
         buf
     });
     let deadline = Instant::now() + Duration::from_secs(secs);
@@ -208,10 +209,13 @@ fn tail_lines(path: &Path, limit: u64) -> Vec<String> {
 
 /// `*.jsonl` files under `root`, at most `max_depth` levels down (symlinked folders are followed,
 /// the depth bound stops loops).
-fn jsonl_files(root: &Path, max_depth: usize) -> Vec<PathBuf> {
+fn jsonl_files(root: &Path, max_depth: usize, deadline: Instant) -> Vec<PathBuf> {
     let mut out = vec![];
     let mut stack = vec![(root.to_path_buf(), 0usize)];
     while let Some((dir, depth)) = stack.pop() {
+        if Instant::now() > deadline {
+            break;
+        }
         let Ok(rd) = std::fs::read_dir(&dir) else {
             continue;
         };
@@ -454,7 +458,11 @@ impl Probe {
             std::env::var_os("CODEX_HOME").map_or_else(|| home().join(".codex"), PathBuf::from);
         let mut best: Option<PathBuf> = None;
         let mut best_m = 0.0;
-        for p in jsonl_files(&home_dir.join("sessions"), 4) {
+        for p in jsonl_files(
+            &home_dir.join("sessions"),
+            4,
+            Instant::now() + Duration::from_secs(3),
+        ) {
             let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
             if !name.starts_with("rollout-") {
                 continue;
@@ -608,7 +616,7 @@ impl Probe {
         let cutoff = self.now - 7.0 * 86_400.0;
         let deadline = Instant::now() + Duration::from_secs_f64(BUDGET_SECS);
         for d in &self.dirs {
-            for f in jsonl_files(&d.join("projects"), 8) {
+            for f in jsonl_files(&d.join("projects"), 8, deadline) {
                 if Instant::now() > deadline {
                     return (five, week, true);
                 }
@@ -623,9 +631,10 @@ impl Probe {
                 let mut raw = Vec::new();
                 loop {
                     raw.clear();
-                    match std::io::BufRead::read_until(&mut reader, b'\n', &mut raw) {
-                        Ok(0) | Err(_) => break,
-                        Ok(_) => {}
+                    match read_line_capped(&mut reader, &mut raw, MAX_LINE) {
+                        None => break,
+                        Some(false) => continue, // longer than the cap: skipped
+                        Some(true) => {}
                     }
                     let line = String::from_utf8_lossy(&raw);
                     if !line.contains("\"usage\"") || !line.contains("\"assistant\"") {
@@ -674,6 +683,36 @@ impl Probe {
             }
         }
         (five, week, false)
+    }
+}
+
+/// Reads one line into `buf`. `None` at end of input, `Some(false)` when the line was longer than
+/// `cap` bytes (it is consumed but not kept), `Some(true)` for a line that fits.
+fn read_line_capped<R: std::io::BufRead>(r: &mut R, buf: &mut Vec<u8>, cap: usize) -> Option<bool> {
+    let mut fits = true;
+    let mut any = false;
+    loop {
+        let chunk = match r.fill_buf() {
+            Ok(c) if !c.is_empty() => c,
+            _ => return any.then_some(fits),
+        };
+        any = true;
+        let (take, done) = match chunk.iter().position(|b| *b == b'\n') {
+            Some(i) => (i + 1, true),
+            None => (chunk.len(), false),
+        };
+        if fits {
+            if buf.len() + take > cap + 1 {
+                fits = false;
+                buf.clear();
+            } else {
+                buf.extend_from_slice(&chunk[..take]);
+            }
+        }
+        r.consume(take);
+        if done {
+            return Some(fits);
+        }
     }
 }
 
@@ -882,6 +921,24 @@ mod tests {
             Some(("ollama", Some("qwen2.5-coder:7b".into())))
         );
         assert_eq!(d.detect(&procs, 4), None);
+    }
+
+    #[test]
+    fn long_lines_are_skipped_not_loaded() {
+        let mut data = b"short\n".to_vec();
+        data.extend(std::iter::repeat_n(b'x', 5000));
+        data.extend_from_slice(b"\nlast");
+        let mut r = std::io::BufReader::with_capacity(16, &data[..]);
+        let mut buf = Vec::new();
+        assert_eq!(read_line_capped(&mut r, &mut buf, 100), Some(true));
+        assert_eq!(buf, b"short\n");
+        buf.clear();
+        assert_eq!(read_line_capped(&mut r, &mut buf, 100), Some(false));
+        assert!(buf.is_empty());
+        assert_eq!(read_line_capped(&mut r, &mut buf, 100), Some(true));
+        assert_eq!(buf, b"last");
+        buf.clear();
+        assert_eq!(read_line_capped(&mut r, &mut buf, 100), None);
     }
 
     #[test]

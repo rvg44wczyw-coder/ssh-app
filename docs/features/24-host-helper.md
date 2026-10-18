@@ -128,3 +128,18 @@ Named trade-offs, not defects:
 - `x86_64` is not built until its Rust target is installed; the owner's host is Apple silicon.
 - `regex` is a dependency of the helper (already used by the core) to keep the agent-detection
   patterns identical to the Python ones.
+
+## 8. Implementation notes (2026-10-18)
+
+Done: `crates/host` (`hello`, `usage`; `timefmt`, `usage` modules; lib + bin), parity test against
+`usage_probe.py` (`crates/host/tests/parity.rs`), core: `build_usage_command(dirs, pin)` with Python
+fallback, `host_helper_status`, `install_host_helper`, `install_bundled_host_helper`,
+`bundled_host_helper_sha256/size`; the helper is **embedded in the core** (`build.rs` reads
+`crates/core/embedded/ssh-app-host`, produced by `scripts/build-xcframework.sh`; an app resource
+would be an unsigned Mach-O in the bundle) so the pin travels with the library; app: "Host service"
+card in the host monitor sheet; loopback test (`usage_report_...`) installs the helper over a
+throwaway sshd, gets the same report as Python, and shows a replaced helper is not run.
+Security pass: `docs/security-findings/2026-10-18-host-helper-p0.md`.
+
+Deviation: telemetry stays a shell script (its parser lives in the core); only usage moved in P0.
+Python is kept as the fallback; deleting it waits for a device run (live checks are postponed).

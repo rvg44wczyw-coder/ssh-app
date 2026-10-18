@@ -743,6 +743,15 @@ impl SshSessionHandle {
         Ok(())
     }
 
+    /// Installs the helper embedded in this build (see `bundled_host_helper_sha256`).
+    pub async fn install_bundled_host_helper(&self) -> Result<(), SshCoreError> {
+        let bytes = crate::usage::bundled_host_helper();
+        let sha = crate::usage::bundled_host_helper_sha256().ok_or(SshCoreError::InvalidInput {
+            reason: "This build has no host helper embedded".to_string(),
+        })?;
+        self.install_host_helper(bytes.to_vec(), sha).await
+    }
+
     /// Removes the wrapper and restores the user's previous status line.
     pub async fn uninstall_claude_statusline(
         &self,

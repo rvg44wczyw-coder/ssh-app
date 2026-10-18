@@ -247,6 +247,26 @@ pub enum HostHelperStatus {
     Unusable,
 }
 
+/// The helper build embedded by `build.rs` (empty when none was provided at build time).
+static BUNDLED_HELPER: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/ssh-app-host"));
+
+/// SHA-256 of the embedded helper: the digest the app pins. `None` when no helper is embedded.
+#[uniffi::export]
+pub fn bundled_host_helper_sha256() -> Option<String> {
+    use sha2::{Digest, Sha256};
+    (!BUNDLED_HELPER.is_empty()).then(|| hex::encode(Sha256::digest(BUNDLED_HELPER)))
+}
+
+/// Size of the embedded helper in bytes (0 when none is embedded).
+#[uniffi::export]
+pub fn bundled_host_helper_size() -> u64 {
+    BUNDLED_HELPER.len() as u64
+}
+
+pub(crate) fn bundled_host_helper() -> &'static [u8] {
+    BUNDLED_HELPER
+}
+
 pub(crate) fn build_helper_status_command(sha256: &str) -> String {
     let script = format!(
         "h={HELPER_PATH_EXPR}; if [ ! -f \"$h\" ] || [ -L \"$h\" ]; then echo HELPER_ABSENT; \
@@ -403,6 +423,17 @@ mod tests {
         assert_eq!(r.five_hour.cache_read, 4);
         assert_eq!(r.week, UsageWindow::default());
         assert!(r.partial);
+    }
+
+    #[test]
+    fn the_embedded_helper_is_either_absent_or_pinned_by_its_own_digest() {
+        match bundled_host_helper_sha256() {
+            None => assert_eq!(bundled_host_helper_size(), 0),
+            Some(sha) => {
+                assert!(validate_sha256(&sha).is_ok());
+                assert!(build_helper_install_commands(bundled_host_helper(), &sha).is_ok());
+            }
+        }
     }
 
     #[test]

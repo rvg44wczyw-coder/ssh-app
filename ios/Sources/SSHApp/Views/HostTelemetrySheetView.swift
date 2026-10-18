@@ -69,6 +69,7 @@ public struct HostTelemetrySheetView: View {
                         hostSummaryCard(snap)
                         resourceGaugesGrid(snap)
                         processMonitorSection(snap)
+                        HostHelperCard(viewModel: viewModel)
                     } else if viewModel.isTelemetryLoading {
                         VStack(spacing: 12) {
                             ProgressView()

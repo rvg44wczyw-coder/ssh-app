@@ -76,3 +76,6 @@ android/app/src/main/jniLibs/
 scratch/
 *.zip
 1.sh
+
+# Host helper embedded into the core by scripts/build-xcframework.sh
+crates/core/embedded/

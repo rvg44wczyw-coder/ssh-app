@@ -1270,6 +1270,11 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func fetchRemoteShellHistory(limit: UInt32) async throws  -> [String]
     
     /**
+     * Whether the typed host helper is installed and is exactly the build the app pins.
+     */
+    func hostHelperStatus(expectedSha256: String) async throws  -> HostHelperStatus
+    
+    /**
      * Reads what is in effect for this session: its folder (tmux pane), the profile's rules and the
      * folder's `.claude/settings.json` / `settings.local.json` (read-only), plus suggestions.
      * Only Claude Code has readable rule files; other agents get an empty report.
@@ -1294,11 +1299,23 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func installApprovalKey() async throws 
     
     /**
+     * Installs the helper embedded in this build (see `bundled_host_helper_sha256`).
+     */
+    func installBundledHostHelper() async throws 
+    
+    /**
      * Installs the status line wrapper (and the host script it runs) into the Claude profile so
      * the real 5-hour / 7-day plan limits can be shown. Keeps the user's own status line: the
      * wrapper runs it. Backup, atomic write, refuses an unparsable config.
      */
     func installClaudeStatusline(configDir: String?, hookDir: String?) async throws 
+    
+    /**
+     * Installs the helper the app ships (`~/.ssh-app/bin/ssh-app-host`, mode 700). The digest is
+     * checked here, again on the host before the file is moved into place, and the result is
+     * refused when it differs. Nothing is executed during the install.
+     */
+    func installHostHelper(bytes: Data, sha256: String) async throws 
     
     /**
      * The ssh-app hook entries currently installed in the agent's config.
@@ -1838,6 +1855,25 @@ open func fetchRemoteShellHistory(limit: UInt32)async throws  -> [String]  {
 }
     
     /**
+     * Whether the typed host helper is installed and is exactly the build the app pins.
+     */
+open func hostHelperStatus(expectedSha256: String)async throws  -> HostHelperStatus  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_host_helper_status(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(expectedSha256)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeHostHelperStatus_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
      * Reads what is in effect for this session: its folder (tmux pane), the profile's rules and the
      * folder's `.claude/settings.json` / `settings.local.json` (read-only), plus suggestions.
      * Only Claude Code has readable rule files; other agents get an empty report.
@@ -1918,6 +1954,25 @@ open func installApprovalKey()async throws   {
 }
     
     /**
+     * Installs the helper embedded in this build (see `bundled_host_helper_sha256`).
+     */
+open func installBundledHostHelper()async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_install_bundled_host_helper(
+                        self.uniffiCloneHandle()
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_void,
+            completeFunc: ffi_ssh_core_rust_future_complete_void,
+            freeFunc: ffi_ssh_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
      * Installs the status line wrapper (and the host script it runs) into the Claude profile so
      * the real 5-hour / 7-day plan limits can be shown. Keeps the user's own status line: the
      * wrapper runs it. Backup, atomic write, refuses an unparsable config.
@@ -1928,6 +1983,27 @@ open func installClaudeStatusline(configDir: String?, hookDir: String?)async thr
             rustFutureFunc: {
                 uniffi_ssh_core_fn_method_sshsessionhandle_install_claude_statusline(
                         self.uniffiCloneHandle(),FfiConverterOptionString.lower(configDir),FfiConverterOptionString.lower(hookDir)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_void,
+            completeFunc: ffi_ssh_core_rust_future_complete_void,
+            freeFunc: ffi_ssh_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Installs the helper the app ships (`~/.ssh-app/bin/ssh-app-host`, mode 700). The digest is
+     * checked here, again on the host before the file is moved into place, and the result is
+     * refused when it differs. Nothing is executed during the install.
+     */
+open func installHostHelper(bytes: Data, sha256: String)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_install_host_helper(
+                        self.uniffiCloneHandle(),FfiConverterData.lower(bytes),FfiConverterString.lower(sha256)
                 )
             },
             pollFunc: ffi_ssh_core_rust_future_poll_void,
@@ -6867,6 +6943,104 @@ public func FfiConverterTypeHookPresetKind_lower(_ value: HookPresetKind) -> Rus
 
 
 
+/**
+ * State of the typed helper on the host, judged against the digest the app pins.
+ */
+
+public enum HostHelperStatus: Equatable, Hashable {
+    
+    /**
+     * No helper file (or something that is not a regular file) at the install path.
+     */
+    case absent
+    /**
+     * A file is there but its digest is not the pinned one (old version or replaced): never run.
+     */
+    case mismatch
+    /**
+     * The pinned helper is installed and answered `hello`.
+     */
+    case ready(version: String
+    )
+    /**
+     * The digest matches but the helper did not answer (wrong platform, damaged).
+     */
+    case unusable
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension HostHelperStatus: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHostHelperStatus: FfiConverterRustBuffer {
+    typealias SwiftType = HostHelperStatus
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HostHelperStatus {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .absent
+        
+        case 2: return .mismatch
+        
+        case 3: return .ready(version: try FfiConverterString.read(from: &buf)
+        )
+        
+        case 4: return .unusable
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: HostHelperStatus, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .absent:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .mismatch:
+            writeInt(&buf, Int32(2))
+        
+        
+        case let .ready(version):
+            writeInt(&buf, Int32(3))
+            FfiConverterString.write(version, into: &buf)
+            
+        
+        case .unusable:
+            writeInt(&buf, Int32(4))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHostHelperStatus_lift(_ buf: RustBuffer) throws -> HostHelperStatus {
+    return try FfiConverterTypeHostHelperStatus.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHostHelperStatus_lower(_ value: HostHelperStatus) -> RustBuffer {
+    return FfiConverterTypeHostHelperStatus.lower(value)
+}
+
+
+
 
 public enum PaneKind: Equatable, Hashable {
     
@@ -9974,11 +10148,11 @@ public func fetchHostTelemetryOnce(config: RemoteServerConfig)async throws  -> H
  * Which models run in the host's tmux sessions and how much context / usage they have used.
  * `config_dirs` are the Claude config directories of the saved profiles (empty = `~/.claude`).
  */
-public func fetchHostUsage(config: RemoteServerConfig, configDirs: [String])async throws  -> HostUsageReport  {
+public func fetchHostUsage(config: RemoteServerConfig, configDirs: [String], helperSha256: String?)async throws  -> HostUsageReport  {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_ssh_core_fn_func_fetch_host_usage(FfiConverterTypeRemoteServerConfig_lower(config),FfiConverterSequenceString.lower(configDirs)
+                uniffi_ssh_core_fn_func_fetch_host_usage(FfiConverterTypeRemoteServerConfig_lower(config),FfiConverterSequenceString.lower(configDirs),FfiConverterOptionString.lower(helperSha256)
                 )
             },
             pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
@@ -10112,6 +10286,26 @@ public func stripAnsiCodes(input: String) -> String  {
         uniffiCallStatus in
     uniffi_ssh_core_fn_func_strip_ansi_codes(
         FfiConverterString.lower(input),uniffiCallStatus
+    )
+})
+}
+/**
+ * SHA-256 of the embedded helper: the digest the app pins. `None` when no helper is embedded.
+ */
+public func bundledHostHelperSha256() -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_bundled_host_helper_sha256(uniffiCallStatus
+    )
+})
+}
+/**
+ * Size of the embedded helper in bytes (0 when none is embedded).
+ */
+public func bundledHostHelperSize() -> UInt64  {
+    return try!  FfiConverterUInt64.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_bundled_host_helper_size(uniffiCallStatus
     )
 })
 }
@@ -10329,7 +10523,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_func_fetch_host_telemetry_once() != 29721) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_ssh_core_checksum_func_fetch_host_usage() != 24017) {
+    if (uniffi_ssh_core_checksum_func_fetch_host_usage() != 1126) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_kill_remote_tmux_session() != 45685) {
@@ -10363,6 +10557,12 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_strip_ansi_codes() != 48890) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_bundled_host_helper_sha256() != 54613) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_bundled_host_helper_size() != 2278) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_portforwardhandle_get_active_connections() != 25377) {
@@ -10458,6 +10658,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_fetch_remote_shell_history() != 12286) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_host_helper_status() != 63277) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_inspect_session_permissions() != 39150) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -10470,7 +10673,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_install_approval_key() != 52293) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_install_bundled_host_helper() != 24733) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_install_claude_statusline() != 23468) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_install_host_helper() != 23199) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_installed_agent_hooks() != 44534) {
