@@ -23,6 +23,8 @@ const MAX_LINE: u64 = 4096;
 const MAX_CONNECTIONS: usize = 16;
 const MAX_SOCKET_PATH: usize = 100;
 const RESCAN: Duration = Duration::from_secs(600);
+/// While a phone is subscribed the agent also re-checks the agents found in tmux this often.
+const LIVE_RESCAN: Duration = Duration::from_secs(15);
 
 /// SHA-256 of the running binary, so a newer helper can tell that the agent is an old build.
 pub fn self_digest() -> String {
@@ -492,13 +494,24 @@ pub fn run(p: Paths, lease_secs: i64, sink: &dyn EventSink) -> i32 {
         });
     }
     let watcher = Watcher::new(&[&paths.home, &paths.pending, &paths.sessions]);
-    let (mut last, _) = compute_state(&paths);
+    let live_rescan = std::env::var("SSH_APP_LIVE_RESCAN_MS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .map_or(LIVE_RESCAN, Duration::from_millis);
+    let observed = |shared: &Arc<Mutex<Shared>>| {
+        let (mut map, pending) = compute_state(&paths);
+        merge_detected(&mut map, shared);
+        (map, pending)
+    };
+    let (mut last, _) = observed(&shared);
     loop {
         let remaining = shared.lock().map_or(0, |s| s.lease_until) - now();
         if remaining <= 0 {
             break;
         }
-        let timeout = Duration::from_secs(remaining as u64).min(RESCAN);
+        let watched = shared.lock().is_ok_and(|s| !s.subs.is_empty());
+        let tick = if watched { live_rescan } else { RESCAN };
+        let timeout = Duration::from_secs(remaining as u64).min(tick);
         match &watcher {
             Some(w) => w.wait(timeout),
             None => std::thread::sleep(timeout.min(Duration::from_secs(2))),
@@ -507,7 +520,7 @@ pub fn run(p: Paths, lease_secs: i64, sink: &dyn EventSink) -> i32 {
         if !paths.home.is_dir() {
             break;
         }
-        let (current, _) = compute_state(&paths);
+        let (current, _) = observed(&shared);
         for ev in diff(&last, &current) {
             sink.on_event(&ev);
             let line = format!(

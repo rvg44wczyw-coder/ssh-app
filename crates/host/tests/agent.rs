@@ -390,3 +390,79 @@ fn the_agent_exits_when_its_state_folder_is_removed() {
     std::fs::remove_dir_all(h.dir.path()).ok();
     wait_for("agent exit", || !alive(pid));
 }
+
+#[test]
+fn a_subscriber_gets_events_for_agents_that_appear_in_tmux() {
+    let h = Home::new();
+    let sock = h.dir.path().join("t.sock");
+    let tmux = |args: &[&str]| {
+        Command::new("tmux")
+            .arg("-S")
+            .arg(&sock)
+            .args(args)
+            .env_remove("TMUX")
+            .env_remove("TMUX_PANE")
+            .stderr(Stdio::null())
+            .stdout(Stdio::null())
+            .status()
+    };
+    let mut a = h
+        .cmd(&["rpc", "--lease", "60"])
+        .env("TMUX_TMPDIR", h.dir.path())
+        .env("TMUX", format!("{},0,0", sock.display()))
+        .env("SSH_APP_LIVE_RESCAN_MS", "300")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = a.stdin.take().unwrap();
+    let mut out = BufReader::new(a.stdout.take().unwrap());
+    writeln!(stdin, r#"{{"id":1,"m":"hello"}}"#).unwrap();
+    writeln!(stdin, r#"{{"id":2,"m":"subscribe"}}"#).unwrap();
+    let mut subscribed = false;
+    while !subscribed {
+        let mut l = String::new();
+        out.read_line(&mut l).unwrap();
+        let v: Value = serde_json::from_str(l.trim()).unwrap();
+        if v["id"] == 1 {
+            h.pids.borrow_mut().push(v["pid"].as_i64().unwrap() as i32);
+        }
+        subscribed = v["id"] == 2 && v["ok"] == true;
+    }
+    let started = tmux(&[
+        "-f",
+        "/dev/null",
+        "new-session",
+        "-d",
+        "-s",
+        "live",
+        "exec -a claude sleep 60",
+    ]);
+    let mut seen = None;
+    if matches!(started, Ok(s) if s.success()) {
+        for _ in 0..60 {
+            let mut l = String::new();
+            if out.read_line(&mut l).unwrap_or(0) == 0 {
+                break;
+            }
+            let v: Value = serde_json::from_str(l.trim()).unwrap();
+            if v["event"] == "state" && v["session"] == "live" {
+                seen = Some(v);
+                break;
+            }
+        }
+        let _ = tmux(&["kill-server"]);
+    } else {
+        eprintln!("skipping: tmux missing");
+        let _ = a.kill();
+        let _ = a.wait();
+        return;
+    }
+    let _ = a.kill();
+    let _ = a.wait();
+    let ev = seen.expect("an event for the tmux session");
+    assert_eq!(
+        (ev["from"].as_str(), ev["to"].as_str()),
+        (Some("none"), Some("running"))
+    );
+}
