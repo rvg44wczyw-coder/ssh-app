@@ -109,7 +109,7 @@ public enum AppAction: String, CaseIterable, Identifiable, Sendable {
     /// Belongs to the current session (its own toolbar button) rather than the quick menu.
     public var isSessionAction: Bool {
         switch self {
-        case .chatToggle, .tmuxSessions, .sessionPermissions, .agentProfiles: return true
+        case .chatToggle, .tmuxSessions, .sessionPermissions, .agentProfiles, .diffViewer: return true
         default: return false
         }
     }
@@ -117,9 +117,9 @@ public enum AppAction: String, CaseIterable, Identifiable, Sendable {
     /// Needs a live connection to the active host (shown disabled otherwise, never hidden).
     public var requiresConnection: Bool {
         switch self {
-        case .chatToggle, .aiAssistant, .snippets, .commands, .sessionPermissions, .agentProfiles, .fileBrowser, .telemetry, .webPreview:
+        case .chatToggle, .aiAssistant, .snippets, .commands, .sessionPermissions, .agentProfiles, .fileBrowser, .telemetry, .webPreview, .diffViewer:
             return true
-        case .tmuxSessions, .diffViewer, .publicKey, .settings:
+        case .tmuxSessions, .publicKey, .settings:
             return false
         }
     }

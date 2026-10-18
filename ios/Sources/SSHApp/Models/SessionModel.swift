@@ -45,6 +45,8 @@ public struct TabSession: Identifiable, Equatable, Sendable, Codable {
     public var serverId: UUID?
     /// The agent profile this tab was started from (permissions and config folder come from it).
     public var profileId: String?
+    /// Colour scheme chosen for this one session (overrides the profile's and the agent's).
+    public var schemeId: String?
 
     public init(
         id: UUID = UUID(),
@@ -53,7 +55,8 @@ public struct TabSession: Identifiable, Equatable, Sendable, Codable {
         sessionName: String? = nil,
         command: String? = nil,
         serverId: UUID? = nil,
-        profileId: String? = nil
+        profileId: String? = nil,
+        schemeId: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -62,6 +65,7 @@ public struct TabSession: Identifiable, Equatable, Sendable, Codable {
         self.command = command
         self.serverId = serverId
         self.profileId = profileId
+        self.schemeId = schemeId
     }
 
     public static func defaultSessions() -> [TabSession] {

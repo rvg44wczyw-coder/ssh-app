@@ -68,6 +68,13 @@ public final class TerminalTabsManager: ObservableObject {
         }
     }
 
+    /// `nil` goes back to the profile's / the agent's scheme.
+    public func setSessionScheme(id: UUID, schemeId: String?) {
+        guard let index = sessions.firstIndex(where: { $0.id == id }) else { return }
+        sessions[index].schemeId = schemeId
+        saveSessions()
+    }
+
     public func setSessionServer(id: UUID, serverId: UUID) {
         if let index = sessions.firstIndex(where: { $0.id == id }) {
             print("[TabsManager] Setting server for session \(id) to \(serverId)")

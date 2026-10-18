@@ -18,6 +18,7 @@ struct SessionsHomeView: View {
     let onClose: (UUID) -> Void
     let isChatMode: (TabSession) -> Bool
     let onSessionAction: (UUID, AppAction) -> Void
+    let onSetScheme: (UUID, String?) -> Void
 
     @State private var renaming: TabSession?
     @State private var renameText = ""
@@ -97,6 +98,7 @@ struct SessionsHomeView: View {
                 isChatMode: isChatMode(s),
                 canClose: sessions.count > 1,
                 onAction: { onSessionAction(s.id, $0) },
+                onScheme: { onSetScheme(s.id, $0) },
                 onRename: { renaming = s; renameText = s.title },
                 onClose: { onClose(s.id) }
             )

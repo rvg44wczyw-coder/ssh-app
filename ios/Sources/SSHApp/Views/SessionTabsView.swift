@@ -18,6 +18,7 @@ public struct SessionTabsView: View {
     /// Session actions (chat, tmux, permissions, agents) offered in the tab's long-press menu.
     public var isChatMode: ((TabSession) -> Bool)? = nil
     public var onSessionAction: ((UUID, AppAction) -> Void)? = nil
+    public var onSetScheme: ((UUID, String?) -> Void)? = nil
 
     @State private var tabToRename: TabSession? = nil
     @State private var tabForMenu: TabSession? = nil
@@ -37,7 +38,8 @@ public struct SessionTabsView: View {
         onRename: @escaping (UUID, String) -> Void,
         onClose: @escaping (UUID) -> Void,
         isChatMode: ((TabSession) -> Bool)? = nil,
-        onSessionAction: ((UUID, AppAction) -> Void)? = nil
+        onSessionAction: ((UUID, AppAction) -> Void)? = nil,
+        onSetScheme: ((UUID, String?) -> Void)? = nil
     ) {
         self.sessions = sessions
         self._selectedSessionId = selectedSessionId
@@ -52,6 +54,7 @@ public struct SessionTabsView: View {
         self.onClose = onClose
         self.isChatMode = isChatMode
         self.onSessionAction = onSessionAction
+        self.onSetScheme = onSetScheme
     }
 
     @ViewBuilder
@@ -62,6 +65,7 @@ public struct SessionTabsView: View {
             isChatMode: isChatMode?(session) ?? false,
             canClose: sessions.count > 1,
             onAction: { onSessionAction?(session.id, $0) },
+            onScheme: onSetScheme.map { f in { f(session.id, $0) } },
             onRename: {
                 tabToRename = session
                 renameText = session.title
@@ -192,6 +196,7 @@ struct SessionMenuItems: View {
     let isChatMode: Bool
     let canClose: Bool
     let onAction: (AppAction) -> Void
+    var onScheme: ((String?) -> Void)? = nil
     let onRename: () -> Void
     let onClose: () -> Void
 
@@ -201,6 +206,18 @@ struct SessionMenuItems: View {
                 Label(action.title(isChatMode: isChatMode), systemImage: action.systemImage(isChatMode: isChatMode, keyVisible: false))
             }
             .disabled(action.requiresConnection && !isConnected)
+        }
+        if let onScheme {
+            Menu {
+                Button { onScheme(nil) } label: {
+                    Label("Automatic", systemImage: session.schemeId == nil ? "checkmark" : "wand.and.stars")
+                }
+                ForEach(TerminalScheme.all) { sch in
+                    Button { onScheme(sch.id) } label: {
+                        if session.schemeId == sch.id { Label(sch.name, systemImage: "checkmark") } else { Text(sch.name) }
+                    }
+                }
+            } label: { Label("Theme", systemImage: "paintpalette") }
         }
         Button(action: onRename) { Label("Rename", systemImage: "pencil") }
         if canClose {

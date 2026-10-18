@@ -10,16 +10,17 @@ final class SessionUsageMonitor: ObservableObject {
     @Published private(set) var loading = false
     @Published private(set) var updated: Date?
     private var shownSession: String?
+    /// Last known usage of every session seen in a probe, so switching tabs shows something at
+    /// once and the probe only refreshes it.
+    private var lastKnown: [String: SessionUsage] = [:]
 
     /// Skips the probe when the data is younger than `minAge` seconds (unless `force`).
     func refresh(sessionName: String, server: ServerProfile?, configDirs: [String], force: Bool = false, minAge: TimeInterval = 60) {
-        if shownSession != sessionName { usage = nil; shownSession = sessionName }
+        if shownSession != sessionName { shownSession = sessionName }
+        usage = lastKnown[sessionName] ?? report?.sessions.first { $0.session == sessionName }
         guard !loading, let server, !server.host.isEmpty, !server.username.isEmpty,
               let key = KeychainManager.shared.getPrivateKey(id: server.keyId), !key.isEmpty else { return }
-        if !force, let updated, Date().timeIntervalSince(updated) < minAge, report != nil { 
-            usage = report?.sessions.first { $0.session == sessionName }
-            return
-        }
+        if !force, let updated, Date().timeIntervalSince(updated) < minAge, report != nil { return }
         loading = true
         let config = RemoteServerConfig(host: server.host, port: server.port, username: server.username,
                                         privateKeyPem: key, pinnedHostKey: server.hostKeyFingerprint)
@@ -28,7 +29,11 @@ final class SessionUsageMonitor: ObservableObject {
             guard let r = try? await fetchHostUsage(config: config, configDirs: configDirs) else { return }
             report = r
             updated = Date()
-            if shownSession == sessionName { usage = r.sessions.first { $0.session == sessionName } }
+            for s in r.sessions { lastKnown[s.session] = s }
+            // A session that no longer runs a model must not keep showing its old numbers.
+            let running = Set(r.sessions.map(\.session))
+            lastKnown = lastKnown.filter { running.contains($0.key) }
+            if let shownSession { usage = lastKnown[shownSession] }
         }
     }
 }

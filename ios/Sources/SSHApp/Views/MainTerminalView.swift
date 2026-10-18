@@ -52,7 +52,7 @@ public struct MainTerminalView: View {
         guard let tab = tabsManager.activeSession else { return .fallback }
         let profile = agentProfiles.profiles.first { $0.id == tab.profileId }
         let slot = profile.map { SchemeSlot.forAgent($0.agent) } ?? SchemeSlot.forTab(tab.agentType)
-        return TerminalSchemes.resolve(profileSchemeId: profile?.terminalSchemeId, slot: slot)
+        return TerminalSchemes.resolve(tabSchemeId: tab.schemeId, profileSchemeId: profile?.terminalSchemeId, slot: slot)
     }
     @State private var activeSheet: ActiveModalSheet? = nil
     /// The AI assistant is a screen of its own (pushed on the navigation stack), not a card over
@@ -146,7 +146,7 @@ public struct MainTerminalView: View {
                     scheme: { session in
                         let profile = agentProfiles.profiles.first { $0.id == session.profileId }
                         let slot = profile.map { SchemeSlot.forAgent($0.agent) } ?? SchemeSlot.forTab(session.agentType)
-                        return TerminalSchemes.resolve(profileSchemeId: profile?.terminalSchemeId, slot: slot)
+                        return TerminalSchemes.resolve(tabSchemeId: session.schemeId, profileSchemeId: profile?.terminalSchemeId, slot: slot)
                     },
                     presets: agentProfiles.profiles.map { p in
                         (id: p.id, title: p.name,
@@ -168,7 +168,8 @@ public struct MainTerminalView: View {
                         tabsManager.closeSession(id: id, server: server, privateKey: privateKey)
                     },
                     isChatMode: { tabsManager.viewModel(for: $0.id)?.isChatMode == true },
-                    onSessionAction: { runSessionAction($0, $1) }
+                    onSessionAction: { runSessionAction($0, $1) },
+                    onSetScheme: { tabsManager.setSessionScheme(id: $0, schemeId: $1) }
                 )
                 }
             } else {
@@ -208,7 +209,8 @@ public struct MainTerminalView: View {
                         tabsManager.closeSession(id: id, server: server, privateKey: privateKey)
                     },
                     isChatMode: { tabsManager.viewModel(for: $0.id)?.isChatMode == true },
-                    onSessionAction: { runSessionAction($0, $1) }
+                    onSessionAction: { runSessionAction($0, $1) },
+                    onSetScheme: { tabsManager.setSessionScheme(id: $0, schemeId: $1) }
                 )
                 .frame(height: 32)
 

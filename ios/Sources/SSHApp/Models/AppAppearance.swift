@@ -445,7 +445,8 @@ public enum TerminalSchemes {
     }
 
     /// Profile override first, then the slot of its agent (or the tab's), then the default.
-    public static func resolve(profileSchemeId: String?, slot: SchemeSlot) -> TerminalScheme {
+    public static func resolve(tabSchemeId: String? = nil, profileSchemeId: String?, slot: SchemeSlot) -> TerminalScheme {
+        if let id = tabSchemeId, let s = TerminalScheme.scheme(id: id) { return s }
         if let id = profileSchemeId, let s = TerminalScheme.scheme(id: id) { return s }
         return TerminalScheme.scheme(id: choice(for: slot)) ?? .fallback
     }
