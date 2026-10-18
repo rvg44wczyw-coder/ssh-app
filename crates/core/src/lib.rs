@@ -11,6 +11,7 @@ pub mod error;
 pub mod file_browser;
 pub mod gitdiff;
 pub mod gitlog;
+pub mod gitstatus;
 pub mod hook_safety;
 pub mod hook_templates;
 pub(crate) mod host_api;
@@ -60,6 +61,7 @@ pub use file_browser::{
 };
 pub use gitdiff::{GitDiffResult, GitDiffStatus};
 pub use gitlog::{GitLogEntry, GitLogResult};
+pub use gitstatus::{GitFileChange, GitFileState, GitStatusResult};
 pub use hook_safety::{analyze_command, lint_custom_hook_command, CommandAnalysis};
 pub use hook_templates::{hook_templates, hook_templates_for, HookTemplate};
 pub use host_api::{HostAgentListener, HostAgentWatch};

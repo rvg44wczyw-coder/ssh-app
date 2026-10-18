@@ -479,6 +479,17 @@ impl SshSessionHandle {
         Ok(crate::gitdiff::parse_git_diff_output(&out))
     }
 
+    /// Which files of the repository containing `dir` are new, changed or deleted (for the file
+    /// browser). `is_repo` is false outside a repository.
+    pub async fn fetch_git_status(
+        &self,
+        dir: String,
+    ) -> Result<crate::gitstatus::GitStatusResult, SshCoreError> {
+        let cmd = crate::gitstatus::build_git_status_command(&dir)?;
+        let out = self.execute_command_on_active_session(cmd).await?;
+        Ok(crate::gitstatus::parse_git_status_output(&out))
+    }
+
     /// The latest commits of the repository the tab's pane is in (newest first).
     pub async fn fetch_git_log(
         &self,
