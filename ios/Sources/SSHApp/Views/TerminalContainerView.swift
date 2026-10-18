@@ -364,18 +364,33 @@ public struct TerminalContainerView: UIViewRepresentable {
             }
         }
 
+        /// Hold to select the word under the finger, keep the finger down and drag to extend the
+        /// selection (the one-finger pan is not available then: it is used for scrolling and the
+        /// first recognised gesture wins). The menu appears when the finger is lifted.
         @objc func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
-            guard gesture.state == .began, let tv = terminalView else { return }
+            guard let tv = terminalView else { return }
             let point = gesture.location(in: tv)
-
-            tv.showStandardContextMenu(at: point)
-            tv.select(nil)
-
-            let generator = UIImpactFeedbackGenerator(style: .medium)
-            generator.impactOccurred()
-
-            let config = UIEditMenuConfiguration(identifier: nil, sourcePoint: point)
-            editMenuInteraction?.presentEditMenu(with: config)
+            switch gesture.state {
+            case .began:
+                tv.showStandardContextMenu(at: point)
+                tv.select(nil)
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            case .changed:
+                guard tv.hasActiveSelection else { return }
+                let term = tv.getTerminal()
+                let cellW = tv.bounds.width / CGFloat(max(term.cols, 1))
+                let cellH = tv.bounds.height / CGFloat(max(term.rows, 1))
+                let col = min(max(Int(point.x / cellW), 0), term.cols - 1)
+                let row = min(max(Int(point.y / cellH), 0), term.rows - 1)
+                tv.selection.dragExtend(row: row, col: col)
+                tv.setNeedsDisplay()
+            case .ended:
+                guard tv.hasActiveSelection else { return }
+                let config = UIEditMenuConfiguration(identifier: nil, sourcePoint: point)
+                editMenuInteraction?.presentEditMenu(with: config)
+            default:
+                break
+            }
         }
 
         @objc func handleSingleTap(_ gesture: UITapGestureRecognizer) {
