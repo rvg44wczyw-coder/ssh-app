@@ -340,9 +340,16 @@ public struct MainTerminalView: View {
             }
             .fullScreenCover(isPresented: $showAssistant) {
                 if let activeVM = assistantVM {
-                    AiAssistantSheetView(viewModel: activeVM, serverName: assistantServerName) {
-                        showAssistant = false
-                    }
+                    AiAssistantSheetView(
+                        viewModel: activeVM,
+                        serverName: assistantServerName,
+                        targets: assistantTargets,
+                        onSent: { id in
+                            tabsManager.selectedSessionId = id
+                            showHome = false
+                        },
+                        onClose: { showAssistant = false }
+                    )
                 }
             }
             .sheet(item: $activeSheet) { sheet in
@@ -672,6 +679,15 @@ public struct MainTerminalView: View {
                 Label("With new settings…", systemImage: "slider.horizontal.3")
             }
             .disabled(tabsManager.activeViewModel?.state != .connected)
+        }
+    }
+
+    /// Every open session, so commands from the assistant can go to any of them.
+    private var assistantTargets: [AssistantTarget] {
+        tabsManager.sessions.compactMap { session in
+            guard let vm = tabsManager.viewModel(for: session.id) else { return nil }
+            let server = serversManager.profile(for: session.serverId) ?? serversManager.activeProfile
+            return AssistantTarget(id: session.id, title: session.title, serverName: server?.name ?? "", viewModel: vm)
         }
     }
 

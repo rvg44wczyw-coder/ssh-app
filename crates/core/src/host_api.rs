@@ -208,6 +208,19 @@ impl SshSessionHandle {
     /// Checks the host for Ollama: installed, server reachable on 127.0.0.1:11434, model list.
     /// A timeout is an error (the host may be slow), not \"not installed\".
     pub async fn check_host_ollama(&self) -> Result<crate::ai::OllamaHostStatus, SshCoreError> {
+        // The common case (server up) is answered by a plain `sh` curl in a moment; the login
+        // shell and `ollama --version` of the full probe can take seconds on a heavy profile.
+        if let Ok(Ok(quick)) = tokio::time::timeout(
+            Duration::from_secs(4),
+            self.execute_command_on_active_session(crate::ai::build_ollama_quick_probe_command()),
+        )
+        .await
+        {
+            let status = crate::ai::parse_ollama_probe(quick);
+            if status.running {
+                return Ok(status);
+            }
+        }
         let out = tokio::time::timeout(
             Duration::from_secs(10),
             self.execute_command_on_active_session(crate::ai::build_ollama_probe_command()),

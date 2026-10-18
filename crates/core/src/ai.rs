@@ -375,6 +375,16 @@ pub fn build_ollama_probe_command() -> String {
     crate::hostprobe::login_sh_script(OLLAMA_PROBE_SCRIPT, &[], 8)
 }
 
+/// Fast first look: only asks the loopback endpoint, in plain `sh` (no login shell, no
+/// `ollama --version`), which answers in well under a second when the server is up. When it is
+/// not, the full probe above runs to tell "not installed" from "not running".
+pub(crate) fn build_ollama_quick_probe_command() -> String {
+    const QUICK: &str = r#"t=$(curl -s -m 2 http://127.0.0.1:11434/api/tags 2>/dev/null | head -c 262144 | tr -d '\n\r')
+if [ -n "$t" ]; then printf 'OLLAMA_TAGS=%s\n' "$t"; fi
+true"#;
+    format!("sh -c {}", crate::tmux::shell_quote(QUICK))
+}
+
 fn is_model_name(name: &str) -> bool {
     (1..=128).contains(&name.len())
         && name
@@ -615,6 +625,16 @@ mod tests {
         assert!(!parse_ollama_probe("OLLAMA_TAGS={\"models\":[".into()).running);
         assert!(!parse_ollama_probe("OLLAMA_TAGS=[1,2]".into()).running);
         assert!(!parse_ollama_probe("OLLAMA_TAGS={\"models\":5}".into()).running);
+    }
+
+    #[test]
+    fn quick_probe_is_a_constant_plain_sh_that_the_normal_parser_reads() {
+        let c = build_ollama_quick_probe_command();
+        assert!(c.starts_with("sh -c '"));
+        assert!(c.contains("127.0.0.1:11434") && c.contains("curl -s -m 2"));
+        assert!(!c.contains("-l -c"), "must not start a login shell");
+        let st = parse_ollama_probe("OLLAMA_TAGS={\"models\":[{\"name\":\"llama3:8b\"}]}".into());
+        assert!(st.running && st.installed && st.models == ["llama3:8b"]);
     }
 
     #[test]

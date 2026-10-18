@@ -1,11 +1,26 @@
 import SwiftUI
 import SshCoreBridge
 
+/// A session the assistant can send a command to.
+public struct AssistantTarget: Identifiable {
+    public let id: UUID
+    public let title: String
+    public let serverName: String
+    public let viewModel: TerminalSessionViewModel
+    var label: String { serverName.isEmpty ? title : "\(title) · \(serverName)" }
+}
+
 public struct AiAssistantSheetView: View {
     @ObservedObject var viewModel: TerminalSessionViewModel
     public var onClose: (() -> Void)?
     /// Server whose model this talks to; shown in the title.
     var serverName: String = ""
+    /// Sessions a suggested command can be sent to (any server); the model is always asked
+    /// through `viewModel`'s connection. Empty = commands go to `viewModel`'s own session.
+    var targets: [AssistantTarget] = []
+    /// Called with the session that received a command, so the caller can show it.
+    var onSent: ((UUID) -> Void)?
+    @State private var targetId: UUID?
     @Environment(\.dismiss) private var dismiss
 
     @State private var userPrompt: String = ""
@@ -20,6 +35,8 @@ public struct AiAssistantSheetView: View {
     @State private var copiedHint: String? = nil
     @State private var showCopiedAlert: Bool = false
     @State private var showDestructiveConfirm: Bool = false
+
+    @MainActor private static var knownModels: [ObjectIdentifier: [String]] = [:]
 
     /// Result of asking the host what it has; drives the whole "host model" area.
     private enum OllamaCheckState: Equatable {
@@ -44,10 +61,36 @@ public struct AiAssistantSheetView: View {
         "Revert last git commit keeping changes"
     ]
 
-    public init(viewModel: TerminalSessionViewModel, serverName: String = "", onClose: (() -> Void)? = nil) {
+    public init(
+        viewModel: TerminalSessionViewModel,
+        serverName: String = "",
+        targets: [AssistantTarget] = [],
+        onSent: ((UUID) -> Void)? = nil,
+        onClose: (() -> Void)? = nil
+    ) {
         self.viewModel = viewModel
         self.serverName = serverName
+        self.targets = targets
+        self.onSent = onSent
+        // Models seen on this connection last time: shown at once while the host is asked again.
+        if let models = Self.knownModels[ObjectIdentifier(viewModel)], !models.isEmpty {
+            let last = UserDefaults.standard.string(forKey: "ai_last_model") ?? ""
+            _check = State(initialValue: .ready(models: models))
+            _selectedModel = State(initialValue: models.contains(last) ? last : (models.first ?? ""))
+        }
         self.onClose = onClose
+    }
+
+    /// Session that receives commands: the one picked in the menu, else the assistant's own.
+    private var commandTarget: AssistantTarget? {
+        targets.first(where: { $0.id == targetId }) ?? targets.first(where: { $0.id == viewModel.session.id })
+    }
+
+    private func send(_ command: String, run: Bool) {
+        let vm = commandTarget?.viewModel ?? viewModel
+        if run { vm.runShellCommand(command) } else { vm.insertShellCommand(command) }
+        onSent?(vm.session.id)
+        closeSheet()
     }
 
     private func closeSheet() {
@@ -103,6 +146,24 @@ public struct AiAssistantSheetView: View {
                     }
                     .foregroundColor(.secondary)
                 }
+                if targets.count > 1 {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Menu {
+                            Section("Send commands to") {
+                                ForEach(targets) { t in
+                                    Button { targetId = t.id } label: {
+                                        Label(t.label, systemImage: t.id == commandTarget?.id ? "checkmark" : "terminal")
+                                    }
+                                }
+                            }
+                        } label: {
+                            Label(commandTarget?.title ?? "Session", systemImage: "terminal")
+                                .labelStyle(.titleAndIcon)
+                                .font(.caption)
+                        }
+                        .accessibilityLabel("Session that receives commands")
+                    }
+                }
             }
             // Re-asks the host once the connection is up (a session may still be connecting).
             .task(id: viewModel.state == .connected) { await runCheck() }
@@ -110,8 +171,7 @@ public struct AiAssistantSheetView: View {
                 Button("Cancel", role: .cancel) {}
                 Button("Run Anyway", role: .destructive) {
                     if let cmd = viewModel.activeAiSuggestion?.command {
-                        viewModel.runShellCommand(cmd)
-                        closeSheet()
+                        send(cmd, run: true)
                     }
                 }
             } message: {
@@ -349,7 +409,8 @@ public struct AiAssistantSheetView: View {
     private func runCheck() async {
         checkToken += 1
         let token = checkToken
-        check = .checking
+        // A model list already on screen stays while it is refreshed in the background.
+        if case .ready = check {} else { check = .checking }
         copiedHint = nil
         guard let handle = viewModel.sessionHandle, viewModel.state == .connected else {
             check = .failed("Not connected to a host.")
@@ -368,6 +429,7 @@ public struct AiAssistantSheetView: View {
                 result = .ready(models: status.models)
             }
             if token == checkToken, case .ready(let models) = result {
+                Self.knownModels[ObjectIdentifier(viewModel)] = models
                 selectedModel = models.contains(lastModel) ? lastModel : (models.first ?? "")
             }
         } catch {
@@ -536,8 +598,7 @@ public struct AiAssistantSheetView: View {
             // Action Buttons
             HStack(spacing: 12) {
                 Button {
-                    viewModel.insertShellCommand(suggestion.command)
-                    closeSheet()
+                    send(suggestion.command, run: false)
                 } label: {
                     HStack {
                         Image(systemName: "text.insert")
@@ -555,8 +616,7 @@ public struct AiAssistantSheetView: View {
                     if suggestion.riskLevel == .destructive {
                         showDestructiveConfirm = true
                     } else {
-                        viewModel.runShellCommand(suggestion.command)
-                        closeSheet()
+                        send(suggestion.command, run: true)
                     }
                 } label: {
                     HStack {
