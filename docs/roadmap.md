@@ -138,6 +138,7 @@
 - [ ] Android UI for M11–M13 (needs an `android-ui-dev` skill; none exists in `.agents/skills/` yet) and a Kotlin bindings refresh.
 - [ ] Hacker findings doc for Feature 04 (Android).
 - [x] Integration test for exec-based methods against a loopback sshd (M14: telemetry + file browser; `crates/core/tests/loopback_sshd.rs`). History/transcript methods still uncovered.
+- [x] Loopback tests for history and transcript exist (`history_transcript_kill_and_probes_against_loopback_sshd`, `transcript_detection_runs_through_the_login_shell_with_its_argument`).
 - [ ] Re-verify the per-feature test counts above: Features 07 and 08 both report `cargo test` 40/40; the current suite is 53 tests.
 
 ### M14: Loopback sshd Integration Tests

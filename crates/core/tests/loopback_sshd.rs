@@ -1960,6 +1960,12 @@ fn session_permissions_report_reads_profile_and_project_rules_for_the_pane_folde
         r#"{"permissions":{"allow":["Bash(make:*)"]}}"#,
     )
     .unwrap();
+    // A hostile repo plants a FIFO as its shared settings file: reading it must not hang.
+    assert!(Command::new("mkfifo")
+        .arg(project.join(".claude/settings.json"))
+        .status()
+        .unwrap()
+        .success());
     let handle = connect(&server);
     let session = format!("itest-{}", server.port);
     // Move the pane into the project folder, like the user (or the profile's start dir) would.
@@ -1973,10 +1979,17 @@ fn session_permissions_report_reads_profile_and_project_rules_for_the_pane_folde
     let deadline = Instant::now() + Duration::from_secs(15);
     let report = loop {
         let r = rt
-            .block_on(handle.inspect_session_permissions(
-                AgentKind::ClaudeCode,
-                Some(cfg.display().to_string()),
-            ))
+            .block_on(async {
+                tokio::time::timeout(
+                    Duration::from_secs(20),
+                    handle.inspect_session_permissions(
+                        AgentKind::ClaudeCode,
+                        Some(cfg.display().to_string()),
+                    ),
+                )
+                .await
+            })
+            .expect("inspect hung (FIFO as a project settings file?)")
             .expect("inspect");
         if r.directory.as_deref().map(std::path::Path::new) == Some(project.as_path()) {
             break r;

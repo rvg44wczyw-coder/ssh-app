@@ -590,7 +590,8 @@ pub struct SessionPermissionsReport {
 const INSPECT_FILE_CAP: usize = 200_000;
 
 /// One exec that prints the pane's folder and the three settings files between markers. The
-/// folder is only used when it has no control characters; files are read, never written.
+/// folder is only used when it has no control characters; files are read, never written, and only
+/// when they are regular files (a FIFO planted as a project's settings file would block `head`).
 pub(crate) fn build_inspect_permissions_command(
     session: &str,
     user_file_expr: Option<&str>,
@@ -623,11 +624,11 @@ pub(crate) fn build_inspect_permissions_command(
          case \"$cfg\" in *[![:print:]]*) cfg='';; esac; \
          {user_file}; \
          printf '==={tag}:DIR===\\n%s\\n==={tag}:CFG===\\n%s\\n==={tag}:USER===\\n' \"$p\" \"$cfg\"; \
-         head -c {INSPECT_FILE_CAP} \"$uf\" 2>/dev/null; \
+         if [ -f \"$uf\" ]; then head -c {INSPECT_FILE_CAP} \"$uf\" 2>/dev/null; fi; \
          printf '\\n==={tag}:SHARED===\\n'; \
-         if [ -n \"$p\" ]; then head -c {INSPECT_FILE_CAP} \"$p/.claude/settings.json\" 2>/dev/null; fi; \
+         if [ -f \"$p/.claude/settings.json\" ]; then head -c {INSPECT_FILE_CAP} \"$p/.claude/settings.json\" 2>/dev/null; fi; \
          printf '\\n==={tag}:LOCAL===\\n'; \
-         if [ -n \"$p\" ]; then head -c {INSPECT_FILE_CAP} \"$p/.claude/settings.local.json\" 2>/dev/null; fi; \
+         if [ -f \"$p/.claude/settings.local.json\" ]; then head -c {INSPECT_FILE_CAP} \"$p/.claude/settings.local.json\" 2>/dev/null; fi; \
          printf '\\n==={tag}:END===\\n'"
     )
 }
