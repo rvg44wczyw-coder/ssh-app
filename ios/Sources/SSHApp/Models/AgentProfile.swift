@@ -30,11 +30,17 @@ public struct SavedAgentProfile: Identifiable, Codable, Equatable, Sendable {
     /// Phone approval / notify only: tools that reach the phone (empty = all) and events to install (empty = all).
     public var approvalMatcher: String
     public var approvalEvents: [String]
+    /// Local-model tool id ("opencode", "aider", ...; "" = an ordinary agent profile) and the Ollama
+    /// model it is started with ("" = the tool or Ollama picks). For these profiles the launch
+    /// binary/arguments/environment come from the core, so a model change is one edit.
+    public var localTool: String
+    public var localModel: String
 
     private enum CodingKeys: String, CodingKey {
         case id, name, agentRaw, binary, env, args, workingDir, gitBranch, permissionMode, terminalSchemeId, iconSymbol, iconColor, loadShellRc
         case hookKindRaw, customHookCommand, customHookEvents, customHookMatcher
         case approvalMatcher, approvalEvents
+        case localTool, localModel
     }
 
     public init(from decoder: Decoder) throws {
@@ -59,6 +65,8 @@ public struct SavedAgentProfile: Identifiable, Codable, Equatable, Sendable {
         customHookMatcher = try c.decodeIfPresent(String.self, forKey: .customHookMatcher) ?? ""
         approvalMatcher = try c.decodeIfPresent(String.self, forKey: .approvalMatcher) ?? ""
         approvalEvents = try c.decodeIfPresent([String].self, forKey: .approvalEvents) ?? []
+        localTool = try c.decodeIfPresent(String.self, forKey: .localTool) ?? ""
+        localModel = try c.decodeIfPresent(String.self, forKey: .localModel) ?? ""
     }
 
     public init(
@@ -93,6 +101,8 @@ public struct SavedAgentProfile: Identifiable, Codable, Equatable, Sendable {
         self.customHookMatcher = ""
         self.approvalMatcher = ""
         self.approvalEvents = []
+        self.localTool = ""
+        self.localModel = ""
     }
 
     public var agent: AgentKind {
@@ -106,6 +116,13 @@ public struct SavedAgentProfile: Identifiable, Codable, Equatable, Sendable {
         case .antigravity: return "antigravity"
         case .codex: return "codex"
         case .grok: return "grok"
+        case .openCode: return "openCode"
+        case .qwenCode: return "qwenCode"
+        case .crush: return "crush"
+        case .cline: return "cline"
+        case .aider: return "aider"
+        case .goose: return "goose"
+        case .ollamaChat: return "ollamaChat"
         }
     }
 
@@ -114,11 +131,19 @@ public struct SavedAgentProfile: Identifiable, Codable, Equatable, Sendable {
         case "claudeCode": return .claudeCode
         case "antigravity": return .antigravity
         case "codex": return .codex
+        case "openCode": return .openCode
+        case "qwenCode": return .qwenCode
+        case "crush": return .crush
+        case "cline": return .cline
+        case "aider": return .aider
+        case "goose": return .goose
+        case "ollamaChat": return .ollamaChat
         default: return .grok
         }
     }
 
     public init(_ p: AgentLaunchProfile) {
+        let isLocal = p.id.hasPrefix("local-")
         self.init(
             id: p.id,
             name: p.name,
@@ -131,6 +156,24 @@ public struct SavedAgentProfile: Identifiable, Codable, Equatable, Sendable {
             permissionMode: p.permissionMode ?? "",
             loadShellRc: p.loadShellRc
         )
+        if isLocal { localTool = String(p.id.dropFirst("local-".count)) }
+    }
+
+    /// Profile for a local-model tool (`localAgentTools()`), with an optional Ollama model.
+    public init?(localTool tool: String, model: String = "") {
+        guard let p = try? buildLocalAgentProfile(tool: tool, model: model) else { return nil }
+        self.init(p)
+        localModel = model
+    }
+
+    public var isLocal: Bool { !localTool.isEmpty }
+
+    /// Whether ssh-app can install approval hooks for this profile's agent.
+    public var supportsHooks: Bool {
+        switch agent {
+        case .cline, .aider, .goose, .ollamaChat: return false
+        default: return true
+        }
     }
 
     public var hookPreset: HookPreset {
@@ -151,6 +194,21 @@ public struct SavedAgentProfile: Identifiable, Codable, Equatable, Sendable {
     }
 
     public var coreProfile: AgentLaunchProfile {
+        // A local-model profile's command line is derived from tool + model by the core.
+        if isLocal, let base = try? buildLocalAgentProfile(tool: localTool, model: localModel) {
+            let dir = workingDir.trimmingCharacters(in: .whitespaces)
+            let branch = gitBranch.trimmingCharacters(in: .whitespaces)
+            let extra: [EnvVar] = env.compactMap { line in
+                guard let eq = line.firstIndex(of: "=") else { return nil }
+                return EnvVar(key: String(line[..<eq]), value: String(line[line.index(after: eq)...]))
+            }.filter { e in !base.env.contains { $0.key == e.key } }
+            return AgentLaunchProfile(
+                id: id, name: name, agent: base.agent, binary: base.binary,
+                env: base.env + extra, args: base.args + args.filter { !base.args.contains($0) },
+                workingDir: dir.isEmpty ? nil : dir, gitBranch: branch.isEmpty ? nil : branch,
+                permissionMode: nil, loadShellRc: loadShellRc
+            )
+        }
         let vars: [EnvVar] = env.compactMap { line in
             guard let eq = line.firstIndex(of: "=") else { return nil }
             return EnvVar(key: String(line[..<eq]), value: String(line[line.index(after: eq)...]))
@@ -182,6 +240,10 @@ public struct SavedAgentProfile: Identifiable, Codable, Equatable, Sendable {
         case .codex: return notifyOnly ? ["Stop"] : ["PermissionRequest", "Stop"]
         case .grok: return notifyOnly ? ["Notification", "Stop"] : ["PreToolUse", "Notification", "Stop"]
         case .antigravity: return notifyOnly ? ["Stop"] : ["PreToolUse", "Stop"]
+        case .qwenCode: return notifyOnly ? ["Notification", "Stop"] : ["PermissionRequest", "Notification", "Stop"]
+        case .openCode: return notifyOnly ? ["Stop"] : ["PreToolUse", "Stop"]
+        case .crush: return notifyOnly ? [] : ["PreToolUse"]
+        case .cline, .aider, .goose, .ollamaChat: return []
         }
     }
 
@@ -210,8 +272,6 @@ public struct SavedAgentProfile: Identifiable, Codable, Equatable, Sendable {
 
     public var supportsPermissions: Bool { agent == .claudeCode }
 
-    public var supportsHooks: Bool { true }
-
     /// Compiled launch command, or the validation error from the core.
     public func launchCommand() -> Result<String, Error> {
         Result { try buildAgentLaunchCommand(profile: coreProfile) }
@@ -238,6 +298,32 @@ public final class AgentProfilesManager: ObservableObject {
         } else {
             profiles = defaultLaunchProfiles().map(SavedAgentProfile.init)
         }
+        seedLocalPresets()
+    }
+
+    /// Adds the local-model tool presets once to profile lists saved before they existed. Deleted
+    /// presets stay deleted: the flag is set after the first run.
+    private func seedLocalPresets() {
+        let key = "local_presets_seeded_v1"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+        UserDefaults.standard.set(true, forKey: key)
+        for tool in localAgentTools() where !profiles.contains(where: { $0.id == "local-\(tool.id)" }) {
+            if let p = SavedAgentProfile(localTool: tool.id) { profiles.append(p) }
+        }
+        save()
+    }
+
+    /// One-time "this agent runs without the phone gate" confirmation, per profile.
+    private static let ackKey = "local_agent_acknowledged"
+
+    public func isAcknowledged(_ id: String) -> Bool {
+        (UserDefaults.standard.stringArray(forKey: Self.ackKey) ?? []).contains(id)
+    }
+
+    public func acknowledge(_ id: String) {
+        var ids = UserDefaults.standard.stringArray(forKey: Self.ackKey) ?? []
+        if !ids.contains(id) { ids.append(id) }
+        UserDefaults.standard.set(ids, forKey: Self.ackKey)
     }
 
     public var autoStartProfile: SavedAgentProfile? {

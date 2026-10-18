@@ -76,8 +76,17 @@ public struct AgentProfilesSheetView: View {
                     ForEach(manager.profiles) { profile in
                         profileRow(profile)
                     }
-                    Button {
-                        editing = SavedAgentProfile(name: "", agent: .claudeCode, binary: "claude")
+                    Menu {
+                        Button {
+                            editing = SavedAgentProfile(name: "", agent: .claudeCode, binary: "claude")
+                        } label: { Label("Agent profile", systemImage: "person.crop.rectangle") }
+                        Section("Local model") {
+                            ForEach(localAgentTools(), id: \.id) { tool in
+                                Button {
+                                    editing = SavedAgentProfile(localTool: tool.id)
+                                } label: { Label(tool.name, systemImage: ProfileIcons.defaultSymbol(for: tool.agent)) }
+                            }
+                        }
                     } label: {
                         Label("Add profile", systemImage: "plus")
                     }
@@ -101,6 +110,10 @@ public struct AgentProfilesSheetView: View {
                 } : nil, listDirectory: connected ? { path, hidden in
                     guard let handle = viewModel.sessionHandle else { throw SshCoreError.NotConnected }
                     return try await handle.listRemoteDirectory(path: path, includeHidden: hidden)
+                } : nil, listModels: connected ? {
+                    guard let handle = viewModel.sessionHandle,
+                          let status = try? await handle.checkHostOllama() else { return [] }
+                    return status.models
                 } : nil) { saved in
                     manager.upsert(saved)
                     editing = nil
@@ -259,6 +272,10 @@ struct AgentProfileEditorView: View {
     var checkEnvironment: ((String) async -> AgentEnvCheck?)?
     /// Lists a directory on the connected host (for the folder picker); `nil` without a session.
     var listDirectory: ((String?, Bool) async throws -> RemoteDirectoryListing)?
+    /// Models Ollama lists on the connected host; `nil` without a session.
+    var listModels: (() async -> [String])?
+    @State private var hostModels: [String] = []
+    @State private var loadingModels = false
     @State private var pickingStart = false
     @State private var pickingConfig = false
     var onSave: (SavedAgentProfile) -> Void
@@ -268,12 +285,14 @@ struct AgentProfileEditorView: View {
         profile: SavedAgentProfile,
         checkEnvironment: ((String) async -> AgentEnvCheck?)? = nil,
         listDirectory: ((String?, Bool) async throws -> RemoteDirectoryListing)? = nil,
+        listModels: (() async -> [String])? = nil,
         onSave: @escaping (SavedAgentProfile) -> Void,
         onCancel: @escaping () -> Void
     ) {
         _profile = State(initialValue: profile)
         self.checkEnvironment = checkEnvironment
         self.listDirectory = listDirectory
+        self.listModels = listModels
         self.onSave = onSave
         self.onCancel = onCancel
     }
@@ -334,6 +353,75 @@ struct AgentProfileEditorView: View {
 
     private var supportsHooks: Bool { profile.supportsHooks }
 
+    private var localTool: LocalAgentTool? { localAgentTools().first { $0.id == profile.localTool } }
+
+    /// Tool and Ollama model of a local-model profile. The command line is built by the core from
+    /// these two fields, so nothing typed here reaches the shell unvalidated.
+    @ViewBuilder
+    private var localModelSection: some View {
+        Section(header: Text("Local model"), footer: Text(localTool?.note ?? "")) {
+            Picker("Tool", selection: Binding(
+                get: { profile.localTool },
+                set: { id in
+                    profile.localTool = id
+                    if let t = localAgentTools().first(where: { $0.id == id }) {
+                        profile.agent = t.agent
+                        if !t.takesModel { profile.localModel = "" }
+                        if profile.name.isEmpty || localAgentTools().contains(where: { $0.name == profile.name }) { profile.name = t.name }
+                    }
+                }
+            )) {
+                ForEach(localAgentTools(), id: \.id) { Text($0.name).tag($0.id) }
+            }
+            if localTool?.takesModel == true {
+                TextField("Model (empty = the tool or Ollama picks)", text: $profile.localModel)
+                    .font(.system(.body, design: .monospaced))
+                    .autocorrectionDisabled()
+                    #if os(iOS)
+                    .textInputAutocapitalization(.never)
+                    #endif
+                if let listModels {
+                    Menu {
+                        ForEach(hostModels, id: \.self) { m in
+                            Button(m) { profile.localModel = m }
+                        }
+                        if hostModels.isEmpty && !loadingModels {
+                            Text("No models found (is Ollama running?)")
+                        }
+                    } label: {
+                        Label(loadingModels ? "Asking the host…" : "Choose from host", systemImage: "cube")
+                    }
+                    .onAppear { refreshModels(listModels) }
+                } else {
+                    Text("Connect to a host to pick from its models.").font(.caption).foregroundColor(.secondary)
+                }
+            }
+            if let err = localModelError {
+                Label(err, systemImage: "exclamationmark.triangle.fill").font(.caption).foregroundColor(.red)
+            }
+            if localTool?.hasApprovals == false {
+                Label("No approval hook for this tool: it runs without the phone gate.", systemImage: "info.circle")
+                    .font(.caption).foregroundColor(.secondary)
+            }
+        }
+    }
+
+    private var localModelError: String? {
+        guard profile.isLocal else { return nil }
+        do { _ = try buildLocalAgentProfile(tool: profile.localTool, model: profile.localModel) }
+        catch { return error.localizedDescription }
+        return nil
+    }
+
+    private func refreshModels(_ load: @escaping () async -> [String]) {
+        guard !loadingModels else { return }
+        loadingModels = true
+        Task {
+            hostModels = await load()
+            loadingModels = false
+        }
+    }
+
     private var hookPresetError: String? {
         guard supportsHooks else { return nil }
         do { _ = try planAgentHooks(agent: profile.agent, preset: profile.hookPreset, hookDir: nil) }
@@ -342,6 +430,7 @@ struct AgentProfileEditorView: View {
     }
 
     private var validationError: String? {
+        if let e = localModelError { return e }
         if let e = hookPresetError { return e }
         if profile.name.trimmingCharacters(in: .whitespaces).isEmpty { return "Name is required" }
         if case .failure(let e) = compiled().launchCommand() { return e.localizedDescription }
@@ -353,18 +442,21 @@ struct AgentProfileEditorView: View {
             Form {
                 Section("Profile") {
                     TextField("Name (e.g. Claude personal)", text: $profile.name)
-                    Picker("Agent", selection: Binding(get: { profile.agent }, set: { profile.agent = $0 })) {
-                        Text("Claude Code").tag(AgentKind.claudeCode)
-                        Text("Google Antigravity").tag(AgentKind.antigravity)
-                        Text("OpenAI Codex").tag(AgentKind.codex)
-                        Text("Grok").tag(AgentKind.grok)
+                    if !profile.isLocal {
+                        Picker("Agent", selection: Binding(get: { profile.agent }, set: { profile.agent = $0 })) {
+                            Text("Claude Code").tag(AgentKind.claudeCode)
+                            Text("Google Antigravity").tag(AgentKind.antigravity)
+                            Text("OpenAI Codex").tag(AgentKind.codex)
+                            Text("Grok").tag(AgentKind.grok)
+                        }
+                        TextField("Binary", text: $profile.binary)
+                            .autocorrectionDisabled()
+                            #if os(iOS)
+                            .textInputAutocapitalization(.never)
+                            #endif
                     }
-                    TextField("Binary", text: $profile.binary)
-                        .autocorrectionDisabled()
-                        #if os(iOS)
-                        .textInputAutocapitalization(.never)
-                        #endif
                 }
+                if profile.isLocal { localModelSection }
                 Section(
                     header: Text("Start directory"),
                     footer: Text("The agent starts here (e.g. ~/projects/app); empty = the host's home folder. Branch: `git switch` runs here first; if it fails the tab says so and the agent still starts. Make one profile per folder/branch (swipe → Duplicate).")

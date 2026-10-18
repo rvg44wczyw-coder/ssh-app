@@ -20,7 +20,7 @@ final class HookProfileTests: XCTestCase {
     }
 
     func testEveryTemplatePlansForItsAgents() {
-        for agent in [AgentKind.claudeCode, .antigravity, .codex, .grok] {
+        for agent in [AgentKind.claudeCode, .antigravity, .codex, .grok, .openCode, .qwenCode, .crush] {
             for t in hookTemplatesFor(agent: agent) {
                 var p = SavedAgentProfile(name: "p", agent: agent, binary: "x")
                 p.apply(template: t.preset)

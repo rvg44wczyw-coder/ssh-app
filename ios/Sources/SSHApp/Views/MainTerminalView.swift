@@ -1,6 +1,11 @@
 import SwiftUI
 import SshCoreBridge
 
+struct PendingLocalLaunch {
+    let profile: SavedAgentProfile
+    let command: String
+}
+
 /// Where the AI assistant screen goes: the session whose connection reaches the host model.
 struct AssistantRoute: Identifiable, Hashable {
     let id = UUID()
@@ -54,6 +59,7 @@ public struct MainTerminalView: View {
     /// the terminal. One value carries both "open" and "through which session", so the screen can
     /// never appear without its session.
     @State private var assistantRoute: AssistantRoute?
+    @State private var pendingLocal: PendingLocalLaunch?
     @StateObject private var approvals = ApprovalsCenter()
 
     @ObservedObject private var subscriptions = SubscriptionManager.shared
@@ -153,17 +159,7 @@ public struct MainTerminalView: View {
                         ensureSessionStarted(for: id)
                     },
                     onAdd: { handleAddNewSession() },
-                    onLaunchPreset: { id in
-                        guard canOpenNewSession() else { return }
-                        guard let profile = agentProfiles.profiles.first(where: { $0.id == id }),
-                              case .success(let cmd) = profile.launchCommand() else { return }
-                        let s = tabsManager.addAgentSession(
-                            profile: profile,
-                            command: cmd,
-                            serverId: tabsManager.activeSession?.serverId ?? serversManager.activeProfileId
-                        )
-                        ensureSessionStarted(for: s.id)
-                    },
+                    onLaunchPreset: { id in launchPreset(id) },
                     onRename: { id, name in tabsManager.renameSession(id: id, newTitle: name) },
                     onClose: { id in
                         let session = tabsManager.sessions.first(where: { $0.id == id })
@@ -201,17 +197,7 @@ public struct MainTerminalView: View {
                          detail: [p.workingDir, p.gitBranch.isEmpty ? "" : "⎇ " + p.gitBranch]
                             .filter { !$0.isEmpty }.joined(separator: " "))
                     },
-                    onLaunchPreset: { id in
-                        guard canOpenNewSession() else { return }
-                        guard let profile = agentProfiles.profiles.first(where: { $0.id == id }),
-                              case .success(let cmd) = profile.launchCommand() else { return }
-                        let s = tabsManager.addAgentSession(
-                            profile: profile,
-                            command: cmd,
-                            serverId: tabsManager.activeSession?.serverId ?? serversManager.activeProfileId
-                        )
-                        ensureSessionStarted(for: s.id)
-                    },
+                    onLaunchPreset: { id in launchPreset(id) },
                     onRename: { id, newTitle in
                         tabsManager.renameSession(id: id, newTitle: newTitle)
                     },
@@ -363,6 +349,20 @@ public struct MainTerminalView: View {
                         onClose: { assistantRoute = nil }
                     )
             }
+            .alert(
+                "Start \(pendingLocal?.profile.name ?? "agent")?",
+                isPresented: Binding(get: { pendingLocal != nil }, set: { if !$0 { pendingLocal = nil } })
+            ) {
+                Button("Cancel", role: .cancel) {}
+                Button("Start") {
+                    if let p = pendingLocal {
+                        agentProfiles.acknowledge(p.profile.id)
+                        startProfile(p.profile, command: p.command)
+                    }
+                }
+            } message: {
+                Text(pendingLocal.map { localLaunchMessage($0.profile) } ?? "")
+            }
             .sheet(item: $activeSheet) { sheet in
                 switch sheet {
                 case .settings:
@@ -375,13 +375,7 @@ public struct MainTerminalView: View {
                                     viewModel: vm,
                                     onLaunch: { profile, command in
                                         activeSheet = nil
-                                        guard canOpenNewSession() else { return }
-                                        let s = tabsManager.addAgentSession(
-                                            profile: profile,
-                                            command: command,
-                                            serverId: tabsManager.activeSession?.serverId ?? serversManager.activeProfileId
-                                        )
-                                        ensureSessionStarted(for: s.id)
+                                        startProfile(profile, command: command)
                                     },
                                     embedded: true
                                 )
@@ -456,13 +450,7 @@ public struct MainTerminalView: View {
                             viewModel: activeVM,
                             onLaunch: { profile, command in
                                 activeSheet = nil
-                                guard canOpenNewSession() else { return }
-                                let s = tabsManager.addAgentSession(
-                                    profile: profile,
-                                    command: command,
-                                    serverId: tabsManager.activeSession?.serverId ?? serversManager.activeProfileId
-                                )
-                                ensureSessionStarted(for: s.id)
+                                startProfile(profile, command: command)
                             },
                             onClose: { activeSheet = nil }
                         )
@@ -600,7 +588,8 @@ public struct MainTerminalView: View {
 
     /// Opens a new tab, auto-starting the configured agent profile (plain shell if none/invalid).
     private func addNewTab(serverId: UUID?) -> TabSession {
-        if let profile = agentProfiles.autoStartProfile, case .success(let cmd) = profile.launchCommand() {
+        if let profile = agentProfiles.autoStartProfile, case .success(let cmd) = profile.launchCommand(),
+           !profile.isLocal || agentProfiles.isAcknowledged(profile.id) {
             return tabsManager.addAgentSession(profile: profile, command: cmd, serverId: serverId)
         }
         return tabsManager.addSession(serverId: serverId)
@@ -623,15 +612,39 @@ public struct MainTerminalView: View {
     }
 
     private func launchPreset(_ id: String) {
-        guard canOpenNewSession() else { return }
         guard let profile = agentProfiles.profiles.first(where: { $0.id == id }),
               case .success(let cmd) = profile.launchCommand() else { return }
+        startProfile(profile, command: cmd)
+    }
+
+    /// Opens a tab running `profile`. A local-model agent asks for a one-time confirmation first
+    /// (it may run without the phone gate, and `ollama launch` writes config on the host).
+    private func startProfile(_ profile: SavedAgentProfile, command: String) {
+        if profile.isLocal && !agentProfiles.isAcknowledged(profile.id) {
+            // A sheet or menu may still be closing; an alert presented during that is dropped.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                pendingLocal = PendingLocalLaunch(profile: profile, command: command)
+            }
+            return
+        }
+        guard canOpenNewSession() else { return }
         let s = tabsManager.addAgentSession(
             profile: profile,
-            command: cmd,
+            command: command,
             serverId: tabsManager.activeSession?.serverId ?? serversManager.activeProfileId
         )
         ensureSessionStarted(for: s.id)
+    }
+
+    private func localLaunchMessage(_ profile: SavedAgentProfile) -> String {
+        let tool = localAgentTools().first { $0.id == profile.localTool }
+        let gate = tool?.hasApprovals == true
+            ? "Install its approval hooks (Agent profiles → Review & install) to get phone approvals; until then it runs commands on the host without asking your phone."
+            : "This tool has no approval hook: it runs commands on the host without phone approval and asks in its own terminal, if at all."
+        let writes = ["opencode", "qwen", "cline"].contains(profile.localTool)
+            ? " Starting it uses `ollama launch`, which writes the tool's config on the host."
+            : ""
+        return gate + writes
     }
 
     /// Long press on the "all sessions" button: jump to another open session, look at the servers

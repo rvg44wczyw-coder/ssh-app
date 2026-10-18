@@ -217,6 +217,13 @@ public enum ProfileIcons {
         case .antigravity: return AgentType.antigravity.iconName
         case .codex: return "chevron.left.forwardslash.chevron.right"
         case .grok: return "bolt.horizontal"
+        case .openCode: return "chevron.left.slash.chevron.right"
+        case .qwenCode: return "q.circle"
+        case .crush: return "sparkles"
+        case .cline: return "bubble.left.and.bubble.right"
+        case .aider: return "pencil.and.outline"
+        case .goose: return "bird"
+        case .ollamaChat: return "cube"
         }
     }
 
@@ -377,7 +384,7 @@ public struct TerminalScheme: Identifiable, Equatable, Codable {
 
 /// Which agent a tab runs, for choosing its default colours.
 public enum SchemeSlot: String, CaseIterable, Identifiable {
-    case general, claude, antigravity, codex, grok, shell
+    case general, claude, antigravity, codex, grok, local, shell
 
     public var id: String { rawValue }
 
@@ -388,6 +395,7 @@ public enum SchemeSlot: String, CaseIterable, Identifiable {
         case .antigravity: return "Antigravity"
         case .codex: return "Codex"
         case .grok: return "Grok"
+        case .local: return "Local-model agents"
         case .shell: return "Plain shell"
         }
     }
@@ -400,6 +408,7 @@ public enum SchemeSlot: String, CaseIterable, Identifiable {
         case .antigravity: return "tokyonight"
         case .codex: return "nord"
         case .grok: return "dracula"
+        case .local: return "solarized"
         }
     }
 
@@ -419,6 +428,7 @@ public enum SchemeSlot: String, CaseIterable, Identifiable {
         case .antigravity: return .antigravity
         case .codex: return .codex
         case .grok: return .grok
+        case .openCode, .qwenCode, .crush, .cline, .aider, .goose, .ollamaChat: return .local
         }
     }
 }

@@ -46,6 +46,24 @@ struct HookPreviewSheetView: View {
                             .font(.caption).foregroundColor(.secondary)
                     }
                 }
+                if profile.agent == .qwenCode {
+                    Section {
+                        Label("Qwen Code reads these hooks from ~/.qwen/settings.json (check the path in the preview). Restart Qwen Code in open tabs after installing; project hooks only load in trusted folders, these user hooks always do.", systemImage: "info.circle")
+                            .font(.caption).foregroundColor(.secondary)
+                    }
+                }
+                if profile.agent == .crush {
+                    Section {
+                        Label("Crush only has a PreToolUse hook, so there are no notifications. A timeout or error lets the tool run, so the hook waits up to 130 s for your phone. Crush's own permission flow still applies after an Approve.", systemImage: "info.circle")
+                            .font(.caption).foregroundColor(.secondary)
+                    }
+                }
+                if profile.agent == .openCode {
+                    Section {
+                        Label("A plugin file (~/.config/opencode/plugins/ssh-app.js) is written; OpenCode loads it at start. A phone Deny blocks the command. If the phone cannot be asked (script missing or crashed) the command is blocked, not allowed. OpenCode's own permission rules still apply after an Approve.", systemImage: "info.circle")
+                            .font(.caption).foregroundColor(.secondary)
+                    }
+                }
                 Section("Currently installed") {
                     if installed.isEmpty {
                         Text(handle == nil ? "Connect to a host to read it." : "No ssh-app hooks installed.")
