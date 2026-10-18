@@ -195,4 +195,9 @@ Qwen's `PermissionRequest` reply being honoured, Crush honouring exit-0 JSON wit
 OpenCode awaiting an async `tool.execute.before` for up to 135 s, and `ollama launch <tool>
 --model` end to end.
 
+Known limits (hacker audit, `docs/security-findings/2026-10-18-local-agents.md`): Qwen Code in an
+auto-approve mode and Crush sub-agent calls never reach the hook, so they are not gated by the
+phone; OpenCode with no answer is blocked (its own default would allow); with host-guard rules,
+tool input over 32 KB is denied as too long to check.
+
 Stage 2 (assistant card) is not started.

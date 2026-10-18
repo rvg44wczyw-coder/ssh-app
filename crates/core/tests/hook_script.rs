@@ -856,7 +856,10 @@ fn opencode_plugin_protocol_deny_allow_and_no_opinion() {
         .spawn_hook("opencode", "PreToolUse", OPENCODE_IN, 1)
         .finish();
     assert_eq!(code, 0);
-    assert_eq!(serde_json::from_str::<Value>(&out).unwrap(), json!({}));
+    // No answer must block: OpenCode allows most tools by default, so there is no native prompt.
+    let v: Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(v["decision"], "deny");
+    assert!(v["reason"].as_str().unwrap().contains("No answer"));
 }
 
 #[test]
@@ -881,6 +884,102 @@ fn host_guard_deny_reaches_the_new_agents_in_their_own_shape() {
     let (out, _) = h.spawn_hook("qwen", "PermissionRequest", &qwen, 5).finish();
     let v: Value = serde_json::from_str(&out).unwrap();
     assert_eq!(v["hookSpecificOutput"]["decision"]["behavior"], "deny");
+}
+
+#[test]
+fn guard_file_rules_reach_the_file_tools_of_the_new_agents() {
+    need_tools!();
+    let h = Host::new();
+    let ssh = h.home().join(".ssh/id_ed25519");
+    let rc = h.home().join(".zshrc");
+    write_guard_json(
+        &h,
+        json!({"deny": [format!("Read({})", ssh.display()), format!("Edit({})", rc.display())]}),
+    );
+    let ssh = ssh.display().to_string();
+    let rc = rc.display().to_string();
+    let cases = [
+        (
+            "qwen",
+            "PermissionRequest",
+            json!({"tool_name":"read_file","tool_input":{"absolute_path":ssh},"cwd":"/w"}),
+        ),
+        (
+            "qwen",
+            "PermissionRequest",
+            json!({"tool_name":"read_many_files","tool_input":{"paths":["/tmp/x", ssh]},"cwd":"/w"}),
+        ),
+        (
+            "qwen",
+            "PermissionRequest",
+            json!({"tool_name":"write_file","tool_input":{"file_path":rc},"cwd":"/w"}),
+        ),
+        (
+            "qwen",
+            "PermissionRequest",
+            json!({"tool_name":"replace","tool_input":{"file_path":rc},"cwd":"/w"}),
+        ),
+        (
+            "crush",
+            "PreToolUse",
+            json!({"tool_name":"view","tool_input":{"file_path":ssh},"cwd":"/w"}),
+        ),
+        (
+            "crush",
+            "PreToolUse",
+            json!({"tool_name":"edit","tool_input":{"file_path":rc},"cwd":"/w"}),
+        ),
+        (
+            "opencode",
+            "PreToolUse",
+            json!({"tool":"read","args":{"filePath":ssh},"cwd":"/w"}),
+        ),
+        (
+            "opencode",
+            "PreToolUse",
+            json!({"tool":"write","args":{"filePath":rc},"cwd":"/w"}),
+        ),
+    ];
+    for (agent, event, payload) in cases {
+        let (out, _) = h.spawn_hook(agent, event, &payload.to_string(), 5).finish();
+        assert!(
+            out.contains("deny") && out.contains("host guard rule"),
+            "{agent} {payload}: {out:?}"
+        );
+    }
+}
+
+#[test]
+fn oversized_tool_input_is_refused_when_guard_rules_exist_and_never_reaches_shlex() {
+    need_tools!();
+    let h = Host::new();
+    write_guard(&h, &["Bash(rm:*)"]);
+    let big = "x".repeat(2 * 1024 * 1024);
+    let t = Instant::now();
+    for (agent, event, payload) in [
+        (
+            "claude",
+            "PermissionRequest",
+            json!({"tool_name":"Bash","tool_input":{"command":big},"cwd":"/w","session_id":"s"}),
+        ),
+        (
+            "crush",
+            "PreToolUse",
+            json!({"tool_name":"bash","tool_input":{"command":big},"cwd":"/w"}),
+        ),
+        (
+            "opencode",
+            "PreToolUse",
+            json!({"tool":"bash","args":{"command":big},"cwd":"/w"}),
+        ),
+    ] {
+        let (out, _) = h.spawn_hook(agent, event, &payload.to_string(), 5).finish();
+        assert!(
+            out.contains("deny") && out.contains("too long"),
+            "{agent}: {out:?}"
+        );
+    }
+    assert!(t.elapsed() < Duration::from_secs(10), "{:?}", t.elapsed());
 }
 
 fn write_guard(h: &Host, rules: &[&str]) {

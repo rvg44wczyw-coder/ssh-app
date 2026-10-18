@@ -83,14 +83,14 @@ fn deny_blocks_allow_passes_and_other_tools_are_not_asked() {
         ),
         "pass"
     );
-    // No opinion (empty answer): the call continues into OpenCode's own permission flow.
+    // An empty answer is not an approval: only an explicit allow lets the call through.
     let none = "import sys\nsys.stdin.read()\n";
     assert_eq!(
         run(
             Some(none),
-            &format!("{TRY}\nconsole.log(await attempt('bash'));")
+            &format!("{TRY}\nconsole.log((await attempt('bash')).startsWith('blocked:'));")
         ),
-        "pass"
+        "true"
     );
 }
 

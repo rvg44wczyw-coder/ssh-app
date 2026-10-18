@@ -54,7 +54,7 @@ struct HookPreviewSheetView: View {
                 }
                 if profile.agent == .crush {
                     Section {
-                        Label("Crush only has a PreToolUse hook, so there are no notifications. A timeout or error lets the tool run, so the hook waits up to 130 s for your phone. Crush's own permission flow still applies after an Approve.", systemImage: "info.circle")
+                        Label("Crush only has a PreToolUse hook, so there are no notifications. A timeout or error lets the tool run, so the hook waits up to 130 s for your phone. Crush's own permission flow still applies after an Approve. Sub-agent calls are not intercepted by Crush hooks, so they run without your phone.", systemImage: "info.circle")
                             .font(.caption).foregroundColor(.secondary)
                     }
                 }

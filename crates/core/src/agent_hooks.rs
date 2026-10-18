@@ -800,6 +800,28 @@ fn script_location(command: &str) -> Option<(&'static str, String)> {
     }
 }
 
+/// What the generator accepts: our two events, a matcher from the validated charset and a command
+/// shaped like our own hook command. Everything is checked again here because
+/// `merge_planned_hooks` is an exported API and the text ends up as JavaScript.
+fn validate_opencode_entry(h: &PlannedHook) -> Result<(), SshCoreError> {
+    let matcher_ok = h.matcher.as_deref().is_none_or(|m| {
+        !m.is_empty()
+            && m.chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '|' | '-' | '*'))
+    });
+    if !matches!(h.event.as_str(), "PreToolUse" | "Stop")
+        || !matcher_ok
+        || !h.command.starts_with("python3 -I \"")
+        || h.command.chars().any(char::is_control)
+        || h.command
+            .chars()
+            .any(|c| matches!(c, '\u{2028}' | '\u{2029}'))
+    {
+        return Err(invalid("Refusing to write a malformed OpenCode hook entry"));
+    }
+    Ok(())
+}
+
 /// The OpenCode plugin text for `planned` (docs: plugins live in `~/.config/opencode/plugins/`;
 /// `tool.execute.before` blocks a call by throwing). Generated from validated data only, string
 /// values are JSON-escaped; the script is run with `execFile` (no shell). Any failure to ask the
@@ -811,6 +833,7 @@ fn opencode_plugin(existing: &str, planned: &[PlannedHook]) -> Result<String, Ss
             "The OpenCode plugin file exists and is not ours; refusing to overwrite it",
         ));
     }
+    planned.iter().try_for_each(validate_opencode_entry)?;
     let entries: Vec<Value> = planned
         .iter()
         .map(|h| json!({"event": h.event, "matcher": h.matcher, "command": h.command}))
@@ -832,7 +855,11 @@ fn opencode_plugin(existing: &str, planned: &[PlannedHook]) -> Result<String, Ss
     let has_stop = planned.iter().any(|h| h.event == "Stop");
     let mut out = format!(
         "{OPENCODE_MARKER}{}\n// Written by SSH Mobile; edit it through the app. Asks the phone before shell commands run.\n",
-        serde_json::to_string(&entries).map_err(|e| invalid(format!("Failed to serialize: {e}")))?
+        // U+2028/U+2029 end a `//` comment in JavaScript and serde_json leaves them raw.
+        serde_json::to_string(&entries)
+            .map_err(|e| invalid(format!("Failed to serialize: {e}")))?
+            .replace('\u{2028}', "\\u2028")
+            .replace('\u{2029}', "\\u2029")
     );
     out.push_str(
         r#"import { execFile } from "node:child_process"
@@ -869,7 +896,7 @@ export const SshAppPlugin = async ({ directory }) => ({
             r#"  "tool.execute.before": async (input, output) => {{
     if (!new RegExp({}).test(String(input.tool))) return
     const r = await ask("PreToolUse", {{ tool: input.tool, args: output.args, cwd: directory, session: input.sessionID }})
-    if (r.decision === "deny") throw new Error(r.reason || "Denied from ssh-app on your phone")
+    if (r.decision !== "allow") throw new Error(r.reason || "Blocked: no approval from ssh-app")
   }},
 "#,
             lit(&pattern)
@@ -1507,6 +1534,31 @@ mod tests {
         let removed = remove_agent_hooks(AgentKind::OpenCode, text).unwrap();
         assert!(!removed.contains("tool.execute.before"));
         assert!(installed_hook_entries(AgentKind::OpenCode, removed).is_empty());
+    }
+
+    #[test]
+    fn opencode_generator_refuses_hostile_entries_and_escapes_line_separators() {
+        let ok = plan(AgentKind::OpenCode);
+        let with = |f: &dyn Fn(&mut PlannedHook)| {
+            let mut p = ok.clone();
+            f(&mut p[0]);
+            merge_planned_hooks(AgentKind::OpenCode, String::new(), p)
+        };
+        assert!(with(&|h| h.command.push_str("\u{2028}globalThis.x=1;//")).is_err());
+        assert!(with(&|h| h.command.push_str("\u{2029}x")).is_err());
+        assert!(with(&|h| h.command.push('\n')).is_err());
+        assert!(with(&|h| h.command = "node evil.js".into()).is_err());
+        assert!(with(&|h| h.event = "PostToolUse".into()).is_err());
+        assert!(with(&|h| h.matcher = Some("(a+)+$".into())).is_err());
+        assert!(with(&|h| h.matcher = Some("a\"+process.exit()+\"".into())).is_err());
+        assert!(with(&|h| h.matcher = Some("bash|edit".into())).is_ok());
+        // The header line stays one line whatever the (validated) content is.
+        let text = merge_planned_hooks(AgentKind::OpenCode, String::new(), ok).unwrap();
+        assert!(!text
+            .lines()
+            .next()
+            .unwrap()
+            .contains(['\u{2028}', '\u{2029}']));
     }
 
     #[test]

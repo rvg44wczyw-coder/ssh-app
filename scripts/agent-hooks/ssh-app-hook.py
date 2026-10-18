@@ -275,8 +275,12 @@ def submit(kind, base, wait):
 # ---------------------------------------------------------------------------------------------
 RULE_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)(?:\((.*)\))?$", re.S)
 SHELL_TOOLS = ("Bash", "run_command", "bash", "shell", "run_shell_command")
-EDIT_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit", "write_to_file", "replace_file_content", "edit_file")
-READ_TOOLS = ("Read", "view_file", "read_file")
+EDIT_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit", "write_to_file", "replace_file_content", "edit_file",
+              # Qwen Code, Crush and OpenCode (lower-case names)
+              "write_file", "replace", "edit", "write", "multiedit", "patch", "apply_patch")
+READ_TOOLS = ("Read", "view_file", "read_file",
+              # Qwen Code, Crush and OpenCode
+              "read_many_files", "view", "read")
 MAX_RULES = 200
 
 
@@ -437,6 +441,16 @@ def path_spec_matches(spec, path, cwd):
     return any(pattern.match(c) for c in candidates)
 
 
+PATH_KEYS = ("file_path", "path", "AbsolutePath", "TargetFile", "notebook_path",
+             "filePath", "absolute_path")  # the last two: OpenCode, Qwen Code
+GUARD_MAX_INPUT = 32768  # longer text is never fed to shlex (its cost grows quadratically)
+
+
+def input_too_big(tool_input):
+    ti = tool_input if isinstance(tool_input, dict) else {}
+    return any(isinstance(v, str) and len(v) > GUARD_MAX_INPUT for v in ti.values())
+
+
 def guard_match(rules, tool, tool_input, cwd):
     """The first rule of `rules` that matches this tool call, else None."""
     if not rules:
@@ -448,10 +462,15 @@ def guard_match(rules, tool, tool_input, cwd):
         if isinstance(ti.get(key), str) and ti[key]:
             command = ti[key]
             break
-    for key in ("file_path", "path", "AbsolutePath", "TargetFile", "notebook_path"):
+    for key in PATH_KEYS:
         if isinstance(ti.get(key), str) and ti[key]:
             path = ti[key]
             break
+    # Tools that take several paths (Qwen's read_many_files): every one is checked.
+    paths = [path] if path else []
+    for key in ("paths", "file_paths"):
+        if isinstance(ti.get(key), list):
+            paths += [x for x in ti[key] if isinstance(x, str) and x][:50]
     for rule in rules:
         m = RULE_RE.match(rule.strip())
         if not m:
@@ -465,7 +484,7 @@ def guard_match(rules, tool, tool_input, cwd):
         try:
             if kind == "Bash" and bash_spec_matches(spec, command):
                 return rule
-            if kind in ("Edit", "Read") and path_spec_matches(spec, path, cwd):
+            if kind in ("Edit", "Read") and any(path_spec_matches(spec, p, cwd) for p in paths):
                 return rule
         except re.error:
             continue
@@ -648,6 +667,11 @@ def main():
 
     if event in ("PermissionRequest", "PreToolUse"):
         guard = load_guard()
+        if input_too_big(tool_input) and any(guard_rules(guard, k) for k in ("deny", "ask", "allow")):
+            # Rules cannot be checked reliably (and cheaply) on this much text: fail closed.
+            sys.stdout.write(json.dumps(deny_output(
+                agent, event, "Blocked: the tool input is longer than %d characters, too long to check against the host guard rules" % GUARD_MAX_INPUT)))
+            return 0
         hit = guard_match(guard_rules(guard, "deny"), tool, tool_input, cwd)
         if hit is not None:
             reason = "Blocked by a host guard rule: " + clean(hit, 120)
@@ -681,12 +705,13 @@ def main():
             return 0
         if agent == "opencode":
             # The plugin throws on deny; anything else continues into OpenCode's own flow.
+            # OpenCode allows most tools by default, so no answer must not mean "go ahead".
             if approved is True:
                 out = {"decision": "allow", "reason": "Approved from ssh-app"}
             elif approved is False:
                 out = {"decision": "deny", "reason": "Denied from ssh-app on your phone"}
             else:
-                out = {}
+                out = {"decision": "deny", "reason": "No answer from your phone in time (or the ssh-app approval queue is not set up); blocked"}
             sys.stdout.write(json.dumps(out))
             return 0
         if agent in CLAUDE_STYLE:
