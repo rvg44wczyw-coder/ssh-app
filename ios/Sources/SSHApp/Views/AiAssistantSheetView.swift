@@ -12,6 +12,8 @@ public struct AssistantTarget: Identifiable {
 
 public struct AiAssistantSheetView: View {
     @ObservedObject var viewModel: TerminalSessionViewModel
+    /// Chat and command state of this server's assistant (outlives the screen and the session).
+    @ObservedObject var assistant: AssistantSession
     public var onClose: (() -> Void)?
     /// Server whose model this talks to; shown in the title.
     var serverName: String = ""
@@ -63,12 +65,14 @@ public struct AiAssistantSheetView: View {
 
     public init(
         viewModel: TerminalSessionViewModel,
+        assistant: AssistantSession,
         serverName: String = "",
         targets: [AssistantTarget] = [],
         onSent: ((UUID) -> Void)? = nil,
         onClose: (() -> Void)? = nil
     ) {
         self.viewModel = viewModel
+        self.assistant = assistant
         self.serverName = serverName
         self.targets = targets
         self.onSent = onSent
@@ -95,8 +99,8 @@ public struct AiAssistantSheetView: View {
 
     private func closeSheet() {
         // Leaving while a request runs would leave the model generating for nobody.
-        if viewModel.isAiLoading { viewModel.stopAiQuery() }
-        if viewModel.isChatLoading { viewModel.stopChat() }
+        if assistant.isAiLoading { assistant.stopAiQuery() }
+        if assistant.isChatLoading { assistant.stopChat() }
         if let onClose { onClose() } else { dismiss() }
     }
 
@@ -120,15 +124,15 @@ public struct AiAssistantSheetView: View {
                     promptInputSection
                     quickPromptChips
 
-                    if viewModel.isAiLoading {
+                    if assistant.isAiLoading {
                         loadingSection
                     }
 
-                    if let error = viewModel.aiError {
+                    if let error = assistant.aiError {
                         errorSection(error)
                     }
 
-                    if let suggestion = viewModel.activeAiSuggestion {
+                    if let suggestion = assistant.activeAiSuggestion {
                         suggestionCard(suggestion)
                     }
                 }
@@ -164,7 +168,7 @@ public struct AiAssistantSheetView: View {
             .alert("Destructive Command", isPresented: $showDestructiveConfirm) {
                 Button("Cancel", role: .cancel) {}
                 Button("Run Anyway", role: .destructive) {
-                    if let cmd = viewModel.activeAiSuggestion?.command {
+                    if let cmd = assistant.activeAiSuggestion?.command {
                         send(cmd, run: true)
                     }
                 }
@@ -174,8 +178,8 @@ public struct AiAssistantSheetView: View {
         }
         // Leaving (Back) while a request runs would leave the model generating for nobody.
         .onDisappear {
-            if viewModel.isAiLoading { viewModel.stopAiQuery() }
-            if viewModel.isChatLoading { viewModel.stopChat() }
+            if assistant.isAiLoading { assistant.stopAiQuery() }
+            if assistant.isChatLoading { assistant.stopChat() }
         }
     }
 
@@ -191,32 +195,32 @@ public struct AiAssistantSheetView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 10) {
-                        if viewModel.chatMessages.isEmpty {
+                        if assistant.chatMessages.isEmpty {
                             Text("Ask the local model anything about your work: commands, errors, code. It answers from the host's Ollama and cannot run anything.")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                                 .padding(.top, 20)
                         }
-                        ForEach(Array(viewModel.chatMessages.enumerated()), id: \.offset) { index, message in
+                        ForEach(Array(assistant.chatMessages.enumerated()), id: \.offset) { index, message in
                             chatBubble(message).id(index)
                         }
-                        if viewModel.isChatLoading {
+                        if assistant.isChatLoading {
                             HStack(spacing: 8) {
                                 ProgressView().scaleEffect(0.8)
                                 Text("Thinking…").font(.caption).foregroundColor(.secondary)
                             }
                             .id("loading")
                         }
-                        if let error = viewModel.chatError {
+                        if let error = assistant.chatError {
                             errorSection(error)
                         }
                     }
                     .padding(16)
                 }
-                .onChange(of: viewModel.chatMessages.count) { _, _ in
-                    withAnimation { proxy.scrollTo(viewModel.chatMessages.count - 1, anchor: .bottom) }
+                .onChange(of: assistant.chatMessages.count) { _, _ in
+                    withAnimation { proxy.scrollTo(assistant.chatMessages.count - 1, anchor: .bottom) }
                 }
-                .onChange(of: viewModel.isChatLoading) { _, loading in
+                .onChange(of: assistant.isChatLoading) { _, loading in
                     if loading { withAnimation { proxy.scrollTo("loading", anchor: .bottom) } }
                 }
             }
@@ -230,27 +234,27 @@ public struct AiAssistantSheetView: View {
                     .background(Color(white: 0.12))
                     .cornerRadius(10)
                 Button {
-                    if viewModel.isChatLoading {
-                        viewModel.stopChat()
+                    if assistant.isChatLoading {
+                        assistant.stopChat()
                     } else {
-                        viewModel.sendChat(chatInput, modelName: selectedModel)
+                        assistant.sendChat(chatInput, modelName: selectedModel, handle: viewModel.sessionHandle, connected: viewModel.state == .connected)
                         chatInput = ""
                     }
                 } label: {
-                    Image(systemName: viewModel.isChatLoading ? "stop.fill" : "arrow.up")
+                    Image(systemName: assistant.isChatLoading ? "stop.fill" : "arrow.up")
                         .font(.system(size: 16, weight: .bold))
                         .frame(width: 40, height: 40)
-                        .background(viewModel.isChatLoading ? Color.red : Color.purple)
+                        .background(assistant.isChatLoading ? Color.red : Color.purple)
                         .foregroundColor(.white)
                         .clipShape(Circle())
                 }
-                .disabled(!viewModel.isChatLoading
+                .disabled(!assistant.isChatLoading
                           && (chatInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !isReady))
-                .opacity(!viewModel.isChatLoading
+                .opacity(!assistant.isChatLoading
                          && (chatInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !isReady) ? 0.4 : 1)
                 Menu {
-                    Button("New chat", role: .destructive) { viewModel.clearChat() }
-                        .disabled(viewModel.chatMessages.isEmpty)
+                    Button("New chat", role: .destructive) { assistant.clearChat() }
+                        .disabled(assistant.chatMessages.isEmpty)
                 } label: {
                     Image(systemName: "ellipsis.circle").font(.system(size: 22)).foregroundColor(.secondary)
                         .frame(width: 32, height: 40)
@@ -450,28 +454,31 @@ public struct AiAssistantSheetView: View {
             }
 
             Button {
-                if viewModel.isAiLoading {
-                    viewModel.stopAiQuery()
+                if assistant.isAiLoading {
+                    assistant.stopAiQuery()
                 } else {
-                    viewModel.startAiQuery(userPrompt: userPrompt, modelName: selectedModel, targetOs: "macOS")
+                    assistant.startAiQuery(
+                        userPrompt: userPrompt, modelName: selectedModel, targetOs: "macOS",
+                        handle: viewModel.sessionHandle, connected: viewModel.state == .connected,
+                        recentLines: (commandTarget?.viewModel ?? viewModel).getRecentTerminalLines(maxLines: 20))
                 }
             } label: {
                 HStack {
-                    if viewModel.isAiLoading {
+                    if assistant.isAiLoading {
                         Image(systemName: "stop.fill")
                     } else {
                         Image(systemName: "sparkles")
                     }
-                    Text(viewModel.isAiLoading ? "Stop" : "Generate Command")
+                    Text(assistant.isAiLoading ? "Stop" : "Generate Command")
                         .fontWeight(.semibold)
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
-                .background(viewModel.isAiLoading ? Color.red : (userPrompt.trimmingCharacters(in: .whitespaces).isEmpty ? Color.purple.opacity(0.4) : Color.purple))
+                .background(assistant.isAiLoading ? Color.red : (userPrompt.trimmingCharacters(in: .whitespaces).isEmpty ? Color.purple.opacity(0.4) : Color.purple))
                 .foregroundColor(.white)
                 .cornerRadius(10)
             }
-            .disabled(!viewModel.isAiLoading && (userPrompt.trimmingCharacters(in: .whitespaces).isEmpty || !isReady))
+            .disabled(!assistant.isAiLoading && (userPrompt.trimmingCharacters(in: .whitespaces).isEmpty || !isReady))
         }
     }
 

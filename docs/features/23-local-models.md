@@ -200,4 +200,18 @@ auto-approve mode and Crush sub-agent calls never reach the hook, so they are no
 phone; OpenCode with no answer is blocked (its own default would allow); with host-guard rules,
 tool input over 32 KB is denied as too long to check.
 
-Stage 2 (assistant card) is not started.
+## 7. Implementation notes (stage 2, 2026-10-18)
+
+Done: `AssistantSession` / `AssistantStore` (`ios/Sources/SSHApp/ViewModels/AssistantSession.swift`):
+chat and command state moved out of `TerminalSessionViewModel` into one object per server id, in
+memory only. A request borrows the handle of the session the screen was opened through; closing
+the screen stops a running request but keeps the history. A card "AI · <server>" appears in the
+sessions grid once the server's assistant has a chat or a suggestion; its menu has *Clear chat*.
+When the app goes to the background `interruptAll()` ends running requests with a visible error
+(the sockets close anyway); nothing is retried.
+
+Deviation: the "Send commands to" target and the through-session still come from `AssistantRoute`
+(chosen when the screen is opened); the assistant does not remember the through-session between
+openings, it picks a connected session on the server again, as the button does.
+
+Tests: `AssistantSessionTests` (compiled, not run: no simulator).

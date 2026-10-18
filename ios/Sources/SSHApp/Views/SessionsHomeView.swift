@@ -19,6 +19,11 @@ struct SessionsHomeView: View {
     let isChatMode: (TabSession) -> Bool
     let onSessionAction: (UUID, AppAction) -> Void
     let onSetScheme: (UUID, String?) -> Void
+    /// Assistants that have history, shown as cards after the sessions.
+    let assistants: [AssistantSession]
+    let assistantServerName: (UUID) -> String
+    let onOpenAssistant: (UUID) -> Void
+    let onClearAssistant: (UUID) -> Void
 
     @State private var renaming: TabSession?
     @State private var renameText = ""
@@ -39,6 +44,10 @@ struct SessionsHomeView: View {
             TimelineView(.periodic(from: .now, by: 3)) { _ in
                 LazyVGrid(columns: columns, spacing: 12) {
                     ForEach(sessions) { s in card(s) }
+                    ForEach(assistants) { a in
+                        AssistantCard(assistant: a, serverName: assistantServerName(a.serverId),
+                                      onOpen: { onOpenAssistant(a.serverId) }, onClear: { onClearAssistant(a.serverId) })
+                    }
                     addCard
                 }
                 .padding(12)
@@ -125,5 +134,42 @@ struct SessionsHomeView: View {
         } primaryAction: {
             onAdd()
         }
+    }
+}
+
+/// The AI assistant of one server as a card in the sessions grid: opens the assistant screen.
+private struct AssistantCard: View {
+    @ObservedObject var assistant: AssistantSession
+    let serverName: String
+    let onOpen: () -> Void
+    let onClear: () -> Void
+
+    var body: some View {
+        Button(action: onOpen) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 6) {
+                    Image(systemName: "wand.and.stars").foregroundColor(.purple)
+                    Text("AI · \(serverName)").font(.system(size: 13, weight: .semibold)).lineLimit(1)
+                    Spacer(minLength: 0)
+                    if assistant.isChatLoading || assistant.isAiLoading { ProgressView().controlSize(.mini) }
+                }
+                Text(assistant.preview.isEmpty ? "Ask the host model" : assistant.preview)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(.secondary)
+                    .lineLimit(6)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                Spacer(minLength: 0)
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, minHeight: 170, alignment: .topLeading)
+            .background(RoundedRectangle(cornerRadius: 14).fill(Color.appSecondaryBackground))
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            Button(role: .destructive, action: onClear) { Label("Clear chat", systemImage: "trash") }
+        }
+        .accessibilityLabel("AI assistant, \(serverName)")
+        .accessibilityHint("Opens the assistant. History is kept in memory only.")
     }
 }

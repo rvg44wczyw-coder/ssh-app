@@ -12,16 +12,6 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     @Published public private(set) var errorMessage: String? = nil
     @Published public private(set) var activePortForward: PortForwardHandle? = nil
 
-    // AI Assistant State
-    @Published public var activeAiSuggestion: AiCommandSuggestion? = nil
-    @Published public var isAiLoading: Bool = false
-    @Published public var aiError: String? = nil
-    private var aiTask: Task<Void, Never>? = nil
-    @Published public var chatMessages: [ChatMessage] = []
-    @Published public var isChatLoading: Bool = false
-    @Published public var chatError: String? = nil
-    private var chatTask: Task<Void, Never>? = nil
-
     // Structured Transcript / Dual-Mode State
     @Published public var isChatMode: Bool = false
     @Published public var transcriptTurns: [TranscriptTurn] = []
@@ -164,118 +154,6 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         guard let text = String(data: terminalDataBuffer, encoding: .utf8) else { return [] }
         let lines = text.components(separatedBy: .newlines).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
         return Array(lines.suffix(maxLines))
-    }
-
-    /// Starts a request that Stop can cancel (cancelling drops the call; the core then closes the
-    /// channel and the host kills the request, so the model stops generating).
-    public func startAiQuery(userPrompt: String, modelName: String, targetOs: String = "macOS") {
-        aiTask?.cancel()
-        aiTask = Task { [weak self] in
-            await self?.queryAiAssistant(userPrompt: userPrompt, modelName: modelName, targetOs: targetOs)
-        }
-    }
-
-    private static let chatSystemPrompt =
-        "You are a concise assistant for a developer working on their own computer through a remote terminal. "
-        + "Answer questions about commands, code, tools and errors. Reply in the language of the question. "
-        + "You cannot run anything yourself; put commands in fenced code blocks so they can be copied."
-
-    /// Keeps the request small: the newest turns that fit, always starting with a user turn.
-    private func chatWindow() -> [ChatMessage] {
-        var kept: [ChatMessage] = []
-        var bytes = 0
-        for m in chatMessages.reversed() {
-            bytes += m.content.utf8.count
-            if bytes > 60_000 || kept.count >= 40 { break }
-            kept.append(m)
-        }
-        kept.reverse()
-        while let first = kept.first, first.role != "user" { kept.removeFirst() }
-        return kept
-    }
-
-    public func sendChat(_ text: String, modelName: String) {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, !isChatLoading, let handle = sessionHandle, state == .connected else { return }
-        chatMessages.append(ChatMessage(role: "user", content: trimmed))
-        chatError = nil
-        isChatLoading = true
-        let window = chatWindow()
-        chatTask = Task { [weak self] in
-            do {
-                let reply = try await handle.chatHostOllama(
-                    model: modelName, systemPrompt: Self.chatSystemPrompt, messages: window)
-                guard let self, !Task.isCancelled else { return }
-                self.chatMessages.append(ChatMessage(role: "assistant", content: reply))
-                self.isChatLoading = false
-            } catch {
-                guard let self, !Task.isCancelled else { return }
-                self.chatError = error.localizedDescription
-                self.isChatLoading = false
-            }
-        }
-    }
-
-    /// Stop drops the call (the host kills the request); the unanswered question stays in the
-    /// history so it can be edited and sent again.
-    public func stopChat() {
-        chatTask?.cancel()
-        chatTask = nil
-        isChatLoading = false
-    }
-
-    public func clearChat() {
-        stopChat()
-        chatMessages = []
-        chatError = nil
-    }
-
-    public func stopAiQuery() {
-        aiTask?.cancel()
-        aiTask = nil
-        isAiLoading = false
-        aiError = nil
-    }
-
-    public func queryAiAssistant(
-        userPrompt: String,
-        modelName: String = "qwen2.5-coder:7b",
-        targetOs: String = "macOS"
-    ) async {
-        guard let handle = handle, state == .connected else {
-            self.aiError = "Session is not connected"
-            return
-        }
-
-        self.isAiLoading = true
-        self.aiError = nil
-
-        let recentLines = getRecentTerminalLines(maxLines: 20)
-        let systemPrompt = assembleAiSystemPrompt(targetOs: targetOs, shellName: "zsh", cwd: nil)
-        let request = AiCommandRequest(
-            userPrompt: userPrompt,
-            targetOs: targetOs,
-            shellName: "zsh",
-            cwd: nil,
-            terminalContext: recentLines
-        )
-        let assembledUserPrompt = assembleAiUserPrompt(request: request)
-
-        do {
-            let suggestion = try await handle.queryHostOllama(
-                model: modelName,
-                systemPrompt: systemPrompt,
-                userPrompt: assembledUserPrompt
-            )
-            guard !Task.isCancelled else { return }
-            self.activeAiSuggestion = suggestion
-            self.isAiLoading = false
-        } catch {
-            // Stop already reset the state; a late failure of the cancelled call is not an error.
-            guard !Task.isCancelled else { return }
-            self.aiError = error.localizedDescription
-            self.isAiLoading = false
-        }
     }
 
     public func insertAiCommand(_ command: String) {

@@ -10,6 +10,7 @@ struct PendingLocalLaunch {
 struct AssistantRoute: Identifiable, Hashable {
     let id = UUID()
     let viewModel: TerminalSessionViewModel
+    let assistant: AssistantSession
     let serverName: String
     static func == (a: AssistantRoute, b: AssistantRoute) -> Bool { a.id == b.id }
     func hash(into h: inout Hasher) { h.combine(id) }
@@ -61,6 +62,8 @@ public struct MainTerminalView: View {
     @State private var assistantRoute: AssistantRoute?
     @State private var pendingLocal: PendingLocalLaunch?
     @StateObject private var approvals = ApprovalsCenter()
+    /// Chat and command state of the AI assistant, one per server (outlives tabs and the screen).
+    @StateObject private var assistants = AssistantStore()
 
     @ObservedObject private var subscriptions = SubscriptionManager.shared
     @State private var showPaywall: Bool = false
@@ -121,8 +124,8 @@ public struct MainTerminalView: View {
         dismissKeyboard()
         if sheet == .aiAssistant {
             guard let vm = tabsManager.activeViewModel else { return }
-            let server = serversManager.profile(for: tabsManager.activeSession?.serverId) ?? serversManager.activeProfile
-            openAssistant(through: vm, serverName: server?.name ?? "")
+            guard let server = serversManager.profile(for: tabsManager.activeSession?.serverId) ?? serversManager.activeProfile else { return }
+            openAssistant(through: vm, server: server)
             return
         }
         activeSheet = sheet
@@ -169,7 +172,11 @@ public struct MainTerminalView: View {
                     },
                     isChatMode: { tabsManager.viewModel(for: $0.id)?.isChatMode == true },
                     onSessionAction: { runSessionAction($0, $1) },
-                    onSetScheme: { tabsManager.setSessionScheme(id: $0, schemeId: $1) }
+                    onSetScheme: { tabsManager.setSessionScheme(id: $0, schemeId: $1) },
+                    assistants: assistants.withHistory(in: serversManager.profiles.map(\.id)),
+                    assistantServerName: { id in serversManager.profile(for: id)?.name ?? "" },
+                    onOpenAssistant: { id in openAssistant(on: serversManager.profile(for: id)) },
+                    onClearAssistant: { id in assistants.session(for: id).clearAll() }
                 )
                 }
             } else {
@@ -342,6 +349,7 @@ public struct MainTerminalView: View {
             .navigationDestination(item: $assistantRoute) { route in
                     AiAssistantSheetView(
                         viewModel: route.viewModel,
+                        assistant: route.assistant,
                         serverName: route.serverName,
                         targets: assistantTargets,
                         onSent: { id in
@@ -717,9 +725,10 @@ public struct MainTerminalView: View {
         }
     }
 
-    private func openAssistant(through vm: TerminalSessionViewModel, serverName: String) {
-        vm.aiError = nil
-        assistantRoute = AssistantRoute(viewModel: vm, serverName: serverName)
+    private func openAssistant(through vm: TerminalSessionViewModel, server: ServerProfile) {
+        let assistant = assistants.session(for: server.id)
+        assistant.aiError = nil
+        assistantRoute = AssistantRoute(viewModel: vm, assistant: assistant, serverName: server.name)
     }
 
     private func sessions(on server: ServerProfile) -> [TabSession] {
@@ -772,7 +781,7 @@ public struct MainTerminalView: View {
             Button {
                 guard let vm = tabsManager.viewModel(for: session.id) else { return }
                 if tabsManager.sessionStates[session.id] != .connected { ensureSessionStarted(for: session.id) }
-                openAssistant(through: vm, serverName: server.name)
+                openAssistant(through: vm, server: server)
             } label: { Text(session.title) }
         }
     }
@@ -784,19 +793,19 @@ public struct MainTerminalView: View {
         let onServer = sessions(on: server)
         if let live = onServer.first(where: { tabsManager.sessionStates[$0.id] == .connected }),
            let vm = tabsManager.viewModel(for: live.id) {
-            openAssistant(through: vm, serverName: server.name)
+            openAssistant(through: vm, server: server)
             return
         }
         if let any = onServer.first, let vm = tabsManager.viewModel(for: any.id) {
             ensureSessionStarted(for: any.id)
-            openAssistant(through: vm, serverName: server.name)
+            openAssistant(through: vm, server: server)
             return
         }
         guard canOpenNewSession() else { return }
         let session = addNewTab(serverId: server.id)
         ensureSessionStarted(for: session.id)
         if let vm = tabsManager.viewModel(for: session.id) {
-            openAssistant(through: vm, serverName: server.name)
+            openAssistant(through: vm, server: server)
         }
     }
 
@@ -919,6 +928,7 @@ public struct MainTerminalView: View {
             // Zero Battery Drain: gracefully close all TCP sockets immediately
             // tmux maintains long-running agent tasks on the MacBook.
             approvals.stop()
+            assistants.interruptAll()
             tabsManager.disconnectAllForBackground()
         case .active:
             // Fast resume: instantaneously reconnect socket and re-attach to active tmux session

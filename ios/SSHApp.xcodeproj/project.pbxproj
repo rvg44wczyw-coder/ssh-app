@@ -20,6 +20,7 @@
 		AA000011 /* TerminalContainerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000011 /* TerminalContainerView.swift */; };
 		AA000012 /* TerminalTabsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000012 /* TerminalTabsManager.swift */; };
 		AA000036 /* ApprovalsCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000036 /* ApprovalsCenter.swift */; };
+		AA0001A0 /* AssistantSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0001A0 /* AssistantSession.swift */; };
 		AA000037 /* PermissionsEditorSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000037 /* PermissionsEditorSheetView.swift */; };
 		AA000040 /* QuickCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000040 /* QuickCommand.swift */; };
 		AA000041 /* QuickCommandsEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000041 /* QuickCommandsEditorView.swift */; };
@@ -106,6 +107,7 @@
 		BB000038 /* CommandPaletteSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/CommandPaletteSheetView.swift; sourceTree = "<group>"; };
 		BB000039 /* HostMonitorClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/HostMonitorClient.swift; sourceTree = "<group>"; };
 		BB000036 /* ApprovalsCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewModels/ApprovalsCenter.swift; sourceTree = "<group>"; };
+		BB0001A0 /* AssistantSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewModels/AssistantSession.swift; sourceTree = "<group>"; };
 		BB000013 /* ServerProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models/ServerProfile.swift; sourceTree = "<group>"; };
 		BB000014 /* ServerProfilesManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewModels/ServerProfilesManager.swift; sourceTree = "<group>"; };
 		BB000015 /* TmuxSessionManagerViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewModels/TmuxSessionManagerViewModel.swift; sourceTree = "<group>"; };
@@ -294,6 +296,7 @@
 				BB000011 /* TerminalContainerView.swift */,
 				BB000012 /* TerminalTabsManager.swift */,
 				BB000036 /* ApprovalsCenter.swift */,
+				BB0001A0 /* AssistantSession.swift */,
 				BB000013 /* ServerProfile.swift */,
 				BB000014 /* ServerProfilesManager.swift */,
 				BB000015 /* TmuxSessionManagerViewModel.swift */,
@@ -503,6 +506,7 @@
 				AA000011 /* TerminalContainerView.swift in Sources */,
 				AA000012 /* TerminalTabsManager.swift in Sources */,
 				AA000036 /* ApprovalsCenter.swift in Sources */,
+				AA0001A0 /* AssistantSession.swift in Sources */,
 				AA000013 /* ServerProfile.swift in Sources */,
 				AA000014 /* ServerProfilesManager.swift in Sources */,
 				AA000015 /* TmuxSessionManagerViewModel.swift in Sources */,
