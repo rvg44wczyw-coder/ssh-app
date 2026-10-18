@@ -81,6 +81,31 @@ pub fn run(p: &Paths, lease: i64) -> i32 {
     0
 }
 
+/// One request/reply through the agent (started if needed, lease renewed); `None` on any failure.
+pub fn call(p: &Paths, lease: i64, request: &serde_json::Value) -> Option<serde_json::Value> {
+    use std::io::{BufRead, BufReader};
+    let mut stream = connect(p, lease)?;
+    stream
+        .set_read_timeout(Some(Duration::from_secs(40)))
+        .ok()?;
+    let lease_req = format!("{{\"id\":0,\"m\":\"lease\",\"secs\":{lease}}}\n");
+    let mut req = request.clone();
+    req["id"] = serde_json::json!(1);
+    stream.write_all(lease_req.as_bytes()).ok()?;
+    stream.write_all(format!("{req}\n").as_bytes()).ok()?;
+    let mut reader = BufReader::new(stream);
+    loop {
+        let mut line = String::new();
+        if reader.read_line(&mut line).ok()? == 0 {
+            return None;
+        }
+        let v: serde_json::Value = serde_json::from_str(line.trim()).ok()?;
+        if v["id"] == 1 {
+            return Some(v);
+        }
+    }
+}
+
 pub fn parse_lease(args: &[String]) -> i64 {
     args.windows(2)
         .find(|w| w[0] == "--lease")

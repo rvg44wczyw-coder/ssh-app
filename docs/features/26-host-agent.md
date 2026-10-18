@@ -86,3 +86,11 @@ exit, stale socket, one subscription per connection). Live: idle 0.0 % CPU, 2.6 
 pass: `docs/security-findings/2026-10-18-host-agent-p2.md`. Core/Swift wiring done: `host_agent_state(expected_sha256)` (pinned helper only, starts the agent
 through `rpc`, lease 12 h), Agent row in the Host service card (user-triggered, never automatic),
 loopback test starts and stops a real agent. Not done: `tmux -C`, usage index.
+
+## 7. Usage cache (2026-10-18)
+
+Agent method `usage` (`{"m":"usage","dirs":[..]}`, dirs validated like the CLI) keeps the report per
+set of config directories for 10 s; an older one is returned at once and refreshed in the
+background (at most one refresh per key, 8 keys). The helper's `usage --agent DIRS` asks the agent
+(starting it, lease 12 h) and falls back to a direct scan, so the output is the same either way;
+the core now calls `usage --agent`. Test: `usage_through_the_agent_is_cached_and_equals_a_direct_scan`.

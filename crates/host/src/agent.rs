@@ -126,7 +126,13 @@ pub fn diff(old: &StateMap, new: &StateMap) -> Vec<Event> {
     out
 }
 
+/// How long a usage report counts as fresh; an older one is served at once and refreshed behind.
+const USAGE_FRESH: Duration = Duration::from_secs(10);
+const MAX_USAGE_CACHE: usize = 8;
+
 struct Shared {
+    usage: std::collections::HashMap<String, (std::time::Instant, Value)>,
+    refreshing: std::collections::HashSet<String>,
     lease_until: i64,
     subs: Vec<Sender<String>>,
     conns: usize,
@@ -225,6 +231,7 @@ fn serve(p: Arc<Paths>, shared: Arc<Mutex<Shared>>, stream: UnixStream) {
                 });
                 json!({"ok": true})
             }
+            Some("usage") => usage_reply(&shared, &req),
             Some("lease") => {
                 let secs = req
                     .get("secs")
@@ -238,6 +245,67 @@ fn serve(p: Arc<Paths>, shared: Arc<Mutex<Shared>>, stream: UnixStream) {
         body["id"] = id;
         if !reply(&out, &body) {
             break;
+        }
+    }
+}
+
+/// Usage report with stale-while-revalidate: the first request per set of config directories scans
+/// (seconds), later ones are answered from memory and refreshed in the background when stale.
+fn usage_reply(shared: &Arc<Mutex<Shared>>, req: &Value) -> Value {
+    let dirs: Vec<String> = req
+        .get("dirs")
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(|d| d.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    let dirs = match crate::usage::validate_dirs(&dirs) {
+        Ok(d) => d,
+        Err(e) => return json!({"ok": false, "error": e}),
+    };
+    let key = dirs.join("\u{1f}");
+    let cached = {
+        let s = shared.lock().unwrap_or_else(|e| e.into_inner());
+        s.usage.get(&key).cloned()
+    };
+    let store = |shared: &Mutex<Shared>, key: &str, report: &Value| {
+        let mut s = shared.lock().unwrap_or_else(|e| e.into_inner());
+        if s.usage.len() >= MAX_USAGE_CACHE && !s.usage.contains_key(key) {
+            s.usage.clear();
+        }
+        s.usage
+            .insert(key.to_string(), (std::time::Instant::now(), report.clone()));
+    };
+    match cached {
+        Some((at, report)) => {
+            let stale = at.elapsed() >= USAGE_FRESH;
+            if stale {
+                let start = shared
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .refreshing
+                    .insert(key.clone());
+                if start {
+                    let shared = shared.clone();
+                    std::thread::spawn(move || {
+                        let fresh = crate::usage::report(&dirs);
+                        store(&shared, &key, &fresh);
+                        shared
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .refreshing
+                            .remove(&key);
+                    });
+                }
+            }
+            json!({"ok": true, "cached": true, "stale": stale, "report": report})
+        }
+        None => {
+            let report = crate::usage::report(&dirs);
+            store(shared, &key, &report);
+            json!({"ok": true, "cached": false, "stale": false, "report": report})
         }
     }
 }
@@ -348,6 +416,8 @@ pub fn run(p: Paths, lease_secs: i64, sink: &dyn EventSink) -> i32 {
     };
     let _ = std::fs::set_permissions(&sock, std::fs::Permissions::from_mode(0o600));
     let shared = Arc::new(Mutex::new(Shared {
+        usage: Default::default(),
+        refreshing: Default::default(),
         lease_until: now() + lease_secs.clamp(1, MAX_LEASE),
         subs: Vec::new(),
         conns: 0,

@@ -224,3 +224,49 @@ fn one_subscription_per_connection() {
     assert_eq!(a.call(2, "subscribe")["ok"], true);
     assert_eq!(a.call(3, "subscribe")["ok"], false);
 }
+
+#[test]
+fn usage_through_the_agent_is_cached_and_equals_a_direct_scan() {
+    let h = Home::new();
+    let claude = h.dir.path().join("claude");
+    std::fs::create_dir_all(&claude).unwrap();
+    let run = |args: &[&str]| -> Value {
+        let out = h
+            .cmd(args)
+            .env("HOME", h.dir.path())
+            .env("TMUX_TMPDIR", h.dir.path())
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        serde_json::from_slice(&out.stdout).unwrap()
+    };
+    let dir = claude.to_str().unwrap();
+    let direct = run(&["usage", dir]);
+    let first = run(&["usage", "--agent", dir]);
+    // The agent is up now; remember it so it is killed with the test.
+    let mut a = h.rpc("60");
+    let pid = a.call(1, "hello")["pid"].as_i64().unwrap() as i32;
+    h.pids.borrow_mut().push(pid);
+    let second = run(&["usage", "--agent", dir]);
+    assert_eq!(first, direct);
+    assert_eq!(second["sessions"], direct["sessions"]);
+    // The cache answers on the wire too.
+    let mut b = h.rpc("60");
+    b.send(json!({"id": 9, "m": "usage", "dirs": [dir]}));
+    let reply = loop {
+        let v = b.line();
+        if v["id"] == 9 {
+            break v;
+        }
+    };
+    assert_eq!(reply["cached"], true);
+    // Bad input is refused, not scanned.
+    b.send(json!({"id": 10, "m": "usage", "dirs": ["bad\u{7}dir"]}));
+    loop {
+        let v = b.line();
+        if v["id"] == 10 {
+            assert_eq!(v["ok"], false);
+            break;
+        }
+    }
+}

@@ -20,13 +20,29 @@ fn main() {
             );
             0
         }
-        Some("usage") => match usage::validate_dirs(&args[1..]) {
-            Ok(dirs) => {
-                println!("{}", usage::report(&dirs));
-                0
+        Some("usage") => {
+            // `--agent` asks the host agent (cached, started on demand) and falls back to scanning.
+            let via_agent = args.get(1).map(String::as_str) == Some("--agent");
+            let rest = &args[if via_agent { 2 } else { 1 }..];
+            match usage::validate_dirs(rest) {
+                Ok(dirs) => {
+                    let cached = via_agent
+                        .then(|| {
+                            rpc::call(
+                                &Paths::from_env(),
+                                agent::DEFAULT_LEASE,
+                                &json!({"m": "usage", "dirs": dirs}),
+                            )
+                        })
+                        .flatten()
+                        .filter(|v| v["ok"] == true)
+                        .map(|v| v["report"].clone());
+                    println!("{}", cached.unwrap_or_else(|| usage::report(&dirs)));
+                    0
+                }
+                Err(e) => fail(&e),
             }
-            Err(e) => fail(&e),
-        },
+        }
         Some("hook") => guarded(|| {
             install_signal_handlers();
             hook::run(&Paths::from_env(), &args[1..])

@@ -463,7 +463,7 @@ pub(crate) fn build_usage_command(dirs: &[String], helper_sha256: Option<&str>) 
         Some(pin) => format!(
             "h={HELPER_PATH_EXPR}; if [ -f \"$h\" ] && [ ! -L \"$h\" ] && \
              [ \"$(shasum -a 256 < \"$h\" 2>/dev/null | cut -d' ' -f1)\" = '{pin}' ]; then \
-             o=$(\"$h\" usage \"$@\" 2>/dev/null) && [ -n \"$o\" ] && {{ printf '%s\\n' \"$o\"; exit 0; }}; fi; "
+             o=$(\"$h\" usage --agent \"$@\" 2>/dev/null) && [ -n \"$o\" ] && {{ printf '%s\\n' \"$o\"; exit 0; }}; fi; "
         ),
         None => String::new(),
     };
