@@ -263,6 +263,11 @@ public struct TerminalContainerView: UIViewRepresentable {
         }
 
         context.coordinator.terminalView = terminalView
+        context.coordinator.handles = SelectionHandles(
+            terminalView: terminalView, color: UIColor(AppAccent.currentColor)
+        ) { [weak coordinator = context.coordinator] point in
+            coordinator?.presentSelectionMenu(at: point)
+        }
 
         print("[TerminalView \(viewModel.instanceId)] makeUIView created for session '\(viewModel.session.title)'")
 
@@ -302,6 +307,7 @@ public struct TerminalContainerView: UIViewRepresentable {
         var cancellable: AnyCancellable?
         weak var terminalView: TerminalView?
         weak var editMenuInteraction: UIEditMenuInteraction?
+        var handles: SelectionHandles?
         var isReplayingHistory: Bool = false
 
         init(viewModel: TerminalSessionViewModel, isCtrlLocked: Binding<Bool>) {
@@ -356,11 +362,12 @@ public struct TerminalContainerView: UIViewRepresentable {
 
         private func cell(at point: CGPoint, in tv: TerminalView) -> (col: Int, row: Int) {
             let term = tv.getTerminal()
-            let cellW = tv.bounds.width / CGFloat(max(term.cols, 1))
-            let cellH = tv.bounds.height / CGFloat(max(term.rows, 1))
+            let size = terminalCellSize(tv)
+            // `point` is in content space; the grid rows the API takes are screen rows.
+            let screenY = point.y - tv.contentOffset.y
             return (
-                min(max(Int(point.x / cellW), 0), term.cols - 1),
-                min(max(Int(point.y / cellH), 0), term.rows - 1)
+                min(max(Int(point.x / size.width), 0), term.cols - 1),
+                min(max(Int(screenY / size.height), 0), term.rows - 1)
             )
         }
 
@@ -385,10 +392,11 @@ public struct TerminalContainerView: UIViewRepresentable {
             tv.selection.startSelection(row: pos.row, col: lo)
             tv.selection.dragExtend(row: pos.row, col: hi + 1)
             tv.setNeedsDisplay()
+            handles?.refresh()
             return true
         }
 
-        private func presentSelectionMenu(at point: CGPoint) {
+        func presentSelectionMenu(at point: CGPoint) {
             guard terminalView?.hasActiveSelection == true else { return }
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             editMenuInteraction?.presentEditMenu(with: UIEditMenuConfiguration(identifier: nil, sourcePoint: point))
@@ -419,6 +427,7 @@ public struct TerminalContainerView: UIViewRepresentable {
             tv.selection.startSelection(row: first, col: 0)
             tv.selection.dragExtend(row: last, col: end)
             tv.setNeedsDisplay()
+            handles?.refresh()
             presentSelectionMenu(at: point)
         }
 
@@ -435,12 +444,14 @@ public struct TerminalContainerView: UIViewRepresentable {
                     tv.selection.startSelection(row: pos.row, col: pos.col)
                     tv.selection.dragExtend(row: pos.row, col: pos.col + 1)
                     tv.setNeedsDisplay()
+                    handles?.refresh()
                 }
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             case .changed:
                 guard tv.hasActiveSelection else { return }
                 tv.selection.dragExtend(row: pos.row, col: pos.col)
                 tv.setNeedsDisplay()
+                handles?.refresh()
             case .ended:
                 presentSelectionMenu(at: point)
             default:
@@ -458,6 +469,7 @@ public struct TerminalContainerView: UIViewRepresentable {
             }
             if tv.hasActiveSelection {
                 tv.clearSelection()
+                handles?.refresh()
                 editMenuInteraction?.dismissMenu()
             }
             if !tv.isFirstResponder {
@@ -492,11 +504,12 @@ public struct TerminalContainerView: UIViewRepresentable {
             var actions: [UIMenuElement] = []
 
             if let selectedText = tv.getSelection(), !selectedText.isEmpty {
-                let copyAction = UIAction(title: "Copy", image: UIImage(systemName: "doc.on.doc")) { [weak tv] _ in
+                let copyAction = UIAction(title: "Copy", image: UIImage(systemName: "doc.on.doc")) { [weak tv, weak self] _ in
                     UIPasteboard.general.string = selectedText
                     let feedback = UINotificationFeedbackGenerator()
                     feedback.notificationOccurred(.success)
                     tv?.clearSelection()
+                    self?.handles?.refresh()
                 }
                 actions.append(copyAction)
 
@@ -517,6 +530,7 @@ public struct TerminalContainerView: UIViewRepresentable {
             let selectAllAction = UIAction(title: "Select All", image: UIImage(systemName: "selection.pin.in.out")) { [weak self, weak tv] _ in
                 guard let tv = tv, let self = self else { return }
                 tv.selectAll()
+                self.handles?.refresh()
                 let feedback = UIImpactFeedbackGenerator(style: .light)
                 feedback.impactOccurred()
                 let config = UIEditMenuConfiguration(identifier: nil, sourcePoint: CGPoint(x: tv.bounds.midX, y: tv.bounds.midY))
