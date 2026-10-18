@@ -41,6 +41,8 @@ public struct MainTerminalView: View {
         return TerminalSchemes.resolve(profileSchemeId: profile?.terminalSchemeId, slot: slot)
     }
     @State private var activeSheet: ActiveModalSheet? = nil
+    /// The AI assistant is a full screen of its own, not a card over the terminal.
+    @State private var showAssistant = false
     @StateObject private var approvals = ApprovalsCenter()
 
     @ObservedObject private var subscriptions = SubscriptionManager.shared
@@ -102,6 +104,8 @@ public struct MainTerminalView: View {
         dismissKeyboard()
         if sheet == .aiAssistant {
             tabsManager.activeViewModel?.aiError = nil
+            showAssistant = true
+            return
         }
         activeSheet = sheet
     }
@@ -329,6 +333,13 @@ public struct MainTerminalView: View {
             .sheet(isPresented: $showPaywall) {
                 PaywallView(reason: "The free version keeps up to \(FreeTier.maxSessions) open sessions. Pro removes the limit.")
             }
+            .fullScreenCover(isPresented: $showAssistant) {
+                if let activeVM = tabsManager.activeViewModel {
+                    AiAssistantSheetView(viewModel: activeVM) {
+                        showAssistant = false
+                    }
+                }
+            }
             .sheet(item: $activeSheet) { sheet in
                 switch sheet {
                 case .settings:
@@ -385,11 +396,7 @@ public struct MainTerminalView: View {
                         WebPreviewSheetView(viewModel: activeVM)
                     }
                 case .aiAssistant:
-                    if let activeVM = tabsManager.activeViewModel {
-                        AiAssistantSheetView(viewModel: activeVM) {
-                            activeSheet = nil
-                        }
-                    }
+                    EmptyView() // shown full screen, see `showAssistant`
                 case .commands:
                     if let activeVM = tabsManager.activeViewModel {
                         CommandPaletteSheetView(

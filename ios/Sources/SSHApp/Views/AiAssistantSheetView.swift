@@ -91,6 +91,7 @@ public struct AiAssistantSheetView: View {
             }
             }
             .background(Color(red: 0.08, green: 0.08, blue: 0.10).ignoresSafeArea())
+            .navigationTitle("AI assistant")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
