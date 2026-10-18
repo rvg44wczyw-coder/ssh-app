@@ -29,7 +29,38 @@ fn start_agent(lease: i64) {
     let _ = cmd.spawn();
 }
 
+/// Stops a running agent of another build (the helper was updated underneath it).
+fn retire_outdated(p: &Paths) {
+    use std::io::{BufRead, BufReader};
+    let sock = socket_path(p);
+    let Ok(mut s) = UnixStream::connect(&sock) else {
+        return;
+    };
+    let _ = s.set_read_timeout(Some(Duration::from_secs(3)));
+    if s.write_all(b"{\"id\":1,\"m\":\"hello\"}\n").is_err() {
+        return;
+    }
+    let mut line = String::new();
+    if BufReader::new(&s).read_line(&mut line).is_err() {
+        return;
+    }
+    let build = serde_json::from_str::<serde_json::Value>(line.trim())
+        .ok()
+        .and_then(|v| v["build"].as_str().map(str::to_string));
+    if build.as_deref() == Some(crate::agent::self_digest().as_str()) {
+        return;
+    }
+    let _ = s.write_all(b"{\"id\":2,\"m\":\"quit\"}\n");
+    for _ in 0..30 {
+        std::thread::sleep(Duration::from_millis(100));
+        if UnixStream::connect(&sock).is_err() {
+            return;
+        }
+    }
+}
+
 fn connect(p: &Paths, lease: i64) -> Option<UnixStream> {
+    retire_outdated(p);
     let sock = socket_path(p);
     if let Ok(s) = UnixStream::connect(&sock) {
         return Some(s);

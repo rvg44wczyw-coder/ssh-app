@@ -339,3 +339,43 @@ fn state_includes_agents_found_in_tmux_without_hooks() {
     assert_eq!(found.len(), 1, "{state}");
     assert_eq!(found[0]["state"], "running");
 }
+
+#[test]
+fn an_agent_of_another_build_is_replaced_by_the_next_rpc() {
+    let h = Home::new();
+    // A second copy of the helper with one extra byte: another build with the same behaviour.
+    let other = h.dir.path().join("ssh-app-host-old");
+    let mut bytes = std::fs::read(BIN).unwrap();
+    bytes.push(0);
+    std::fs::write(&other, bytes).unwrap();
+    std::fs::set_permissions(&other, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let mut old = Command::new(&other)
+        .args(["rpc", "--lease", "60"])
+        .env("SSH_APP_HOME", h.dir.path())
+        .env("TMUX_TMPDIR", h.dir.path())
+        .env_remove("TMUX")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut stdin = old.stdin.take().unwrap();
+    let mut out = BufReader::new(old.stdout.take().unwrap());
+    writeln!(stdin, r#"{{"id":1,"m":"hello"}}"#).unwrap();
+    let old_pid = loop {
+        let mut l = String::new();
+        out.read_line(&mut l).unwrap();
+        let v: Value = serde_json::from_str(l.trim()).unwrap();
+        if v["id"] == 1 {
+            break v["pid"].as_i64().unwrap() as i32;
+        }
+    };
+    h.pids.borrow_mut().push(old_pid);
+    drop(stdin);
+    let _ = old.wait();
+    let mut a = h.rpc("60");
+    let new_pid = a.call(1, "hello")["pid"].as_i64().unwrap() as i32;
+    h.pids.borrow_mut().push(new_pid);
+    assert_ne!(new_pid, old_pid, "the outdated agent was replaced");
+    wait_for("old agent gone", || !alive(old_pid));
+}

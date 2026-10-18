@@ -24,6 +24,15 @@ const MAX_CONNECTIONS: usize = 16;
 const MAX_SOCKET_PATH: usize = 100;
 const RESCAN: Duration = Duration::from_secs(600);
 
+/// SHA-256 of the running binary, so a newer helper can tell that the agent is an old build.
+pub fn self_digest() -> String {
+    use sha2::{Digest, Sha256};
+    std::env::current_exe()
+        .and_then(std::fs::read)
+        .map(|b| hex::encode(Sha256::digest(b)))
+        .unwrap_or_default()
+}
+
 pub fn socket_path(p: &Paths) -> PathBuf {
     p.run.join("hostd.sock")
 }
@@ -159,7 +168,7 @@ fn reply(out: &Mutex<UnixStream>, v: &Value) -> bool {
         .unwrap_or(false)
 }
 
-fn serve(p: Arc<Paths>, shared: Arc<Mutex<Shared>>, stream: UnixStream) {
+fn serve(p: Arc<Paths>, shared: Arc<Mutex<Shared>>, build: Arc<String>, stream: UnixStream) {
     let Ok(writer) = stream.try_clone() else {
         return;
     };
@@ -188,7 +197,7 @@ fn serve(p: Arc<Paths>, shared: Arc<Mutex<Shared>>, stream: UnixStream) {
         let body = match req.get("m").and_then(Value::as_str) {
             Some("hello") => json!({
                 "ok": true, "name": "ssh-app-host-agent", "version": env!("CARGO_PKG_VERSION"),
-                "pid": std::process::id(),
+                "pid": std::process::id(), "build": build.as_str(),
                 "lease_until": shared.lock().map_or(0, |s| s.lease_until),
             }),
             Some("state") => {
@@ -231,6 +240,12 @@ fn serve(p: Arc<Paths>, shared: Arc<Mutex<Shared>>, stream: UnixStream) {
                     }
                 });
                 json!({"ok": true})
+            }
+            Some("quit") => {
+                // Asked by a newer helper that finds this build outdated.
+                reply(&out, &json!({"id": id, "ok": true}));
+                let _ = std::fs::remove_file(socket_path(&p));
+                std::process::exit(0);
             }
             Some("usage") => usage_reply(&shared, &req),
             Some("lease") => {
@@ -453,8 +468,9 @@ pub fn run(p: Paths, lease_secs: i64, sink: &dyn EventSink) -> i32 {
         conns: 0,
     }));
     let paths = Arc::new(p);
+    let build = Arc::new(self_digest());
     {
-        let (shared, paths) = (shared.clone(), paths.clone());
+        let (shared, paths, build) = (shared.clone(), paths.clone(), build.clone());
         std::thread::spawn(move || {
             for stream in listener.incoming().flatten() {
                 if !peer_is_us(&stream) {
@@ -467,9 +483,9 @@ pub fn run(p: Paths, lease_secs: i64, sink: &dyn EventSink) -> i32 {
                     }
                     s.conns += 1;
                 }
-                let (shared, paths) = (shared.clone(), paths.clone());
+                let (shared, paths, build) = (shared.clone(), paths.clone(), build.clone());
                 std::thread::spawn(move || {
-                    serve(paths, shared.clone(), stream);
+                    serve(paths, shared.clone(), build, stream);
                     shared.lock().unwrap_or_else(|e| e.into_inner()).conns -= 1;
                 });
             }
