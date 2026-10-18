@@ -1,5 +1,6 @@
 use crate::error::SshCoreError;
 use serde::{Deserialize, Serialize};
+use std::sync::LazyLock;
 
 /// Risk level classification for an AI-generated shell command.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, uniffi::Enum)]
@@ -127,136 +128,120 @@ pub fn sanitize_shell_command(command: &str) -> String {
     cleaned.trim().to_string()
 }
 
+type RiskTier = (AiRiskLevel, Vec<(regex::Regex, &'static str)>);
+
+/// Rules per tier, strictest first, compiled once per process.
+static RISK_TIERS: LazyLock<Vec<RiskTier>> = LazyLock::new(|| {
+    let tier = |level, rules: &[(&'static str, &'static str)]| -> RiskTier {
+        let compiled = rules
+            .iter()
+            .map(|(pattern, desc)| (regex::Regex::new(pattern).expect("static risk rule"), *desc))
+            .collect();
+        (level, compiled)
+    };
+    vec![
+        tier(
+            AiRiskLevel::Destructive,
+            &[
+                (
+                    r"\brm\s+-[a-zA-Z]*[rR][a-zA-Z]*[fF]?\b|\brm\s+-[a-zA-Z]*[fF][a-zA-Z]*[rR]\b",
+                    "Recursive file deletion (rm -rf)",
+                ),
+                (
+                    r"\bmkfs\b|\bfdisk\b|\bparted\b",
+                    "Disk or filesystem partitioning/formatting",
+                ),
+                (r"\bdd\s+if=", "Raw block copy (dd)"),
+                (
+                    r">\s*/dev/(sd[a-z]|nvme|disk)",
+                    "Direct write to raw disk device",
+                ),
+                (
+                    r"\bgit\s+reset\s+--hard\b",
+                    "Hard git reset discards uncommitted changes",
+                ),
+                (
+                    r"\bgit\s+clean\s+-[a-zA-Z]*f[a-zA-Z]*\b",
+                    "Force git clean permanently removes untracked files",
+                ),
+                (
+                    r"(?i)\bdrop\s+(database|table)\b|\btruncate\s+table\b",
+                    "Destructive database DROP/TRUNCATE statement",
+                ),
+                (
+                    r"\bkill\s+-9\s+-1\b|\bkillall\s+-9\b",
+                    "Unconditional mass process termination",
+                ),
+                (r":\(\)\s*\{\s*:\|:&\s*\};:", "Fork bomb DoS pattern"),
+            ],
+        ),
+        tier(
+            AiRiskLevel::Elevated,
+            &[
+                (
+                    r"\bsudo\s+|\bdoas\s+|\bsu\s+",
+                    "Requires root/superuser privileges",
+                ),
+                (
+                    r"\bchown\s+-[a-zA-Z]*R\b|\bchmod\s+777\b|\bchmod\s+-[a-zA-Z]*R\b",
+                    "Recursive or permissive permission modification",
+                ),
+                (
+                    r"\bsystemctl\s+(stop|disable|restart|mask)\b",
+                    "Modifies system service state",
+                ),
+                (
+                    r"\biptables\b|\bufw\s+disable\b|\bpfctl\b",
+                    "Modifies firewall rules",
+                ),
+            ],
+        ),
+        tier(
+            AiRiskLevel::Caution,
+            &[
+                (r"\bkill\s+|\bpkill\s+", "Terminates running processes"),
+                (
+                    r"\bdocker\s+(rm|rmi|stop|system\s+prune)\b",
+                    "Removes or stops Docker containers/images",
+                ),
+                (
+                    r"\bgit\s+(checkout|restore)\s+\.",
+                    "Discards uncommitted working tree changes",
+                ),
+                (
+                    r"\bgit\s+push\s+.*(-f|--force)\b",
+                    "Force push overwrites remote git history",
+                ),
+                (
+                    r"\b(npm|pnpm|yarn|pip|cargo)\s+uninstall\b",
+                    "Uninstalls packages",
+                ),
+                (
+                    r"[^0-9&]>\s*[^&>]",
+                    "Overwrites file content with stdout redirect (>)",
+                ),
+            ],
+        ),
+    ]
+});
+
 /// Deterministically evaluates a shell command against safety rules and returns its risk level and warnings.
 #[uniffi::export]
 pub fn classify_command_risk(command: &str) -> AiRiskAssessment {
     let cmd = command.trim();
-    let mut warnings = Vec::new();
-
-    // 1. Destructive check
-    let destructive_patterns = [
-        (
-            r"\brm\s+-[a-zA-Z]*[rR][a-zA-Z]*[fF]?\b|\brm\s+-[a-zA-Z]*[fF][a-zA-Z]*[rR]\b",
-            "Recursive file deletion (rm -rf)",
-        ),
-        (
-            r"\bmkfs\b|\bfdisk\b|\bparted\b",
-            "Disk or filesystem partitioning/formatting",
-        ),
-        (r"\bdd\s+if=", "Raw block copy (dd)"),
-        (
-            r">\s*/dev/(sd[a-z]|nvme|disk)",
-            "Direct write to raw disk device",
-        ),
-        (
-            r"\bgit\s+reset\s+--hard\b",
-            "Hard git reset discards uncommitted changes",
-        ),
-        (
-            r"\bgit\s+clean\s+-[a-zA-Z]*f[a-zA-Z]*\b",
-            "Force git clean permanently removes untracked files",
-        ),
-        (
-            r"(?i)\bdrop\s+(database|table)\b|\btruncate\s+table\b",
-            "Destructive database DROP/TRUNCATE statement",
-        ),
-        (
-            r"\bkill\s+-9\s+-1\b|\bkillall\s+-9\b",
-            "Unconditional mass process termination",
-        ),
-        (r":\(\)\s*\{\s*:\|:&\s*\};:", "Fork bomb DoS pattern"),
-    ];
-
-    for (pattern, desc) in destructive_patterns {
-        if let Ok(re) = regex::Regex::new(pattern) {
-            if re.is_match(cmd) {
-                warnings.push(desc.to_string());
-            }
+    for (level, rules) in RISK_TIERS.iter() {
+        let warnings: Vec<String> = rules
+            .iter()
+            .filter(|(re, _)| re.is_match(cmd))
+            .map(|(_, desc)| (*desc).to_string())
+            .collect();
+        if !warnings.is_empty() {
+            return AiRiskAssessment {
+                level: *level,
+                warnings,
+            };
         }
     }
-
-    if !warnings.is_empty() {
-        return AiRiskAssessment {
-            level: AiRiskLevel::Destructive,
-            warnings,
-        };
-    }
-
-    // 2. Elevated check
-    let elevated_patterns = [
-        (
-            r"\bsudo\s+|\bdoas\s+|\bsu\s+",
-            "Requires root/superuser privileges",
-        ),
-        (
-            r"\bchown\s+-[a-zA-Z]*R\b|\bchmod\s+777\b|\bchmod\s+-[a-zA-Z]*R\b",
-            "Recursive or permissive permission modification",
-        ),
-        (
-            r"\bsystemctl\s+(stop|disable|restart|mask)\b",
-            "Modifies system service state",
-        ),
-        (
-            r"\biptables\b|\bufw\s+disable\b|\bpfctl\b",
-            "Modifies firewall rules",
-        ),
-    ];
-
-    for (pattern, desc) in elevated_patterns {
-        if let Ok(re) = regex::Regex::new(pattern) {
-            if re.is_match(cmd) {
-                warnings.push(desc.to_string());
-            }
-        }
-    }
-
-    if !warnings.is_empty() {
-        return AiRiskAssessment {
-            level: AiRiskLevel::Elevated,
-            warnings,
-        };
-    }
-
-    // 3. Caution check
-    let caution_patterns = [
-        (r"\bkill\s+|\bpkill\s+", "Terminates running processes"),
-        (
-            r"\bdocker\s+(rm|rmi|stop|system\s+prune)\b",
-            "Removes or stops Docker containers/images",
-        ),
-        (
-            r"\bgit\s+(checkout|restore)\s+\.",
-            "Discards uncommitted working tree changes",
-        ),
-        (
-            r"\bgit\s+push\s+.*(-f|--force)\b",
-            "Force push overwrites remote git history",
-        ),
-        (
-            r"\b(npm|pnpm|yarn|pip|cargo)\s+uninstall\b",
-            "Uninstalls packages",
-        ),
-        (
-            r"[^0-9&]>\s*[^&>]",
-            "Overwrites file content with stdout redirect (>)",
-        ),
-    ];
-
-    for (pattern, desc) in caution_patterns {
-        if let Ok(re) = regex::Regex::new(pattern) {
-            if re.is_match(cmd) {
-                warnings.push(desc.to_string());
-            }
-        }
-    }
-
-    if !warnings.is_empty() {
-        return AiRiskAssessment {
-            level: AiRiskLevel::Caution,
-            warnings,
-        };
-    }
-
     AiRiskAssessment {
         level: AiRiskLevel::Safe,
         warnings: Vec::new(),

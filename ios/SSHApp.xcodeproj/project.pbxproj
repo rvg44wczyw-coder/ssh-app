@@ -80,6 +80,9 @@
 		AA000075 /* WatchProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000075 /* WatchProtocol.swift */; };
 		AA000076 /* WatchBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000076 /* WatchBridge.swift */; };
 		AA000077 /* SSHAppWatch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = BB000073 /* SSHAppWatch.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		AA900101 /* PublicKeySheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB900101 /* PublicKeySheetView.swift */; };
+		AA900102 /* RemoteDirectoryPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB900102 /* RemoteDirectoryPickerView.swift */; };
+		AA900103 /* SchemePreviewsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB900103 /* SchemePreviewsView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -155,6 +158,9 @@
 		BB000074 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		BB000075 /* WatchProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchProtocol.swift; sourceTree = "<group>"; };
 		BB000076 /* WatchBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/WatchBridge.swift; sourceTree = "<group>"; };
+		BB900101 /* PublicKeySheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/PublicKeySheetView.swift; sourceTree = "<group>"; };
+		BB900102 /* RemoteDirectoryPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/RemoteDirectoryPickerView.swift; sourceTree = "<group>"; };
+		BB900103 /* SchemePreviewsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/SchemePreviewsView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -313,6 +319,9 @@
 				BB000024 /* AiAssistantSheetView.swift */,
 				BB000025 /* StructuredTranscriptView.swift */,
 				BB000026 /* SnippetsSheetView.swift */,
+				BB900103 /* SchemePreviewsView.swift */,
+				BB900102 /* RemoteDirectoryPickerView.swift */,
+				BB900101 /* PublicKeySheetView.swift */,
 				BB000027 /* HostTelemetrySheetView.swift */,
 				BB000028 /* FileBrowserSheetView.swift */,
 				BB000031 /* AgentProfilesSheetView.swift */,
@@ -524,6 +533,9 @@
 				AA000024 /* AiAssistantSheetView.swift in Sources */,
 				AA000025 /* StructuredTranscriptView.swift in Sources */,
 				AA000026 /* SnippetsSheetView.swift in Sources */,
+				AA900103 /* SchemePreviewsView.swift in Sources */,
+				AA900102 /* RemoteDirectoryPickerView.swift in Sources */,
+				AA900101 /* PublicKeySheetView.swift in Sources */,
 				AA000027 /* HostTelemetrySheetView.swift in Sources */,
 				AA000028 /* FileBrowserSheetView.swift in Sources */,
 				AA000031 /* AgentProfilesSheetView.swift in Sources */,

@@ -194,7 +194,7 @@ public struct HostTelemetrySheetView: View {
             if let batt = snap.batteryPercent {
                 VStack(alignment: .trailing, spacing: 3) {
                     HStack(spacing: 4) {
-                        Image(systemName: snap.isCharging == true ? "bolt.batteryblock.fill" : (batt <= 20 ? "battery.25" : "battery.100"))
+                        Image(systemName: Self.batterySymbol(percent: Int(batt), charging: snap.isCharging == true))
                             .foregroundColor(batt <= 20 && snap.isCharging != true ? .red : .green)
                         Text("\(batt)%")
                             .font(.system(size: 13, weight: .bold, design: .monospaced))
@@ -210,6 +210,18 @@ public struct HostTelemetrySheetView: View {
         .padding(14)
         .background(Color.appSecondaryBackground)
         .cornerRadius(12)
+    }
+
+    /// SF Symbol that follows the charge level; the bolt variant while charging.
+    static func batterySymbol(percent: Int, charging: Bool) -> String {
+        if charging { return "battery.100.bolt" }
+        switch percent {
+        case ..<10: return "battery.0"
+        case ..<38: return "battery.25"
+        case ..<63: return "battery.50"
+        case ..<88: return "battery.75"
+        default: return "battery.100"
+        }
     }
 
     // MARK: - CPU / RAM / Disk Gauges
