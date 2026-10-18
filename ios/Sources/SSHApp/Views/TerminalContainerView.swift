@@ -215,7 +215,7 @@ public struct TerminalContainerView: UIViewRepresentable {
             if gr is UILongPressGestureRecognizer {
                 terminalView.removeGestureRecognizer(gr)
             } else if let tap = gr as? UITapGestureRecognizer {
-                if tap.numberOfTapsRequired == 1 || tap.numberOfTapsRequired == 2 {
+                if (1...3).contains(tap.numberOfTapsRequired) {
                     terminalView.removeGestureRecognizer(tap)
                 }
             } else if gr is UIPanGestureRecognizer && gr !== terminalView.panGestureRecognizer {
@@ -233,9 +233,12 @@ public struct TerminalContainerView: UIViewRepresentable {
         let doubleTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleDoubleTap(_:)))
         doubleTap.numberOfTapsRequired = 2
         doubleTap.cancelsTouchesInView = false
-        if let tripleTap = terminalView.gestureRecognizers?.first(where: { ($0 as? UITapGestureRecognizer)?.numberOfTapsRequired == 3 }) {
-            doubleTap.require(toFail: tripleTap)
-        }
+        // Triple tap selects the whole paragraph (the run of non-blank lines around the tap).
+        let tripleTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleTripleTap(_:)))
+        tripleTap.numberOfTapsRequired = 3
+        tripleTap.cancelsTouchesInView = false
+        terminalView.addGestureRecognizer(tripleTap)
+        doubleTap.require(toFail: tripleTap)
         terminalView.addGestureRecognizer(doubleTap)
 
         // Add custom long-press gesture for text selection
@@ -367,6 +370,29 @@ public struct TerminalContainerView: UIViewRepresentable {
         /// Hold to select the word under the finger, keep the finger down and drag to extend the
         /// selection (the one-finger pan is not available then: it is used for scrolling and the
         /// first recognised gesture wins). The menu appears when the finger is lifted.
+        @objc func handleTripleTap(_ gesture: UITapGestureRecognizer) {
+            guard gesture.state == .ended, let tv = terminalView else { return }
+            let point = gesture.location(in: tv)
+            if !tv.isFirstResponder { _ = tv.becomeFirstResponder() }
+            let term = tv.getTerminal()
+            let cellH = tv.bounds.height / CGFloat(max(term.rows, 1))
+            let tapped = min(max(Int(point.y / cellH), 0), term.rows - 1)
+            let blank: (Int) -> Bool = { row in
+                term.getLine(row: row)?.translateToString(trimRight: true)
+                    .trimmingCharacters(in: .whitespaces).isEmpty ?? true
+            }
+            var first = tapped, last = tapped
+            if !blank(tapped) {
+                while first > 0, !blank(first - 1) { first -= 1 }
+                while last < term.rows - 1, !blank(last + 1) { last += 1 }
+            }
+            tv.selection.startSelection(row: first, col: 0)
+            tv.selection.dragExtend(row: last, col: term.cols - 1)
+            tv.setNeedsDisplay()
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            editMenuInteraction?.presentEditMenu(with: UIEditMenuConfiguration(identifier: nil, sourcePoint: point))
+        }
+
         @objc func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
             guard let tv = terminalView else { return }
             let point = gesture.location(in: tv)
