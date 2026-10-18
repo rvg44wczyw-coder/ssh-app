@@ -656,6 +656,134 @@ fileprivate struct FfiConverterData: FfiConverterRustBuffer {
 
 
 /**
+ * Handle of a running `watch_host_agent` stream.
+ */
+public protocol HostAgentWatchProtocol: AnyObject, Sendable {
+    
+    /**
+     * Ends the stream (idempotent); `on_closed` follows.
+     */
+    func stop() 
+    
+}
+/**
+ * Handle of a running `watch_host_agent` stream.
+ */
+open class HostAgentWatch: HostAgentWatchProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_ssh_core_fn_clone_hostagentwatch(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_ssh_core_fn_free_hostagentwatch(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * Ends the stream (idempotent); `on_closed` follows.
+     */
+open func stop()  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_method_hostagentwatch_stop(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+}
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHostAgentWatch: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = HostAgentWatch
+
+    public static func lift(_ handle: UInt64) throws -> HostAgentWatch {
+        return HostAgentWatch(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: HostAgentWatch) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HostAgentWatch {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: HostAgentWatch, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHostAgentWatch_lift(_ handle: UInt64) throws -> HostAgentWatch {
+    return try FfiConverterTypeHostAgentWatch.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHostAgentWatch_lower(_ value: HostAgentWatch) -> UInt64 {
+    return FfiConverterTypeHostAgentWatch.lower(value)
+}
+
+
+
+
+
+
+/**
  * Handle returned to Swift/Kotlin to control the lifecycle of a forwarded port.
  */
 public protocol PortForwardHandleProtocol: AnyObject, Sendable {
@@ -1422,6 +1550,15 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
      * a plain list, and the caller paces itself on how fast this returns.
      */
     func waitPendingApprovals(knownIds: [String]) async throws  -> ApprovalList
+    
+    /**
+     * Subscribes to live state changes of the agent sessions. One exec channel stays open (the
+     * `rpc` bridge to the host agent); each change is delivered to `listener`, and `on_closed` is
+     * called once when the stream ends (the helper is missing or replaced, the connection drops
+     * or `stop` was called). Nothing is polled; the channel is closed with the connection, so it
+     * costs nothing in the background.
+     */
+    func watchHostAgent(expectedSha256: String, listener: HostAgentListener) async throws  -> HostAgentWatch
     
     /**
      * Establishes the SSH connection, launches tmux, and starts streaming I/O.
@@ -2388,6 +2525,29 @@ open func waitPendingApprovals(knownIds: [String])async throws  -> ApprovalList 
             completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
             freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
             liftFunc: FfiConverterTypeApprovalList_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Subscribes to live state changes of the agent sessions. One exec channel stays open (the
+     * `rpc` bridge to the host agent); each change is delivered to `listener`, and `on_closed` is
+     * called once when the stream ends (the helper is missing or replaced, the connection drops
+     * or `stop` was called). Nothing is polled; the channel is closed with the connection, so it
+     * costs nothing in the background.
+     */
+open func watchHostAgent(expectedSha256: String, listener: HostAgentListener)async throws  -> HostAgentWatch  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_watch_host_agent(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(expectedSha256),FfiConverterCallbackInterfaceHostAgentListener_lower(listener)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_u64,
+            completeFunc: ffi_ssh_core_rust_future_complete_u64,
+            freeFunc: ffi_ssh_core_rust_future_free_u64,
+            liftFunc: FfiConverterTypeHostAgentWatch_lift,
             errorHandler: FfiConverterTypeSshCoreError_lift
         )
 }
@@ -4167,6 +4327,71 @@ public func FfiConverterTypeHookTemplate_lift(_ buf: RustBuffer) throws -> HookT
 #endif
 public func FfiConverterTypeHookTemplate_lower(_ value: HookTemplate) -> RustBuffer {
     return FfiConverterTypeHookTemplate.lower(value)
+}
+
+
+/**
+ * A change of one agent session's state, pushed live by the host agent.
+ */
+public struct HostAgentEvent: Equatable, Hashable {
+    public var agent: String
+    public var session: String
+    public var from: String
+    public var to: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(agent: String, session: String, from: String, to: String) {
+        self.agent = agent
+        self.session = session
+        self.from = from
+        self.to = to
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension HostAgentEvent: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHostAgentEvent: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HostAgentEvent {
+        return
+            try HostAgentEvent(
+                agent: FfiConverterString.read(from: &buf), 
+                session: FfiConverterString.read(from: &buf), 
+                from: FfiConverterString.read(from: &buf), 
+                to: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: HostAgentEvent, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.agent, into: &buf)
+        FfiConverterString.write(value.session, into: &buf)
+        FfiConverterString.write(value.from, into: &buf)
+        FfiConverterString.write(value.to, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHostAgentEvent_lift(_ buf: RustBuffer) throws -> HostAgentEvent {
+    return try FfiConverterTypeHostAgentEvent.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHostAgentEvent_lower(_ value: HostAgentEvent) -> RustBuffer {
+    return FfiConverterTypeHostAgentEvent.lower(value)
 }
 
 
@@ -8263,6 +8488,171 @@ public func FfiConverterTypeTranscriptTurnType_lower(_ value: TranscriptTurnType
 
 
 
+/**
+ * Receives the live state changes of `watch_host_agent`.
+ */
+public protocol HostAgentListener: AnyObject, Sendable {
+    
+    func onEvent(event: HostAgentEvent) 
+    
+    /**
+     * The stream ended; no further events arrive.
+     */
+    func onClosed() 
+    
+}
+
+
+// Put the implementation in a struct so we don't pollute the top-level namespace
+fileprivate struct UniffiCallbackInterfaceHostAgentListener {
+
+    // Create the VTable using a series of closures.
+    // Swift automatically converts these into C callback functions.
+    //
+    // Store the vtable directly.
+    static let vtable: UniffiVTableCallbackInterfaceHostAgentListener = UniffiVTableCallbackInterfaceHostAgentListener(
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            do {
+                try FfiConverterCallbackInterfaceHostAgentListener.handleMap.remove(handle: uniffiHandle)
+            } catch {
+                print("Uniffi callback interface HostAgentListener: handle missing in uniffiFree")
+            }
+        },
+        uniffiClone: { (uniffiHandle: UInt64) -> UInt64 in
+            do {
+                return try FfiConverterCallbackInterfaceHostAgentListener.handleMap.clone(handle: uniffiHandle)
+            } catch {
+                fatalError("Uniffi callback interface HostAgentListener: handle missing in uniffiClone")
+            }
+        },
+        onEvent: { (
+            uniffiHandle: UInt64,
+            event: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceHostAgentListener.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onEvent(
+                     event: try FfiConverterTypeHostAgentEvent_lift(event)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        onClosed: { (
+            uniffiHandle: UInt64,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceHostAgentListener.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onClosed(
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        }
+    )
+
+    // Rust stores this pointer for future callback invocations, so it must live
+    // for the process lifetime (not just for the init function call).
+    //
+    // `nonisolated(unsafe)` is needed under Swift 6 strict concurrency.
+    // This is safe because the pointee is initialized once during static init
+    // and never mutated by either side of the FFI.  Its fields are C function pointers.
+    nonisolated(unsafe) static let vtablePtr: UnsafePointer<UniffiVTableCallbackInterfaceHostAgentListener> = {
+        let ptr = UnsafeMutablePointer<UniffiVTableCallbackInterfaceHostAgentListener>.allocate(capacity: 1)
+        ptr.initialize(to: vtable)
+        return UnsafePointer(ptr)
+    }()
+}
+
+private func uniffiCallbackInitHostAgentListener() {
+    uniffi_ssh_core_fn_init_callback_vtable_hostagentlistener(UniffiCallbackInterfaceHostAgentListener.vtablePtr)
+}
+
+// FfiConverter protocol for callback interfaces
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterCallbackInterfaceHostAgentListener {
+    fileprivate static let handleMap = UniffiHandleMap<HostAgentListener>()
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+extension FfiConverterCallbackInterfaceHostAgentListener : FfiConverter {
+    typealias SwiftType = HostAgentListener
+    typealias FfiType = UInt64
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func lift(_ handle: UInt64) throws -> SwiftType {
+        try handleMap.get(handle: handle)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func lower(_ v: SwiftType) -> UInt64 {
+        return handleMap.insert(obj: v)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func write(_ v: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(v))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterCallbackInterfaceHostAgentListener_lift(_ handle: UInt64) throws -> HostAgentListener {
+    return try FfiConverterCallbackInterfaceHostAgentListener.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterCallbackInterfaceHostAgentListener_lower(_ v: HostAgentListener) -> UInt64 {
+    return FfiConverterCallbackInterfaceHostAgentListener.lower(v)
+}
+
+
+
+
 public protocol SshSessionCallback: AnyObject, Sendable {
     
     func onStateChanged(state: SessionState) 
@@ -9636,14 +10026,6 @@ public func agentHooksInstalled(agent: AgentKind, existing: String) -> Bool  {
     )
 })
 }
-public func claudeStatuslineInstalled(existing: String) -> Bool  {
-    return try!  FfiConverterBool.lift(try! rustCall() {
-        uniffiCallStatus in
-    uniffi_ssh_core_fn_func_claude_statusline_installed(
-        FfiConverterString.lower(existing),uniffiCallStatus
-    )
-})
-}
 public func defaultHookPreset() -> HookPreset  {
     return try!  FfiConverterTypeHookPreset_lift(try! rustCall() {
         uniffiCallStatus in
@@ -9726,19 +10108,6 @@ public func mergeAgentHooks(agent: AgentKind, existing: String, hookDir: String?
 })
 }
 /**
- * Installs the status-line wrapper into a Claude `settings.json` (idempotent). An existing
- * command status line is kept and run by the wrapper; any other kind is refused.
- */
-public func mergeClaudeStatusline(existing: String, hookDir: String?)throws  -> String  {
-    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
-        uniffiCallStatus in
-    uniffi_ssh_core_fn_func_merge_claude_statusline(
-        FfiConverterString.lower(existing),
-        FfiConverterOptionString.lower(hookDir),uniffiCallStatus
-    )
-})
-}
-/**
  * Idempotently writes `planned` into an agent's existing config JSON (replacing any previous
  * ssh-app entries, preserving everything else). Used for install and for the dry-run preview.
  */
@@ -9774,6 +10143,27 @@ public func removeAgentHooks(agent: AgentKind, existing: String)throws  -> Strin
     uniffi_ssh_core_fn_func_remove_agent_hooks(
         FfiConverterTypeAgentKind_lower(agent),
         FfiConverterString.lower(existing),uniffiCallStatus
+    )
+})
+}
+public func claudeStatuslineInstalled(existing: String) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_claude_statusline_installed(
+        FfiConverterString.lower(existing),uniffiCallStatus
+    )
+})
+}
+/**
+ * Installs the status-line wrapper into a Claude `settings.json` (idempotent). An existing
+ * command status line is kept and run by the wrapper; any other kind is refused.
+ */
+public func mergeClaudeStatusline(existing: String, hookDir: String?)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_merge_claude_statusline(
+        FfiConverterString.lower(existing),
+        FfiConverterOptionString.lower(hookDir),uniffiCallStatus
     )
 })
 }
@@ -10291,6 +10681,18 @@ public func permissionsSectionOf(agent: AgentKind, configJson: String)throws  ->
 })
 }
 /**
+ * Normalises (trim, dedupe keeping order) and validates; invalid entries are errors, never dropped.
+ */
+public func validateAgentPermissions(agent: AgentKind, permissions: AgentPermissions)throws  -> AgentPermissions  {
+    return try  FfiConverterTypeAgentPermissions_lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_validate_agent_permissions(
+        FfiConverterTypeAgentKind_lower(agent),
+        FfiConverterTypeAgentPermissions_lower(permissions),uniffiCallStatus
+    )
+})
+}
+/**
  * Looks at what is installed (`current`, the profile's own settings) together with what the
  * project adds (`context`, read-only: shared and local project settings) and proposes changes:
  * a full "work in the project" setup, smaller alternatives, and fixes for risky or dead rules.
@@ -10301,18 +10703,6 @@ public func suggestPermissionChanges(current: AgentPermissions, context: [AgentP
     uniffi_ssh_core_fn_func_suggest_permission_changes(
         FfiConverterTypeAgentPermissions_lower(current),
         FfiConverterSequenceTypeAgentPermissions.lower(context),uniffiCallStatus
-    )
-})
-}
-/**
- * Normalises (trim, dedupe keeping order) and validates; invalid entries are errors, never dropped.
- */
-public func validateAgentPermissions(agent: AgentKind, permissions: AgentPermissions)throws  -> AgentPermissions  {
-    return try  FfiConverterTypeAgentPermissions_lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
-        uniffiCallStatus in
-    uniffi_ssh_core_fn_func_validate_agent_permissions(
-        FfiConverterTypeAgentKind_lower(agent),
-        FfiConverterTypeAgentPermissions_lower(permissions),uniffiCallStatus
     )
 })
 }
@@ -10544,9 +10934,6 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_func_agent_hooks_installed() != 7798) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_ssh_core_checksum_func_claude_statusline_installed() != 59119) {
-        return InitializationResult.apiChecksumMismatch
-    }
     if (uniffi_ssh_core_checksum_func_default_hook_preset() != 30389) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -10568,9 +10955,6 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_func_merge_agent_hooks() != 53276) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_ssh_core_checksum_func_merge_claude_statusline() != 64164) {
-        return InitializationResult.apiChecksumMismatch
-    }
     if (uniffi_ssh_core_checksum_func_merge_planned_hooks() != 23563) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -10580,7 +10964,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_func_remove_agent_hooks() != 40391) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_ssh_core_checksum_func_remove_claude_statusline() != 33626) {
+    if (uniffi_ssh_core_checksum_func_claude_statusline_installed() != 48657) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_merge_claude_statusline() != 33437) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_remove_claude_statusline() != 8749) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_agent_config_dir_env() != 12240) {
@@ -10715,10 +11105,10 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_func_permissions_section_of() != 33011) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_ssh_core_checksum_func_suggest_permission_changes() != 25240) {
+    if (uniffi_ssh_core_checksum_func_validate_agent_permissions() != 38620) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_ssh_core_checksum_func_validate_agent_permissions() != 38620) {
+    if (uniffi_ssh_core_checksum_func_suggest_permission_changes() != 16497) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_execute_remote_command() != 30132) {
@@ -10767,6 +11157,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_bundled_host_helper_size() != 2278) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_hostagentwatch_stop() != 8202) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_portforwardhandle_get_active_connections() != 25377) {
@@ -10943,6 +11336,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_wait_pending_approvals() != 31103) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_watch_host_agent() != 43750) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_connect() != 11069) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -10982,6 +11378,12 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_constructor_sshsessionhandle_new() != 21965) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_method_hostagentlistener_on_event() != 458) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_hostagentlistener_on_closed() != 29351) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_method_transferprogress_on_progress() != 17866) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -10998,6 +11400,7 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
 
+    uniffiCallbackInitHostAgentListener()
     uniffiCallbackInitSshSessionCallback()
     uniffiCallbackInitTransferProgress()
     return InitializationResult.ok

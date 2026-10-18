@@ -15,7 +15,7 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::{debug, info, warn};
 
-static RUNTIME: LazyLock<tokio::runtime::Runtime> = LazyLock::new(|| {
+pub(crate) static RUNTIME: LazyLock<tokio::runtime::Runtime> = LazyLock::new(|| {
     tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .enable_all()
@@ -259,6 +259,16 @@ impl SshSessionHandle {
             exec_start(handle, command).await?
         };
         collect_output(channel, limit).await
+    }
+
+    /// Opens an exec channel the caller reads itself (long-lived streams).
+    pub(crate) async fn exec_open(
+        &self,
+        command: &str,
+    ) -> Result<russh::Channel<russh::client::Msg>, SshCoreError> {
+        let slot = self.ssh_client.lock().await;
+        let handle = slot.as_ref().ok_or(SshCoreError::NotConnected)?;
+        exec_start(handle, command).await
     }
 
     pub(crate) async fn exec_with_timeout(

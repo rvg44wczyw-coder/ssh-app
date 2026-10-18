@@ -319,6 +319,15 @@ pub struct HostAgentState {
     pub pending_approvals: u32,
 }
 
+/// A change of one agent session's state, pushed live by the host agent.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct HostAgentEvent {
+    pub agent: String,
+    pub session: String,
+    pub from: String,
+    pub to: String,
+}
+
 /// Asks the host agent for its state through `rpc`, which starts the agent if needed and renews
 /// its lease (12 h). Runs only the pinned helper; `HELPER_ABSENT` otherwise.
 pub(crate) fn build_agent_state_command(sha256: &str) -> String {
@@ -328,6 +337,41 @@ pub(crate) fn build_agent_state_command(sha256: &str) -> String {
          else printf '%s\\n' '{{\"id\":1,\"m\":\"state\"}}' | \"$h\" rpc --lease 43200 2>/dev/null; fi"
     );
     crate::hostprobe::login_sh_script(&script, &[], 15)
+}
+
+/// Long-lived `rpc` bridge for the live event stream: the channel's stdin carries requests and
+/// the pinned helper answers on stdout until the channel closes. Same digest pin as above; the
+/// reply is `HELPER_ABSENT` (and the channel ends) when the helper is missing or replaced.
+pub(crate) fn build_agent_watch_command(sha256: &str) -> String {
+    let script = format!(
+        "h={HELPER_PATH_EXPR}; if [ ! -f \"$h\" ] || [ -L \"$h\" ] || \
+         [ \"$(shasum -a 256 < \"$h\" 2>/dev/null | cut -d' ' -f1)\" != '{sha256}' ]; then echo HELPER_ABSENT; \
+         else exec \"$h\" rpc --lease 43200 2>/dev/null; fi"
+    );
+    format!("sh -c {}", crate::tmux::shell_quote(&script))
+}
+
+/// The agent's reply to `subscribe` (request id 1).
+pub(crate) fn is_subscribe_ack(line: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(line.trim()).is_ok_and(|v| {
+        v.get("id").and_then(|i| i.as_i64()) == Some(1) && v.get("ok") == Some(&true.into())
+    })
+}
+
+/// One state change pushed by the agent (`None` for any other line).
+pub(crate) fn parse_agent_event(line: &str) -> Option<HostAgentEvent> {
+    let v: serde_json::Value = serde_json::from_str(line.trim()).ok()?;
+    if v.get("event")?.as_str()? != "state" {
+        return None;
+    }
+    let text =
+        |k: &str| -> Option<String> { Some(v.get(k)?.as_str()?.chars().take(512).collect()) };
+    Some(HostAgentEvent {
+        agent: text("agent")?,
+        session: text("session")?,
+        from: text("from")?,
+        to: text("to")?,
+    })
 }
 
 /// `None` when the helper is not usable (the reply says so) or the agent did not answer.
@@ -584,6 +628,21 @@ mod tests {
         assert!(build_helper_install_commands(&bytes, &"0".repeat(64)).is_err());
         assert!(build_helper_install_commands(&[], &sha).is_err());
         assert!(build_helper_install_commands(&bytes, "nothex").is_err());
+    }
+
+    #[test]
+    fn agent_stream_lines_are_told_apart() {
+        assert!(is_subscribe_ack(r#"{"id":1,"ok":true}"#));
+        assert!(!is_subscribe_ack(r#"{"id":1,"ok":false}"#));
+        assert!(!is_subscribe_ack("HELPER_ABSENT"));
+        let ev = parse_agent_event(
+            r#"{"agent":"claude","event":"state","from":"running","session":"s1","to":"approval"}"#,
+        )
+        .unwrap();
+        assert_eq!((ev.session.as_str(), ev.to.as_str()), ("s1", "approval"));
+        assert!(parse_agent_event(r#"{"id":0,"lease_until":1,"ok":true}"#).is_none());
+        let cmd = build_agent_watch_command(&"a".repeat(64));
+        assert!(cmd.contains("exec ") && cmd.contains("rpc --lease"));
     }
 
     #[test]

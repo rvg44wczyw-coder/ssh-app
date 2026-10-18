@@ -11,6 +11,7 @@ struct HostHelperCard: View {
     @State private var error: String?
     @State private var agent: HostAgentState?
     @State private var agentChecked = false
+    @State private var watch: HostAgentWatch?
 
     private var pin: String? { bundledHostHelperSha256() }
 
@@ -40,6 +41,7 @@ struct HostHelperCard: View {
         .padding(12)
         .background(RoundedRectangle(cornerRadius: 12).fill(Color.appSecondaryBackground))
         .task(id: viewModel.state == .connected) { await refresh() }
+        .onDisappear { watch?.stop(); watch = nil }
     }
 
     @ViewBuilder
@@ -58,6 +60,10 @@ struct HostHelperCard: View {
         } else if agentChecked {
             Text("The agent did not answer.").font(.caption).foregroundColor(.orange)
         }
+        if watch != nil {
+            Label("Live: changes appear as they happen", systemImage: "dot.radiowaves.left.and.right")
+                .font(.caption2).foregroundColor(.green)
+        }
         Button(agentChecked ? "Refresh agent state" : "Check agent") { Task { await checkAgent() } }
             .buttonStyle(.bordered)
     }
@@ -66,6 +72,28 @@ struct HostHelperCard: View {
         guard let pin, let handle = viewModel.sessionHandle else { return }
         agent = try? await handle.hostAgentState(expectedSha256: pin)
         agentChecked = true
+        if agent != nil, watch == nil { await startWatch(handle, pin: pin) }
+    }
+
+    /// One exec channel while this card is on screen; each change re-reads the state. It closes
+    /// with the card and with the connection, so nothing runs in the background.
+    private func startWatch(_ handle: SshSessionHandle, pin: String) async {
+        let listener = AgentEvents(
+            onChange: { Task { @MainActor in agent = try? await handle.hostAgentState(expectedSha256: pin) } },
+            onClosed: { Task { @MainActor in watch = nil } }
+        )
+        watch = try? await handle.watchHostAgent(expectedSha256: pin, listener: listener)
+    }
+
+    private final class AgentEvents: HostAgentListener, @unchecked Sendable {
+        let onChange: @Sendable () -> Void
+        let onClosedHandler: @Sendable () -> Void
+        init(onChange: @escaping @Sendable () -> Void, onClosed: @escaping @Sendable () -> Void) {
+            self.onChange = onChange
+            self.onClosedHandler = onClosed
+        }
+        func onEvent(event: HostAgentEvent) { onChange() }
+        func onClosed() { onClosedHandler() }
     }
 
     private var isReady: Bool { if case .ready = status { return true }; return false }

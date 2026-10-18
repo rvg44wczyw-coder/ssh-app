@@ -1746,6 +1746,43 @@ fn usage_report_finds_models_in_tmux_sessions_and_reads_transcripts() {
             )
             .await
             .unwrap();
+        // 3c. Live events: a session record appearing on the host reaches the listener.
+        struct Events(std::sync::Mutex<std::sync::mpsc::Sender<String>>);
+        impl ssh_core::HostAgentListener for Events {
+            fn on_event(&self, e: ssh_core::usage::HostAgentEvent) {
+                let _ = self
+                    .0
+                    .lock()
+                    .unwrap()
+                    .send(format!("{}/{}:{}>{}", e.agent, e.session, e.from, e.to));
+            }
+            fn on_closed(&self) {
+                let _ = self.0.lock().unwrap().send("closed".into());
+            }
+        }
+        let (tx, rx) = std::sync::mpsc::channel();
+        let watch = handle
+            .watch_host_agent(pin.clone(), Box::new(Events(std::sync::Mutex::new(tx))))
+            .await
+            .expect("watch starts");
+        handle
+            .execute_command_on_active_session(
+                "d=\"$HOME/.ssh-app/run/sessions\"; mkdir -p -m 700 \"$d\"; \
+                 printf '%s' \"{\\\"v\\\":1,\\\"agent\\\":\\\"claude\\\",\\\"session\\\":\\\"live-1\\\",\\\"cwd\\\":\\\"/tmp\\\",\\\"ts\\\":$(date +%s)}\" > \"$d/00000000000000000000000000000001.json\"; chmod 600 \"$d/00000000000000000000000000000001.json\""
+                    .to_string(),
+            )
+            .await
+            .unwrap();
+        let ev = rx
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("an event arrives");
+        assert_eq!(ev, "claude/live-1:none>running");
+        watch.stop();
+        assert_eq!(
+            rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap(),
+            "closed"
+        );
+
         let pid = hello
             .lines()
             .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())

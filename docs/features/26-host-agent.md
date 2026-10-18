@@ -94,3 +94,15 @@ set of config directories for 10 s; an older one is returned at once and refresh
 background (at most one refresh per key, 8 keys). The helper's `usage --agent DIRS` asks the agent
 (starting it, lease 12 h) and falls back to a direct scan, so the output is the same either way;
 the core now calls `usage --agent`. Test: `usage_through_the_agent_is_cached_and_equals_a_direct_scan`.
+
+## 8. Live events in the app (2026-10-18)
+
+`SshSessionHandle::watch_host_agent(expected_sha256, listener)` opens one exec channel running the
+pinned helper's `rpc`, sends `subscribe` and returns only after the agent's acknowledgement (so no
+change after the call is missed). Each state change reaches `HostAgentListener::on_event`;
+`on_closed` is called once when the stream ends (helper missing or replaced, connection lost,
+`HostAgentWatch::stop`). Nothing is polled and the channel closes with the connection, so the
+zero-battery rule holds. The Host service card starts the watch after "Check agent", re-reads the
+state on every event, and stops it when the card disappears. Loopback test: step 3c of
+`usage_report_finds_models_in_tmux_sessions_and_reads_transcripts` (a session record appearing on
+the host reaches the listener). Push (P3) will reuse the same agent events when the app is closed.

@@ -5,7 +5,30 @@
 use crate::error::SshCoreError;
 use crate::session::{read_ok, SshSessionHandle};
 use crate::transport::DEFAULT_EXEC_TIMEOUT;
+use std::sync::Arc;
 use std::time::Duration;
+
+/// Receives the live state changes of `watch_host_agent`.
+#[uniffi::export(callback_interface)]
+pub trait HostAgentListener: Send + Sync {
+    fn on_event(&self, event: crate::usage::HostAgentEvent);
+    /// The stream ended; no further events arrive.
+    fn on_closed(&self);
+}
+
+/// Handle of a running `watch_host_agent` stream.
+#[derive(uniffi::Object)]
+pub struct HostAgentWatch {
+    stop: tokio::sync::Notify,
+}
+
+#[uniffi::export]
+impl HostAgentWatch {
+    /// Ends the stream (idempotent); `on_closed` follows.
+    pub fn stop(&self) {
+        self.stop.notify_one();
+    }
+}
 
 #[uniffi::export(async_runtime = "tokio")]
 impl SshSessionHandle {
@@ -734,6 +757,92 @@ impl SshSessionHandle {
             ))
             .await?;
         Ok(crate::usage::parse_agent_state(&out))
+    }
+
+    /// Subscribes to live state changes of the agent sessions. One exec channel stays open (the
+    /// `rpc` bridge to the host agent); each change is delivered to `listener`, and `on_closed` is
+    /// called once when the stream ends (the helper is missing or replaced, the connection drops
+    /// or `stop` was called). Nothing is polled; the channel is closed with the connection, so it
+    /// costs nothing in the background.
+    pub async fn watch_host_agent(
+        &self,
+        expected_sha256: String,
+        listener: Box<dyn HostAgentListener>,
+    ) -> Result<Arc<HostAgentWatch>, SshCoreError> {
+        crate::usage::validate_sha256(&expected_sha256)?;
+        let channel = self
+            .exec_open(&crate::usage::build_agent_watch_command(&expected_sha256))
+            .await?;
+        let mut stream = crate::transport::ExecStream::new(channel);
+        stream
+            .write(b"{\"id\":1,\"m\":\"subscribe\"}\n".to_vec())
+            .await?;
+        // Return only once the agent has accepted the subscription, so no change that happens
+        // after this call returns is missed.
+        let mut pending = String::new();
+        let acked = tokio::time::timeout(Duration::from_secs(15), async {
+            loop {
+                match stream.next().await {
+                    crate::transport::StreamEvent::Data(bytes) => {
+                        pending.push_str(&String::from_utf8_lossy(&bytes));
+                        if pending.len() > 8192 {
+                            return false;
+                        }
+                        if pending.lines().any(crate::usage::is_subscribe_ack) {
+                            return true;
+                        }
+                    }
+                    crate::transport::StreamEvent::Exit(_) => {}
+                    crate::transport::StreamEvent::End => return false,
+                }
+            }
+        })
+        .await
+        .unwrap_or(false);
+        if !acked {
+            stream.finish().await;
+            return Err(SshCoreError::IoError {
+                reason: "The host agent did not accept the subscription".to_string(),
+            });
+        }
+        let watch = Arc::new(HostAgentWatch {
+            stop: tokio::sync::Notify::new(),
+        });
+        let task_watch = Arc::clone(&watch);
+        crate::session::RUNTIME.spawn(async move {
+            // Lines that arrived together with the acknowledgement.
+            while let Some(nl) = pending.find('\n') {
+                let line: String = pending.drain(..=nl).collect();
+                if let Some(ev) = crate::usage::parse_agent_event(&line) {
+                    listener.on_event(ev);
+                }
+            }
+            loop {
+                let step = tokio::select! {
+                    s = stream.next() => s,
+                    () = task_watch.stop.notified() => break,
+                };
+                match step {
+                    crate::transport::StreamEvent::Data(bytes) => {
+                        pending.push_str(&String::from_utf8_lossy(&bytes));
+                        while let Some(nl) = pending.find('\n') {
+                            let line: String = pending.drain(..=nl).collect();
+                            if let Some(ev) = crate::usage::parse_agent_event(&line) {
+                                listener.on_event(ev);
+                            }
+                        }
+                        if pending.len() > 8192 {
+                            pending.clear();
+                        }
+                    }
+                    crate::transport::StreamEvent::Exit(_) => {}
+                    crate::transport::StreamEvent::End => break,
+                }
+            }
+            stream.finish().await;
+            listener.on_closed();
+        });
+        Ok(watch)
     }
 
     /// Installs the helper the app ships (`~/.ssh-app/bin/ssh-app-host`, mode 700). The digest is
