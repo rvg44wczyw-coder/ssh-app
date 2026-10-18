@@ -85,15 +85,20 @@ public struct SessionTabsView: View {
             }
             Button { onAddSession() } label: { Label("New tab", systemImage: "plus") }
         } label: {
-            Image(systemName: "plus")
-                .font(.system(size: 10, weight: .bold))
-                .foregroundColor(.appAccent)
-                .padding(5)
-                .background(Color.appSecondaryBackground)
-                .clipShape(Circle())
+            // Fixed-size label with the circle inside it: the menu lifts and re-places its label
+            // while opening, and a glyph padded inside a flexible label slid off-centre.
+            ZStack {
+                Circle().fill(Color.appSecondaryBackground)
+                Image(systemName: "plus")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(.appAccent)
+            }
+            .frame(width: 22, height: 22)
+            .contentShape(Circle())
         } primaryAction: {
             onAddSession()
         }
+        .fixedSize()
     }
 
     public var body: some View {
