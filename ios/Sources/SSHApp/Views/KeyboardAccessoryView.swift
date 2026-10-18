@@ -22,7 +22,7 @@ public struct KeyboardAccessoryView: View {
     }
 
     /// Esc, Ctrl, Tab, arrows and symbols are already on the system keyboard bar; this bar only
-    /// carries what that one lacks: the assistant, snippets, Ctrl-C, y/n and the user's own
+    /// carries what that one lacks: the assistant, snippets, Ctrl-C, paste, y/n and the user's own
     /// command buttons.
     public var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -42,6 +42,10 @@ public struct KeyboardAccessoryView: View {
                 AccessoryButton(label: "^C") {
                     triggerHaptic()
                     onSendBytes([0x03])
+                }
+                AccessoryButton(label: "📋") {
+                    triggerHaptic()
+                    pasteFromClipboard()
                 }
                 AccessoryButton(label: "✓ y⏎") {
                     triggerHaptic()
@@ -85,6 +89,16 @@ public struct KeyboardAccessoryView: View {
         } message: { cmd in
             Text("Send \"\(cmd.text)\" to the session?")
         }
+    }
+
+    /// Sends the clipboard text to the session; line breaks become Enter, as a terminal paste does.
+    private func pasteFromClipboard() {
+        #if canImport(UIKit)
+        guard UIPasteboard.general.hasStrings, let text = UIPasteboard.general.string, !text.isEmpty
+        else { return }
+        let normalized = text.replacingOccurrences(of: "\r\n", with: "\r").replacingOccurrences(of: "\n", with: "\r")
+        onSendBytes(Array(normalized.utf8))
+        #endif
     }
 
     private func triggerHaptic() {
