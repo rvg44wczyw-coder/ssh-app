@@ -385,7 +385,7 @@ true"#;
     format!("sh -c {}", crate::tmux::shell_quote(QUICK))
 }
 
-fn is_model_name(name: &str) -> bool {
+pub(crate) fn is_model_name(name: &str) -> bool {
     (1..=128).contains(&name.len())
         && name
             .chars()

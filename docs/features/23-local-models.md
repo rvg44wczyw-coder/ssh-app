@@ -65,7 +65,7 @@ config writer as the other agents (hash check, backup, preview).
   dash would be read as an option). It is also passed through `shell_quote` like every other
   argument.
 - `SavedAgentProfile` gains `localTool: String` and `localModel: String` (default empty;
-  decoded with `decodeIfPresent`, so saved profiles keep loading). For `LocalModel` profiles the
+  decoded with `decodeIfPresent`, so saved profiles keep loading). For local-tool profiles the
   stored `binary`/`args`/`env` are regenerated from these two fields on save and on launch, so a
   model rename is one edit.
 

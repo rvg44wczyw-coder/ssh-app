@@ -4430,6 +4430,97 @@ public func FfiConverterTypeKeypairResult_lower(_ value: KeypairResult) -> RustB
 
 
 /**
+ * One local-model tool the app can launch (see `local_agent_tools`).
+ */
+public struct LocalAgentTool: Equatable, Hashable {
+    public var id: String
+    public var name: String
+    public var agent: AgentKind
+    /**
+     * Phone approvals can be installed for it.
+     */
+    public var hasApprovals: Bool
+    /**
+     * The model can be chosen from the host's Ollama models (otherwise the tool picks its own).
+     */
+    public var takesModel: Bool
+    /**
+     * One line for the editor: what to know before using it.
+     */
+    public var note: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, name: String, agent: AgentKind, 
+        /**
+         * Phone approvals can be installed for it.
+         */hasApprovals: Bool, 
+        /**
+         * The model can be chosen from the host's Ollama models (otherwise the tool picks its own).
+         */takesModel: Bool, 
+        /**
+         * One line for the editor: what to know before using it.
+         */note: String) {
+        self.id = id
+        self.name = name
+        self.agent = agent
+        self.hasApprovals = hasApprovals
+        self.takesModel = takesModel
+        self.note = note
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension LocalAgentTool: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLocalAgentTool: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LocalAgentTool {
+        return
+            try LocalAgentTool(
+                id: FfiConverterString.read(from: &buf), 
+                name: FfiConverterString.read(from: &buf), 
+                agent: FfiConverterTypeAgentKind.read(from: &buf), 
+                hasApprovals: FfiConverterBool.read(from: &buf), 
+                takesModel: FfiConverterBool.read(from: &buf), 
+                note: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: LocalAgentTool, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.name, into: &buf)
+        FfiConverterTypeAgentKind.write(value.agent, into: &buf)
+        FfiConverterBool.write(value.hasApprovals, into: &buf)
+        FfiConverterBool.write(value.takesModel, into: &buf)
+        FfiConverterString.write(value.note, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLocalAgentTool_lift(_ buf: RustBuffer) throws -> LocalAgentTool {
+    return try FfiConverterTypeLocalAgentTool.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLocalAgentTool_lower(_ value: LocalAgentTool) -> RustBuffer {
+    return FfiConverterTypeLocalAgentTool.lower(value)
+}
+
+
+/**
  * What the host has: whether Ollama is installed, whether its server answers on the default
  * loopback endpoint, and which models it lists.
  */
@@ -6210,6 +6301,17 @@ public enum AgentKind: Equatable, Hashable {
     case antigravity
     case codex
     case grok
+    /**
+     * Local-model agents (docs/features/23-local-models.md). OpenCode, Qwen Code and Crush have
+     * phone-approval hooks; the others are launch-only.
+     */
+    case openCode
+    case qwenCode
+    case crush
+    case cline
+    case aider
+    case goose
+    case ollamaChat
 
 
 
@@ -6239,6 +6341,20 @@ public struct FfiConverterTypeAgentKind: FfiConverterRustBuffer {
         
         case 4: return .grok
         
+        case 5: return .openCode
+        
+        case 6: return .qwenCode
+        
+        case 7: return .crush
+        
+        case 8: return .cline
+        
+        case 9: return .aider
+        
+        case 10: return .goose
+        
+        case 11: return .ollamaChat
+        
         default: throw UniffiInternalError.unexpectedEnumCase
         }
     }
@@ -6261,6 +6377,34 @@ public struct FfiConverterTypeAgentKind: FfiConverterRustBuffer {
         
         case .grok:
             writeInt(&buf, Int32(4))
+        
+        
+        case .openCode:
+            writeInt(&buf, Int32(5))
+        
+        
+        case .qwenCode:
+            writeInt(&buf, Int32(6))
+        
+        
+        case .crush:
+            writeInt(&buf, Int32(7))
+        
+        
+        case .cline:
+            writeInt(&buf, Int32(8))
+        
+        
+        case .aider:
+            writeInt(&buf, Int32(9))
+        
+        
+        case .goose:
+            writeInt(&buf, Int32(10))
+        
+        
+        case .ollamaChat:
+            writeInt(&buf, Int32(11))
         
         }
     }
@@ -8457,6 +8601,31 @@ fileprivate struct FfiConverterSequenceTypeInvalidPermissionRule: FfiConverterRu
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeLocalAgentTool: FfiConverterRustBuffer {
+    typealias SwiftType = [LocalAgentTool]
+
+    public static func write(_ value: [LocalAgentTool], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeLocalAgentTool.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [LocalAgentTool] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [LocalAgentTool]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeLocalAgentTool.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypePendingApproval: FfiConverterRustBuffer {
     typealias SwiftType = [PendingApproval]
 
@@ -9051,12 +9220,32 @@ public func buildBinaryProbeCommand(binary: String, interactive: Bool)throws  ->
 })
 }
 /**
+ * Launch profile for a local-model tool. An empty `model` leaves the choice to the tool (or to
+ * Ollama's own picker). Pure: nothing is sent to the host here.
+ */
+public func buildLocalAgentProfile(tool: String, model: String)throws  -> AgentLaunchProfile  {
+    return try  FfiConverterTypeAgentLaunchProfile_lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_build_local_agent_profile(
+        FfiConverterString.lower(tool),
+        FfiConverterString.lower(model),uniffiCallStatus
+    )
+})
+}
+/**
  * Default presets. Personal/work variants are user data (see `config_dir` env), not presets.
  */
 public func defaultLaunchProfiles() -> [AgentLaunchProfile]  {
     return try!  FfiConverterSequenceTypeAgentLaunchProfile.lift(try! rustCall() {
         uniffiCallStatus in
     uniffi_ssh_core_fn_func_default_launch_profiles(uniffiCallStatus
+    )
+})
+}
+public func localAgentTools() -> [LocalAgentTool]  {
+    return try!  FfiConverterSequenceTypeLocalAgentTool.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_local_agent_tools(uniffiCallStatus
     )
 })
 }
@@ -9768,7 +9957,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_func_build_binary_probe_command() != 57846) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_func_build_local_agent_profile() != 47303) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_func_default_launch_profiles() != 49018) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_local_agent_tools() != 60136) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_parse_resolved_binary() != 3012) {

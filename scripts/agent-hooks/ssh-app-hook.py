@@ -274,7 +274,7 @@ def submit(kind, base, wait):
 # A rule that cannot be understood is skipped; the guard only ever blocks, never approves.
 # ---------------------------------------------------------------------------------------------
 RULE_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)(?:\((.*)\))?$", re.S)
-SHELL_TOOLS = ("Bash", "run_command", "bash", "shell")
+SHELL_TOOLS = ("Bash", "run_command", "bash", "shell", "run_shell_command")
 EDIT_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit", "write_to_file", "replace_file_content", "edit_file")
 READ_TOOLS = ("Read", "view_file", "read_file")
 MAX_RULES = 200
@@ -472,16 +472,23 @@ def guard_match(rules, tool, tool_input, cwd):
     return None
 
 
+# Agents that speak Claude's hook protocol (payload fields and reply shapes). Qwen Code documents
+# the same `permissionDecision` / `PermissionRequest` replies.
+CLAUDE_STYLE = ("claude", "codex", "qwen")
+
+
 def allow_output(agent, event, reason):
     """The agent-specific "allow without asking" answer, or None where the agent cannot do that."""
-    if agent in ("claude", "codex"):
+    if agent in CLAUDE_STYLE:
         if event == "PermissionRequest":
             return {"hookSpecificOutput": {"hookEventName": "PermissionRequest",
                                            "decision": {"behavior": "allow"}}}
         return {"hookSpecificOutput": {"hookEventName": event, "permissionDecision": "allow",
                                        "permissionDecisionReason": reason}}
-    if agent == "antigravity":
+    if agent in ("antigravity", "opencode"):
         return {"decision": "allow", "reason": reason}
+    if agent == "crush":
+        return {"version": 1, "decision": "allow", "reason": reason}
     return None
 
 
@@ -497,7 +504,9 @@ def ask_output(agent, event, reason):
 
 
 def deny_output(agent, event, reason):
-    if agent in ("claude", "codex"):
+    if agent == "crush":
+        return {"version": 1, "decision": "deny", "reason": reason}
+    if agent in CLAUDE_STYLE:
         if event == "PermissionRequest":
             return {"hookSpecificOutput": {"hookEventName": "PermissionRequest",
                                            "decision": {"behavior": "deny", "message": reason}}}
@@ -582,7 +591,7 @@ def main():
     except Exception:
         data = {}
 
-    if agent in ("claude", "codex"):  # Codex uses Claude's payload and PermissionRequest reply
+    if agent in CLAUDE_STYLE:  # Codex and Qwen Code use Claude's payload and PermissionRequest reply
         tool = str(data.get("tool_name", ""))
         tool_input = data.get("tool_input", {})
         summary = summarize(tool_input)
@@ -596,6 +605,20 @@ def main():
         paths = data.get("workspacePaths")
         cwd = str(paths[0]) if isinstance(paths, list) and paths else ""
         session = str(data.get("conversationId", ""))
+    elif agent == "crush":
+        # {"event","session_id","cwd","tool_name","tool_input"} on stdin (Crush hooks docs).
+        tool = str(data.get("tool_name", ""))
+        tool_input = data.get("tool_input", {})
+        summary = summarize(tool_input)
+        cwd = str(data.get("cwd", ""))
+        session = str(data.get("session_id", ""))
+    elif agent == "opencode":
+        # Sent by the generated plugin: {"tool","args","cwd","session"}.
+        tool = str(data.get("tool", ""))
+        tool_input = data.get("args", {})
+        summary = summarize(tool_input)
+        cwd = str(data.get("cwd", ""))
+        session = str(data.get("session", ""))
     elif agent == "grok":
         tool = str(data.get("toolName", ""))
         tool_input = data.get("toolInput", {})
@@ -650,9 +673,25 @@ def main():
             if approved is False:
                 sys.stdout.write(json.dumps({"decision": "deny", "reason": "Denied from ssh-app on your phone"}))
             return 0
-        if agent in ("claude", "codex"):
+        if agent == "crush":
+            # Exit 0 with a decision; no answer lets Crush run its own permission flow.
+            if approved is not None:
+                sys.stdout.write(json.dumps(allow_output(agent, event, "Approved from ssh-app") if approved
+                                            else deny_output(agent, event, "Denied from ssh-app on your phone")))
+            return 0
+        if agent == "opencode":
+            # The plugin throws on deny; anything else continues into OpenCode's own flow.
+            if approved is True:
+                out = {"decision": "allow", "reason": "Approved from ssh-app"}
+            elif approved is False:
+                out = {"decision": "deny", "reason": "Denied from ssh-app on your phone"}
+            else:
+                out = {}
+            sys.stdout.write(json.dumps(out))
+            return 0
+        if agent in CLAUDE_STYLE:
             if approved is None:
-                return 0  # no opinion -> Claude shows its normal permission prompt
+                return 0  # no opinion -> the agent shows its normal permission prompt
             if event == "PreToolUse":
                 out = {"hookSpecificOutput": {
                     "hookEventName": "PreToolUse",

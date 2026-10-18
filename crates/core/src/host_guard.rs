@@ -234,6 +234,8 @@ pub fn host_guard_agent_support(agent: AgentKind) -> Vec<String> {
         AgentKind::Codex => &["deny", "allow"],
         AgentKind::Antigravity => &["deny", "ask", "allow"],
         AgentKind::Grok => &["deny"],
+        AgentKind::QwenCode | AgentKind::Crush | AgentKind::OpenCode => &["deny", "allow"],
+        AgentKind::Cline | AgentKind::Aider | AgentKind::Goose | AgentKind::OllamaChat => &[],
     };
     s.iter().map(|x| (*x).to_string()).collect()
 }

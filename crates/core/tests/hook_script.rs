@@ -776,6 +776,113 @@ fn grok_only_ever_blocks_on_an_explicit_phone_deny() {
     assert_eq!((out.as_str(), code), ("", 0));
 }
 
+const QWEN_IN: &str = r#"{"hook_event_name":"PermissionRequest","tool_name":"run_shell_command","tool_input":{"command":"git push origin main"},"cwd":"/work/proj","session_id":"q1"}"#;
+const CRUSH_IN: &str = r#"{"event":"PreToolUse","session_id":"c1","cwd":"/work/proj","tool_name":"bash","tool_input":{"command":"rm -rf build"}}"#;
+const OPENCODE_IN: &str =
+    r#"{"tool":"bash","args":{"command":"rm -rf build"},"cwd":"/work/proj","session":"o1"}"#;
+
+#[test]
+fn qwen_code_uses_claudes_permission_request_reply() {
+    need_tools!();
+    for (approved, expect) in [(true, "allow"), (false, "deny")] {
+        let h = Host::new();
+        let hook = h.spawn_hook("qwen", "PermissionRequest", QWEN_IN, 20);
+        let (item, now) = h.wait_item("approval");
+        assert_eq!(item["agent"], "qwen");
+        assert_eq!(item["tool"], "run_shell_command");
+        assert_eq!(item["command"], "git push origin main");
+        decide_ok(&h, &h.honest(&item, now, approved));
+        let (out, code) = hook.finish();
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(code, 0);
+        assert_eq!(v["hookSpecificOutput"]["decision"]["behavior"], expect);
+    }
+    let h = Host::new();
+    assert_eq!(
+        h.spawn_hook("qwen", "PermissionRequest", QWEN_IN, 1)
+            .finish(),
+        (String::new(), 0),
+        "no answer: Qwen shows its own prompt"
+    );
+    let (out, code) = h.spawn_hook("qwen", "Stop", QWEN_IN, 5).finish();
+    assert_eq!((out.as_str(), code), ("", 0));
+    assert_eq!(h.wait_item("notify").0["agent"], "qwen");
+}
+
+#[test]
+fn crush_answers_with_a_versioned_decision_and_stays_quiet_without_one() {
+    need_tools!();
+    for (approved, expect) in [(true, "allow"), (false, "deny")] {
+        let h = Host::new();
+        let hook = h.spawn_hook("crush", "PreToolUse", CRUSH_IN, 20);
+        let (item, now) = h.wait_item("approval");
+        assert_eq!(item["agent"], "crush");
+        assert_eq!(item["tool"], "bash");
+        assert_eq!(item["command"], "rm -rf build");
+        decide_ok(&h, &h.honest(&item, now, approved));
+        let (out, code) = hook.finish();
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(code, 0);
+        assert_eq!(
+            (v["version"].as_u64(), v["decision"].as_str()),
+            (Some(1), Some(expect))
+        );
+        assert!(v["reason"].as_str().unwrap().contains("ssh-app"));
+    }
+    // No answer: nothing on stdout, exit 0, so Crush continues into its own permission flow.
+    let h = Host::new();
+    assert_eq!(
+        h.spawn_hook("crush", "PreToolUse", CRUSH_IN, 1).finish(),
+        (String::new(), 0)
+    );
+}
+
+#[test]
+fn opencode_plugin_protocol_deny_allow_and_no_opinion() {
+    need_tools!();
+    for (approved, expect) in [(true, "allow"), (false, "deny")] {
+        let h = Host::new();
+        let hook = h.spawn_hook("opencode", "PreToolUse", OPENCODE_IN, 20);
+        let (item, now) = h.wait_item("approval");
+        assert_eq!(item["agent"], "opencode");
+        assert_eq!(item["command"], "rm -rf build");
+        decide_ok(&h, &h.honest(&item, now, approved));
+        let (out, _) = hook.finish();
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["decision"], expect);
+    }
+    let h = Host::new();
+    let (out, code) = h
+        .spawn_hook("opencode", "PreToolUse", OPENCODE_IN, 1)
+        .finish();
+    assert_eq!(code, 0);
+    assert_eq!(serde_json::from_str::<Value>(&out).unwrap(), json!({}));
+}
+
+#[test]
+fn host_guard_deny_reaches_the_new_agents_in_their_own_shape() {
+    need_tools!();
+    let h = Host::new();
+    write_guard(&h, &["Bash(rm:*)"]);
+    let (out, _) = h.spawn_hook("crush", "PreToolUse", CRUSH_IN, 5).finish();
+    let v: Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(
+        (v["version"].as_u64(), v["decision"].as_str()),
+        (Some(1), Some("deny"))
+    );
+    let (out, _) = h
+        .spawn_hook("opencode", "PreToolUse", OPENCODE_IN, 5)
+        .finish();
+    assert_eq!(
+        serde_json::from_str::<Value>(&out).unwrap()["decision"],
+        "deny"
+    );
+    let qwen = QWEN_IN.replace("git push origin main", "rm -rf build");
+    let (out, _) = h.spawn_hook("qwen", "PermissionRequest", &qwen, 5).finish();
+    let v: Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["decision"]["behavior"], "deny");
+}
+
 fn write_guard(h: &Host, rules: &[&str]) {
     write_guard_json(h, json!({ "deny": rules }));
 }

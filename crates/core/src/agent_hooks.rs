@@ -15,6 +15,8 @@ const ANTIGRAVITY_HOOK_KEY: &str = "ssh-app";
 /// Claude's `PermissionRequest`), so file tools would cause approval fatigue.
 const ANTIGRAVITY_TOOL_MATCHER: &str = "run_command";
 const GROK_TOOL_MATCHER: &str = "Bash";
+const CRUSH_TOOL_MATCHER: &str = "^bash$";
+const OPENCODE_TOOL_MATCHER: &str = "bash";
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct AgentHooksStatus {
@@ -69,6 +71,13 @@ pub fn agent_hooks_config_path(
         // `*.json` in its hooks directory, so the installer owns one file there.
         AgentKind::Codex => ("~/.codex", "hooks.json"),
         AgentKind::Grok => ("~/.grok/hooks", "ssh-app.json"),
+        // Qwen Code reads Claude-style hooks from `settings.json`; Crush from `crush.json`;
+        // OpenCode loads every file in its plugins directory (the installer owns one). The Qwen
+        // and Crush user paths are not stated in the docs consulted: the preview shows the target.
+        AgentKind::QwenCode => ("~/.qwen", "settings.json"),
+        AgentKind::Crush => ("~/.config/crush", "crush.json"),
+        AgentKind::OpenCode => ("~/.config/opencode/plugins", "ssh-app.js"),
+        other => return Err(no_hooks(other)),
     };
     let dir = match config_dir
         .as_deref()
@@ -82,6 +91,12 @@ pub fn agent_hooks_config_path(
         None => default_dir.to_string(),
     };
     Ok(format!("{dir}/{file}"))
+}
+
+fn no_hooks(agent: AgentKind) -> SshCoreError {
+    invalid(format!(
+        "{agent:?} has no hook mechanism ssh-app can use; it asks in its own terminal"
+    ))
 }
 
 fn hook_command(hook_dir: &str, agent: &str, event: &str) -> String {
@@ -111,8 +126,14 @@ fn is_our_handler(h: &Value) -> bool {
 /// Key that holds `{event: [entries]}` in the agent's config.
 fn container_key(agent: AgentKind) -> Result<&'static str, SshCoreError> {
     match agent {
-        AgentKind::ClaudeCode | AgentKind::Codex | AgentKind::Grok => Ok("hooks"),
+        AgentKind::ClaudeCode
+        | AgentKind::Codex
+        | AgentKind::Grok
+        | AgentKind::QwenCode
+        | AgentKind::Crush => Ok("hooks"),
         AgentKind::Antigravity => Ok(ANTIGRAVITY_HOOK_KEY),
+        // OpenCode's hooks are a JS plugin, not a JSON container (see `opencode_*`).
+        other => Err(no_hooks(other)),
     }
 }
 
@@ -299,6 +320,10 @@ pub fn hook_events_for(agent: AgentKind) -> Vec<String> {
         AgentKind::Antigravity => &["PreToolUse", "Stop"],
         AgentKind::Codex => &["PermissionRequest", "PreToolUse", "Stop"],
         AgentKind::Grok => &["PreToolUse", "Notification", "Stop"],
+        AgentKind::QwenCode => &["PermissionRequest", "PreToolUse", "Notification", "Stop"],
+        AgentKind::Crush => &["PreToolUse"],
+        AgentKind::OpenCode => &["PreToolUse", "Stop"],
+        AgentKind::Cline | AgentKind::Aider | AgentKind::Goose | AgentKind::OllamaChat => &[],
     };
     events.iter().map(|e| (*e).to_string()).collect()
 }
@@ -379,6 +404,31 @@ fn validate_custom_hook(agent: AgentKind, preset: &HookPreset) -> Result<(), Ssh
     Ok(())
 }
 
+/// The user's matcher in the form the agent reads it. Crush matches tool names with a regex, so a
+/// plain name list `a|b` becomes `^(a|b)$` (and `*` is "every tool"); OpenCode's plugin does the
+/// same with the unanchored text. Other agents take the text as is.
+fn agent_matcher(agent: AgentKind, m: &str) -> Result<String, SshCoreError> {
+    if !matches!(agent, AgentKind::Crush | AgentKind::OpenCode) {
+        return Ok(m.to_string());
+    }
+    if m == "*" {
+        return Ok(if agent == AgentKind::Crush { ".*" } else { "*" }.to_string());
+    }
+    if !m
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '|' | '-'))
+    {
+        return Err(invalid(
+            "For this agent the matcher is a list of tool names separated by | (or *)",
+        ));
+    }
+    Ok(if agent == AgentKind::Crush {
+        format!("^({m})$")
+    } else {
+        m.to_string()
+    })
+}
+
 /// `None` = the agent's default matcher.
 fn validate_approval_matcher(raw: &str) -> Result<Option<String>, SshCoreError> {
     let m = raw.trim();
@@ -440,6 +490,11 @@ pub fn plan_agent_hooks(
         // Grok has no approval prompt a hook can answer, only PreToolUse deny; shell commands
         // are the sensible default so file reads and edits do not flood the phone.
         AgentKind::Grok => ("grok", GROK_TOOL_MATCHER),
+        AgentKind::QwenCode => ("qwen", "*"),
+        // Crush matches the tool name as a regex; OpenCode's plugin builds one from this too.
+        AgentKind::Crush => ("crush", CRUSH_TOOL_MATCHER),
+        AgentKind::OpenCode => ("opencode", OPENCODE_TOOL_MATCHER),
+        other => return Err(no_hooks(other)),
     };
     let planned = |event: &str, matcher: Option<&str>, command: String| PlannedHook {
         event: event.to_string(),
@@ -447,6 +502,11 @@ pub fn plan_agent_hooks(
         command,
     };
     Ok(match preset.kind {
+        HookPresetKind::Custom if matches!(agent, AgentKind::Crush | AgentKind::OpenCode) => {
+            return Err(invalid(
+                "Custom hook commands are not supported for this agent; use the phone approval preset",
+            ))
+        }
         HookPresetKind::Custom => {
             validate_custom_hook(agent, &preset)?;
             // The trailing comment is how uninstall recognises (only) our entries.
@@ -480,10 +540,22 @@ pub fn plan_agent_hooks(
                 (AgentKind::Codex, true) => &["Stop"],
                 (AgentKind::Grok, false) => &["PreToolUse", "Notification", "Stop"],
                 (AgentKind::Grok, true) => &["Notification", "Stop"],
+                (AgentKind::QwenCode, false) => &["PermissionRequest", "Notification", "Stop"],
+                (AgentKind::QwenCode, true) => &["Notification", "Stop"],
+                (AgentKind::Crush, false) => &["PreToolUse"],
+                (AgentKind::Crush, true) => {
+                    return Err(invalid(
+                        "Crush only has a PreToolUse hook, so there is nothing to notify about",
+                    ))
+                }
+                (AgentKind::OpenCode, false) => &["PreToolUse", "Stop"],
+                (AgentKind::OpenCode, true) => &["Stop"],
                 (_, false) => &["PreToolUse", "Stop"],
                 (_, true) => &["Stop"],
             };
             let matcher = validate_approval_matcher(&preset.approval_matcher)?
+                .map(|m| agent_matcher(agent, &m))
+                .transpose()?
                 .unwrap_or_else(|| default_matcher.to_string());
             // Recording events the script handles itself; never part of the default set.
             let optional: &[&str] = match agent {
@@ -529,6 +601,9 @@ pub fn merge_planned_hooks(
     existing: String,
     planned: Vec<PlannedHook>,
 ) -> Result<String, SshCoreError> {
+    if agent == AgentKind::OpenCode {
+        return opencode_plugin(&existing, &planned);
+    }
     let key = container_key(agent)?;
     let mut map = parse_object(&existing)?;
     strip_container(&mut map, key);
@@ -548,6 +623,17 @@ pub fn merge_planned_hooks(
             list.push(handler(h.command.clone()));
             continue;
         }
+        if agent == AgentKind::Crush {
+            // Crush entries are flat: matcher (regex on the tool name), command, timeout (s).
+            let mut entry = Map::new();
+            if let Some(m) = &h.matcher {
+                entry.insert("matcher".into(), json!(m));
+            }
+            entry.insert("command".into(), json!(h.command));
+            entry.insert("timeout".into(), json!(HOOK_TIMEOUT_SECS));
+            list.push(Value::Object(entry));
+            continue;
+        }
         let mut entry = Map::new();
         if let Some(m) = &h.matcher {
             entry.insert("matcher".into(), json!(m));
@@ -565,7 +651,11 @@ fn entries_from(event: &str, list: &Value, out: &mut Vec<PlannedHook>) {
             if let Some(command) = item.get("command").and_then(Value::as_str) {
                 out.push(PlannedHook {
                     event: event.to_string(),
-                    matcher: None,
+                    // Crush's flat entries carry a matcher; Antigravity's do not.
+                    matcher: item
+                        .get("matcher")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
                     command: command.to_string(),
                 });
             }
@@ -626,6 +716,9 @@ pub fn hooks_drift(planned: Vec<PlannedHook>, installed: Vec<PlannedHook>) -> Ve
 /// The ssh-app entries currently present in an agent's config (unparsable/foreign content: none).
 #[uniffi::export]
 pub fn installed_hook_entries(agent: AgentKind, existing: String) -> Vec<PlannedHook> {
+    if agent == AgentKind::OpenCode {
+        return opencode_entries(&existing);
+    }
     let (Ok(map), Ok(key)) = (parse_object(&existing), container_key(agent)) else {
         return vec![];
     };
@@ -642,6 +735,10 @@ pub fn installed_hook_entries(agent: AgentKind, existing: String) -> Vec<Planned
 /// Other settings (e.g. an `env` block with API keys) are never returned, so the app can show it.
 #[uniffi::export]
 pub fn hooks_section_of(agent: AgentKind, config_json: String) -> Result<String, SshCoreError> {
+    if agent == AgentKind::OpenCode {
+        // The plugin file holds no secrets (only the paths and matcher it was generated from).
+        return Ok(config_json);
+    }
     let key = container_key(agent)?;
     let map = parse_object(&config_json)?;
     let section = map.get(key).cloned().unwrap_or(Value::Object(Map::new()));
@@ -652,6 +749,10 @@ pub fn hooks_section_of(agent: AgentKind, config_json: String) -> Result<String,
 /// Removes the ssh-app hooks, leaving every other setting and hook untouched.
 #[uniffi::export]
 pub fn remove_agent_hooks(agent: AgentKind, existing: String) -> Result<String, SshCoreError> {
+    if agent == AgentKind::OpenCode {
+        // The config writer cannot delete a file, so removal leaves an inert plugin of ours.
+        return opencode_plugin(&existing, &[]);
+    }
     let key = container_key(agent)?;
     let mut map = parse_object(&existing)?;
     strip_container(&mut map, key);
@@ -661,6 +762,131 @@ pub fn remove_agent_hooks(agent: AgentKind, existing: String) -> Result<String, 
 #[uniffi::export]
 pub fn agent_hooks_installed(agent: AgentKind, existing: String) -> bool {
     !installed_hook_entries(agent, existing).is_empty()
+}
+
+const OPENCODE_MARKER: &str = "// ssh-app-hook managed plugin; entries=";
+
+/// The planned entries recorded in the plugin's first line (ours only; anything else: none).
+fn opencode_entries(text: &str) -> Vec<PlannedHook> {
+    let Some(line) = text.lines().next() else {
+        return vec![];
+    };
+    let Some(json_text) = line.strip_prefix(OPENCODE_MARKER) else {
+        return vec![];
+    };
+    let Ok(Value::Array(items)) = serde_json::from_str::<Value>(json_text) else {
+        return vec![];
+    };
+    items
+        .iter()
+        .filter_map(|i| {
+            Some(PlannedHook {
+                event: i.get("event")?.as_str()?.to_string(),
+                matcher: i.get("matcher").and_then(Value::as_str).map(str::to_string),
+                command: i.get("command")?.as_str()?.to_string(),
+            })
+        })
+        .collect()
+}
+
+/// Script path (as `("home", "rest")` or `("abs", "/path")`) taken from a planned command of the
+/// form `python3 -I "<path>" ...`; the hook dir was validated to contain no quote or `$` besides
+/// the leading `$HOME`.
+fn script_location(command: &str) -> Option<(&'static str, String)> {
+    let path = command.split('"').nth(1)?;
+    match path.strip_prefix("$HOME/") {
+        Some(rest) => Some(("home", rest.to_string())),
+        None => path.starts_with('/').then(|| ("abs", path.to_string())),
+    }
+}
+
+/// The OpenCode plugin text for `planned` (docs: plugins live in `~/.config/opencode/plugins/`;
+/// `tool.execute.before` blocks a call by throwing). Generated from validated data only, string
+/// values are JSON-escaped; the script is run with `execFile` (no shell). Any failure to ask the
+/// phone (missing script, crash, timeout) throws, i.e. the tool call is blocked, not allowed.
+/// `existing` must be empty or one of our plugins: a foreign file is never overwritten.
+fn opencode_plugin(existing: &str, planned: &[PlannedHook]) -> Result<String, SshCoreError> {
+    if !existing.trim().is_empty() && !existing.starts_with(OPENCODE_MARKER) {
+        return Err(invalid(
+            "The OpenCode plugin file exists and is not ours; refusing to overwrite it",
+        ));
+    }
+    let entries: Vec<Value> = planned
+        .iter()
+        .map(|h| json!({"event": h.event, "matcher": h.matcher, "command": h.command}))
+        .collect();
+    let lit = |s: &str| serde_json::to_string(s).unwrap_or_else(|_| "\"\"".to_string());
+    let location = planned
+        .iter()
+        .find_map(|h| script_location(&h.command))
+        .unwrap_or(("home", format!(".ssh-app/bin/{HOOK_MARKER}")));
+    let script = match location.0 {
+        "home" => format!("join(homedir(), {})", lit(&location.1)),
+        _ => lit(&location.1),
+    };
+    let tool_matcher = planned.iter().find(|h| h.event == "PreToolUse").map(|h| {
+        h.matcher
+            .clone()
+            .unwrap_or_else(|| OPENCODE_TOOL_MATCHER.into())
+    });
+    let has_stop = planned.iter().any(|h| h.event == "Stop");
+    let mut out = format!(
+        "{OPENCODE_MARKER}{}\n// Written by SSH Mobile; edit it through the app. Asks the phone before shell commands run.\n",
+        serde_json::to_string(&entries).map_err(|e| invalid(format!("Failed to serialize: {e}")))?
+    );
+    out.push_str(
+        r#"import { execFile } from "node:child_process"
+import { homedir } from "node:os"
+import { join } from "node:path"
+
+"#,
+    );
+    out.push_str(&format!("const SCRIPT = {script}\n"));
+    out.push_str(
+        r#"
+// Resolves with the script's JSON answer; rejects on any failure, which blocks the tool call.
+function ask(event, payload) {
+  return new Promise((resolve, reject) => {
+    const child = execFile("python3", ["-I", SCRIPT, "opencode", event], { timeout: 135000, maxBuffer: 65536 }, (err, stdout) => {
+      if (err) return reject(err)
+      try { resolve(stdout.trim() ? JSON.parse(stdout) : {}) } catch (e) { reject(e) }
+    })
+    child.stdin.on("error", () => {})
+    child.stdin.end(JSON.stringify(payload))
+  })
+}
+
+export const SshAppPlugin = async ({ directory }) => ({
+"#,
+    );
+    if let Some(m) = tool_matcher {
+        let pattern = if m == "*" {
+            ".".to_string()
+        } else {
+            format!("^(?:{m})$")
+        };
+        out.push_str(&format!(
+            r#"  "tool.execute.before": async (input, output) => {{
+    if (!new RegExp({}).test(String(input.tool))) return
+    const r = await ask("PreToolUse", {{ tool: input.tool, args: output.args, cwd: directory, session: input.sessionID }})
+    if (r.decision === "deny") throw new Error(r.reason || "Denied from ssh-app on your phone")
+  }},
+"#,
+            lit(&pattern)
+        ));
+    }
+    if has_stop {
+        out.push_str(
+            r#"  event: async ({ event }) => {
+    if (event.type === "session.idle") {
+      try { await ask("Stop", { cwd: directory, session: event.properties?.sessionID }) } catch {}
+    }
+  },
+"#,
+        );
+    }
+    out.push_str("})\n");
+    Ok(out)
 }
 
 /// Shell command that atomically writes `content` to `path_expr` (already shell-quoted) with `mode`.
@@ -1153,6 +1379,179 @@ mod tests {
         // Same key in different objects and keys inside strings are fine.
         let ok = r#"{"a":{"x":1},"b":{"x":"{\"x\":1,\"x\":2}"},"c":[{"x":1},{"x":2}]}"#;
         assert!(merge_agent_hooks(AgentKind::ClaudeCode, ok.into(), None).is_ok());
+    }
+
+    fn plan(agent: AgentKind) -> Vec<PlannedHook> {
+        plan_agent_hooks(agent, default_hook_preset(), None).unwrap()
+    }
+
+    #[test]
+    fn qwen_uses_claude_style_grouped_hooks_in_its_settings() {
+        assert_eq!(
+            agent_hooks_config_path(AgentKind::QwenCode, None).unwrap(),
+            "~/.qwen/settings.json"
+        );
+        let p = plan(AgentKind::QwenCode);
+        let events: Vec<_> = p.iter().map(|h| h.event.as_str()).collect();
+        assert_eq!(events, ["PermissionRequest", "Notification", "Stop"]);
+        assert!(p[0]
+            .command
+            .ends_with("ssh-app-hook\" qwen PermissionRequest"));
+        let merged = merge_planned_hooks(
+            AgentKind::QwenCode,
+            r#"{"theme":"dark","hooks":{"PreToolUse":[{"matcher":"x","hooks":[{"type":"command","command":"mine"}]}]}}"#.into(),
+            p.clone(),
+        )
+        .unwrap();
+        let v: Value = serde_json::from_str(&merged).unwrap();
+        assert_eq!(v["theme"], "dark");
+        assert_eq!(
+            v["hooks"]["PermissionRequest"][0]["hooks"][0]["type"],
+            "command"
+        );
+        assert_eq!(
+            installed_hook_entries(AgentKind::QwenCode, merged.clone()),
+            p
+        );
+        let removed = remove_agent_hooks(AgentKind::QwenCode, merged).unwrap();
+        let v: Value = serde_json::from_str(&removed).unwrap();
+        assert_eq!(v["hooks"]["PreToolUse"][0]["hooks"][0]["command"], "mine");
+        assert!(v["hooks"].get("PermissionRequest").is_none());
+    }
+
+    #[test]
+    fn crush_gets_flat_pre_tool_use_entries_with_an_anchored_matcher() {
+        let p = plan(AgentKind::Crush);
+        assert_eq!(p.len(), 1);
+        assert_eq!(p[0].event, "PreToolUse");
+        assert_eq!(p[0].matcher.as_deref(), Some("^bash$"));
+        let merged = merge_planned_hooks(
+            AgentKind::Crush,
+            r#"{"models":{"a":1},"hooks":{"PreToolUse":[{"command":"mine","matcher":"^edit$"}]}}"#
+                .into(),
+            p.clone(),
+        )
+        .unwrap();
+        let v: Value = serde_json::from_str(&merged).unwrap();
+        let list = v["hooks"]["PreToolUse"].as_array().unwrap();
+        assert_eq!(list.len(), 2);
+        assert_eq!(list[1]["matcher"], "^bash$");
+        assert_eq!(list[1]["timeout"], HOOK_TIMEOUT_SECS);
+        assert!(list[1].get("hooks").is_none() && list[1].get("type").is_none());
+        // What is installed equals the plan: no drift is reported.
+        let installed = installed_hook_entries(AgentKind::Crush, merged.clone());
+        assert_eq!(installed, p);
+        assert!(hooks_drift(p, installed).is_empty());
+        // Removal takes only ours and keeps the user's own hook and the rest of the file.
+        let v: Value =
+            serde_json::from_str(&remove_agent_hooks(AgentKind::Crush, merged).unwrap()).unwrap();
+        assert_eq!(v["hooks"]["PreToolUse"].as_array().unwrap().len(), 1);
+        assert_eq!(v["models"]["a"], 1);
+    }
+
+    #[test]
+    fn crush_and_opencode_matchers_are_tool_name_lists() {
+        let preset = |m: &str| HookPreset {
+            approval_matcher: m.into(),
+            ..default_hook_preset()
+        };
+        let crush = plan_agent_hooks(AgentKind::Crush, preset("bash|edit"), None).unwrap();
+        assert_eq!(crush[0].matcher.as_deref(), Some("^(bash|edit)$"));
+        let all = plan_agent_hooks(AgentKind::Crush, preset("*"), None).unwrap();
+        assert_eq!(all[0].matcher.as_deref(), Some(".*"));
+        for bad in ["a.b", "a:b", "(x)", "$"] {
+            assert!(
+                plan_agent_hooks(AgentKind::Crush, preset(bad), None).is_err(),
+                "{bad}"
+            );
+            assert!(
+                plan_agent_hooks(AgentKind::OpenCode, preset(bad), None).is_err(),
+                "{bad}"
+            );
+        }
+        let custom = HookPreset {
+            kind: HookPresetKind::Custom,
+            custom_command: "true".into(),
+            custom_events: vec!["PreToolUse".into()],
+            ..default_hook_preset()
+        };
+        assert!(plan_agent_hooks(AgentKind::Crush, custom.clone(), None).is_err());
+        assert!(plan_agent_hooks(AgentKind::OpenCode, custom, None).is_err());
+        let notify = HookPreset {
+            kind: HookPresetKind::NotifyOnly,
+            ..default_hook_preset()
+        };
+        assert!(plan_agent_hooks(AgentKind::Crush, notify, None).is_err());
+    }
+
+    #[test]
+    fn opencode_plugin_blocks_by_throwing_and_round_trips() {
+        assert_eq!(
+            agent_hooks_config_path(AgentKind::OpenCode, None).unwrap(),
+            "~/.config/opencode/plugins/ssh-app.js"
+        );
+        let p = plan(AgentKind::OpenCode);
+        let text = merge_planned_hooks(AgentKind::OpenCode, String::new(), p.clone()).unwrap();
+        assert!(text.contains("\"tool.execute.before\""));
+        assert!(text.contains("throw new Error"));
+        assert!(text.contains("execFile(\"python3\""), "no shell: {text}");
+        assert!(text.contains("join(homedir(), \".ssh-app/bin/ssh-app-hook\")"));
+        assert!(text.contains("^(?:bash)$"));
+        assert!(text.contains("session.idle"));
+        assert_eq!(installed_hook_entries(AgentKind::OpenCode, text.clone()), p);
+        // Idempotent, and removal leaves an inert plugin of ours (no tool hook, no entries).
+        assert_eq!(
+            merge_planned_hooks(AgentKind::OpenCode, text.clone(), p).unwrap(),
+            text
+        );
+        let removed = remove_agent_hooks(AgentKind::OpenCode, text).unwrap();
+        assert!(!removed.contains("tool.execute.before"));
+        assert!(installed_hook_entries(AgentKind::OpenCode, removed).is_empty());
+    }
+
+    #[test]
+    fn opencode_never_overwrites_a_foreign_plugin_file() {
+        let foreign = "export const Mine = async () => ({})\n";
+        let p = plan(AgentKind::OpenCode);
+        assert!(merge_planned_hooks(AgentKind::OpenCode, foreign.into(), p).is_err());
+        assert!(remove_agent_hooks(AgentKind::OpenCode, foreign.into()).is_err());
+        assert!(installed_hook_entries(AgentKind::OpenCode, foreign.into()).is_empty());
+    }
+
+    #[test]
+    fn opencode_custom_hook_dir_is_used_as_an_absolute_path() {
+        let p = plan_agent_hooks(
+            AgentKind::OpenCode,
+            default_hook_preset(),
+            Some("/opt/hooks".into()),
+        )
+        .unwrap();
+        let text = merge_planned_hooks(AgentKind::OpenCode, String::new(), p).unwrap();
+        assert!(
+            text.contains("const SCRIPT = \"/opt/hooks/ssh-app-hook\""),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn agents_without_hooks_return_typed_errors_everywhere() {
+        for a in [
+            AgentKind::Cline,
+            AgentKind::Aider,
+            AgentKind::Goose,
+            AgentKind::OllamaChat,
+        ] {
+            assert!(!a.has_hooks());
+            assert!(agent_hooks_config_path(a, None).is_err());
+            assert!(plan_agent_hooks(a, default_hook_preset(), None).is_err());
+            assert!(merge_agent_hooks(a, "{}".into(), None).is_err());
+            assert!(remove_agent_hooks(a, "{}".into()).is_err());
+            assert!(hooks_section_of(a, "{}".into()).is_err());
+            assert!(installed_hook_entries(a, "{}".into()).is_empty());
+            assert!(!agent_hooks_installed(a, "{}".into()));
+            assert!(hook_events_for(a).is_empty());
+            assert!(crate::host_guard::host_guard_agent_support(a).is_empty());
+        }
     }
 
     #[test]
