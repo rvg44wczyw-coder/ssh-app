@@ -302,6 +302,72 @@ pub(crate) fn parse_helper_status(out: &str) -> HostHelperStatus {
     HostHelperStatus::Unusable
 }
 
+/// One agent session as the host agent sees it (feature 26).
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct HostAgentSession {
+    pub agent: String,
+    pub session: String,
+    /// approval, finished, waiting or running.
+    pub state: String,
+    pub tmux: Option<String>,
+    pub cwd: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct HostAgentState {
+    pub sessions: Vec<HostAgentSession>,
+    pub pending_approvals: u32,
+}
+
+/// Asks the host agent for its state through `rpc`, which starts the agent if needed and renews
+/// its lease (12 h). Runs only the pinned helper; `HELPER_ABSENT` otherwise.
+pub(crate) fn build_agent_state_command(sha256: &str) -> String {
+    let script = format!(
+        "h={HELPER_PATH_EXPR}; if [ ! -f \"$h\" ] || [ -L \"$h\" ] || \
+         [ \"$(shasum -a 256 < \"$h\" 2>/dev/null | cut -d' ' -f1)\" != '{sha256}' ]; then echo HELPER_ABSENT; \
+         else printf '%s\\n' '{{\"id\":1,\"m\":\"state\"}}' | \"$h\" rpc --lease 43200 2>/dev/null; fi"
+    );
+    crate::hostprobe::login_sh_script(&script, &[], 15)
+}
+
+/// `None` when the helper is not usable (the reply says so) or the agent did not answer.
+pub(crate) fn parse_agent_state(out: &str) -> Option<HostAgentState> {
+    for line in out.lines() {
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(line.trim()) else {
+            continue;
+        };
+        if v.get("id").and_then(|i| i.as_i64()) != Some(1) || v.get("ok") != Some(&true.into()) {
+            continue;
+        }
+        let text = |x: &serde_json::Value, k: &str| {
+            x.get(k)
+                .and_then(|t| t.as_str())
+                .map(|t| t.chars().take(512).collect::<String>())
+        };
+        let sessions = v
+            .get("sessions")?
+            .as_array()?
+            .iter()
+            .take(100)
+            .filter_map(|s| {
+                Some(HostAgentSession {
+                    agent: text(s, "agent")?,
+                    session: text(s, "session")?,
+                    state: text(s, "state")?,
+                    tmux: text(s, "tmux").filter(|t| !t.is_empty()),
+                    cwd: text(s, "cwd").filter(|t| !t.is_empty()),
+                })
+            })
+            .collect();
+        let pending = v.get("pending").and_then(|p| p.as_u64()).unwrap_or(0);
+        return Some(HostAgentState {
+            sessions,
+            pending_approvals: pending.min(1000) as u32,
+        });
+    }
+    None
+}
+
 /// Commands that put `bytes` on the host as the helper: base64 chunks appended to a private part
 /// file, then decoded, hashed against the pin and moved into place only when the digest matches.
 pub(crate) fn build_helper_install_commands(
@@ -411,6 +477,20 @@ pub(crate) const USAGE_PROBE_PY: &str = include_str!("usage_probe.py");
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_agent_state_and_ignores_noise() {
+        let out = "banner\n{\"id\":0,\"ok\":true,\"lease_until\":5}\n{\"id\":1,\"ok\":true,\"pending\":2,\"sessions\":[{\"agent\":\"claude\",\"session\":\"s1\",\"state\":\"approval\",\"tmux\":\"\",\"cwd\":\"/w\"},{\"agent\":1}]}\n";
+        let st = parse_agent_state(out).unwrap();
+        assert_eq!(st.pending_approvals, 2);
+        assert_eq!(st.sessions.len(), 1);
+        assert_eq!(
+            (st.sessions[0].tmux.clone(), st.sessions[0].cwd.clone()),
+            (None, Some("/w".into()))
+        );
+        assert!(parse_agent_state("HELPER_ABSENT\n").is_none());
+        assert!(build_agent_state_command(&"a".repeat(64)).contains("rpc --lease 43200"));
+    }
 
     #[test]
     fn parses_report_and_ignores_banner_noise() {

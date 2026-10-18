@@ -1732,6 +1732,27 @@ fn usage_report_finds_models_in_tmux_sessions_and_reads_transcripts() {
         check(via_helper.clone());
         assert_eq!(via_helper, python, "helper and Python give the same report");
 
+        // 3b. The host agent starts through `rpc`, answers, and is stopped again by the test.
+        let st = handle
+            .host_agent_state(pin.clone())
+            .await
+            .unwrap()
+            .expect("the pinned helper's agent answers");
+        assert!(st.sessions.is_empty() && st.pending_approvals == 0);
+        let hello = handle
+            .execute_command_on_active_session(
+                "printf '%s\\n' '{\"id\":2,\"m\":\"hello\"}' | \"$HOME/.ssh-app/bin/ssh-app-host\" rpc --lease 1"
+                    .to_string(),
+            )
+            .await
+            .unwrap();
+        let pid = hello
+            .lines()
+            .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+            .find_map(|v| (v["id"] == 2).then(|| v["pid"].as_u64()).flatten())
+            .expect("agent pid");
+        assert!(Command::new("kill").arg(pid.to_string()).status().unwrap().success());
+
         // 4. A replaced helper is never run: status says mismatch and usage falls back.
         std::fs::write(
             &installed,
@@ -1747,6 +1768,10 @@ fn usage_report_finds_models_in_tmux_sessions_and_reads_transcripts() {
             fetch_host_usage(cfg.clone(), vec![], Some(pin.clone()))
                 .await
                 .unwrap(),
+        );
+        assert!(
+            handle.host_agent_state(pin.clone()).await.unwrap().is_none(),
+            "a replaced helper is not asked for agent state"
         );
 
         // 5. A wrong digest from the caller is refused before any byte is sent.

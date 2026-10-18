@@ -83,5 +83,6 @@ Done: `agent` (lease, socket, `getpeereid`, kqueue watcher on `run/pending` and 
 state derivation and diff, `EventSink`), `rpc`, subcommands `agent` and `rpc`, `hello` cap
 `agent`. Tests `crates/host/tests/agent.rs` (reuse, state and events, closed method list, lease
 exit, stale socket, one subscription per connection). Live: idle 0.0 % CPU, 2.6 MB RSS. Security
-pass: `docs/security-findings/2026-10-18-host-agent-p2.md`. Not done (as in section 5): core/Swift
-wiring, `tmux -C`, usage index.
+pass: `docs/security-findings/2026-10-18-host-agent-p2.md`. Core/Swift wiring done: `host_agent_state(expected_sha256)` (pinned helper only, starts the agent
+through `rpc`, lease 12 h), Agent row in the Host service card (user-triggered, never automatic),
+loopback test starts and stops a real agent. Not done: `tmux -C`, usage index.

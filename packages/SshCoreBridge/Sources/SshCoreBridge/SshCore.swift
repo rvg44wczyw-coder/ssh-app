@@ -1270,6 +1270,12 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func fetchRemoteShellHistory(limit: UInt32) async throws  -> [String]
     
     /**
+     * State of the agent sessions from the host agent (started on demand, lease 12 h); `None`
+     * when the pinned helper is not installed or the agent does not answer.
+     */
+    func hostAgentState(expectedSha256: String) async throws  -> HostAgentState?
+    
+    /**
      * Whether the typed host helper is installed and is exactly the build the app pins.
      */
     func hostHelperStatus(expectedSha256: String) async throws  -> HostHelperStatus
@@ -1850,6 +1856,26 @@ open func fetchRemoteShellHistory(limit: UInt32)async throws  -> [String]  {
             completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
             freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
             liftFunc: FfiConverterSequenceString.lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * State of the agent sessions from the host agent (started on demand, lease 12 h); `None`
+     * when the pinned helper is not installed or the agent does not answer.
+     */
+open func hostAgentState(expectedSha256: String)async throws  -> HostAgentState?  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_host_agent_state(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(expectedSha256)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterOptionTypeHostAgentState.lift,
             errorHandler: FfiConverterTypeSshCoreError_lift
         )
 }
@@ -4141,6 +4167,135 @@ public func FfiConverterTypeHookTemplate_lift(_ buf: RustBuffer) throws -> HookT
 #endif
 public func FfiConverterTypeHookTemplate_lower(_ value: HookTemplate) -> RustBuffer {
     return FfiConverterTypeHookTemplate.lower(value)
+}
+
+
+/**
+ * One agent session as the host agent sees it (feature 26).
+ */
+public struct HostAgentSession: Equatable, Hashable {
+    public var agent: String
+    public var session: String
+    /**
+     * approval, finished, waiting or running.
+     */
+    public var state: String
+    public var tmux: String?
+    public var cwd: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(agent: String, session: String, 
+        /**
+         * approval, finished, waiting or running.
+         */state: String, tmux: String?, cwd: String?) {
+        self.agent = agent
+        self.session = session
+        self.state = state
+        self.tmux = tmux
+        self.cwd = cwd
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension HostAgentSession: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHostAgentSession: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HostAgentSession {
+        return
+            try HostAgentSession(
+                agent: FfiConverterString.read(from: &buf), 
+                session: FfiConverterString.read(from: &buf), 
+                state: FfiConverterString.read(from: &buf), 
+                tmux: FfiConverterOptionString.read(from: &buf), 
+                cwd: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: HostAgentSession, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.agent, into: &buf)
+        FfiConverterString.write(value.session, into: &buf)
+        FfiConverterString.write(value.state, into: &buf)
+        FfiConverterOptionString.write(value.tmux, into: &buf)
+        FfiConverterOptionString.write(value.cwd, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHostAgentSession_lift(_ buf: RustBuffer) throws -> HostAgentSession {
+    return try FfiConverterTypeHostAgentSession.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHostAgentSession_lower(_ value: HostAgentSession) -> RustBuffer {
+    return FfiConverterTypeHostAgentSession.lower(value)
+}
+
+
+public struct HostAgentState: Equatable, Hashable {
+    public var sessions: [HostAgentSession]
+    public var pendingApprovals: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(sessions: [HostAgentSession], pendingApprovals: UInt32) {
+        self.sessions = sessions
+        self.pendingApprovals = pendingApprovals
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension HostAgentState: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHostAgentState: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HostAgentState {
+        return
+            try HostAgentState(
+                sessions: FfiConverterSequenceTypeHostAgentSession.read(from: &buf), 
+                pendingApprovals: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: HostAgentState, into buf: inout [UInt8]) {
+        FfiConverterSequenceTypeHostAgentSession.write(value.sessions, into: &buf)
+        FfiConverterUInt32.write(value.pendingApprovals, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHostAgentState_lift(_ buf: RustBuffer) throws -> HostAgentState {
+    return try FfiConverterTypeHostAgentState.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHostAgentState_lower(_ value: HostAgentState) -> RustBuffer {
+    return FfiConverterTypeHostAgentState.lower(value)
 }
 
 
@@ -8622,6 +8777,30 @@ fileprivate struct FfiConverterOptionTypeAgentPermissions: FfiConverterRustBuffe
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeHostAgentState: FfiConverterRustBuffer {
+    typealias SwiftType = HostAgentState?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeHostAgentState.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeHostAgentState.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeOllamaLoad: FfiConverterRustBuffer {
     typealias SwiftType = OllamaLoad?
 
@@ -8888,6 +9067,31 @@ fileprivate struct FfiConverterSequenceTypeHookTemplate: FfiConverterRustBuffer 
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeHookTemplate.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeHostAgentSession: FfiConverterRustBuffer {
+    typealias SwiftType = [HostAgentSession]
+
+    public static func write(_ value: [HostAgentSession], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeHostAgentSession.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [HostAgentSession] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [HostAgentSession]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeHostAgentSession.read(from: &buf))
         }
         return seq
     }
@@ -10656,6 +10860,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_fetch_remote_shell_history() != 12286) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_host_agent_state() != 3503) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_host_helper_status() != 63277) {

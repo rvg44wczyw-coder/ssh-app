@@ -9,6 +9,8 @@ struct HostHelperCard: View {
     @State private var status: HostHelperStatus?
     @State private var busy = false
     @State private var error: String?
+    @State private var agent: HostAgentState?
+    @State private var agentChecked = false
 
     private var pin: String? { bundledHostHelperSha256() }
 
@@ -19,8 +21,11 @@ struct HostHelperCard: View {
             if let pin {
                 Text("ssh-app-host · \(bundledHostHelperSize() / 1024) KB · sha256 \(pin.prefix(12))…")
                     .font(.system(size: 10, design: .monospaced)).foregroundColor(.secondary)
-                Text("Installs to ~/.ssh-app/bin/ssh-app-host (mode 700). Nothing is started in the background.")
+                Text("Installs to ~/.ssh-app/bin/ssh-app-host (mode 700). Nothing runs in the background until you check the agent below.")
                     .font(.caption2).foregroundColor(.secondary)
+            }
+            if isReady, viewModel.sessionHandle != nil, viewModel.state == .connected {
+                agentSection
             }
             if let error { Text(error).font(.caption).foregroundColor(.red) }
             if busy {
@@ -35,6 +40,32 @@ struct HostHelperCard: View {
         .padding(12)
         .background(RoundedRectangle(cornerRadius: 12).fill(Color.appSecondaryBackground))
         .task(id: viewModel.state == .connected) { await refresh() }
+    }
+
+    @ViewBuilder
+    private var agentSection: some View {
+        Divider()
+        Text("Agent").font(.subheadline.bold())
+        Text("Starts a small process on the host that tracks your agents' state (approval, finished, waiting). It exits by itself 12 hours after the last contact from this phone and uses no CPU while idle.")
+            .font(.caption2).foregroundColor(.secondary)
+        if let agent {
+            Text(agent.sessions.isEmpty ? "No agent sessions seen yet." : "\(agent.sessions.count) session(s), \(agent.pendingApprovals) awaiting approval")
+                .font(.caption)
+            ForEach(Array(agent.sessions.enumerated()), id: \.offset) { _, s in
+                Text("\(s.agent) · \(s.session) · \(s.state)")
+                    .font(.system(size: 11, design: .monospaced))
+            }
+        } else if agentChecked {
+            Text("The agent did not answer.").font(.caption).foregroundColor(.orange)
+        }
+        Button(agentChecked ? "Refresh agent state" : "Check agent") { Task { await checkAgent() } }
+            .buttonStyle(.bordered)
+    }
+
+    private func checkAgent() async {
+        guard let pin, let handle = viewModel.sessionHandle else { return }
+        agent = try? await handle.hostAgentState(expectedSha256: pin)
+        agentChecked = true
     }
 
     private var isReady: Bool { if case .ready = status { return true }; return false }

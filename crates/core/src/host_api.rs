@@ -721,6 +721,21 @@ impl SshSessionHandle {
         Ok(crate::usage::parse_helper_status(&out))
     }
 
+    /// State of the agent sessions from the host agent (started on demand, lease 12 h); `None`
+    /// when the pinned helper is not installed or the agent does not answer.
+    pub async fn host_agent_state(
+        &self,
+        expected_sha256: String,
+    ) -> Result<Option<crate::usage::HostAgentState>, SshCoreError> {
+        crate::usage::validate_sha256(&expected_sha256)?;
+        let out = self
+            .execute_command_on_active_session(crate::usage::build_agent_state_command(
+                &expected_sha256,
+            ))
+            .await?;
+        Ok(crate::usage::parse_agent_state(&out))
+    }
+
     /// Installs the helper the app ships (`~/.ssh-app/bin/ssh-app-host`, mode 700). The digest is
     /// checked here, again on the host before the file is moved into place, and the result is
     /// refused when it differs. Nothing is executed during the install.
