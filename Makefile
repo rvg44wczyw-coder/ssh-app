@@ -38,6 +38,7 @@ ios-build:
 		-derivedDataPath $(DERIVED_DATA) \
 		-skipPackagePluginValidation \
 		-allowProvisioningUpdates \
+		-allowProvisioningDeviceRegistration \
 		build
 
 ios-install:
