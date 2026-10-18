@@ -707,6 +707,42 @@ impl SshSessionHandle {
         self.write_remote_config(&path, &existing, &merged).await
     }
 
+    /// Whether the typed host helper is installed and is exactly the build the app pins.
+    pub async fn host_helper_status(
+        &self,
+        expected_sha256: String,
+    ) -> Result<crate::usage::HostHelperStatus, SshCoreError> {
+        crate::usage::validate_sha256(&expected_sha256)?;
+        let out = self
+            .execute_command_on_active_session(crate::usage::build_helper_status_command(
+                &expected_sha256,
+            ))
+            .await?;
+        Ok(crate::usage::parse_helper_status(&out))
+    }
+
+    /// Installs the helper the app ships (`~/.ssh-app/bin/ssh-app-host`, mode 700). The digest is
+    /// checked here, again on the host before the file is moved into place, and the result is
+    /// refused when it differs. Nothing is executed during the install.
+    pub async fn install_host_helper(
+        &self,
+        bytes: Vec<u8>,
+        sha256: String,
+    ) -> Result<(), SshCoreError> {
+        let cmds = crate::usage::build_helper_install_commands(&bytes, &sha256)?;
+        let last = cmds.len() - 1;
+        for (i, cmd) in cmds.into_iter().enumerate() {
+            let out = self.execute_command_on_active_session(cmd).await?;
+            if i == last && !out.contains("HELPER_INSTALLED") {
+                return Err(SshCoreError::IoError {
+                    reason: "The host helper did not install (digest mismatch on the host)"
+                        .to_string(),
+                });
+            }
+        }
+        Ok(())
+    }
+
     /// Removes the wrapper and restores the user's previous status line.
     pub async fn uninstall_claude_statusline(
         &self,

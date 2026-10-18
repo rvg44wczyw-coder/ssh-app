@@ -499,12 +499,25 @@ pub async fn fetch_host_telemetry_once(
 pub async fn fetch_host_usage(
     config: RemoteServerConfig,
     config_dirs: Vec<String>,
+    helper_sha256: Option<String>,
 ) -> Result<crate::usage::HostUsageReport, SshCoreError> {
     crate::usage::validate_config_dirs(&config_dirs)?;
+    if let Some(pin) = &helper_sha256 {
+        crate::usage::validate_sha256(pin)?;
+    }
     let handle = RUNTIME.spawn(async move {
-        let cmd = crate::usage::build_usage_command(&config_dirs);
+        let cmd = crate::usage::build_usage_command(&config_dirs, helper_sha256.as_deref());
         let raw = execute_remote_command_internal(&config, &cmd).await?;
-        crate::usage::parse_usage_report(&raw)
+        match crate::usage::parse_usage_report(&raw) {
+            Ok(report) => Ok(report),
+            // A helper that answered with something unreadable must not break the usage line.
+            Err(_) if helper_sha256.is_some() => {
+                let cmd = crate::usage::build_usage_command(&config_dirs, None);
+                let raw = execute_remote_command_internal(&config, &cmd).await?;
+                crate::usage::parse_usage_report(&raw)
+            }
+            Err(e) => Err(e),
+        }
     });
     handle.await.map_err(|e| SshCoreError::ConnectionError {
         reason: format!("Task join error: {e}"),

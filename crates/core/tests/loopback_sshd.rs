@@ -1659,33 +1659,119 @@ fn usage_report_finds_models_in_tmux_sessions_and_reads_transcripts() {
         private_key_pem: server.private_key.clone(),
         pinned_host_key: None,
     };
+    // The typed helper, built from this repository (the app ships the same build).
+    let helper = build_host_helper();
+    let helper_bytes = std::fs::read(&helper).unwrap();
+    let pin = {
+        use sha2::{Digest, Sha256};
+        hex::encode(Sha256::digest(&helper_bytes))
+    };
+    let handle = connect(&server);
     rt.block_on(async {
-        // Bad directories are refused before anything reaches the host.
-        assert!(fetch_host_usage(cfg.clone(), vec!["a\nb".into()])
+        // Bad directories and a bad pin are refused before anything reaches the host.
+        assert!(fetch_host_usage(cfg.clone(), vec!["a\nb".into()], None)
             .await
             .is_err());
-        let r = fetch_host_usage(cfg.clone(), vec![]).await.unwrap();
-        assert!(!r.partial);
-        let by = |n: &str| r.sessions.iter().find(|s| s.session == n);
-        assert!(by(&plain).is_none(), "no model runs there: {r:?}");
+        assert!(fetch_host_usage(cfg.clone(), vec![], Some("nothex".into()))
+            .await
+            .is_err());
+        let check = |r: ssh_core::usage::HostUsageReport| {
+            assert!(!r.partial);
+            let by = |n: &str| r.sessions.iter().find(|s| s.session == n);
+            assert!(by(&plain).is_none(), "no model runs there: {r:?}");
 
-        let c = by(&claude).unwrap_or_else(|| panic!("claude session missing: {r:?}"));
-        assert_eq!(c.agent.as_deref(), Some("claude"));
-        assert_eq!(c.model.as_deref(), Some("claude-test"));
-        assert_eq!(c.context_used, Some(100 + 200 + 5000 + 150_000));
-        assert_eq!(c.context_limit, Some(200_000));
-        assert_eq!(c.limit_reset_epoch, Some(now + 3600));
-        assert!(c.limit_note.as_deref().unwrap().contains("limit reached"));
+            let c = by(&claude).unwrap_or_else(|| panic!("claude session missing: {r:?}"));
+            assert_eq!(c.agent.as_deref(), Some("claude"));
+            assert_eq!(c.model.as_deref(), Some("claude-test"));
+            assert_eq!(c.context_used, Some(100 + 200 + 5000 + 150_000));
+            assert_eq!(c.context_limit, Some(200_000));
+            assert_eq!(c.limit_reset_epoch, Some(now + 3600));
+            assert!(c.limit_note.as_deref().unwrap().contains("limit reached"));
 
-        let o = by(&llm).unwrap_or_else(|| panic!("ollama session missing: {r:?}"));
-        assert_eq!(o.agent.as_deref(), Some("ollama"));
-        assert_eq!(o.model.as_deref(), Some("qwen2.5-coder"));
+            let o = by(&llm).unwrap_or_else(|| panic!("ollama session missing: {r:?}"));
+            assert_eq!(o.agent.as_deref(), Some("ollama"));
+            assert_eq!(o.model.as_deref(), Some("qwen2.5-coder"));
 
-        // 5 h window: only the recent message (duplicate dropped); 7 d: the old one too.
-        assert_eq!((r.five_hour.messages, r.five_hour.input), (1, 100));
-        assert_eq!(r.five_hour.cache_read, 150_000);
-        assert_eq!((r.week.messages, r.week.input), (2, 107));
+            // 5 h window: only the recent message (duplicate dropped); 7 d: the old one too.
+            assert_eq!((r.five_hour.messages, r.five_hour.input), (1, 100));
+            assert_eq!(r.five_hour.cache_read, 150_000);
+            assert_eq!((r.week.messages, r.week.input), (2, 107));
+        };
+
+        // 1. Embedded Python probe (no helper installed, no pin).
+        let python = fetch_host_usage(cfg.clone(), vec![], None).await.unwrap();
+        check(python.clone());
+
+        // 2. A pin without an installed helper falls back to Python.
+        assert_eq!(
+            handle.host_helper_status(pin.clone()).await.unwrap(),
+            ssh_core::usage::HostHelperStatus::Absent
+        );
+        check(
+            fetch_host_usage(cfg.clone(), vec![], Some(pin.clone()))
+                .await
+                .unwrap(),
+        );
+
+        // 3. Install (digest checked on the host), then the helper answers the same report.
+        handle
+            .install_host_helper(helper_bytes.clone(), pin.clone())
+            .await
+            .unwrap();
+        let installed = server.home.join(".ssh-app/bin/ssh-app-host");
+        assert_eq!(std::fs::read(&installed).unwrap(), helper_bytes);
+        let mode = std::fs::metadata(&installed).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o700);
+        assert!(matches!(
+            handle.host_helper_status(pin.clone()).await.unwrap(),
+            ssh_core::usage::HostHelperStatus::Ready { .. }
+        ));
+        let via_helper = fetch_host_usage(cfg.clone(), vec![], Some(pin.clone()))
+            .await
+            .unwrap();
+        check(via_helper.clone());
+        assert_eq!(via_helper, python, "helper and Python give the same report");
+
+        // 4. A replaced helper is never run: status says mismatch and usage falls back.
+        std::fs::write(
+            &installed,
+            "#!/bin/sh\necho '{\"sessions\":[],\"evil\":1}'\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&installed, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert_eq!(
+            handle.host_helper_status(pin.clone()).await.unwrap(),
+            ssh_core::usage::HostHelperStatus::Mismatch
+        );
+        check(
+            fetch_host_usage(cfg.clone(), vec![], Some(pin.clone()))
+                .await
+                .unwrap(),
+        );
+
+        // 5. A wrong digest from the caller is refused before any byte is sent.
+        assert!(handle
+            .install_host_helper(helper_bytes.clone(), "0".repeat(64))
+            .await
+            .is_err());
     });
+    handle.disconnect();
+}
+
+/// Builds `ssh-app-host` with cargo (the same crate the app bundles) and returns its path.
+fn build_host_helper() -> PathBuf {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".into());
+    let status = Command::new(cargo)
+        .args(["build", "-q", "-p", "ssh-app-host"])
+        .current_dir(&root)
+        .status()
+        .expect("cargo build ssh-app-host");
+    assert!(status.success(), "building ssh-app-host failed");
+    let target = std::env::var_os("CARGO_TARGET_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| root.join("target"));
+    target.join("debug/ssh-app-host")
 }
 
 #[test]
