@@ -850,9 +850,15 @@ fn git_diff_runs_in_the_terminals_directory_on_loopback_sshd() {
     git(&["init", "-q"]);
     std::fs::write(repo.join("a.txt"), "one\n").unwrap();
     git(&["add", "a.txt"]);
+    std::fs::write(repo.join("b.txt"), "b\n").unwrap();
+    git(&["add", "b.txt"]);
     git(&["commit", "-q", "-m", "init"]);
     std::fs::write(repo.join("a.txt"), "one\ntwo\n").unwrap();
     std::fs::write(repo.join("new.txt"), "x\n").unwrap();
+    std::fs::remove_file(repo.join("b.txt")).unwrap();
+    std::fs::create_dir_all(repo.join("sub")).unwrap();
+    std::fs::write(repo.join("sub/added.txt"), "s\n").unwrap();
+    git(&["add", "sub/added.txt"]);
     start(&sessions[0], &repo);
 
     // A directory that is not a repo (what the old command effectively ran in).
@@ -886,6 +892,31 @@ fn git_diff_runs_in_the_terminals_directory_on_loopback_sshd() {
         );
         assert!(!r.diff.contains("usage:"), "{}", r.diff);
         assert_eq!(r.untracked, ["new.txt"]);
+
+        // File states for the file browser (absolute paths, asked from a sub folder).
+        use ssh_core::GitFileState as S;
+        let st = handle
+            .fetch_git_status(repo.join("sub").to_str().unwrap().to_string())
+            .await
+            .unwrap();
+        assert!(st.is_repo, "{st:?}");
+        assert_eq!(st.repo_root.as_deref(), repo.to_str());
+        let state = |name: &str| {
+            let p = repo.join(name);
+            st.changes
+                .iter()
+                .find(|c| c.path == p.to_str().unwrap())
+                .map(|c| c.state)
+        };
+        assert_eq!(state("a.txt"), Some(S::Modified), "{st:?}");
+        assert_eq!(state("new.txt"), Some(S::Untracked), "{st:?}");
+        assert_eq!(state("b.txt"), Some(S::Deleted), "{st:?}");
+        assert_eq!(state("sub/added.txt"), Some(S::Added), "{st:?}");
+        let plain_st = handle
+            .fetch_git_status(root.join("plain").to_str().unwrap().to_string())
+            .await
+            .unwrap();
+        assert!(!plain_st.is_repo, "{plain_st:?}");
 
         let r = fetch_ready(&handle, sessions[1].clone()).await.unwrap();
         assert_eq!(r.status, GitDiffStatus::NotARepo, "{r:?}");

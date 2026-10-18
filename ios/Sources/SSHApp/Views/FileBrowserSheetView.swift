@@ -9,6 +9,8 @@ public struct FileBrowserSheetView: View {
     @State private var showHidden: Bool = false
     @State private var searchText: String = ""
     @State private var showPreview: Bool = false
+    @State private var showDiff: Bool = false
+    @State private var showLog: Bool = false
 
     public init(viewModel: TerminalSessionViewModel, onClose: (() -> Void)? = nil) {
         self.viewModel = viewModel
@@ -31,12 +33,40 @@ public struct FileBrowserSheetView: View {
         return entries.filter { $0.name.localizedCaseInsensitiveContains(q) }
     }
 
+    /// Git state per absolute path, and per folder the strongest state inside it.
+    private var fileStates: [String: GitFileState] {
+        Dictionary(viewModel.gitStatus?.changes.map { ($0.path, $0.state) } ?? [], uniquingKeysWith: { a, _ in a })
+    }
+
+    private func folderState(_ dir: String) -> GitFileState? {
+        let prefix = dir + "/"
+        let inside = (viewModel.gitStatus?.changes ?? []).filter { $0.path.hasPrefix(prefix) }.map(\.state)
+        return GitStatePresentation.strongest(inside)
+    }
+
+    /// Files git reports as deleted that belonged to the listed folder (they are gone from `ls`).
+    private var deletedHere: [String] {
+        guard let dir = viewModel.fileListing?.currentPath else { return [] }
+        let q = searchText.trimmingCharacters(in: .whitespaces)
+        return (viewModel.gitStatus?.changes ?? []).compactMap { c in
+            guard c.state == .deleted, c.path.hasPrefix(dir + "/") else { return nil }
+            let name = String(c.path.dropFirst(dir.count + 1))
+            guard !name.contains("/"), q.isEmpty || name.localizedCaseInsensitiveContains(q) else { return nil }
+            return name
+        }.sorted()
+    }
+
     private func icon(for kind: RemoteFileKind) -> String {
         switch kind {
         case .directory: return "folder.fill"
         case .symlink: return "link"
         case .file: return "doc.text"
         }
+    }
+
+    private func nameColor(_ entry: RemoteFileEntry) -> Color {
+        let state = entry.kind == .directory ? folderState(entry.path) : fileStates[entry.path]
+        return state.map(GitStatePresentation.color) ?? .primary
     }
 
     private func sizeText(_ bytes: UInt64) -> String {
@@ -48,6 +78,12 @@ public struct FileBrowserSheetView: View {
             VStack(spacing: 0) {
                 if let listing = viewModel.fileListing {
                     HStack(spacing: 8) {
+                        if let branch = viewModel.gitStatus?.branch {
+                            Label(branch, systemImage: "arrow.triangle.branch")
+                                .font(.caption.bold())
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                        }
                         Text(listing.currentPath)
                             .font(.system(size: 12, design: .monospaced))
                             .lineLimit(1)
@@ -80,6 +116,18 @@ public struct FileBrowserSheetView: View {
                             Label("..", systemImage: "arrow.up.left")
                         }
                     }
+                    ForEach(deletedHere, id: \.self) { name in
+                        HStack {
+                            Image(systemName: "doc.text").foregroundColor(GitStatePresentation.color(.deleted))
+                            Text(name)
+                                .font(.system(size: 14, design: .monospaced))
+                                .strikethrough()
+                                .foregroundColor(GitStatePresentation.color(.deleted))
+                                .lineLimit(1)
+                            Spacer()
+                            GitStateBadge(state: .deleted)
+                        }
+                    }
                     ForEach(filteredEntries, id: \.path) { entry in
                         Button(action: {
                             if entry.kind == .directory {
@@ -95,8 +143,12 @@ public struct FileBrowserSheetView: View {
                                     .foregroundColor(entry.kind == .directory ? .yellow : .secondary)
                                 Text(entry.name)
                                     .font(.system(size: 14, design: .monospaced))
+                                    .foregroundColor(nameColor(entry))
                                     .lineLimit(1)
                                 Spacer()
+                                if let s = entry.kind == .directory ? folderState(entry.path) : fileStates[entry.path] {
+                                    GitStateBadge(state: s, folder: entry.kind == .directory)
+                                }
                                 if entry.kind == .file {
                                     Text(sizeText(entry.sizeBytes))
                                         .font(.caption2)
@@ -124,6 +176,24 @@ public struct FileBrowserSheetView: View {
                     Button("Close") { closeSheet() }
                 }
                 ToolbarItemGroup(placement: .primaryAction) {
+                    if let git = viewModel.gitStatus {
+                        Button(action: { showDiff = true }) {
+                            Image(systemName: "plusminus.circle")
+                                .overlay(alignment: .topTrailing) {
+                                    if !git.changes.isEmpty {
+                                        Text("\(git.changes.count)\(git.truncated ? "+" : "")")
+                                            .font(.system(size: 9, weight: .bold))
+                                            .padding(.horizontal, 3)
+                                            .background(Capsule().fill(Color.orange))
+                                            .foregroundColor(.black)
+                                            .offset(x: 8, y: -6)
+                                    }
+                                }
+                        }
+                        .accessibilityLabel("Changes")
+                        Button(action: { showLog = true }) { Image(systemName: "clock.arrow.circlepath") }
+                            .accessibilityLabel("Git log")
+                    }
                     Button(action: { load("~") }) { Image(systemName: "house") }
                         .accessibilityLabel("Home")
                     Button(action: {
@@ -137,6 +207,12 @@ public struct FileBrowserSheetView: View {
             }
             .sheet(isPresented: $showPreview) {
                 FilePreviewView(viewModel: viewModel)
+            }
+            .sheet(isPresented: $showDiff) {
+                DiffViewerSheetView(viewModel: viewModel)
+            }
+            .sheet(isPresented: $showLog) {
+                GitLogSheetView(viewModel: viewModel)
             }
             .onAppear { if viewModel.fileListing == nil { load(nil) } }
         }

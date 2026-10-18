@@ -1387,6 +1387,12 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func fetchGitShow(sessionName: String, hash: String) async throws  -> GitDiffResult
     
     /**
+     * Which files of the repository containing `dir` are new, changed or deleted (for the file
+     * browser). `is_repo` is false outside a repository.
+     */
+    func fetchGitStatus(dir: String) async throws  -> GitStatusResult
+    
+    /**
      * Collects a snapshot of remote host telemetry (CPU load, RAM, Disk, Battery, and AI/dev processes).
      */
     func fetchHostTelemetry() async throws  -> HostTelemetrySnapshot
@@ -1954,6 +1960,26 @@ open func fetchGitShow(sessionName: String, hash: String)async throws  -> GitDif
             completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
             freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
             liftFunc: FfiConverterTypeGitDiffResult_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Which files of the repository containing `dir` are new, changed or deleted (for the file
+     * browser). `is_repo` is false outside a repository.
+     */
+open func fetchGitStatus(dir: String)async throws  -> GitStatusResult  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_fetch_git_status(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(dir)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeGitStatusResult_lift,
             errorHandler: FfiConverterTypeSshCoreError_lift
         )
 }
@@ -3980,6 +4006,66 @@ public func FfiConverterTypeGitDiffResult_lower(_ value: GitDiffResult) -> RustB
 }
 
 
+public struct GitFileChange: Equatable, Hashable {
+    /**
+     * Absolute path on the host.
+     */
+    public var path: String
+    public var state: GitFileState
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Absolute path on the host.
+         */path: String, state: GitFileState) {
+        self.path = path
+        self.state = state
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension GitFileChange: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeGitFileChange: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> GitFileChange {
+        return
+            try GitFileChange(
+                path: FfiConverterString.read(from: &buf), 
+                state: FfiConverterTypeGitFileState.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: GitFileChange, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.path, into: &buf)
+        FfiConverterTypeGitFileState.write(value.state, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGitFileChange_lift(_ buf: RustBuffer) throws -> GitFileChange {
+    return try FfiConverterTypeGitFileChange.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGitFileChange_lower(_ value: GitFileChange) -> RustBuffer {
+    return FfiConverterTypeGitFileChange.lower(value)
+}
+
+
 public struct GitLogEntry: Equatable, Hashable {
     public var hash: String
     public var shortHash: String
@@ -4135,6 +4221,84 @@ public func FfiConverterTypeGitLogResult_lift(_ buf: RustBuffer) throws -> GitLo
 #endif
 public func FfiConverterTypeGitLogResult_lower(_ value: GitLogResult) -> RustBuffer {
     return FfiConverterTypeGitLogResult.lower(value)
+}
+
+
+public struct GitStatusResult: Equatable, Hashable {
+    /**
+     * False when the folder is not inside a git repository (or git is missing).
+     */
+    public var isRepo: Bool
+    public var repoRoot: String?
+    public var branch: String?
+    public var changes: [GitFileChange]
+    /**
+     * More changes than the app shows, or the host output was cut.
+     */
+    public var truncated: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * False when the folder is not inside a git repository (or git is missing).
+         */isRepo: Bool, repoRoot: String?, branch: String?, changes: [GitFileChange], 
+        /**
+         * More changes than the app shows, or the host output was cut.
+         */truncated: Bool) {
+        self.isRepo = isRepo
+        self.repoRoot = repoRoot
+        self.branch = branch
+        self.changes = changes
+        self.truncated = truncated
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension GitStatusResult: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeGitStatusResult: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> GitStatusResult {
+        return
+            try GitStatusResult(
+                isRepo: FfiConverterBool.read(from: &buf), 
+                repoRoot: FfiConverterOptionString.read(from: &buf), 
+                branch: FfiConverterOptionString.read(from: &buf), 
+                changes: FfiConverterSequenceTypeGitFileChange.read(from: &buf), 
+                truncated: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: GitStatusResult, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.isRepo, into: &buf)
+        FfiConverterOptionString.write(value.repoRoot, into: &buf)
+        FfiConverterOptionString.write(value.branch, into: &buf)
+        FfiConverterSequenceTypeGitFileChange.write(value.changes, into: &buf)
+        FfiConverterBool.write(value.truncated, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGitStatusResult_lift(_ buf: RustBuffer) throws -> GitStatusResult {
+    return try FfiConverterTypeGitStatusResult.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGitStatusResult_lower(_ value: GitStatusResult) -> RustBuffer {
+    return FfiConverterTypeGitStatusResult.lower(value)
 }
 
 
@@ -7242,6 +7406,109 @@ public func FfiConverterTypeGitDiffStatus_lower(_ value: GitDiffStatus) -> RustB
 
 
 
+public enum GitFileState: Equatable, Hashable {
+    
+    /**
+     * Staged as new (`git add` on a file git did not know).
+     */
+    case added
+    /**
+     * A file git does not track yet.
+     */
+    case untracked
+    case modified
+    case deleted
+    case renamed
+    /**
+     * Unmerged (conflict).
+     */
+    case conflicted
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension GitFileState: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeGitFileState: FfiConverterRustBuffer {
+    typealias SwiftType = GitFileState
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> GitFileState {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .added
+        
+        case 2: return .untracked
+        
+        case 3: return .modified
+        
+        case 4: return .deleted
+        
+        case 5: return .renamed
+        
+        case 6: return .conflicted
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: GitFileState, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .added:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .untracked:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .modified:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .deleted:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .renamed:
+            writeInt(&buf, Int32(5))
+        
+        
+        case .conflicted:
+            writeInt(&buf, Int32(6))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGitFileState_lift(_ buf: RustBuffer) throws -> GitFileState {
+    return try FfiConverterTypeGitFileState.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGitFileState_lower(_ value: GitFileState) -> RustBuffer {
+    return FfiConverterTypeGitFileState.lower(value)
+}
+
+
+
+
 public enum HookPresetKind: Equatable, Hashable {
     
     /**
@@ -9415,6 +9682,31 @@ fileprivate struct FfiConverterSequenceTypeFuzzyMatchResult: FfiConverterRustBuf
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeGitFileChange: FfiConverterRustBuffer {
+    typealias SwiftType = [GitFileChange]
+
+    public static func write(_ value: [GitFileChange], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeGitFileChange.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [GitFileChange] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [GitFileChange]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeGitFileChange.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeGitLogEntry: FfiConverterRustBuffer {
     typealias SwiftType = [GitLogEntry]
 
@@ -11247,6 +11539,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_fetch_git_show() != 11935) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_fetch_git_status() != 20613) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_fetch_host_telemetry() != 38116) {

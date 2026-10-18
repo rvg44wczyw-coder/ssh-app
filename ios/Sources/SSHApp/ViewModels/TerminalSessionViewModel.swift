@@ -33,6 +33,8 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     @Published public var fileListing: RemoteDirectoryListing? = nil
     @Published public var filePreview: RemoteFilePreview? = nil
     @Published public var isFileBrowserLoading: Bool = false
+    /// Git state of the repository around the listed folder (nil outside a repository).
+    @Published public var gitStatus: GitStatusResult? = nil
     @Published public var fileBrowserError: String? = nil
 
     private var handle: SshSessionHandle?
@@ -286,7 +288,11 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         fileBrowserError = nil
         Task {
             do {
-                self.fileListing = try await handle.listRemoteDirectory(path: path, includeHidden: includeHidden)
+                let listing = try await handle.listRemoteDirectory(path: path, includeHidden: includeHidden)
+                self.fileListing = listing
+                // Git colours come second: the list is shown first and a slow or failing git never blocks it.
+                let status = try? await handle.fetchGitStatus(dir: listing.currentPath)
+                self.gitStatus = (status?.isRepo == true) ? status : nil
             } catch {
                 self.fileBrowserError = error.localizedDescription
             }

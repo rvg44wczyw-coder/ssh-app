@@ -85,6 +85,7 @@
 		AA900103 /* SchemePreviewsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB900103 /* SchemePreviewsView.swift */; };
 		AA900104 /* MainTerminalSheets.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB900104 /* MainTerminalSheets.swift */; };
 		AA900105 /* SelectionHandles.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB900105 /* SelectionHandles.swift */; };
+		AA900106 /* GitStateBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB900106 /* GitStateBadge.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -165,6 +166,7 @@
 		BB900103 /* SchemePreviewsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/SchemePreviewsView.swift; sourceTree = "<group>"; };
 		BB900104 /* MainTerminalSheets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/MainTerminalSheets.swift; sourceTree = "<group>"; };
 		BB900105 /* SelectionHandles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/SelectionHandles.swift; sourceTree = "<group>"; };
+		BB900106 /* GitStateBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/GitStateBadge.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -323,6 +325,7 @@
 				BB000024 /* AiAssistantSheetView.swift */,
 				BB000025 /* StructuredTranscriptView.swift */,
 				BB000026 /* SnippetsSheetView.swift */,
+				BB900106 /* GitStateBadge.swift */,
 				BB900105 /* SelectionHandles.swift */,
 				BB900104 /* MainTerminalSheets.swift */,
 				BB900103 /* SchemePreviewsView.swift */,
@@ -539,6 +542,7 @@
 				AA000024 /* AiAssistantSheetView.swift in Sources */,
 				AA000025 /* StructuredTranscriptView.swift in Sources */,
 				AA000026 /* SnippetsSheetView.swift in Sources */,
+				AA900106 /* GitStateBadge.swift in Sources */,
 				AA900105 /* SelectionHandles.swift in Sources */,
 				AA900104 /* MainTerminalSheets.swift in Sources */,
 				AA900103 /* SchemePreviewsView.swift in Sources */,
