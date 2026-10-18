@@ -682,30 +682,58 @@ public struct MainTerminalView: View {
         showAssistant = true
     }
 
-    /// AI assistant button on the sessions screen. With several servers it asks which server's
-    /// model to use; with one it opens at once.
+    private func sessions(on server: ServerProfile) -> [TabSession] {
+        tabsManager.sessions.filter {
+            (serversManager.profile(for: $0.serverId) ?? serversManager.activeProfile)?.id == server.id
+        }
+    }
+
+    /// AI assistant button on the sessions screen. The assistant talks to a server's model through
+    /// one of its sessions, so the menu asks only what is ambiguous: the server when there are
+    /// several, then the session when that server has more than one open.
     @ViewBuilder
     private var assistantButton: some View {
         let servers = serversManager.profiles
+        let icon = Image(systemName: "wand.and.stars").font(.system(size: 17))
         if servers.count >= 2 {
             Menu {
                 Section("Model on server") {
-                    ForEach(servers) { server in
-                        Button { openAssistant(on: server) } label: {
-                            Label(server.name, systemImage: "server.rack")
-                        }
-                    }
+                    ForEach(servers) { server in assistantChoice(for: server) }
                 }
-            } label: {
-                Image(systemName: "wand.and.stars").font(.system(size: 17))
-            }
+            } label: { icon }
             .accessibilityLabel("AI assistant")
             .accessibilityHint("Choose the server whose model answers")
-        } else {
-            Button { openAssistant(on: servers.first ?? serversManager.activeProfile) } label: {
-                Image(systemName: "wand.and.stars").font(.system(size: 17))
-            }
+        } else if let server = servers.first ?? serversManager.activeProfile, sessions(on: server).count > 1 {
+            Menu {
+                Section("Run commands in") { sessionButtons(on: server) }
+            } label: { icon }
             .accessibilityLabel("AI assistant")
+            .accessibilityHint("Choose the session the assistant works through")
+        } else {
+            Button { openAssistant(on: servers.first ?? serversManager.activeProfile) } label: { icon }
+                .accessibilityLabel("AI assistant")
+        }
+    }
+
+    @ViewBuilder
+    private func assistantChoice(for server: ServerProfile) -> some View {
+        if sessions(on: server).count > 1 {
+            Menu {
+                sessionButtons(on: server)
+            } label: { Label(server.name, systemImage: "server.rack") }
+        } else {
+            Button { openAssistant(on: server) } label: { Label(server.name, systemImage: "server.rack") }
+        }
+    }
+
+    @ViewBuilder
+    private func sessionButtons(on server: ServerProfile) -> some View {
+        ForEach(sessions(on: server)) { session in
+            Button {
+                guard let vm = tabsManager.viewModel(for: session.id) else { return }
+                if tabsManager.sessionStates[session.id] != .connected { ensureSessionStarted(for: session.id) }
+                openAssistant(through: vm, serverName: server.name)
+            } label: { Text(session.title) }
         }
     }
 
@@ -713,9 +741,7 @@ public struct MainTerminalView: View {
     /// if there is any, else one that gets reconnected, else a new terminal is started there.
     private func openAssistant(on server: ServerProfile?) {
         guard let server else { return }
-        let onServer = tabsManager.sessions.filter {
-            (serversManager.profile(for: $0.serverId) ?? serversManager.activeProfile)?.id == server.id
-        }
+        let onServer = sessions(on: server)
         if let live = onServer.first(where: { tabsManager.sessionStates[$0.id] == .connected }),
            let vm = tabsManager.viewModel(for: live.id) {
             openAssistant(through: vm, serverName: server.name)
