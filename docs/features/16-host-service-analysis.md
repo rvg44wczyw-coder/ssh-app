@@ -173,3 +173,20 @@ Start with **P0** now (it is pure upside: the embedded Python goes away, usage a
 typed and testable, the sessions menu gets faster), then **P1**. Decide §9.1–§9.2 before P2; they
 are the only questions with security weight. Each phase follows the dev-chain
 (doc → rev → rust → rev → bridge → rev → ios → rev → hacker).
+
+## 11. Owner decisions (2026-10-18)
+
+1. **Resident process: yes, but only while a phone session exists.** The agent starts with the
+   first phone connection and exits without one (no always-on process; idle laptop cost stays 0 %
+   when no phone is connected). Consequence: "finished / waiting" push works from the first
+   connection on, not before.
+2. **Push infrastructure: yes**, APNs through the zero-knowledge relay (`scripts/apns-worker`,
+   Cloudflare Worker under the owner's account, Apple `.p8` key as a worker secret). Only
+   "a request exists / agent finished", never command text, travels through push.
+3. **Host targets: macOS only** (launchd, BSD `ps`/`lsof`). Linux is out of scope for now.
+4. **Battery:** covered by 1 (agent lives with the phone session).
+5. **Distribution:** first embed the host binary in the iOS app and install it over SSH (preview,
+   hash, same guarded writer as the hooks); a Homebrew formula is added later.
+
+Order: P0 (typed `ssh-app-host`, replaces the embedded Python) -> P1 (hook + stdio rpc) -> P2
+(launchd agent tied to the phone session) -> P3 (push). Each phase follows the dev-chain.
