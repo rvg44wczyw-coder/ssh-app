@@ -1,6 +1,6 @@
 # Feature 30: context menus on quick-command buttons (model lists from Claude and Antigravity)
 
-Status: research done, not implemented (2026-10-18).
+Status: implemented (2026-10-18): helper `models`, core `fetch_agent_models`, long-press menus and an editor in the quick-command bar. The `/model` syntax inside a running agy session is still unverified.
 
 ## Goal
 A long press on a quick-command button (for example `/model`) opens a menu of choices; tapping one

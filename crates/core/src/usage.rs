@@ -358,6 +358,65 @@ pub(crate) fn is_subscribe_ack(line: &str) -> bool {
     })
 }
 
+/// A model the agent can be switched to (`/model <id>`).
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct AgentModelChoice {
+    pub id: String,
+    pub label: String,
+}
+
+/// Models of one agent from the pinned helper (`models <agent>`); `HELPER_ABSENT` otherwise.
+pub(crate) fn build_models_command(sha256: &str, agent: &str) -> Result<String, SshCoreError> {
+    if !matches!(agent, "claude" | "antigravity" | "ollama") {
+        return Err(SshCoreError::InvalidInput {
+            reason: "Unknown agent for a model list".to_string(),
+        });
+    }
+    let script = format!(
+        "h={HELPER_PATH_EXPR}; if [ ! -f \"$h\" ] || [ -L \"$h\" ] || \
+         [ \"$(shasum -a 256 < \"$h\" 2>/dev/null | cut -d' ' -f1)\" != '{sha256}' ]; then echo HELPER_ABSENT; \
+         else \"$h\" models {agent} 2>/dev/null; fi"
+    );
+    Ok(crate::hostprobe::login_sh_script(&script, &[], 40))
+}
+
+/// An id that may be typed into a terminal (same alphabet the helper enforces).
+fn is_typable_id(id: &str) -> bool {
+    let mut chars = id.chars();
+    id.len() <= 100
+        && chars.next().is_some_and(|c| c.is_ascii_alphanumeric())
+        && chars.all(|c| c.is_ascii_alphanumeric() || "._:/@-".contains(c))
+}
+
+/// `None` when the helper was not usable or answered nothing sensible. Ids the app could not type
+/// safely are dropped here again, whatever the host said.
+pub(crate) fn parse_models(out: &str) -> Option<Vec<AgentModelChoice>> {
+    for line in out.lines() {
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(line.trim()) else {
+            continue;
+        };
+        if v.get("ok") != Some(&true.into()) {
+            continue;
+        }
+        let models = v.get("models")?.as_array()?;
+        return Some(
+            models
+                .iter()
+                .take(60)
+                .filter_map(|m| {
+                    let id = m.get("id")?.as_str()?;
+                    let label = m.get("label").and_then(|l| l.as_str()).unwrap_or(id);
+                    is_typable_id(id).then(|| AgentModelChoice {
+                        id: id.to_string(),
+                        label: label.chars().filter(|c| !c.is_control()).take(80).collect(),
+                    })
+                })
+                .collect(),
+        );
+    }
+    None
+}
+
 /// One state change pushed by the agent (`None` for any other line).
 pub(crate) fn parse_agent_event(line: &str) -> Option<HostAgentEvent> {
     let v: serde_json::Value = serde_json::from_str(line.trim()).ok()?;
@@ -628,6 +687,20 @@ mod tests {
         assert!(build_helper_install_commands(&bytes, &"0".repeat(64)).is_err());
         assert!(build_helper_install_commands(&[], &sha).is_err());
         assert!(build_helper_install_commands(&bytes, "nothex").is_err());
+    }
+
+    #[test]
+    fn model_lists_are_parsed_and_unsafe_ids_dropped() {
+        let out = r#"{"ok":true,"agent":"claude","models":[{"id":"opus","label":"Opus"},{"id":"x; rm -rf ~","label":"evil"},{"id":"-x","label":"flag"},{"id":"claude-opus-5-5"}]}"#;
+        let m = parse_models(out).unwrap();
+        assert_eq!(
+            m.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+            ["opus", "claude-opus-5-5"]
+        );
+        assert_eq!(m[1].label, "claude-opus-5-5");
+        assert!(parse_models("HELPER_ABSENT").is_none());
+        assert!(build_models_command(&"a".repeat(64), "claude").is_ok());
+        assert!(build_models_command(&"a".repeat(64), "claude; id").is_err());
     }
 
     #[test]

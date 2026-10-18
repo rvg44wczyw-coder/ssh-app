@@ -4,6 +4,7 @@ pub mod agent;
 pub mod ctl;
 pub mod guard;
 pub mod hook;
+pub mod models;
 pub mod proc;
 pub mod pyjson;
 pub mod queue;

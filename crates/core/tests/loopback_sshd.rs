@@ -1777,6 +1777,19 @@ fn usage_report_finds_models_in_tmux_sessions_and_reads_transcripts() {
             )
             .await
             .unwrap();
+        // 3b'. Model choices for the quick-command menus come from the pinned helper.
+        let claude_models = handle
+            .fetch_agent_models("claude".into(), pin.clone())
+            .await
+            .unwrap();
+        for alias in ["fable", "opus", "sonnet", "haiku"] {
+            assert!(claude_models.iter().any(|m| m.id == alias), "{claude_models:?}");
+        }
+        assert!(handle
+            .fetch_agent_models("claude; id".into(), pin.clone())
+            .await
+            .is_err());
+
         // 3c. Live events: a session record appearing on the host reaches the listener.
         struct Events(std::sync::Mutex<std::sync::mpsc::Sender<String>>);
         impl ssh_core::HostAgentListener for Events {

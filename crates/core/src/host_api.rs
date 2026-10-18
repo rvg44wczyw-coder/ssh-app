@@ -770,6 +770,32 @@ impl SshSessionHandle {
         Ok(crate::usage::parse_agent_state(&out))
     }
 
+    /// Models the agent can be switched to, from the pinned helper on the host (`claude`,
+    /// `antigravity` or `ollama`). Empty when the helper is not installed or knows none; for
+    /// Claude the built-in aliases are returned then.
+    pub async fn fetch_agent_models(
+        &self,
+        agent: String,
+        expected_sha256: String,
+    ) -> Result<Vec<crate::usage::AgentModelChoice>, SshCoreError> {
+        crate::usage::validate_sha256(&expected_sha256)?;
+        let cmd = crate::usage::build_models_command(&expected_sha256, &agent)?;
+        let out = self.execute_command_on_active_session(cmd).await?;
+        Ok(crate::usage::parse_models(&out).unwrap_or_else(|| {
+            if agent == "claude" {
+                ["fable", "opus", "sonnet", "haiku"]
+                    .iter()
+                    .map(|a| crate::usage::AgentModelChoice {
+                        id: a.to_string(),
+                        label: format!("{a} (latest)"),
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            }
+        }))
+    }
+
     /// Subscribes to live state changes of the agent sessions. One exec channel stays open (the
     /// `rpc` bridge to the host agent); each change is delivered to `listener`, and `on_closed` is
     /// called once when the stream ends (the helper is missing or replaced, the connection drops

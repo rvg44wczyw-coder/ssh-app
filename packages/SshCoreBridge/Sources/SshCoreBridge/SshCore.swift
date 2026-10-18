@@ -1370,6 +1370,13 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func detectPaneContext(sessionName: String) async throws  -> PaneContext
     
     /**
+     * Models the agent can be switched to, from the pinned helper on the host (`claude`,
+     * `antigravity` or `ollama`). Empty when the helper is not installed or knows none; for
+     * Claude the built-in aliases are returned then.
+     */
+    func fetchAgentModels(agent: String, expectedSha256: String) async throws  -> [AgentModelChoice]
+    
+    /**
      * Git diff (`HEAD`) of the repository the tmux session's pane is working in. The command runs
      * in the pane's directory: an exec channel starts in `$HOME`, where `git diff` just prints
      * its usage text.
@@ -1901,6 +1908,27 @@ open func detectPaneContext(sessionName: String)async throws  -> PaneContext  {
             completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
             freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
             liftFunc: FfiConverterTypePaneContext_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Models the agent can be switched to, from the pinned helper on the host (`claude`,
+     * `antigravity` or `ollama`). Empty when the helper is not installed or knows none; for
+     * Claude the built-in aliases are returned then.
+     */
+open func fetchAgentModels(agent: String, expectedSha256: String)async throws  -> [AgentModelChoice]  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_fetch_agent_models(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(agent),FfiConverterString.lower(expectedSha256)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceTypeAgentModelChoice.lift,
             errorHandler: FfiConverterTypeSshCoreError_lift
         )
 }
@@ -3021,6 +3049,63 @@ public func FfiConverterTypeAgentLaunchProfile_lift(_ buf: RustBuffer) throws ->
 #endif
 public func FfiConverterTypeAgentLaunchProfile_lower(_ value: AgentLaunchProfile) -> RustBuffer {
     return FfiConverterTypeAgentLaunchProfile.lower(value)
+}
+
+
+/**
+ * A model the agent can be switched to (`/model <id>`).
+ */
+public struct AgentModelChoice: Equatable, Hashable {
+    public var id: String
+    public var label: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, label: String) {
+        self.id = id
+        self.label = label
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension AgentModelChoice: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAgentModelChoice: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AgentModelChoice {
+        return
+            try AgentModelChoice(
+                id: FfiConverterString.read(from: &buf), 
+                label: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AgentModelChoice, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.label, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAgentModelChoice_lift(_ buf: RustBuffer) throws -> AgentModelChoice {
+    return try FfiConverterTypeAgentModelChoice.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAgentModelChoice_lower(_ value: AgentModelChoice) -> RustBuffer {
+    return FfiConverterTypeAgentModelChoice.lower(value)
 }
 
 
@@ -9557,6 +9642,31 @@ fileprivate struct FfiConverterSequenceTypeAgentLaunchProfile: FfiConverterRustB
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeAgentModelChoice: FfiConverterRustBuffer {
+    typealias SwiftType = [AgentModelChoice]
+
+    public static func write(_ value: [AgentModelChoice], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeAgentModelChoice.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [AgentModelChoice] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [AgentModelChoice]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeAgentModelChoice.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeAgentPermissions: FfiConverterRustBuffer {
     typealias SwiftType = [AgentPermissions]
 
@@ -11530,6 +11640,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_detect_pane_context() != 3123) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_fetch_agent_models() != 64116) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_fetch_git_diff() != 14960) {

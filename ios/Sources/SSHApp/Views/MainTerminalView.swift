@@ -852,6 +852,16 @@ struct ActiveTerminalSessionView: View {
     let onRetry: () -> Void
     let onOpenAiAssistant: () -> Void
     let onOpenSnippets: () -> Void
+    /// The agent whose models the quick-command menus list, from the tab's agent kind.
+    private var modelMenuAgent: String? {
+        switch viewModel.session.agentType {
+        case .claudeCode: return "claude"
+        case .antigravity: return "antigravity"
+        case .localLlm: return "ollama"
+        case .customShell: return nil
+        }
+    }
+
     @AppStorage(AiAssistantVisibility.storageKey) private var aiVisibilityRaw: String = ""
     @AppStorage("always_show_ai_assistant") private var legacyAlwaysShowAi: Bool = false
 
@@ -958,6 +968,15 @@ struct ActiveTerminalSessionView: View {
                         .isVisible(connected: true) ? { onOpenAiAssistant() } : nil,
                     onSnippetsTap: {
                         onOpenSnippets()
+                    },
+                    menuAgent: modelMenuAgent,
+                    menuScope: viewModel.session.serverId?.uuidString ?? "",
+                    loadModels: { agent in
+                        guard let handle = viewModel.sessionHandle, let pin = bundledHostHelperSha256(),
+                            viewModel.state == .connected
+                        else { return [] }
+                        let list = (try? await handle.fetchAgentModels(agent: agent, expectedSha256: pin)) ?? []
+                        return list.map { (id: $0.id, label: $0.label) }
                     }
                 )
             }
