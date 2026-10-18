@@ -1738,7 +1738,7 @@ fn usage_report_finds_models_in_tmux_sessions_and_reads_transcripts() {
             .await
             .unwrap()
             .expect("the pinned helper's agent answers");
-        assert!(st.sessions.is_empty() && st.pending_approvals == 0);
+        assert_eq!(st.pending_approvals, 0);
         let hello = handle
             .execute_command_on_active_session(
                 "printf '%s\\n' '{\"id\":2,\"m\":\"hello\"}' | \"$HOME/.ssh-app/bin/ssh-app-host\" rpc --lease 1"

@@ -491,7 +491,7 @@ pub fn run(p: Paths, lease_secs: i64, sink: &dyn EventSink) -> i32 {
             }
         });
     }
-    let watcher = Watcher::new(&[&paths.pending, &paths.sessions]);
+    let watcher = Watcher::new(&[&paths.home, &paths.pending, &paths.sessions]);
     let (mut last, _) = compute_state(&paths);
     loop {
         let remaining = shared.lock().map_or(0, |s| s.lease_until) - now();
@@ -502,6 +502,10 @@ pub fn run(p: Paths, lease_secs: i64, sink: &dyn EventSink) -> i32 {
         match &watcher {
             Some(w) => w.wait(timeout),
             None => std::thread::sleep(timeout.min(Duration::from_secs(2))),
+        }
+        // The state folder was removed (uninstall, or a test's temp home): nothing left to serve.
+        if !paths.home.is_dir() {
+            break;
         }
         let (current, _) = compute_state(&paths);
         for ev in diff(&last, &current) {

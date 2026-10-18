@@ -379,3 +379,14 @@ fn an_agent_of_another_build_is_replaced_by_the_next_rpc() {
     assert_ne!(new_pid, old_pid, "the outdated agent was replaced");
     wait_for("old agent gone", || !alive(old_pid));
 }
+
+#[test]
+fn the_agent_exits_when_its_state_folder_is_removed() {
+    let h = Home::new();
+    let mut a = h.rpc("600");
+    let pid = a.call(1, "hello")["pid"].as_i64().unwrap() as i32;
+    h.pids.borrow_mut().push(pid);
+    std::fs::remove_dir_all(h.dir.path().join("run")).unwrap();
+    std::fs::remove_dir_all(h.dir.path()).ok();
+    wait_for("agent exit", || !alive(pid));
+}
