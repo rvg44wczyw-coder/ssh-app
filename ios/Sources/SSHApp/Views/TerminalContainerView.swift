@@ -239,6 +239,9 @@ public struct TerminalContainerView: UIViewRepresentable {
         tripleTap.cancelsTouchesInView = false
         terminalView.addGestureRecognizer(tripleTap)
         doubleTap.require(toFail: tripleTap)
+        // The first tap of a double or triple tap must not raise the keyboard: it resized the view
+        // and made the selection jump.
+        singleTap.require(toFail: doubleTap)
         terminalView.addGestureRecognizer(doubleTap)
 
         // Add custom long-press gesture for text selection
@@ -346,74 +349,100 @@ public struct TerminalContainerView: UIViewRepresentable {
                 }
         }
 
-        @objc func handleDoubleTap(_ gesture: UITapGestureRecognizer) {
-            guard let tv = terminalView else { return }
-            let point = gesture.location(in: tv)
+        // MARK: Selection
+        // Selection works on the terminal's own grid and never makes the terminal first responder,
+        // so selecting text does not raise the keyboard (which resized the view and made the
+        // selection jump).
 
-            // Ensure keyboard is summoned on double tap
-            if !tv.isFirstResponder {
-                _ = tv.becomeFirstResponder()
-            }
-
-            // Also select word if tapping on text
-            tv.showStandardContextMenu(at: point)
-            tv.select(nil)
-
-            if tv.hasActiveSelection {
-                let generator = UIImpactFeedbackGenerator(style: .medium)
-                generator.impactOccurred()
-                let config = UIEditMenuConfiguration(identifier: nil, sourcePoint: point)
-                editMenuInteraction?.presentEditMenu(with: config)
-            }
+        private func cell(at point: CGPoint, in tv: TerminalView) -> (col: Int, row: Int) {
+            let term = tv.getTerminal()
+            let cellW = tv.bounds.width / CGFloat(max(term.cols, 1))
+            let cellH = tv.bounds.height / CGFloat(max(term.rows, 1))
+            return (
+                min(max(Int(point.x / cellW), 0), term.cols - 1),
+                min(max(Int(point.y / cellH), 0), term.rows - 1)
+            )
         }
 
-        /// Hold to select the word under the finger, keep the finger down and drag to extend the
-        /// selection (the one-finger pan is not available then: it is used for scrolling and the
-        /// first recognised gesture wins). The menu appears when the finger is lifted.
-        @objc func handleTripleTap(_ gesture: UITapGestureRecognizer) {
-            guard gesture.state == .ended, let tv = terminalView else { return }
-            let point = gesture.location(in: tv)
-            if !tv.isFirstResponder { _ = tv.becomeFirstResponder() }
+        private func rowText(_ row: Int, in tv: TerminalView) -> [Character] {
             let term = tv.getTerminal()
-            let cellH = tv.bounds.height / CGFloat(max(term.rows, 1))
-            let tapped = min(max(Int(point.y / cellH), 0), term.rows - 1)
-            let blank: (Int) -> Bool = { row in
-                term.getLine(row: row)?.translateToString(trimRight: true)
-                    .trimmingCharacters(in: .whitespaces).isEmpty ?? true
-            }
-            var first = tapped, last = tapped
-            if !blank(tapped) {
-                while first > 0, !blank(first - 1) { first -= 1 }
-                while last < term.rows - 1, !blank(last + 1) { last += 1 }
-            }
-            tv.selection.startSelection(row: first, col: 0)
-            tv.selection.dragExtend(row: last, col: term.cols - 1)
+            guard let line = term.getLine(row: row) else { return [] }
+            return (0..<term.cols).map { line[$0].getCharacter() }
+        }
+
+        private func isWordChar(_ c: Character) -> Bool {
+            c.isLetter || c.isNumber || "._-/~:@%+=".contains(c)
+        }
+
+        /// Selects the word (path, URL, identifier) under the cell; false when it is blank.
+        @discardableResult
+        private func selectWord(at pos: (col: Int, row: Int), in tv: TerminalView) -> Bool {
+            let chars = rowText(pos.row, in: tv)
+            guard pos.col < chars.count, isWordChar(chars[pos.col]) else { return false }
+            var lo = pos.col, hi = pos.col
+            while lo > 0, isWordChar(chars[lo - 1]) { lo -= 1 }
+            while hi < chars.count - 1, isWordChar(chars[hi + 1]) { hi += 1 }
+            tv.selection.startSelection(row: pos.row, col: lo)
+            tv.selection.dragExtend(row: pos.row, col: hi + 1)
             tv.setNeedsDisplay()
+            return true
+        }
+
+        private func presentSelectionMenu(at point: CGPoint) {
+            guard terminalView?.hasActiveSelection == true else { return }
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             editMenuInteraction?.presentEditMenu(with: UIEditMenuConfiguration(identifier: nil, sourcePoint: point))
         }
 
+        @objc func handleDoubleTap(_ gesture: UITapGestureRecognizer) {
+            guard gesture.state == .ended, let tv = terminalView else { return }
+            let point = gesture.location(in: tv)
+            if selectWord(at: cell(at: point, in: tv), in: tv) { presentSelectionMenu(at: point) }
+        }
+
+        /// Triple tap selects the whole paragraph: the run of non-blank lines around the tap.
+        @objc func handleTripleTap(_ gesture: UITapGestureRecognizer) {
+            guard gesture.state == .ended, let tv = terminalView else { return }
+            let point = gesture.location(in: tv)
+            let term = tv.getTerminal()
+            let tapped = cell(at: point, in: tv).row
+            let blank: (Int) -> Bool = { row in
+                self.rowText(row, in: tv).allSatisfy { $0 == " " || $0 == "\0" }
+            }
+            guard !blank(tapped) else { return }
+            var first = tapped, last = tapped
+            while first > 0, !blank(first - 1) { first -= 1 }
+            while last < term.rows - 1, !blank(last + 1) { last += 1 }
+            // To the last used column of the final line, so the copy has no trailing padding.
+            let tail = rowText(last, in: tv)
+            let end = (tail.lastIndex { $0 != " " && $0 != "\0" } ?? 0) + 1
+            tv.selection.startSelection(row: first, col: 0)
+            tv.selection.dragExtend(row: last, col: end)
+            tv.setNeedsDisplay()
+            presentSelectionMenu(at: point)
+        }
+
+        /// Hold to select the word under the finger, keep it down and drag to extend the
+        /// selection (the first recognised gesture wins, so the scroll pan stays out of it).
         @objc func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
             guard let tv = terminalView else { return }
             let point = gesture.location(in: tv)
+            let pos = cell(at: point, in: tv)
             switch gesture.state {
             case .began:
-                tv.showStandardContextMenu(at: point)
-                tv.select(nil)
+                editMenuInteraction?.dismissMenu()
+                if !selectWord(at: pos, in: tv) {
+                    tv.selection.startSelection(row: pos.row, col: pos.col)
+                    tv.selection.dragExtend(row: pos.row, col: pos.col + 1)
+                    tv.setNeedsDisplay()
+                }
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             case .changed:
                 guard tv.hasActiveSelection else { return }
-                let term = tv.getTerminal()
-                let cellW = tv.bounds.width / CGFloat(max(term.cols, 1))
-                let cellH = tv.bounds.height / CGFloat(max(term.rows, 1))
-                let col = min(max(Int(point.x / cellW), 0), term.cols - 1)
-                let row = min(max(Int(point.y / cellH), 0), term.rows - 1)
-                tv.selection.dragExtend(row: row, col: col)
+                tv.selection.dragExtend(row: pos.row, col: pos.col)
                 tv.setNeedsDisplay()
             case .ended:
-                guard tv.hasActiveSelection else { return }
-                let config = UIEditMenuConfiguration(identifier: nil, sourcePoint: point)
-                editMenuInteraction?.presentEditMenu(with: config)
+                presentSelectionMenu(at: point)
             default:
                 break
             }
