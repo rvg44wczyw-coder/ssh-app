@@ -181,3 +181,7 @@
 - Spec: `docs/features/22-watch-approvals.md` (delivery without push only works while the phone app is foreground; push channel awaits the owner's decision). Open: watchOS target in the hand-maintained `project.pbxproj`, behaviour when the phone is unreachable (show "open iPhone", never auto-approve), haptics, hacker gate (decisions over WatchConnectivity must carry only request id + verdict; the phone re-reads the request from the host before signing).
 
 - **M23 status**: stage 1 built (watchOS app + `WatchBridge`, `docs/features/22-watch-approvals.md` section 10). Needs a real watch to verify; push wake-up (A/B in the spec) is the owner's decision.
+
+### M24: Local-model agents and assistant card (`docs/features/23-local-models.md`)
+- **Stage 1 implemented**: OpenCode, Qwen Code, Crush (phone approvals), Cline, Aider, Goose, Ollama chat (launch only). Hook behaviour of the three approval-capable tools is from their docs and fake-driven tests, not run live.
+- Stage 2 (assistant as a card per server, chat state moved out of the terminal view model): not started.

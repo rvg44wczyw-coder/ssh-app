@@ -168,3 +168,31 @@ Named trade-offs, not defects:
 1. Approvals for local agents: required where a hook exists (OpenCode, Qwen Code, Crush).
 2. All tools added; Goose, Aider, Cline and Ollama chat are launch-only because no usable
    approval hook exists (Cline's 3 s fail-open plugin timeout cannot wait for a phone).
+
+## 6. Implementation notes (stage 1, 2026-10-18)
+
+Done: core (`AgentKind` x7, `local_agent_tools`, `build_local_agent_profile`, hook installers for
+Qwen Code / Crush / OpenCode, host-script protocols), Swift (presets seeded once, editor with a
+tool picker and a "Choose from host" model menu, one-time confirmation per profile, hook notes).
+
+Deviations from the sections above:
+- An empty model is allowed for every tool: the tool or Ollama's own picker chooses (`ollama
+  launch opencode` with no `--model`). The "ask for a model first" step of 2.3 is therefore not
+  needed; the text field plus the host menu cover it.
+- Crush takes no model (no flag exists); the editor hides the field and the core refuses one.
+- Custom hook commands are refused for Crush and OpenCode (their formats are not Claude's); only
+  the phone approval / notify presets exist. Crush has no notify preset (one event only).
+- Removing OpenCode's hooks leaves an inert plugin of ours: the config writer cannot delete files.
+
+Verified: the generated OpenCode plugin runs under `node` against a fake script (deny blocks, allow
+and no-opinion pass, missing/crashing/garbage script blocks); the host script answers Qwen, Crush
+and OpenCode with the documented shapes, incl. host-guard deny (`tests/hook_script.rs`,
+`tests/opencode_plugin.rs`); core unit tests for every command line and hostile model names; Swift
+tests compile (`build-for-testing`), they have not been run (no simulator).
+
+Not verified (no way to drive these TUIs here): Qwen Code's and Crush's real user config paths,
+Qwen's `PermissionRequest` reply being honoured, Crush honouring exit-0 JSON with `timeout: 130`,
+OpenCode awaiting an async `tool.execute.before` for up to 135 s, and `ollama launch <tool>
+--model` end to end.
+
+Stage 2 (assistant card) is not started.
