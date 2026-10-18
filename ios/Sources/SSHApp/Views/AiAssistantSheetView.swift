@@ -4,6 +4,8 @@ import SshCoreBridge
 public struct AiAssistantSheetView: View {
     @ObservedObject var viewModel: TerminalSessionViewModel
     public var onClose: (() -> Void)?
+    /// Server whose model this talks to; shown in the title.
+    var serverName: String = ""
     @Environment(\.dismiss) private var dismiss
 
     @State private var userPrompt: String = ""
@@ -42,8 +44,9 @@ public struct AiAssistantSheetView: View {
         "Revert last git commit keeping changes"
     ]
 
-    public init(viewModel: TerminalSessionViewModel, onClose: (() -> Void)? = nil) {
+    public init(viewModel: TerminalSessionViewModel, serverName: String = "", onClose: (() -> Void)? = nil) {
         self.viewModel = viewModel
+        self.serverName = serverName
         self.onClose = onClose
     }
 
@@ -91,7 +94,7 @@ public struct AiAssistantSheetView: View {
             }
             }
             .background(Color(red: 0.08, green: 0.08, blue: 0.10).ignoresSafeArea())
-            .navigationTitle("AI assistant")
+            .navigationTitle(serverName.isEmpty ? "AI assistant" : "AI · \(serverName)")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -101,7 +104,8 @@ public struct AiAssistantSheetView: View {
                     .foregroundColor(.secondary)
                 }
             }
-            .task { await runCheck() }
+            // Re-asks the host once the connection is up (a session may still be connecting).
+            .task(id: viewModel.state == .connected) { await runCheck() }
             .alert("Destructive Command", isPresented: $showDestructiveConfirm) {
                 Button("Cancel", role: .cancel) {}
                 Button("Run Anyway", role: .destructive) {

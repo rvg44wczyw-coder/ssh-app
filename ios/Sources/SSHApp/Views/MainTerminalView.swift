@@ -43,6 +43,9 @@ public struct MainTerminalView: View {
     @State private var activeSheet: ActiveModalSheet? = nil
     /// The AI assistant is a full screen of its own, not a card over the terminal.
     @State private var showAssistant = false
+    /// Session the assistant talks through (its connection reaches the host model) and the server's name for the title.
+    @State private var assistantVM: TerminalSessionViewModel?
+    @State private var assistantServerName = ""
     @StateObject private var approvals = ApprovalsCenter()
 
     @ObservedObject private var subscriptions = SubscriptionManager.shared
@@ -103,8 +106,9 @@ public struct MainTerminalView: View {
     private func presentSheet(_ sheet: ActiveModalSheet) {
         dismissKeyboard()
         if sheet == .aiAssistant {
-            tabsManager.activeViewModel?.aiError = nil
-            showAssistant = true
+            guard let vm = tabsManager.activeViewModel else { return }
+            let server = serversManager.profile(for: tabsManager.activeSession?.serverId) ?? serversManager.activeProfile
+            openAssistant(through: vm, serverName: server?.name ?? "")
             return
         }
         activeSheet = sheet
@@ -271,6 +275,7 @@ public struct MainTerminalView: View {
             #endif
             .toolbar {
                 if showHome {
+                    ToolbarItem(placement: .topBarLeading) { assistantButton }
                     ToolbarItem(placement: .principal) {
                         Text("Sessions").font(.system(size: 15, weight: .bold))
                     }
@@ -334,8 +339,8 @@ public struct MainTerminalView: View {
                 PaywallView(reason: "The free version keeps up to \(FreeTier.maxSessions) open sessions. Pro removes the limit.")
             }
             .fullScreenCover(isPresented: $showAssistant) {
-                if let activeVM = tabsManager.activeViewModel {
-                    AiAssistantSheetView(viewModel: activeVM) {
+                if let activeVM = assistantVM {
+                    AiAssistantSheetView(viewModel: activeVM, serverName: assistantServerName) {
                         showAssistant = false
                     }
                 }
@@ -667,6 +672,65 @@ public struct MainTerminalView: View {
                 Label("With new settings…", systemImage: "slider.horizontal.3")
             }
             .disabled(tabsManager.activeViewModel?.state != .connected)
+        }
+    }
+
+    private func openAssistant(through vm: TerminalSessionViewModel, serverName: String) {
+        vm.aiError = nil
+        assistantVM = vm
+        assistantServerName = serverName
+        showAssistant = true
+    }
+
+    /// AI assistant button on the sessions screen. With several servers it asks which server's
+    /// model to use; with one it opens at once.
+    @ViewBuilder
+    private var assistantButton: some View {
+        let servers = serversManager.profiles
+        if servers.count >= 2 {
+            Menu {
+                Section("Model on server") {
+                    ForEach(servers) { server in
+                        Button { openAssistant(on: server) } label: {
+                            Label(server.name, systemImage: "server.rack")
+                        }
+                    }
+                }
+            } label: {
+                Image(systemName: "wand.and.stars").font(.system(size: 17))
+            }
+            .accessibilityLabel("AI assistant")
+            .accessibilityHint("Choose the server whose model answers")
+        } else {
+            Button { openAssistant(on: servers.first ?? serversManager.activeProfile) } label: {
+                Image(systemName: "wand.and.stars").font(.system(size: 17))
+            }
+            .accessibilityLabel("AI assistant")
+        }
+    }
+
+    /// The assistant reaches a server's model through a session on that server: a connected one
+    /// if there is any, else one that gets reconnected, else a new terminal is started there.
+    private func openAssistant(on server: ServerProfile?) {
+        guard let server else { return }
+        let onServer = tabsManager.sessions.filter {
+            (serversManager.profile(for: $0.serverId) ?? serversManager.activeProfile)?.id == server.id
+        }
+        if let live = onServer.first(where: { tabsManager.sessionStates[$0.id] == .connected }),
+           let vm = tabsManager.viewModel(for: live.id) {
+            openAssistant(through: vm, serverName: server.name)
+            return
+        }
+        if let any = onServer.first, let vm = tabsManager.viewModel(for: any.id) {
+            ensureSessionStarted(for: any.id)
+            openAssistant(through: vm, serverName: server.name)
+            return
+        }
+        guard canOpenNewSession() else { return }
+        let session = addNewTab(serverId: server.id)
+        ensureSessionStarted(for: session.id)
+        if let vm = tabsManager.viewModel(for: session.id) {
+            openAssistant(through: vm, serverName: server.name)
         }
     }
 
