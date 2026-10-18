@@ -115,3 +115,5 @@ keys ignored; one verdict per id (second one answers `not_pending`). Messages fr
 - **Tests**: `WatchProtocolTests` (ids, verdict validation incl. forged/odd messages, context limits, text cleaning, list building
   from approvals only); the protocol file was also executed on macOS with a standalone script. Swift tests are built, not run (no
   simulator).
+
+- **Security review (2026-10-18)**: `docs/security-findings/2026-10-18-watch-bridge.md`, clean (code analysis; no live watch).
