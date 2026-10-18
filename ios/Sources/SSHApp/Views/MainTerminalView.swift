@@ -695,7 +695,9 @@ public struct MainTerminalView: View {
         vm.aiError = nil
         assistantVM = vm
         assistantServerName = serverName
-        showAssistant = true
+        // A full-screen cover presented while the menu (or popover) it was chosen from is still
+        // closing comes up blank under UIKit; wait for that animation to finish.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { showAssistant = true }
     }
 
     private func sessions(on server: ServerProfile) -> [TabSession] {
