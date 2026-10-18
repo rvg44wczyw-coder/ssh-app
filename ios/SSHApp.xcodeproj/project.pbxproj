@@ -56,6 +56,7 @@
 		AA000031 /* AgentProfilesSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000031 /* AgentProfilesSheetView.swift */; };
 		AA000020 /* SshCoreBridge in Frameworks */ = {isa = PBXBuildFile; productRef = CC000001 /* SshCoreBridge */; };
 		AA000021 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = CC000002 /* SwiftTerm */; };
+		AA0F0022 /* Highlightr in Frameworks */ = {isa = PBXBuildFile; productRef = CC000004 /* Highlightr */; };
 		AA000030 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = BB000030 /* Assets.xcassets */; };
 		AA000050 /* SubscriptionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000050 /* SubscriptionManager.swift */; };
 		AA000051 /* PaywallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000051 /* PaywallView.swift */; };
@@ -86,6 +87,11 @@
 		AA900104 /* MainTerminalSheets.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB900104 /* MainTerminalSheets.swift */; };
 		AA900105 /* SelectionHandles.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB900105 /* SelectionHandles.swift */; };
 		AA900106 /* GitStateBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB900106 /* GitStateBadge.swift */; };
+		AA900107 /* SyntaxLanguages.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB900107 /* SyntaxLanguages.swift */; };
+		AA900108 /* SyntaxHighlighting.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB900108 /* SyntaxHighlighting.swift */; };
+		AA900109 /* HighlightrModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB900109 /* HighlightrModule.swift */; };
+		AA900110 /* HighlightedText.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB900110 /* HighlightedText.swift */; };
+		AA900111 /* SyntaxSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB900111 /* SyntaxSettingsView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -167,6 +173,11 @@
 		BB900104 /* MainTerminalSheets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/MainTerminalSheets.swift; sourceTree = "<group>"; };
 		BB900105 /* SelectionHandles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/SelectionHandles.swift; sourceTree = "<group>"; };
 		BB900106 /* GitStateBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/GitStateBadge.swift; sourceTree = "<group>"; };
+		BB900107 /* SyntaxLanguages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Syntax/SyntaxLanguages.swift; sourceTree = "<group>"; };
+		BB900108 /* SyntaxHighlighting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Syntax/SyntaxHighlighting.swift; sourceTree = "<group>"; };
+		BB900109 /* HighlightrModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Syntax/HighlightrModule.swift; sourceTree = "<group>"; };
+		BB900110 /* HighlightedText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Syntax/HighlightedText.swift; sourceTree = "<group>"; };
+		BB900111 /* SyntaxSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/SyntaxSettingsView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -176,6 +187,7 @@
 			files = (
 				AA000020 /* SshCoreBridge in Frameworks */,
 				AA000021 /* SwiftTerm in Frameworks */,
+				AA0F0022 /* Highlightr in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -325,6 +337,11 @@
 				BB000024 /* AiAssistantSheetView.swift */,
 				BB000025 /* StructuredTranscriptView.swift */,
 				BB000026 /* SnippetsSheetView.swift */,
+				BB900111 /* SyntaxSettingsView.swift */,
+				BB900110 /* HighlightedText.swift */,
+				BB900109 /* HighlightrModule.swift */,
+				BB900108 /* SyntaxHighlighting.swift */,
+				BB900107 /* SyntaxLanguages.swift */,
 				BB900106 /* GitStateBadge.swift */,
 				BB900105 /* SelectionHandles.swift */,
 				BB900104 /* MainTerminalSheets.swift */,
@@ -400,6 +417,7 @@
 			packageProductDependencies = (
 				CC000001 /* SshCoreBridge */,
 				CC000002 /* SwiftTerm */,
+				CC000004 /* Highlightr */,
 			);
 			productName = SSHApp;
 			productReference = BB000000 /* SSHApp.app */;
@@ -477,6 +495,7 @@
 			mainGroup = EE000000;
 			packageReferences = (
 				PP000001 /* XCRemoteSwiftPackageReference "SwiftTerm" */,
+				PP000003 /* XCRemoteSwiftPackageReference "Highlightr" */,
 				PP000002 /* XCLocalSwiftPackageReference "../packages/SshCoreBridge" */,
 			);
 			productRefGroup = EE000002 /* Products */;
@@ -542,6 +561,11 @@
 				AA000024 /* AiAssistantSheetView.swift in Sources */,
 				AA000025 /* StructuredTranscriptView.swift in Sources */,
 				AA000026 /* SnippetsSheetView.swift in Sources */,
+				AA900111 /* SyntaxSettingsView.swift in Sources */,
+				AA900110 /* HighlightedText.swift in Sources */,
+				AA900109 /* HighlightrModule.swift in Sources */,
+				AA900108 /* SyntaxHighlighting.swift in Sources */,
+				AA900107 /* SyntaxLanguages.swift in Sources */,
 				AA900106 /* GitStateBadge.swift in Sources */,
 				AA900105 /* SelectionHandles.swift in Sources */,
 				AA900104 /* MainTerminalSheets.swift in Sources */,
@@ -867,6 +891,14 @@
 				minimumVersion = 1.0.7;
 			};
 		};
+		PP000003 /* XCRemoteSwiftPackageReference "Highlightr" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/raspu/Highlightr.git";
+			requirement = {
+				kind = exactVersion;
+				version = 2.3.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCLocalSwiftPackageReference section */
@@ -885,6 +917,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = PP000001 /* XCRemoteSwiftPackageReference "SwiftTerm" */;
 			productName = SwiftTerm;
+		};
+		CC000004 /* Highlightr */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = PP000003 /* XCRemoteSwiftPackageReference "Highlightr" */;
+			productName = Highlightr;
 		};
 		CC000003 /* SshCoreBridge */ = {
 			isa = XCSwiftPackageProductDependency;

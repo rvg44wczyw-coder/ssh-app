@@ -222,6 +222,11 @@ public struct FileBrowserSheetView: View {
 struct FilePreviewView: View {
     @ObservedObject var viewModel: TerminalSessionViewModel
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var scheme
+    @AppStorage(SyntaxSettings.enabledKey) private var syntaxOn = true
+    @AppStorage(SyntaxSettings.themeKey) private var syntaxTheme = SyntaxTheme.auto.rawValue
+    @AppStorage(SyntaxSettings.maxKBKey) private var syntaxMaxKB = 200
+    @State private var highlighted: [HighlightedLine]?
 
     var body: some View {
         NavigationStack {
@@ -235,7 +240,11 @@ struct FilePreviewView: View {
                                     Text("\(idx + 1)")
                                         .foregroundColor(.secondary)
                                         .frame(width: 36, alignment: .trailing)
-                                    Text(line.isEmpty ? " " : line)
+                                    if let h = highlighted, idx < h.count, !line.isEmpty {
+                                        Text(h[idx].attributed())
+                                    } else {
+                                        Text(line.isEmpty ? " " : line)
+                                    }
                                 }
                                 .font(.system(size: 12, design: .monospaced))
                             }
@@ -253,6 +262,12 @@ struct FilePreviewView: View {
                 } else {
                     ProgressView()
                 }
+            }
+            .task(id: "\(viewModel.filePreview?.path ?? "")-\(syntaxOn)-\(syntaxTheme)-\(syntaxMaxKB)-\(scheme == .dark)") {
+                highlighted = nil
+                guard syntaxOn, let preview = viewModel.filePreview, !preview.isBinary else { return }
+                highlighted = await SyntaxService.shared.highlight(
+                    text: preview.content, filename: preview.filename, dark: scheme == .dark)
             }
             .navigationTitle(viewModel.filePreview?.filename ?? "Preview")
             #if os(iOS)

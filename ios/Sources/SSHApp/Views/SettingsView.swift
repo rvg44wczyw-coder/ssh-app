@@ -223,6 +223,11 @@ public struct SettingsView: View {
                 } label: {
                     Label("Theme previews", systemImage: "paintpalette")
                 }
+                NavigationLink {
+                    SyntaxSettingsView()
+                } label: {
+                    Label("Syntax highlighting", systemImage: "chevron.left.forwardslash.chevron.right")
+                }
             }
         }
         .navigationTitle("Appearance")
