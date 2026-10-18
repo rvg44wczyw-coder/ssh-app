@@ -488,6 +488,25 @@ impl SshSessionHandle {
         Ok(parse_approval_list(&out))
     }
 
+    /// Like `list_pending_approvals`, but the host holds the call (up to ~20 s) until the pending
+    /// set differs from `known_ids`, so changes arrive at once and an idle phone stays quiet.
+    /// Hosts whose hook script predates `ctl wait` answer an error at once; that falls back to
+    /// a plain list, and the caller paces itself on how fast this returns.
+    pub async fn wait_pending_approvals(
+        &self,
+        known_ids: Vec<String>,
+    ) -> Result<crate::approval_queue::ApprovalList, SshCoreError> {
+        use crate::approval_queue::{build_wait_command, parse_approval_list};
+        let out = self
+            .execute_command_on_active_session(build_wait_command(&known_ids)?)
+            .await?;
+        let list = parse_approval_list(&out);
+        if list.host_time_sec == 0 {
+            return self.list_pending_approvals().await;
+        }
+        Ok(list)
+    }
+
     /// Signs and submits the user's decision for request `id`. The signature covers the host's
     /// own id/hash/nonce and the host clock, so the host only honours it for that exact request.
     pub async fn submit_approval_decision(

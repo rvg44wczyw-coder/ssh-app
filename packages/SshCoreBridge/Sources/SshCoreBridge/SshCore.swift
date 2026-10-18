@@ -1371,6 +1371,14 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func uninstallAgentHooks(agent: AgentKind, configDir: String?) async throws 
     
     /**
+     * Like `list_pending_approvals`, but the host holds the call (up to ~20 s) until the pending
+     * set differs from `known_ids`, so changes arrive at once and an idle phone stays quiet.
+     * Hosts whose hook script predates `ctl wait` answer an error at once; that falls back to
+     * a plain list, and the caller paces itself on how fast this returns.
+     */
+    func waitPendingApprovals(knownIds: [String]) async throws  -> ApprovalList
+    
+    /**
      * Establishes the SSH connection, launches tmux, and starts streaming I/O.
      */
     func connect(callback: SshSessionCallback) throws 
@@ -2156,6 +2164,28 @@ open func uninstallAgentHooks(agent: AgentKind, configDir: String?)async throws 
             completeFunc: ffi_ssh_core_rust_future_complete_void,
             freeFunc: ffi_ssh_core_rust_future_free_void,
             liftFunc: { $0 },
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Like `list_pending_approvals`, but the host holds the call (up to ~20 s) until the pending
+     * set differs from `known_ids`, so changes arrive at once and an idle phone stays quiet.
+     * Hosts whose hook script predates `ctl wait` answer an error at once; that falls back to
+     * a plain list, and the caller paces itself on how fast this returns.
+     */
+open func waitPendingApprovals(knownIds: [String])async throws  -> ApprovalList  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_wait_pending_approvals(
+                        self.uniffiCloneHandle(),FfiConverterSequenceString.lower(knownIds)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeApprovalList_lift,
             errorHandler: FfiConverterTypeSshCoreError_lift
         )
 }
@@ -10048,6 +10078,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_uninstall_agent_hooks() != 35310) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_wait_pending_approvals() != 31103) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_connect() != 11069) {

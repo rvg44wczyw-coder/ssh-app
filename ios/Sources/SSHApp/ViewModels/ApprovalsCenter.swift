@@ -45,9 +45,15 @@ public final class ApprovalsCenter: ObservableObject {
         task?.cancel()
         task = Task { [weak self] in
             while !Task.isCancelled {
-                await self?.pollOnce()
-                let wait = (self?.queueSeen ?? true) ? self?.activeInterval : self?.idleInterval
-                try? await Task.sleep(for: wait ?? .seconds(2))
+                let started = ContinuousClock.now
+                let outcome = await self?.pollOnce()
+                // A long poll that came back at once without news (an older host script answers
+                // `wait` immediately) must not turn into a busy loop.
+                let heldOrChanged = outcome.map { $0.usedWait && ($0.changed || ContinuousClock.now - started >= .seconds(1)) } ?? false
+                if !heldOrChanged {
+                    let wait = (self?.queueSeen ?? true) ? self?.activeInterval : self?.idleInterval
+                    try? await Task.sleep(for: wait ?? .seconds(2))
+                }
             }
         }
     }
@@ -58,17 +64,29 @@ public final class ApprovalsCenter: ObservableObject {
         isPolling = false
     }
 
-    public func pollNow() async { await pollOnce() }
+    public func pollNow() async { _ = await pollOnce(allowWait: false) }
 
-    private func pollOnce() async {
+    /// `usedWait`: the host held the call (long poll); `changed`: the shown entries changed.
+    private func pollOnce(allowWait: Bool = true) async -> (usedWait: Bool, changed: Bool) {
         var seenKeys = Set<String>()
         var merged: [ApprovalEntry] = []
         var anyQueue = false
-        for target in targets() where !seenKeys.contains(target.serverKey) {
+        var usedWait = false
+        let all = targets()
+        // Long poll only with a single host: one held call would delay the others.
+        let singleHost = allowWait && Set(all.map(\.serverKey)).count == 1
+        for target in all where !seenKeys.contains(target.serverKey) {
             guard target.viewModel.state == .connected, let handle = target.viewModel.sessionHandle else { continue }
             seenKeys.insert(target.serverKey)
             do {
-                let list = try await handle.listPendingApprovals()
+                let list: ApprovalList
+                if singleHost {
+                    usedWait = true
+                    let known = entries.filter { $0.serverKey == target.serverKey }.map { $0.item.id }
+                    list = try await handle.waitPendingApprovals(knownIds: known)
+                } else {
+                    list = try await handle.listPendingApprovals()
+                }
                 handles[target.serverKey] = handle
                 // host_time is 0 when the host has no approval queue (hooks not installed).
                 if list.hostTimeSec > 0 { anyQueue = true }
@@ -89,15 +107,17 @@ public final class ApprovalsCenter: ObservableObject {
                 anyQueue = true
             }
         }
-        if Task.isCancelled { return }
+        if Task.isCancelled { return (usedWait, false) }
         queueSeen = anyQueue || seenKeys.isEmpty
         merged.sort { ($0.item.timestampSec, $0.id) < ($1.item.timestampSec, $1.id) }
         let newApprovals = merged.filter { $0.isApproval && !knownApprovalIds.contains($0.id) }
         knownApprovalIds = Set(merged.filter { $0.isApproval }.map { $0.id })
         let live = Set(merged.map { $0.id })
         errors = errors.filter { live.contains($0.key) }
-        if merged != entries { entries = merged }
+        let changed = merged != entries
+        if changed { entries = merged }
         if !newApprovals.isEmpty { notifyNewApproval() }
+        return (usedWait, changed)
     }
 
     /// Signs and sends the decision. The entry stays until the host stops listing it.

@@ -3,7 +3,7 @@
 
 Usage (configured by the app, never by hand):
     ssh-app-hook <claude|codex|antigravity|grok> <EventName>     agent hook (reads the hook JSON on stdin)
-    ssh-app-hook ctl <list|decide|ack|status>          used by the app over SSH (data on stdin)
+    ssh-app-hook ctl <list|wait|decide|ack|status>          used by the app over SSH (data on stdin)
 
 An approval request is a file in ~/.ssh-app/run/pending (0700 dirs, 0600 files). The phone
 answers with a decision file signed (OpenSSH SSHSIG) by its Ed25519 key; this process verifies
@@ -45,6 +45,11 @@ MAX_FILE = 16384
 MAX_SIG = 8192
 MAX_PENDING_FILES = 100
 MAX_LIST = 20
+try:
+    WAIT_MAX = min(20.0, max(0.1, float(os.environ.get("SSH_APP_WAIT_MAX", "20"))))  # `ctl wait` holds the call at most this long
+except ValueError:
+    WAIT_MAX = 20.0
+WAIT_STEP = 0.4
 MAX_DECISIONS_PER_ID = 5
 MAX_AGE = 120  # a decision may be at most this many seconds newer than its request
 NOTIFY_TTL = 600
@@ -722,6 +727,16 @@ def load_pending(name, now):
     return req
 
 
+def pending_items(now):
+    items = []
+    for name in os.listdir(PENDING):
+        req = load_pending(name, now)
+        if req:
+            items.append(req)
+    items.sort(key=lambda r: (r["ts"], r["id"]))
+    return items[:MAX_LIST]
+
+
 def ctl(sub):
     now = int(time.time())
     if sub == "status":
@@ -738,13 +753,18 @@ def ctl(sub):
     if sub == "sessions":
         return reply({"host_time": now, "items": list_sessions()})
     if sub == "list":
-        items = []
-        for name in os.listdir(PENDING):
-            req = load_pending(name, now)
-            if req:
-                items.append(req)
-        items.sort(key=lambda r: (r["ts"], r["id"]))
-        return reply({"host_time": now, "items": items[:MAX_LIST]})
+        return reply({"host_time": now, "items": pending_items(now)})
+    if sub == "wait":
+        # Long poll: answers as soon as the set of pending ids differs from the ids the app
+        # already shows (argv[3], sorted and comma-separated), or after WAIT_MAX seconds.
+        known = sys.argv[3] if len(sys.argv) > 3 else ""
+        deadline = time.time() + WAIT_MAX
+        while True:
+            now = int(time.time())
+            items = pending_items(now)
+            if ",".join(sorted(r["id"] for r in items)) != known or time.time() >= deadline:
+                return reply({"host_time": now, "items": items})
+            time.sleep(WAIT_STEP)
     body = read_stdin_json()
     if body is None:
         return reply({"ok": False, "error": "invalid request"})

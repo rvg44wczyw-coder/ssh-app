@@ -471,6 +471,53 @@ fn flood_guard_refuses_to_queue_more() {
     assert!(t.elapsed() < Duration::from_secs(5));
 }
 
+/// `ctl wait <known ids>` with a short host timeout; returns the answer and how long it took.
+fn ctl_wait(h: &Host, known: &str) -> (Value, Duration) {
+    let t = Instant::now();
+    let mut child = h
+        .cmd(&["ctl", "wait", known], 1)
+        .env("SSH_APP_WAIT_MAX", "1.5")
+        .spawn()
+        .unwrap();
+    drop(child.stdin.take());
+    let mut out = String::new();
+    child
+        .stdout
+        .take()
+        .unwrap()
+        .read_to_string(&mut out)
+        .unwrap();
+    child.wait().unwrap();
+    (serde_json::from_str(&out).unwrap(), t.elapsed())
+}
+
+#[test]
+fn ctl_wait_returns_on_change_and_holds_otherwise() {
+    need_tools!();
+    let h = Host::new();
+    // Nothing pending and nothing known: held until the host timeout, then answers.
+    let (v, took) = ctl_wait(&h, "");
+    assert!(took >= Duration::from_millis(1400), "{took:?}");
+    assert!(v["items"].as_array().unwrap().is_empty());
+    assert!(v["host_time"].as_u64().unwrap() > 0);
+    // A pending item the app does not know yet: answered at once.
+    let (out, _) = h.spawn_hook("claude", "Stop", CLAUDE_IN, 5).finish();
+    assert_eq!(out, "");
+    let (item, _) = h.wait_item("notify");
+    let id = item["id"].as_str().unwrap().to_string();
+    let (v, took) = ctl_wait(&h, "");
+    assert!(took < Duration::from_millis(1000), "{took:?}");
+    assert_eq!(v["items"][0]["id"], id.as_str());
+    // The app already knows it: held again.
+    let (_, took) = ctl_wait(&h, &id);
+    assert!(took >= Duration::from_millis(1400), "{took:?}");
+    // A known id that is gone counts as a change.
+    h.ctl("ack", &json!({"id": id}).to_string());
+    let (v, took) = ctl_wait(&h, &id);
+    assert!(took < Duration::from_millis(1000), "{took:?}");
+    assert!(v["items"].as_array().unwrap().is_empty());
+}
+
 #[test]
 fn notifications_are_listed_and_acknowledged() {
     need_tools!();

@@ -68,6 +68,23 @@ fn is_hex(s: &str, len: usize) -> bool {
 }
 
 /// Constant argument vectors only; no data is ever interpolated.
+/// `ctl wait <ids>`: a long poll that returns when the pending set differs from `known_ids`
+/// (or after the host's own timeout). Ids are validated, so nothing untrusted reaches the shell.
+pub(crate) fn build_wait_command(known_ids: &[String]) -> Result<String, SshCoreError> {
+    if known_ids.len() > MAX_LIST || known_ids.iter().any(|i| !is_valid_id(i)) {
+        return Err(SshCoreError::ApprovalVerificationError {
+            reason: "invalid approval id".to_string(),
+        });
+    }
+    let mut ids = known_ids.to_vec();
+    ids.sort();
+    ids.dedup();
+    Ok(format!(
+        "sh -c {}",
+        shell_quote(&format!("{CTL} wait {}", shell_quote(&ids.join(","))))
+    ))
+}
+
 pub(crate) fn build_ctl_command(sub: CtlSubcommand) -> String {
     let name = match sub {
         CtlSubcommand::List => "list",
@@ -301,6 +318,19 @@ pub(crate) fn build_install_key_command(allowed_signers_line: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wait_command_sorts_dedups_and_rejects_bad_ids() {
+        let a = "a".repeat(32);
+        let b = "b".repeat(32);
+        let cmd = build_wait_command(&[b.clone(), a.clone(), b.clone()]).unwrap();
+        assert!(cmd.contains(&format!(" wait '{a},{b}'")) || cmd.contains(&format!("{a},{b}")));
+        assert!(build_wait_command(&[]).is_ok());
+        assert!(build_wait_command(&["x; rm -rf ~".to_string()]).is_err());
+        assert!(build_wait_command(&["A".repeat(32)]).is_err());
+        let many: Vec<String> = (0..=MAX_LIST).map(|i| format!("{i:032x}")).collect();
+        assert!(build_wait_command(&many).is_err());
+    }
 
     fn item_json(id: &str, kind: &str, command: &str) -> Value {
         let (agent, tool, cwd) = ("claude", "Bash", "/home/u/proj");
