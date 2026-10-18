@@ -5,18 +5,18 @@ import UIKit
 #endif
 
 /// Patch of one commit of the repository the active terminal tab is working in (not the SSH login
-/// directory: an exec channel starts in $HOME). The working-tree `git diff` is run as a command
-/// in the terminal instead (see `GitLogSheetView`).
+/// directory: an exec channel starts in $HOME), or, with no commit, the uncommitted changes
+/// (`git diff HEAD`, untracked files listed).
 public struct DiffViewerSheetView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var viewModel: TerminalSessionViewModel
-    let commit: GitLogEntry
+    let commit: GitLogEntry?
 
     @State private var result: GitDiffResult? = nil
     @State private var isLoading: Bool = true
     @State private var errorMessage: String? = nil
 
-    public init(viewModel: TerminalSessionViewModel, commit: GitLogEntry) {
+    public init(viewModel: TerminalSessionViewModel, commit: GitLogEntry? = nil) {
         self.viewModel = viewModel
         self.commit = commit
     }
@@ -29,7 +29,7 @@ public struct DiffViewerSheetView: View {
                 if isLoading {
                     VStack(spacing: 12) {
                         ProgressView()
-                        Text("Fetching the commit from the host...")
+                        Text(commit == nil ? "Fetching the changes from the host..." : "Fetching the commit from the host...")
                             .font(.system(size: 13))
                             .foregroundColor(.secondary)
                     }
@@ -57,7 +57,7 @@ public struct DiffViewerSheetView: View {
                         Image(systemName: "checkmark.circle")
                             .font(.system(size: 36))
                             .foregroundColor(.green)
-                        Text("This commit has no changes")
+                        Text(commit == nil ? "No uncommitted changes" : "This commit has no changes")
                             .font(.system(size: 14, weight: .semibold))
                         if let root = result?.repoRoot {
                             Text(verbatim: root)
@@ -80,7 +80,7 @@ public struct DiffViewerSheetView: View {
                     .background(Color.black)
                 }
             }
-            .navigationTitle(commit.shortHash)
+            .navigationTitle(commit?.shortHash ?? "Uncommitted")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
@@ -208,14 +208,19 @@ public struct DiffViewerSheetView: View {
         let name = viewModel.session.sessionName
         Task {
             do {
-                let r = try await handle.fetchGitShow(sessionName: name, hash: commit.hash)
+                let r: GitDiffResult
+                if let commit {
+                    r = try await handle.fetchGitShow(sessionName: name, hash: commit.hash)
+                } else {
+                    r = try await handle.fetchGitDiff(sessionName: name)
+                }
                 await MainActor.run {
                     self.result = r
                     self.isLoading = false
                 }
             } catch {
                 await MainActor.run {
-                    self.errorMessage = "Failed to read the commit: \(error.localizedDescription)"
+                    self.errorMessage = "Failed to read the \(commit == nil ? "changes" : "commit"): \(error.localizedDescription)"
                     self.isLoading = false
                 }
             }

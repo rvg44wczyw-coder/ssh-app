@@ -12,6 +12,7 @@ public struct GitLogSheetView: View {
     @State private var errorMessage: String? = nil
     @State private var limit: UInt32 = 50
     @State private var selected: GitLogEntry? = nil
+    @State private var showWorkingTree = false
     @State private var context: PaneContext? = nil
 
     public init(viewModel: TerminalSessionViewModel) {
@@ -39,6 +40,9 @@ public struct GitLogSheetView: View {
             }
             .sheet(item: $selected) { entry in
                 DiffViewerSheetView(viewModel: viewModel, commit: entry)
+            }
+            .sheet(isPresented: $showWorkingTree) {
+                DiffViewerSheetView(viewModel: viewModel)
             }
             .onAppear {
                 fetchLog()
@@ -109,6 +113,10 @@ public struct GitLogSheetView: View {
         } else if let r = result {
             List {
                 Section {
+                    Button { showWorkingTree = true } label: {
+                        Label("Uncommitted changes", systemImage: "pencil.and.list.clipboard")
+                            .font(.system(size: 14, weight: .medium))
+                    }
                     ForEach(r.entries, id: \.hash) { e in
                         Button { selected = e } label: { row(e) }.buttonStyle(.plain)
                     }
