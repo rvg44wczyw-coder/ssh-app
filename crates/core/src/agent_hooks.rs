@@ -33,7 +33,17 @@ pub struct AgentHooksStatus {
 
 #[uniffi::export]
 pub fn agent_hook_script() -> String {
-    include_str!("../../../scripts/agent-hooks/ssh-app-hook.py").to_string()
+    let script = include_str!("../../../scripts/agent-hooks/ssh-app-hook.py");
+    // The pin of the embedded typed helper (feature 25): the script hands over to it only when
+    // the helper next to it has exactly this digest.
+    match crate::usage::bundled_host_helper_sha256() {
+        Some(pin) => script.replacen(
+            "HELPER_SHA256 = \"\"",
+            &format!("HELPER_SHA256 = \"{pin}\""),
+            1,
+        ),
+        None => script.to_string(),
+    }
 }
 
 /// The hook dir is embedded in a command the *agent's shell* executes (inside double quotes), so
@@ -1319,6 +1329,11 @@ mod tests {
             "\"$HOME\"'/.ssh-app/bin/ssh-app-hook'"
         );
         assert!(agent_hook_script().contains("def main"));
+        let pinned = agent_hook_script();
+        match crate::usage::bundled_host_helper_sha256() {
+            Some(pin) => assert!(pinned.contains(&format!("HELPER_SHA256 = \"{pin}\""))),
+            None => assert!(pinned.contains("HELPER_SHA256 = \"\"")),
+        }
     }
 
     #[test]

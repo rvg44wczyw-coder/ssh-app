@@ -14,8 +14,50 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-fn script() -> PathBuf {
+fn repo_script() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../scripts/agent-hooks/ssh-app-hook.py")
+}
+
+/// The script under test. With `SSH_APP_TEST_IMPL=rust` it is a copy pinned to the typed helper
+/// (feature 25) with the helper built by cargo next to it, so the whole suite exercises
+/// `ssh-app-host`; otherwise it is the repository script and runs the Python implementation.
+fn script() -> PathBuf {
+    static RENDERED: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    if std::env::var("SSH_APP_TEST_IMPL").as_deref() != Ok("rust") {
+        return repo_script();
+    }
+    RENDERED
+        .get_or_init(|| {
+            use sha2::{Digest, Sha256};
+            let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+            let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".into());
+            let status = Command::new(cargo)
+                .args(["build", "-q", "-p", "ssh-app-host"])
+                .current_dir(&root)
+                .status()
+                .expect("cargo build ssh-app-host");
+            assert!(status.success(), "building ssh-app-host failed");
+            let target = std::env::var_os("CARGO_TARGET_DIR")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| root.join("target"));
+            let helper = target.join("debug/ssh-app-host");
+            let dir = tempfile::tempdir().unwrap().keep();
+            chmod(&dir, 0o700);
+            let installed = dir.join("ssh-app-host");
+            std::fs::copy(&helper, &installed).unwrap();
+            chmod(&installed, 0o700);
+            let pin = hex::encode(Sha256::digest(std::fs::read(&installed).unwrap()));
+            let text = std::fs::read_to_string(repo_script()).unwrap().replacen(
+                "HELPER_SHA256 = \"\"",
+                &format!("HELPER_SHA256 = \"{pin}\""),
+                1,
+            );
+            let path = dir.join("ssh-app-hook");
+            std::fs::write(&path, text).unwrap();
+            chmod(&path, 0o700);
+            path
+        })
+        .clone()
 }
 
 fn available() -> bool {
@@ -626,6 +668,15 @@ fn status_reports_capabilities() {
     need_tools!();
     let h = Host::new();
     let s = h.ctl("status", "");
+    let want = if std::env::var("SSH_APP_TEST_IMPL").as_deref() == Ok("rust") {
+        "rust"
+    } else {
+        "python"
+    };
+    assert_eq!(
+        s["impl"], want,
+        "the suite must exercise the implementation it claims to"
+    );
     assert_eq!(
         (
             s["ssh_keygen"].as_bool(),
@@ -1435,4 +1486,105 @@ fn host_guard_sees_through_the_cheap_ways_around_a_prefix_rule() {
     // delete without being called rm.
     assert!(!denied("$(echo rm) x"));
     assert!(!denied("find . -delete"));
+}
+
+/// Which implementation answered `ctl status` for a script copy in `dir` with `pin`.
+fn status_impl(dir: &Path, pin: &str) -> String {
+    let text = std::fs::read_to_string(repo_script()).unwrap().replacen(
+        "HELPER_SHA256 = \"\"",
+        &format!("HELPER_SHA256 = \"{pin}\""),
+        1,
+    );
+    let path = dir.join("ssh-app-hook");
+    std::fs::write(&path, text).unwrap();
+    chmod(&path, 0o700);
+    let home = tempfile::tempdir().unwrap();
+    chmod(home.path(), 0o700);
+    let out = Command::new("python3")
+        .arg("-I")
+        .arg(&path)
+        .args(["ctl", "status"])
+        .env("SSH_APP_HOME", home.path())
+        .output()
+        .unwrap();
+    let v: Value = serde_json::from_slice(&out.stdout).unwrap();
+    v["impl"].as_str().unwrap().to_string()
+}
+
+#[test]
+fn the_shim_runs_only_the_exact_pinned_helper() {
+    use sha2::{Digest, Sha256};
+    need_tools!();
+    // The rendered script of the suite already contains a pin when the Rust mode is on; build a
+    // helper through it (this also builds the binary once).
+    let rendered = std::env::var("SSH_APP_TEST_IMPL").as_deref() == Ok("rust");
+    let built = if rendered {
+        script().parent().unwrap().join("ssh-app-host")
+    } else {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+        assert!(Command::new("cargo")
+            .args(["build", "-q", "-p", "ssh-app-host"])
+            .current_dir(&root)
+            .status()
+            .unwrap()
+            .success());
+        std::env::var_os("CARGO_TARGET_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| root.join("target"))
+            .join("debug/ssh-app-host")
+    };
+    let bytes = std::fs::read(&built).unwrap();
+    let pin = hex::encode(Sha256::digest(&bytes));
+    let place = |tweak: &dyn Fn(&Path)| {
+        let d = tempfile::tempdir().unwrap();
+        chmod(d.path(), 0o700);
+        let helper = d.path().join("ssh-app-host");
+        std::fs::write(&helper, &bytes).unwrap();
+        chmod(&helper, 0o700);
+        tweak(&helper);
+        d
+    };
+    let d = place(&|_| {});
+    assert_eq!(
+        status_impl(d.path(), &pin),
+        "rust",
+        "exact pin runs the helper"
+    );
+    assert_eq!(status_impl(d.path(), ""), "python", "no pin means Python");
+    assert_eq!(
+        status_impl(d.path(), &"0".repeat(64)),
+        "python",
+        "a different pin means Python"
+    );
+    let d = place(&|h| {
+        std::fs::write(h, b"#!/bin/sh\necho '{\"ok\":true,\"impl\":\"evil\"}'\n").unwrap()
+    });
+    assert_eq!(
+        status_impl(d.path(), &pin),
+        "python",
+        "a replaced helper is not run"
+    );
+    let d = place(&|h| chmod(h, 0o770));
+    assert_eq!(
+        status_impl(d.path(), &pin),
+        "python",
+        "a group-writable helper is not run"
+    );
+    let d = place(&|h| {
+        let real = h.with_file_name("real-helper");
+        std::fs::rename(h, &real).unwrap();
+        symlink(&real, h).unwrap();
+    });
+    assert_eq!(
+        status_impl(d.path(), &pin),
+        "python",
+        "a symlinked helper is not run"
+    );
+    let d = tempfile::tempdir().unwrap();
+    chmod(d.path(), 0o700);
+    assert_eq!(
+        status_impl(d.path(), &pin),
+        "python",
+        "an absent helper falls back"
+    );
 }

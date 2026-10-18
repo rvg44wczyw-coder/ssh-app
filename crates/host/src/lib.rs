@@ -1,4 +1,12 @@
 //! Library half of `ssh-app-host` so tests can call the readers directly.
 
+pub mod ctl;
+pub mod guard;
+pub mod hook;
+pub mod proc;
+pub mod pyjson;
+pub mod queue;
+pub mod sessions;
+pub mod statusline;
 pub mod timefmt;
 pub mod usage;

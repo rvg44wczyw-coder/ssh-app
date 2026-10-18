@@ -310,7 +310,7 @@ pub(crate) fn build_helper_install_commands(
 ) -> Result<Vec<String>, SshCoreError> {
     use sha2::{Digest, Sha256};
     validate_sha256(sha256)?;
-    if bytes.is_empty() || bytes.len() > 8 * 1024 * 1024 {
+    if bytes.is_empty() || bytes.len() > 16 * 1024 * 1024 {
         return Err(SshCoreError::InvalidInput {
             reason: "The host helper is empty or too large".into(),
         });

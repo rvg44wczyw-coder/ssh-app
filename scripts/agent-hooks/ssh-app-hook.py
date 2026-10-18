@@ -57,6 +57,9 @@ NAMESPACE = "ssh-app-approval"
 PRINCIPAL = "ssh-app"
 ID_RE = re.compile(r"^[0-9a-f]{32}$")
 PENDING_RE = re.compile(r"^([0-9a-f]{32})\.json$")
+# SHA-256 of the typed helper (`ssh-app-host`, feature 25) this script may hand over to. The app
+# substitutes it at install time; empty (as in the repository) means "always run the Python below".
+HELPER_SHA256 = ""
 ANTIGRAVITY_CMD_KEYS = ("CommandLine", "commandLine", "command", "Command", "TargetFile", "AbsolutePath", "path")
 
 
@@ -880,7 +883,7 @@ def ctl(sub):
                 pending = len([n for n in os.listdir(PENDING) if PENDING_RE.match(n)])
             except OSError:
                 pass
-        return reply({"ok": True, "ssh_keygen": bool(keygen_path()),
+        return reply({"ok": True, "impl": "python", "ssh_keygen": bool(keygen_path()),
                       "allowed_signers": allowed_signers_trusted(), "pending": pending})
     if not queue_trusted():
         return reply({"ok": False, "error": "approval queue is missing or not private"})
@@ -931,6 +934,41 @@ def ctl(sub):
     return reply({"ok": False, "error": "unknown subcommand"})
 
 
+def exec_helper(argv):
+    """Runs the typed helper in place of this script when it sits next to us and is exactly the
+    pinned build (regular file of ours, not a link, not group/other writable, matching digest).
+    Returns (to carry on in Python) when anything differs; never raises."""
+    if not HELPER_SHA256 or not argv:
+        return
+    if argv[0] == "ctl":
+        helper_args = ["ctl"] + argv[1:]
+    elif argv[0] == "claude" and len(argv) > 1 and argv[1] == "statusline":
+        helper_args = ["statusline"] + argv[2:]
+    else:
+        helper_args = ["hook"] + argv
+    try:
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ssh-app-host")
+        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | getattr(os, "O_NOFOLLOW", 0))
+        try:
+            st = os.fstat(fd)
+            if (not stat.S_ISREG(st.st_mode) or st.st_uid != os.geteuid() or st.st_mode & 0o022
+                    or not st.st_mode & 0o100 or st.st_size > 64 * 1024 * 1024):
+                return
+            h = hashlib.sha256()
+            while True:
+                chunk = os.read(fd, 1 << 20)
+                if not chunk:
+                    break
+                h.update(chunk)
+        finally:
+            os.close(fd)
+        if h.hexdigest() != HELPER_SHA256:
+            return
+        os.execv(path, [path] + helper_args)
+    except Exception:
+        return
+
+
 def safe_main():
     """Any unexpected error means "no opinion" (exit 0, no decision), never a crash/traceback."""
     try:
@@ -946,6 +984,7 @@ def _terminate(signum, frame):
 
 
 if __name__ == "__main__":
+    exec_helper(sys.argv[1:])
     signal.signal(signal.SIGTERM, _terminate)
     signal.signal(signal.SIGHUP, _terminate)
     sys.exit(safe_main())
