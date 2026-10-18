@@ -380,6 +380,44 @@ pub(crate) fn build_models_command(sha256: &str, agent: &str) -> Result<String, 
     Ok(crate::hostprobe::login_sh_script(&script, &[], 40))
 }
 
+/// The same lists without the helper (it may be missing or older than this app): the agent's own
+/// command, run through the login shell with a fixed script.
+pub(crate) fn build_models_direct_command(agent: &str) -> Option<String> {
+    let script = match agent {
+        "antigravity" => "a=$(command -v agy 2>/dev/null); [ -n \"$a\" ] || a=\"$HOME/.local/bin/agy\"; \"$a\" models",
+        "ollama" => "ollama list",
+        _ => return None,
+    };
+    Some(crate::hostprobe::login_sh_script(script, &[], 40))
+}
+
+/// Output of `agy models` (`id<TAB>label`) or `ollama list` (header, then `NAME ...`).
+pub(crate) fn parse_models_direct(agent: &str, out: &str) -> Vec<AgentModelChoice> {
+    let mut found: Vec<AgentModelChoice> = Vec::new();
+    let mut add = |id: &str, label: &str| {
+        if found.len() < 60 && is_typable_id(id) && !found.iter().any(|m| m.id == id) {
+            found.push(AgentModelChoice {
+                id: id.to_string(),
+                label: label.chars().filter(|c| !c.is_control()).take(80).collect(),
+            });
+        }
+    };
+    if agent == "ollama" {
+        for line in out.lines().skip(1) {
+            if let Some(name) = line.split_whitespace().next() {
+                add(name, name);
+            }
+        }
+    } else {
+        for line in out.lines() {
+            if let Some((id, label)) = line.split_once('\t') {
+                add(id.trim(), label.trim());
+            }
+        }
+    }
+    found
+}
+
 /// An id that may be typed into a terminal (same alphabet the helper enforces).
 fn is_typable_id(id: &str) -> bool {
     let mut chars = id.chars();
@@ -687,6 +725,19 @@ mod tests {
         assert!(build_helper_install_commands(&bytes, &"0".repeat(64)).is_err());
         assert!(build_helper_install_commands(&[], &sha).is_err());
         assert!(build_helper_install_commands(&bytes, "nothex").is_err());
+    }
+
+    #[test]
+    fn direct_model_lists_without_the_helper() {
+        let agy =
+            "Fetching available models...\ngemini-4-argon-low\tGemini 4 Argon (Low)\nbad id\tx\n";
+        let m = parse_models_direct("antigravity", agy);
+        assert_eq!(m.len(), 1);
+        assert_eq!(m[0].label, "Gemini 4 Argon (Low)");
+        let oll = "NAME ID SIZE MODIFIED\nllama3:8b abc 4 GB now\n";
+        assert_eq!(parse_models_direct("ollama", oll)[0].id, "llama3:8b");
+        assert!(build_models_direct_command("claude").is_none());
+        assert!(build_models_direct_command("antigravity").is_some());
     }
 
     #[test]

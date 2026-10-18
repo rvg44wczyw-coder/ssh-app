@@ -1790,6 +1790,25 @@ fn usage_report_finds_models_in_tmux_sessions_and_reads_transcripts() {
             .await
             .is_err());
 
+        // Antigravity's list comes from `agy models`, through the helper and, when the helper
+        // does not match, straight from the command.
+        let bin = server.home.join(".local/bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::write(
+            bin.join("agy"),
+            "#!/bin/sh\nprintf 'Fetching...\\ngemini-x-high\\tGemini X (High)\\nbad id\\tno\\n'\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(bin.join("agy"), std::fs::Permissions::from_mode(0o755)).unwrap();
+        for sha in [pin.clone(), "0".repeat(64)] {
+            let m = handle
+                .fetch_agent_models("antigravity".into(), sha)
+                .await
+                .unwrap();
+            assert_eq!(m.len(), 1, "{m:?}");
+            assert_eq!((m[0].id.as_str(), m[0].label.as_str()), ("gemini-x-high", "Gemini X (High)"));
+        }
+
         // 3c. Live events: a session record appearing on the host reaches the listener.
         struct Events(std::sync::Mutex<std::sync::mpsc::Sender<String>>);
         impl ssh_core::HostAgentListener for Events {

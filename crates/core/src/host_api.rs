@@ -781,19 +781,25 @@ impl SshSessionHandle {
         crate::usage::validate_sha256(&expected_sha256)?;
         let cmd = crate::usage::build_models_command(&expected_sha256, &agent)?;
         let out = self.execute_command_on_active_session(cmd).await?;
-        Ok(crate::usage::parse_models(&out).unwrap_or_else(|| {
-            if agent == "claude" {
-                ["fable", "opus", "sonnet", "haiku"]
-                    .iter()
-                    .map(|a| crate::usage::AgentModelChoice {
-                        id: a.to_string(),
-                        label: format!("{a} (latest)"),
-                    })
-                    .collect()
-            } else {
-                Vec::new()
-            }
-        }))
+        if let Some(list) = crate::usage::parse_models(&out).filter(|l| !l.is_empty()) {
+            return Ok(list);
+        }
+        // No usable helper (absent, replaced or older than this app): ask the agent's own command.
+        if let Some(direct) = crate::usage::build_models_direct_command(&agent) {
+            let out = self.execute_command_on_active_session(direct).await?;
+            return Ok(crate::usage::parse_models_direct(&agent, &out));
+        }
+        Ok(if agent == "claude" {
+            ["fable", "opus", "sonnet", "haiku"]
+                .iter()
+                .map(|a| crate::usage::AgentModelChoice {
+                    id: a.to_string(),
+                    label: format!("{a} (latest)"),
+                })
+                .collect()
+        } else {
+            Vec::new()
+        })
     }
 
     /// Subscribes to live state changes of the agent sessions. One exec channel stays open (the
