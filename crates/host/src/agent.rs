@@ -192,7 +192,8 @@ fn serve(p: Arc<Paths>, shared: Arc<Mutex<Shared>>, stream: UnixStream) {
                 "lease_until": shared.lock().map_or(0, |s| s.lease_until),
             }),
             Some("state") => {
-                let (map, pending) = compute_state(&p);
+                let (mut map, pending) = compute_state(&p);
+                merge_detected(&mut map, &shared);
                 let sessions: Vec<Value> = map
                     .iter()
                     .map(|(k, e)| {
@@ -245,6 +246,35 @@ fn serve(p: Arc<Paths>, shared: Arc<Mutex<Shared>>, stream: UnixStream) {
         body["id"] = id;
         if !reply(&out, &body) {
             break;
+        }
+    }
+}
+
+/// Agents running in tmux panes that no hook has reported yet (started before the hooks were
+/// installed, or by an agent without hooks), taken from the cached usage scan as `running`.
+fn merge_detected(map: &mut StateMap, shared: &Arc<Mutex<Shared>>) {
+    let reply = usage_reply(shared, &json!({"dirs": []}));
+    let Some(sessions) = reply["report"]["sessions"].as_array() else {
+        return;
+    };
+    for s in sessions {
+        let (Some(name), Some(agent)) = (s["session"].as_str(), s["agent"].as_str()) else {
+            continue;
+        };
+        let agent = if agent == "agy" { "antigravity" } else { agent };
+        let known = map
+            .iter()
+            .any(|(k, e)| k.0 == agent && e.tmux.as_str() == Some(name));
+        if !known {
+            map.insert(
+                (agent.to_string(), name.to_string()),
+                Entry {
+                    state: "running",
+                    tmux: json!(name),
+                    cwd: Value::Null,
+                    ts: Value::Null,
+                },
+            );
         }
     }
 }

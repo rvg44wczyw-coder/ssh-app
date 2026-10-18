@@ -30,6 +30,8 @@ impl Home {
         let mut c = Command::new(BIN);
         c.args(args)
             .env("SSH_APP_HOME", self.dir.path())
+            // A bare `tmux` in the agent must never find the developer's real server.
+            .env("TMUX_TMPDIR", self.dir.path())
             .env_remove("TMUX")
             .env_remove("TMUX_PANE")
             .stderr(Stdio::null());
@@ -269,4 +271,71 @@ fn usage_through_the_agent_is_cached_and_equals_a_direct_scan() {
             break;
         }
     }
+}
+
+#[test]
+fn state_includes_agents_found_in_tmux_without_hooks() {
+    // A fake `claude` process in a private-socket tmux session (never the real server).
+    let h = Home::new();
+    let sock = h.dir.path().join("t.sock");
+    let tmux = |args: &[&str]| {
+        Command::new("tmux")
+            .arg("-S")
+            .arg(&sock)
+            .args(args)
+            .env_remove("TMUX")
+            .env_remove("TMUX_PANE")
+            .stderr(Stdio::null())
+            .stdout(Stdio::null())
+            .status()
+    };
+    let Ok(st) = tmux(&[
+        "-f",
+        "/dev/null",
+        "new-session",
+        "-d",
+        "-s",
+        "work",
+        "exec -a claude sleep 60",
+    ]) else {
+        eprintln!("skipping: tmux missing");
+        return;
+    };
+    if !st.success() {
+        return;
+    }
+    let mut a = h
+        .cmd(&["rpc", "--lease", "60"])
+        .env("TMUX_TMPDIR", h.dir.path())
+        .env("TMUX", format!("{},0,0", sock.display()))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = a.stdin.take().unwrap();
+    let mut out = BufReader::new(a.stdout.take().unwrap());
+    writeln!(stdin, r#"{{"id":1,"m":"hello"}}"#).unwrap();
+    writeln!(stdin, r#"{{"id":2,"m":"state"}}"#).unwrap();
+    let mut state = Value::Null;
+    for _ in 0..4 {
+        let mut l = String::new();
+        out.read_line(&mut l).unwrap();
+        let v: Value = serde_json::from_str(l.trim()).unwrap();
+        if v["id"] == 1 {
+            h.pids.borrow_mut().push(v["pid"].as_i64().unwrap() as i32);
+        }
+        if v["id"] == 2 {
+            state = v;
+            break;
+        }
+    }
+    let _ = tmux(&["kill-server"]);
+    let _ = a.kill();
+    let _ = a.wait();
+    let found: Vec<&Value> = state["sessions"]
+        .as_array()
+        .map(|a| a.iter().filter(|s| s["session"] == "work").collect())
+        .unwrap_or_default();
+    assert_eq!(found.len(), 1, "{state}");
+    assert_eq!(found[0]["state"], "running");
 }
