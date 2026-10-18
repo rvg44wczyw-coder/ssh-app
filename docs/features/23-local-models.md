@@ -40,10 +40,17 @@ Not verified live: the three commands above were checked for syntax against `oll
 - Core: `AgentKind::LocalModel` ("agent that works with a local model"). It has **no hooks**: no
   phone approvals, no permission editor, no host guard (OpenCode and Aider have no compatible hook
   protocol; this is shown in the profile editor, not silently ignored). Every `match` on
-  `AgentKind` that lists hook behaviour returns "unsupported" for it.
+  `AgentKind` that lists hook behaviour returns "unsupported" for it. The sites (exhaustive
+  matches today): `agent_hooks.rs` (config path, hook key, event lists, matcher, defaults,
+  optional events), `host_guard.rs` (`host_guard_agent_support`), `permissions.rs` (merge),
+  `agents.rs` (`agent_config_dir_env`, `permission_mode_args`). Each returns a typed
+  `InvalidInput`/empty list, never panics. In Swift, `SavedAgentProfile.raw/kind` map the new kind
+  explicitly (today an unknown string falls through to `.grok`, which would silently give a local
+  profile Grok's hooks), and `supportsHooks` / `supportsPermissions` / `approvalEventChoices` return
+  false / empty for it.
 - `build_local_agent_profile(tool, model) -> AgentLaunchProfile` (UniFFI export). `tool` is one of
   `opencode`, `aider`, `ollama`; anything else is `InvalidInput`. `model` must pass the existing
-  `is_model_name` rule (1-128 chars, `[A-Za-z0-9._:/-]`) **and must not start with `-`** (the rule
+  `is_model_name` rule (made `pub(crate)`; it is private in `ai.rs` today; 1-128 chars, `[A-Za-z0-9._:/-]`) **and must not start with `-`** (the rule
   alone allows it, and `ollama run <model>` takes the model as a positional argument, so a leading
   dash would be read as an option). It is also passed through `shell_quote` like every other
   argument.
@@ -59,7 +66,16 @@ Not verified live: the three commands above were checked for syntax against `oll
   the assistant). The hook, permission and approval sections are replaced by one line: "This agent
   has no approval hooks; commands run without the phone".
 - The default profile list gets three presets (one per tool) with an empty model; launching one
-  with an empty model asks for a model first (menu of the host's models) and remembers it.
+  with an empty model asks for a model first (menu of the host's models) and remembers it. When
+  the host cannot be asked (not connected, Ollama down) the sheet offers a text field instead, with
+  the same validation as `build_local_agent_profile`.
+- First launch of any local-agent profile shows a one-time confirmation: "This agent runs commands
+  on the host without phone approval; `ollama launch` also writes the tool's config on the host."
+  The acknowledgement is stored per profile.
+- Tab/AI-CLI detection: `opencode` and `aider` are already in `pane_context`'s AI program list
+  (shell commands get the `!` prefix). `ollama run` is a model REPL where `!` is not a shell
+  escape: a pane whose foreground program is `ollama` is classified `Unknown` and "send shell
+  command" asks first instead of typing into the model chat.
 - The sessions grid "New session" menu already lists profiles, so nothing else changes there.
 
 ### 2.4 Errors and edge cases
@@ -84,9 +100,17 @@ Not verified live: the three commands above were checked for syntax against `oll
 
 - The sessions grid shows one **AI card per server** ("AI · <server>", wand icon, last answer or
   "Ask the host model" as preview). Tap opens the assistant screen. The toolbar wand button stays.
-- Chat and command history live in an `AssistantSession` (per server id, in memory plus the
-  existing chat persistence if any), not in `TerminalSessionViewModel`. Closing the screen keeps the
+- Chat and command-mode state (`chatMessages`, `chatError`, `isChatLoading`, `activeAiSuggestion`,
+  `aiError`, `isAiLoading` and their tasks, all in `TerminalSessionViewModel` today) move into an
+  `AssistantSession` per server id. There is no chat persistence today: history is **in memory
+  only** and is lost when the app is killed (stated in the card menu; persisting transcripts to
+  disk is out of scope because they can contain pasted secrets). Closing the screen keeps the
   history; a card menu has *Clear*.
+- Requests call `handle.chatHostOllama` / `queryAiAssistant` on the borrowed handle directly. When
+  the app is backgrounded the sockets close (zero-battery rule): an in-flight request ends with a
+  visible error, the history stays, nothing is retried in the background.
+- The card appears after the first use of the assistant for that server (not for every server up
+  front), so the grid does not fill with unused cards.
 - The assistant needs an SSH connection. It borrows the handle of a connected terminal session on
   that server at the time of each request; when there is none it starts one terminal on that
   server (as the button does today). A dedicated connection per assistant is **not** opened, to
@@ -111,6 +135,17 @@ tmux naming, restore-on-launch, the session menu and the usage strip. A card is 
 - Local agents run **without** the approval hooks. The editor and the card text state this; the
   host guard cannot protect them. A user who wants gated execution keeps using Claude/Codex.
 - The model list comes from the host and is validated (`is_model_name`) before it is shown or used.
+
+## 4a. Review notes (rev, 2026-10-18)
+
+Named trade-offs, not defects:
+
+- `ollama launch` couples the preset to Ollama's version and lets Ollama write the tool's config.
+  The alternative, `opencode` with an inline provider config, avoids the side effect but is
+  unverified for the installed OpenCode 2.0.30. Kept `ollama launch` as primary; the preset list is
+  data, so the alternative can replace it without touching the rest.
+- `AgentKind::LocalModel` is a bucket for heterogeneous tools; what unites them is "no hooks, local
+  model". Kept the single kind to avoid one enum variant (and ~16 match arms) per tool.
 
 ## 5. Open questions for the owner
 
