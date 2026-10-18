@@ -287,10 +287,15 @@ public struct MainTerminalView: View {
                     }
                 } else {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button { dismissKeyboard(); showHome = true } label: {
+                    // Tap = all sessions, touch and hold = the jump menu. A Menu keeps its label in
+                    // place while it opens; a context menu on a toolbar button let the glyph slide.
+                    Menu {
+                        jumpMenu
+                    } label: {
                         Image(systemName: "square.grid.2x2").font(.system(size: 17))
+                    } primaryAction: {
+                        dismissKeyboard(); showHome = true
                     }
-                    .contextMenu { jumpMenu }
                     .accessibilityLabel("All sessions")
                     .accessibilityHint("Tap for the list of sessions. Touch and hold to switch session, pick a server or start a new session.")
                 }
