@@ -234,6 +234,54 @@ def codex_limits():
     return []
 
 
+# ---- Antigravity (agy): local transcript only; the plan quota is not stored on disk -----------
+AGY_HOME = os.path.expanduser("~/.gemini/antigravity-cli")
+AGY_LIMIT_RX = re.compile(r"quota|capacity|rate.?limit|429|exhausted|overloaded", re.I)
+
+
+def agy_state(cwd):
+    try:
+        with open(os.path.join(AGY_HOME, "cache", "last_conversations.json"), "r", encoding="utf-8") as fh:
+            mapping = json.load(fh)
+    except Exception:
+        return {}
+    conv = mapping.get(os.path.realpath(cwd)) or mapping.get(cwd) if isinstance(mapping, dict) else None
+    if not isinstance(conv, str) or not re.fullmatch(r"[0-9a-fA-F-]{8,64}", conv):
+        return {}
+    transcript = os.path.join(AGY_HOME, "brain", conv, ".system_generated", "logs", "transcript.jsonl")
+    out = {}
+    try:
+        with open(os.path.join(AGY_HOME, "settings.json"), "r", encoding="utf-8") as fh:
+            model = json.load(fh).get("model")
+        if isinstance(model, str) and model:
+            out["model"] = model[:80]
+            # Window sizes as documented for agy (Flash 1M, Pro 2M); not read from the tool.
+            out["context_limit"] = 2000000 if "pro" in model.lower() else 1000000
+    except Exception:
+        pass
+    for line in reversed(tail_lines(transcript)):
+        try:
+            e = json.loads(line)
+        except Exception:
+            continue
+        if not isinstance(e, dict):
+            continue
+        if "context_used" not in out and e.get("type") == "PLANNER_RESPONSE":
+            used = sum(int(e.get(k) or 0) for k in ("input_tokens", "cache_read_tokens", "output_tokens"))
+            if used:
+                out["context_used"] = used
+        if "limit_note" not in out and e.get("status") == "ERROR":
+            ts = ts_epoch(e.get("created_at") or "")
+            text = e.get("content")
+            if ts and NOW - ts < 6 * 3600 and isinstance(text, str) and AGY_LIMIT_RX.search(text[:2000]):
+                out["limit_note"] = text.strip()[:200]
+        if "context_used" in out and "limit_note" in out:
+            break
+    if "context_used" not in out:
+        out.pop("context_limit", None)
+    return out
+
+
 # ---- rolling window totals ----------------------------------------------------------------
 def window_totals():
     five, week = [0, 0, 0, 0, 0], [0, 0, 0, 0, 0]
@@ -315,6 +363,8 @@ for line in panes.splitlines():
         s.update(claude_state(cwd))
     elif agent == "codex":
         s["limits"] = codex_limits()
+    elif agent == "agy":
+        s.update(agy_state(cwd))
     elif agent == "ollama" and arg:
         s["ollama_model"] = arg
     sessions.append(s)
