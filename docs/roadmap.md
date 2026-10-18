@@ -139,7 +139,7 @@
 - [ ] Hacker findings doc for Feature 04 (Android).
 - [x] Integration test for exec-based methods against a loopback sshd (M14: telemetry + file browser; `crates/core/tests/loopback_sshd.rs`). History/transcript methods still uncovered.
 - [x] Loopback tests for history and transcript exist (`history_transcript_kill_and_probes_against_loopback_sshd`, `transcript_detection_runs_through_the_login_shell_with_its_argument`).
-- [ ] Re-verify the per-feature test counts above: Features 07 and 08 both report `cargo test` 40/40; the current suite is 53 tests.
+- [x] Per-feature test counts above are snapshots from when each feature landed (they are not re-run). Current `cargo test -p ssh-core` (2026-10-18): 191 lib + 32 hook_script + 22 loopback_sshd + 6 ollama_probe + 3 opencode_plugin = 254 passed.
 
 ### M14: Loopback sshd Integration Tests
 - **Test**: `crates/core/tests/loopback_sshd.rs` — spawns its own `sshd` (ephemeral host key, `127.0.0.1`, ephemeral port, generated Ed25519 client key), connects `SshSessionHandle`, and exercises `fetch_host_telemetry`, `list_remote_directory` and `read_remote_file_preview` (hidden filter, binary detection, symlink-to-`.ssh` file and directory refused, missing file). Skips with a message if `sshd`/`ssh-keygen`/`tmux` are absent; cleans up sshd and its tmux session.
