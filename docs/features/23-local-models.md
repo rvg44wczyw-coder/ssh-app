@@ -19,37 +19,47 @@ Two stages, shipped separately:
 
 ## 2. Stage 1 — local agents
 
-### 2.1 What gets launched
+### 2.1 Tools, how they are launched and what approvals they can have
 
-| Preset | Command run on the host (inside the session's tmux, login/interactive shell as for other profiles) |
-| :--- | :--- |
-| OpenCode | `ollama launch opencode --model <model>` |
-| Aider | `env OLLAMA_API_BASE=http://127.0.0.1:11434 aider --model ollama_chat/<model>` |
-| Ollama chat | `ollama run <model>` |
+Owner decisions (2026-10-18): local agents **must have phone approvals where the tool allows it**,
+and **all** tools are added. Hook support was researched per tool (official docs; none of the
+agents below can be driven interactively in this environment, so hook behaviour is documented, not
+observed):
 
-`ollama launch <integration> --model <m>` is Ollama's own supported way to point an agent at a local
-model (`ollama launch --help` lists `opencode`, `claude`, `codex`, …). **Side effect to state in
-the UI**: `ollama launch` writes the integration's config on the host (that is what it is for).
-Nothing is written by the app itself.
+| Tool | Launch on the host | Approvals mechanism | Phone approval |
+| :--- | :--- | :--- | :--- |
+| OpenCode | `ollama launch opencode --model M` | JS plugin `~/.config/opencode/plugins/ssh-app.js`; `tool.execute.before` calls the host script and **throws** to block | yes |
+| Qwen Code | `ollama launch qwen --model M` | Claude-style hooks in `~/.qwen/settings.json` (`PermissionRequest`, `Notification`, `Stop`); same reply shape as Claude's | yes |
+| Crush | `crush` (model comes from Crush's own config; it has no model flag) | `hooks.PreToolUse` in `crush.json`; exit 0 + `{"decision":"allow"}` / exit 2 + stderr to block; `timeout` raised to 120 s (default is 30 s) | yes (tool call only; no notify/stop events) |
+| Cline | `ollama launch cline --model M` | SDK plugins only; plugin hooks have a hard 3 s timeout and fail open | **no** |
+| Aider | `env OLLAMA_API_BASE=http://127.0.0.1:11434 aider --model ollama_chat/M` | none (asks y/n in its own terminal) | no |
+| Goose | `env GOOSE_PROVIDER=ollama GOOSE_MODEL=M goose session` | none found (own permission modes) | no |
+| Ollama chat | `ollama run M` | none (a chat, runs no tools) | n/a |
 
-Not verified live: the three commands above were checked for syntax against `ollama launch --help`,
-`aider --help` and the installed `opencode` / `aider` binaries, not run as interactive sessions.
+Tools without approvals show a line in the editor ("This tool has no approval hook; it asks in
+its own terminal") and the first-launch confirmation of section 2.3. Unverified details are
+marked in the code and the preview, as for the Codex and Grok installers: the user path of Qwen's
+`settings.json` and of `crush.json` (`~/.config/crush/crush.json`) are not stated in the docs
+fetched; the installer shows the target file in the preview before writing, like every installer.
+
+`ollama launch <integration> --model M` is Ollama's own supported way to point an agent at a
+local model. **Side effect to state in the UI**: it writes the integration's config on the host.
+Nothing is written by the app itself except the hook files above, through the same guarded
+config writer as the other agents (hash check, backup, preview).
 
 ### 2.2 Types
 
-- Core: `AgentKind::LocalModel` ("agent that works with a local model"). It has **no hooks**: no
-  phone approvals, no permission editor, no host guard (OpenCode and Aider have no compatible hook
-  protocol; this is shown in the profile editor, not silently ignored). Every `match` on
-  `AgentKind` that lists hook behaviour returns "unsupported" for it. The sites (exhaustive
-  matches today): `agent_hooks.rs` (config path, hook key, event lists, matcher, defaults,
-  optional events), `host_guard.rs` (`host_guard_agent_support`), `permissions.rs` (merge),
-  `agents.rs` (`agent_config_dir_env`, `permission_mode_args`). Each returns a typed
-  `InvalidInput`/empty list, never panics. In Swift, `SavedAgentProfile.raw/kind` map the new kind
-  explicitly (today an unknown string falls through to `.grok`, which would silently give a local
-  profile Grok's hooks), and `supportsHooks` / `supportsPermissions` / `approvalEventChoices` return
-  false / empty for it.
+- Core: new `AgentKind` variants `OpenCode`, `QwenCode`, `Crush`, `Cline`, `Aider`, `Goose`,
+  `OllamaChat` (one per tool, because the hook mechanisms differ). The first three have hook
+  installers; the other four return a typed "no hooks for this agent" error from every hook API.
+  The sites (exhaustive matches today): `agent_hooks.rs` (config path, hook key, event lists,
+  matcher, defaults, optional events), `host_guard.rs` (`host_guard_agent_support`),
+  `permissions.rs` (merge), `agents.rs` (`agent_config_dir_env`, `permission_mode_args`). None
+  panics. In Swift, `SavedAgentProfile.raw/kind` map every kind explicitly (today an unknown
+  string falls through to `.grok`, which would silently give a local profile Grok's hooks), and
+  `supportsHooks` / `supportsPermissions` / `approvalEventChoices` are per kind.
 - `build_local_agent_profile(tool, model) -> AgentLaunchProfile` (UniFFI export). `tool` is one of
-  `opencode`, `aider`, `ollama`; anything else is `InvalidInput`. `model` must pass the existing
+  `opencode`, `qwen`, `crush`, `cline`, `aider`, `goose`, `ollama`; anything else is `InvalidInput`. `model` must pass the existing
   `is_model_name` rule (made `pub(crate)`; it is private in `ai.rs` today; 1-128 chars, `[A-Za-z0-9._:/-]`) **and must not start with `-`** (the rule
   alone allows it, and `ollama run <model>` takes the model as a positional argument, so a leading
   dash would be read as an option). It is also passed through `shell_quote` like every other
@@ -61,7 +71,7 @@ Not verified live: the three commands above were checked for syntax against `oll
 
 ### 2.3 UI
 
-- Profile editor: for a `LocalModel` profile the "Agent" section shows **Tool** (OpenCode / Aider /
+- Profile editor: for a local-tool profile the "Agent" section shows **Tool** (OpenCode / Aider /
   Ollama chat) and **Model** with a *Choose from host* menu (`checkHostOllama`, same quick probe as
   the assistant). The hook, permission and approval sections are replaced by one line: "This agent
   has no approval hooks; commands run without the phone".
@@ -91,7 +101,7 @@ Not verified live: the three commands above were checked for syntax against `oll
 
 - Rust: each tool's exact command; hostile model names (`; rm -rf ~`, `$(x)`, leading `-`, spaces,
   newline, 129 chars) rejected; the built command contains the model only inside single quotes;
-  hook APIs return unsupported for `LocalModel` (no panic, typed error).
+  hook APIs return unsupported for the no-hook kinds (no panic, typed error).
 - Swift: Codable round-trip of an old profile without the new keys.
 
 ## 3. Stage 2 — the assistant as a card
@@ -132,8 +142,13 @@ tmux naming, restore-on-launch, the session menu and the usage strip. A card is 
 - No new network surface: the same SSH exec channel, commands built in Rust with validated
   arguments.
 - `ollama launch` changes host config by design; the UI says so before first use.
-- Local agents run **without** the approval hooks. The editor and the card text state this; the
-  host guard cannot protect them. A user who wants gated execution keeps using Claude/Codex.
+- OpenCode, Qwen Code and Crush get phone approvals through the same SSHSIG-verified queue as
+  Claude (the host script is the only verifier; the plugin/hook only asks it). The JS plugin is a
+  fixed text generated by the app (no user input interpolated), calls the installed script by
+  absolute path with `execFile` (no shell) and fails **closed**: an error, a missing script or a
+  timeout throws, so the call is blocked rather than allowed.
+- Cline, Aider, Goose and Ollama chat run without the phone gate; the editor and the first-launch
+  confirmation say so. The host guard cannot protect them.
 - The model list comes from the host and is validated (`is_model_name`) before it is shown or used.
 
 ## 4a. Review notes (rev, 2026-10-18)
@@ -144,12 +159,12 @@ Named trade-offs, not defects:
   The alternative, `opencode` with an inline provider config, avoids the side effect but is
   unverified for the installed OpenCode 2.0.30. Kept `ollama launch` as primary; the preset list is
   data, so the alternative can replace it without touching the rest.
-- `AgentKind::LocalModel` is a bucket for heterogeneous tools; what unites them is "no hooks, local
-  model". Kept the single kind to avoid one enum variant (and ~16 match arms) per tool.
+- One `AgentKind` per tool (not a shared bucket): the hook mechanisms differ per tool, so a bucket
+  would only move the per-tool branching into string checks.
+- The card appears after first use of the assistant for that server (see section 3.1).
 
-## 5. Open questions for the owner
+## 5. Decisions taken
 
-1. Is "no approvals for local agents" acceptable, or should they only be offered inside a host
-   guard / sandbox directory?
-2. Which tools beyond OpenCode and Aider (Goose, Crush, Qwen Code, Cline via `ollama launch`)?
-   The design makes each a one-line preset.
+1. Approvals for local agents: required where a hook exists (OpenCode, Qwen Code, Crush).
+2. All tools added; Goose, Aider, Cline and Ollama chat are launch-only because no usable
+   approval hook exists (Cline's 3 s fail-open plugin timeout cannot wait for a phone).
