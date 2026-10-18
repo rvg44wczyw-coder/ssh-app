@@ -1,6 +1,15 @@
 import SwiftUI
 import SshCoreBridge
 
+/// Where the AI assistant screen goes: the session whose connection reaches the host model.
+struct AssistantRoute: Identifiable, Hashable {
+    let id = UUID()
+    let viewModel: TerminalSessionViewModel
+    let serverName: String
+    static func == (a: AssistantRoute, b: AssistantRoute) -> Bool { a.id == b.id }
+    func hash(into h: inout Hasher) { h.combine(id) }
+}
+
 public struct MainTerminalView: View {
     @Environment(\.scenePhase) private var scenePhase
 
@@ -41,11 +50,10 @@ public struct MainTerminalView: View {
         return TerminalSchemes.resolve(profileSchemeId: profile?.terminalSchemeId, slot: slot)
     }
     @State private var activeSheet: ActiveModalSheet? = nil
-    /// The AI assistant is a full screen of its own, not a card over the terminal.
-    @State private var showAssistant = false
-    /// Session the assistant talks through (its connection reaches the host model) and the server's name for the title.
-    @State private var assistantVM: TerminalSessionViewModel?
-    @State private var assistantServerName = ""
+    /// The AI assistant is a screen of its own (pushed on the navigation stack), not a card over
+    /// the terminal. One value carries both "open" and "through which session", so the screen can
+    /// never appear without its session.
+    @State private var assistantRoute: AssistantRoute?
     @StateObject private var approvals = ApprovalsCenter()
 
     @ObservedObject private var subscriptions = SubscriptionManager.shared
@@ -343,19 +351,17 @@ public struct MainTerminalView: View {
             .sheet(isPresented: $showPaywall) {
                 PaywallView(reason: "The free version keeps up to \(FreeTier.maxSessions) open sessions. Pro removes the limit.")
             }
-            .fullScreenCover(isPresented: $showAssistant) {
-                if let activeVM = assistantVM {
+            .navigationDestination(item: $assistantRoute) { route in
                     AiAssistantSheetView(
-                        viewModel: activeVM,
-                        serverName: assistantServerName,
+                        viewModel: route.viewModel,
+                        serverName: route.serverName,
                         targets: assistantTargets,
                         onSent: { id in
                             tabsManager.selectedSessionId = id
                             showHome = false
                         },
-                        onClose: { showAssistant = false }
+                        onClose: { assistantRoute = nil }
                     )
-                }
             }
             .sheet(item: $activeSheet) { sheet in
                 switch sheet {
@@ -413,7 +419,7 @@ public struct MainTerminalView: View {
                         WebPreviewSheetView(viewModel: activeVM)
                     }
                 case .aiAssistant:
-                    EmptyView() // shown full screen, see `showAssistant`
+                    EmptyView() // pushed as a screen, see `assistantRoute`
                 case .commands:
                     if let activeVM = tabsManager.activeViewModel {
                         CommandPaletteSheetView(
@@ -698,11 +704,7 @@ public struct MainTerminalView: View {
 
     private func openAssistant(through vm: TerminalSessionViewModel, serverName: String) {
         vm.aiError = nil
-        assistantVM = vm
-        assistantServerName = serverName
-        // A full-screen cover presented while the menu (or popover) it was chosen from is still
-        // closing comes up blank under UIKit; wait for that animation to finish.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { showAssistant = true }
+        assistantRoute = AssistantRoute(viewModel: vm, serverName: serverName)
     }
 
     private func sessions(on server: ServerProfile) -> [TabSession] {

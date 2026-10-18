@@ -97,12 +97,12 @@ public struct AiAssistantSheetView: View {
         // Leaving while a request runs would leave the model generating for nobody.
         if viewModel.isAiLoading { viewModel.stopAiQuery() }
         if viewModel.isChatLoading { viewModel.stopChat() }
-        onClose?()
-        dismiss()
+        if let onClose { onClose() } else { dismiss() }
     }
 
+    /// Pushed onto the main navigation stack (a screen of its own, with a Back button).
     public var body: some View {
-        NavigationStack {
+        Group {
             VStack(spacing: 0) {
             Picker("Mode", selection: $mode) {
                 ForEach(Mode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
@@ -140,12 +140,6 @@ public struct AiAssistantSheetView: View {
             .navigationTitle(serverName.isEmpty ? "AI assistant" : "AI · \(serverName)")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Close") {
-                        closeSheet()
-                    }
-                    .foregroundColor(.secondary)
-                }
                 if targets.count > 1 {
                     ToolbarItem(placement: .topBarTrailing) {
                         Menu {
@@ -178,7 +172,11 @@ public struct AiAssistantSheetView: View {
                 Text("This command contains potentially destructive actions (e.g. recursive file deletion or hard reset). Are you sure you want to run it immediately?")
             }
         }
-        .interactiveDismissDisabled()
+        // Leaving (Back) while a request runs would leave the model generating for nobody.
+        .onDisappear {
+            if viewModel.isAiLoading { viewModel.stopAiQuery() }
+            if viewModel.isChatLoading { viewModel.stopChat() }
+        }
     }
 
     // MARK: - Chat
