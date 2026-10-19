@@ -4,6 +4,9 @@ import SshCoreBridge
 public struct StructuredTranscriptView: View {
     @ObservedObject var viewModel: TerminalSessionViewModel
     @State private var promptText: String = ""
+    @State private var atBottom = true
+    @State private var unseenNew = false
+    @FocusState private var inputFocused: Bool
     @State private var expandedThinkingTurns: Set<String> = []
     @State private var expandedToolCalls: Set<String> = []
 
@@ -144,16 +147,42 @@ public struct StructuredTranscriptView: View {
                                 )
                                 .id(turn.id)
                             }
+                            Color.clear.frame(height: 1).id(Self.bottomId)
+                                .onAppear { atBottom = true; unseenNew = false }
+                                .onDisappear { atBottom = false }
                         }
                         .padding(.horizontal, 12)
                         .padding(.vertical, 12)
                     }
+                    .defaultScrollAnchor(.bottom)
+                    .scrollDismissesKeyboard(.interactively)
                     .background(Color.appBackground)
-                    .onChange(of: viewModel.transcriptTurns.count) { _, _ in
-                        if let lastId = viewModel.transcriptTurns.last?.id {
-                            withAnimation {
-                                proxy.scrollTo(lastId, anchor: .bottom)
+                    .onChange(of: viewModel.transcriptTurns) { _, _ in
+                        // Follow the output only while the reader is at the bottom; otherwise
+                        // leave the view alone and offer a way back.
+                        if atBottom {
+                            proxy.scrollTo(Self.bottomId, anchor: .bottom)
+                        } else {
+                            unseenNew = true
+                        }
+                    }
+                    .overlay(alignment: .bottomTrailing) {
+                        if !atBottom {
+                            Button {
+                                proxy.scrollTo(Self.bottomId, anchor: .bottom)
+                            } label: {
+                                Label("Latest", systemImage: "arrow.down")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                                    .background(.regularMaterial, in: Capsule())
+                                    .overlay(alignment: .topTrailing) {
+                                        if unseenNew {
+                                            Circle().fill(Color.appAccent).frame(width: 8, height: 8)
+                                        }
+                                    }
                             }
+                            .padding(10)
                         }
                     }
                 }
@@ -161,28 +190,36 @@ public struct StructuredTranscriptView: View {
 
             Divider()
 
-            // Bottom Prompt Input Bar
-            HStack(spacing: 8) {
-                TextField("Send instruction to agent...", text: $promptText)
-                    .textFieldStyle(PlainTextFieldStyle())
-                    .font(.system(size: 13))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 8)
-                    .background(Color.appSecondaryBackground)
-                    .cornerRadius(8)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
-                    )
-
-                Button(action: {
-                    sendPrompt()
-                }) {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.system(size: 26))
-                        .foregroundColor(promptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .secondary : .appAccent)
+            // Bottom prompt: a multi-line editor with a few control keys above it.
+            VStack(spacing: 6) {
+                HStack(spacing: 6) {
+                    feedKey("Esc") { viewModel.sendInput(Data([0x1b])) }
+                    feedKey("^C") { viewModel.sendInput(Data([0x03])) }
+                    feedKey("↑") { viewModel.sendInput(Data([0x1b, 0x5b, 0x41])) }
+                    feedKey("⏎") { viewModel.sendInput(Data([0x0d])) }
+                    Spacer()
                 }
-                .disabled(promptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                HStack(alignment: .bottom, spacing: 8) {
+                    TextField("Message…", text: $promptText, axis: .vertical)
+                        .lineLimit(1...6)
+                        .focused($inputFocused)
+                        .font(.system(size: 15))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
+                        .background(Color.appSecondaryBackground)
+                        .cornerRadius(10)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10)
+                                .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+                        )
+
+                    Button(action: sendPrompt) {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.system(size: 30))
+                            .foregroundColor(canSend ? .appAccent : .secondary)
+                    }
+                    .disabled(!canSend)
+                }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
@@ -193,20 +230,64 @@ public struct StructuredTranscriptView: View {
                 viewModel.loadTranscript()
             }
         }
+        // Live tail: only while this view is on screen (the task ends with it).
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(3))
+                await viewModel.reloadTranscriptQuietly()
+            }
+        }
+    }
+
+    private static let bottomId = "feed-bottom"
+
+    private var canSend: Bool {
+        !promptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func feedKey(_ title: String, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
+        }
+        .buttonStyle(.plain)
     }
 
     private func sendPrompt() {
-        let trimmed = promptText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        let payload = "\(trimmed)\n"
-        if let data = payload.data(using: .utf8) {
-            viewModel.sendInput(data)
-        }
+        guard canSend else { return }
+        viewModel.sendInput(Data(FeedSubmit.bytes(for: promptText)))
         promptText = ""
-        // Schedule refresh after brief delay to observe agent pickup
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            viewModel.loadTranscript()
+        // The transcript catches up through the live tail.
+        Task {
+            try? await Task.sleep(for: .seconds(1))
+            await viewModel.reloadTranscriptQuietly()
         }
+    }
+}
+
+/// What to type into the pane for a prompt written in the feed.
+enum FeedSubmit {
+    /// One line: the text and Enter. Several lines: a bracketed paste (so the agent takes them as
+    /// one prompt, not one prompt per line) and Enter. An end-of-paste marker inside the text is
+    /// removed, so pasted content cannot leave the paste early and run as keystrokes.
+    static func bytes(for text: String) -> [UInt8] {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let clean = trimmed
+            .replacingOccurrences(of: "\u{1b}[201~", with: "")
+            .replacingOccurrences(of: "\u{1b}[200~", with: "")
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+        var out: [UInt8] = []
+        if clean.contains("\n") {
+            out += Array("\u{1b}[200~".utf8) + Array(clean.utf8) + Array("\u{1b}[201~".utf8)
+        } else {
+            out += Array(clean.utf8)
+        }
+        out.append(0x0d)
+        return out
     }
 }
 
@@ -294,6 +375,7 @@ private struct TranscriptTurnCard: View {
 
                     if isThinkingExpanded {
                         Text(thinking)
+                            .textSelection(.enabled)
                             .font(.system(size: 11, design: .monospaced))
                             .foregroundColor(.secondary)
                             .padding(8)
@@ -306,10 +388,7 @@ private struct TranscriptTurnCard: View {
 
             // Text Content
             if let content = turn.content, !content.isEmpty {
-                Text(content)
-                    .font(.system(size: 13))
-                    .foregroundColor(.primary)
-                    .fixedSize(horizontal: false, vertical: true)
+                FeedMarkdownView(text: content)
             }
 
             // Tool Calls
@@ -411,6 +490,7 @@ private struct ToolCallCard: View {
                             .font(.system(size: 10, weight: .bold))
                             .foregroundColor(.secondary)
                         Text(fullArgs)
+                            .textSelection(.enabled)
                             .font(.system(size: 10, design: .monospaced))
                             .foregroundColor(.primary)
                             .padding(6)
@@ -424,6 +504,7 @@ private struct ToolCallCard: View {
                             .font(.system(size: 10, weight: .bold))
                             .foregroundColor(toolCall.isError ? .red : .secondary)
                         Text(res)
+                            .textSelection(.enabled)
                             .font(.system(size: 10, design: .monospaced))
                             .foregroundColor(toolCall.isError ? .red : .primary)
                             .padding(6)

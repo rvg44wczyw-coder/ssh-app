@@ -14,6 +14,7 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
 
     // Structured Transcript / Dual-Mode State
     @Published public var isChatMode: Bool = false
+    private var lastTranscriptDetect: Date?
     @Published public var transcriptTurns: [TranscriptTurn] = []
     @Published public var isTranscriptLoading: Bool = false
     @Published public var activeTranscriptPath: String? = nil
@@ -230,6 +231,24 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
                 self.isTranscriptLoading = false
             }
         }
+    }
+
+    /// Live tail for the feed: re-reads the transcript without touching the loading or error state,
+    /// and publishes only when something changed (so the view does not re-render or scroll).
+    /// A failure keeps what is on screen.
+    public func reloadTranscriptQuietly() async {
+        guard let handle = handle, state == .connected, !isTranscriptLoading else { return }
+        var path = activeTranscriptPath
+        if path == nil {
+            // Looking for a transcript runs a host command: not more often than every 20 s.
+            if let last = lastTranscriptDetect, Date().timeIntervalSince(last) < 20 { return }
+            lastTranscriptDetect = Date()
+            path = try? await handle.detectActiveTranscriptPath(baseDir: nil)
+            activeTranscriptPath = path
+        }
+        guard let path, let turns = try? await handle.readRemoteTranscript(remotePath: path) else { return }
+        if turns != transcriptTurns { transcriptTurns = turns }
+        if transcriptError != nil, !turns.isEmpty { transcriptError = nil }
     }
 
     public func fetchRemoteHistory() {
