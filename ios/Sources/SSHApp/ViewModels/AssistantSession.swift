@@ -10,8 +10,8 @@ import SshCoreBridge
 /// ends with a visible error and the history stays.
 @MainActor
 public final class AssistantSession: ObservableObject, Identifiable {
-    public let serverId: UUID
-    public var id: UUID { serverId }
+    public nonisolated let serverId: UUID
+    public nonisolated var id: UUID { serverId }
 
     @Published public var activeAiSuggestion: AiCommandSuggestion? = nil
     @Published public var isAiLoading = false

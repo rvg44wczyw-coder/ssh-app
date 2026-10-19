@@ -319,7 +319,7 @@ public struct GitLogSheetView: View {
     }
 }
 
-extension GitLogEntry: Identifiable {
+extension GitLogEntry: @retroactive Identifiable {
     public var id: String { hash }
 }
 

@@ -74,7 +74,7 @@ final class RemoteEnumerator: NSObject, NSFileProviderEnumerator {
             do {
                 let parts = String(decoding: anchor.rawValue, as: UTF8.self).split(separator: "\n", maxSplits: 1).map(String.init)
                 let r = try await list()
-                Self.lock.lock(); let old = Self.snapshots[r.path]; Self.lock.unlock()
+                let old = Self.lock.withLock { Self.snapshots[r.path] }
                 guard parts.count == 2, parts[0] == r.path, let old, old.hash == parts[1] else {
                     observer.finishEnumeratingWithError(NSFileProviderError(.syncAnchorExpired))
                     return

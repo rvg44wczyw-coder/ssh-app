@@ -98,12 +98,13 @@ struct FeedTextView: UIViewRepresentable {
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) { report(scrollView) }
 
-        func textView(_ textView: UITextView, shouldInteractWith URL: URL, in characterRange: NSRange,
-                      interaction: UITextItemInteraction) -> Bool {
-            if interaction == .invokeDefaultAction, let toggle = FeedToggle(url: URL) {
-                parent.onToggle(toggle)
+        /// Taps on the feed's own toggle links expand or collapse a turn; no link is ever opened.
+        func textView(_ textView: UITextView, primaryActionFor textItem: UITextItem,
+                      defaultAction: UIAction) -> UIAction? {
+            if case .link(let url) = textItem.content, let toggle = FeedToggle(url: url) {
+                return UIAction { [parent] _ in parent.onToggle(toggle) }
             }
-            return false
+            return UIAction { _ in }
         }
     }
 }
@@ -184,7 +185,7 @@ enum FeedHighlightStore {
 /// to a few lines). Pure: same turns and expansion state, same text.
 @MainActor
 enum FeedAttributedBuilder {
-    private static let size: CGFloat = 13.5
+    nonisolated private static let size: CGFloat = 13.5
     private static let previewLines = 4
 
     private static func mono(_ weight: UIFont.Weight = .regular, size: CGFloat = size) -> UIFont {

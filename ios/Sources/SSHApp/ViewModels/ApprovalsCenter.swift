@@ -129,7 +129,7 @@ public final class ApprovalsCenter: ObservableObject {
         do {
             try await handle.submitApprovalDecision(id: entry.item.id, approved: approved)
             entries.removeAll { $0.id == entry.id }
-            await pollOnce()
+            _ = await pollOnce()
         } catch {
             let message = error.localizedDescription
             errors[entry.id] = message
