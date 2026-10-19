@@ -15,6 +15,8 @@ public struct GitBranchesSheetView: View {
     @State private var messageIsError = false
     @State private var pendingSwitch: GitBranch?
     @State private var pendingDelete: GitBranch?
+    @State private var pendingHistory: (title: String, message: String, button: String, op: GitHistoryOp)?
+    @State private var showStashes = false
     @State private var forceDelete: GitBranch?
     @State private var showCreate = false
     @State private var newName = ""
@@ -42,6 +44,9 @@ public struct GitBranchesSheetView: View {
                         HStack {
                             Button { createFrom = nil; newName = ""; showCreate = true } label: { Image(systemName: "plus") }
                                 .disabled(result?.status != .ok)
+                            Button { showStashes = true } label: { Image(systemName: "tray.full") }
+                                .accessibilityLabel("Stashes")
+                                .disabled(result?.status != .ok)
                             Button { showWorktrees = true } label: { Image(systemName: "square.on.square") }
                                 .accessibilityLabel("Worktrees")
                                 .disabled(result?.status != .ok)
@@ -50,6 +55,7 @@ public struct GitBranchesSheetView: View {
                     }
                 }
                 .onAppear(perform: load)
+                .sheet(isPresented: $showStashes) { GitStashesSheetView(viewModel: viewModel, onChanged: { load(); onChanged() }) }
                 .sheet(isPresented: $showWorktrees) { GitWorktreesSheetView(viewModel: viewModel) }
                 .alert("New branch", isPresented: $showCreate) {
                     TextField("feature/name", text: $newName)
@@ -71,6 +77,17 @@ public struct GitBranchesSheetView: View {
                     Text(result?.dirty == true
                         ? "You have uncommitted changes. Git carries them over, or refuses if they conflict."
                         : "Checks out \(b.name) in this tab's repository.")
+                }
+                .confirmationDialog(
+                    pendingHistory?.title ?? "", isPresented: Binding(get: { pendingHistory != nil }, set: { if !$0 { pendingHistory = nil } }),
+                    titleVisibility: .visible
+                ) {
+                    if let p = pendingHistory {
+                        Button(p.button, role: .destructive) { runHistory(p.op) }
+                    }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text(pendingHistory?.message ?? "")
                 }
                 .confirmationDialog(
                     "Delete branch", isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }),
@@ -157,6 +174,18 @@ public struct GitBranchesSheetView: View {
             Button { createFrom = b.name; newName = ""; showCreate = true } label: {
                 Label("New branch from here…", systemImage: "plus")
             }
+            if !b.isCurrent, let cur = result?.current {
+                Button {
+                    pendingHistory = ("Merge \(b.name) into \(cur)?",
+                        "Merges it into the current branch. Needs a clean tree; a conflict aborts the merge and changes nothing. The old tip is saved under refs/ssh-app/backup/.",
+                        "Merge", .merge(branch: b.name))
+                } label: { Label("Merge into \(cur)", systemImage: "arrow.triangle.merge") }
+                Button {
+                    pendingHistory = ("Rebase \(cur) onto \(b.name)?",
+                        "Replays the current branch's commits on top of it. Refused if those commits are already on a remote; a conflict aborts it.",
+                        "Rebase", .rebase(onto: b.name))
+                } label: { Label("Rebase \(cur) onto this", systemImage: "arrow.up.arrow.down") }
+            }
         }
         .swipeActions(edge: .trailing) {
             if !b.isRemote && !b.isCurrent {
@@ -189,6 +218,24 @@ public struct GitBranchesSheetView: View {
                     message = r.output.isEmpty ? (r.ok ? "Done" : "Failed (exit \(r.exitCode))") : r.output
                     messageIsError = !r.ok
                     if r.ok { onChanged() } else { onFailure?(r) }
+                    load()
+                }
+            } catch {
+                await MainActor.run { message = error.localizedDescription; messageIsError = true }
+            }
+        }
+    }
+
+    private func runHistory(_ op: GitHistoryOp) {
+        guard let handle = viewModel.sessionHandle else { return }
+        let name = viewModel.session.sessionName
+        Task {
+            do {
+                let r = try await handle.runGitHistoryOp(sessionName: name, op: op)
+                await MainActor.run {
+                    message = r.output.isEmpty ? (r.ok ? "Done" : "Failed (exit \(r.exitCode))") : r.output
+                    messageIsError = !r.ok
+                    if r.ok { onChanged() }
                     load()
                 }
             } catch {

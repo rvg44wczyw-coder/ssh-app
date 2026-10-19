@@ -36,3 +36,30 @@ Verdict: clean. Unverified on device: the sheet itself.
 - A tab's start folder (new `TabSession.startDir`) goes through the existing `validate_start_dir`.
 
 Verdict: clean.
+
+## Addendum: commit and history operations (G3, G4)
+
+Live (temporary repositories on the loopback sshd, private tmux/HOME): cherry-pick (one, several,
+conflicting, unknown id), revert (dirty tree refused, normal), reset soft/mixed (ancestor only),
+reword (staged files not swept in; refused once on a remote), squash (pushed base refused,
+unpushed top N squashed, message kept), drop (conflict aborted, pushed refused), merge and rebase
+(conflict aborted, tree clean, HEAD unchanged), stash push/pop/drop (dirty tree blocks pop,
+untracked included on request). Real tmux pid and HOME unchanged after every run.
+
+1. **Data loss (would be High without mitigations)** — every operation writes
+   `refs/ssh-app/backup/<epoch>-<what>` first (removed again if the operation is refused after the
+   fact); no `--hard`, no force, no force-push anywhere in the app. Verified: backup refs exist.
+2. **Rewriting published history (Medium)** — squash, drop, rebase and reword refuse when the
+   affected commits are contained in any remote branch (`git branch -r --contains`). Verified.
+3. **Half-finished operations (Medium)** — a conflicting cherry-pick, revert, merge, rebase or
+   drop is aborted by the script (`--abort`), so the repository is never left mid-operation;
+   `gp_exists` resolves git's state files relative to the repository (a first version looked in
+   the wrong directory and left a conflict behind; caught by the loopback test, fixed).
+4. **Injection (InputValidation)** — hashes (hex only, checked in Rust and again in the script),
+   branch names (`validate_ref_name` + `git check-ref-format`), messages (control characters
+   refused, 2000 chars) and numbers are passed as `$n`; the only unquoted expansion is
+   `for h in $3` over space-joined validated hex ids. Refused-before-the-host cases are unit tested.
+5. **Hooks (SandboxEscape, accepted)** — commit/merge/rebase run the repository's own hooks like
+   the terminal does; `core.fsmonitor`, `gpg.program` and signature display are disabled.
+
+Verdict: clean (no Medium or higher open).
