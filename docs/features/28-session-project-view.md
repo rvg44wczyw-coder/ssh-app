@@ -18,7 +18,7 @@ Then git operations from the phone, in phases.
 | Phase | Content | State |
 |---|---|---|
 | G0 | `fetch_git_status` (core) + coloured file list + Project view with Files / Changes / Log tabs | in progress |
-| G1 | Branches: list local/remote, current, ahead/behind; switch; create a branch from a chosen commit or branch | todo |
+| G1 | Branches: list local/remote, current, ahead/behind; switch; create a branch from a chosen commit or branch | in progress (4a) |
 | G2 | Worktrees: list, add (new branch from X in a new folder), remove; open a session in a worktree | todo |
 | G3 | Commit actions: cherry-pick (one or several commits), revert, reset (soft/mixed only), amend message | todo |
 | G4 | History rewriting: squash the last N commits (or a selected range), reword, drop; stash; merge/rebase of a branch with conflict reporting | todo |
@@ -60,7 +60,38 @@ what is wrong and offers "open in terminal".
 - Project view: segmented control Files / Changes / Log in one sheet, reusing the existing diff and
   log views; the toolbar shows the branch.
 
+## 4a. G1 design: branches (2026-10-19)
+
+Owner decisions (2026-10-19, "делаем все"): defaults accepted - worktrees go to a sibling folder
+`<repo>-<branch>`, squash message is a plain text field.
+
+Core module `gitbranch`:
+
+- `fetch_git_branches(session)` -> `GitBranchesResult { status, repo_root, current, detached,
+  dirty, branches[] }`; a branch is `{ name, is_remote, is_current, upstream, ahead, behind,
+  short_hash, subject }` (one `git for-each-ref` over `refs/heads` and `refs/remotes`, capped at
+  300 entries).
+- `run_git_branch_op(session, op)` with `op` = `Switch { name }` (a remote name becomes a tracking
+  branch), `Create { name, from, switch }`, `Delete { name, force }` -> `GitOpResult { status,
+  ok, exit_code, output }`.
+- Validation in the core (before anything is sent) and again on the host with
+  `git check-ref-format --branch`: no leading `-`, no whitespace / control / `~^:?*[\`, no `..`,
+  no `@{`, no trailing `/` `.` or `.lock`, at most 200 bytes. `from` is such a name or 7..40 hex.
+  Everything is passed as `$2..`, the operation as a fixed keyword picked by an allow-list.
+- Deleting a branch first saves its tip under `refs/ssh-app/backup/<epoch>-<name>`; `-D` only with
+  `force`. Deleting the current branch is refused by git and by the app. Switching never forces
+  (git refuses when local changes would be overwritten and says so in `output`).
+- Runs in the pane's repository, `GIT_EDITOR=true GIT_TERMINAL_PROMPT=0`, 20 s watchdog, output
+  capped at 20 KB and display-safe.
+
+App: a "Branches" sheet from the branch label in the file browser: list (local first, current
+marked, ahead/behind), tap = switch (confirmation names the effect and warns when the tree is
+dirty), "+" = new branch from the current one or from a tapped row, swipe = delete (red, force is
+a second confirmation with the lost commit count unknown -> says "may lose commits").
+
+Tests: validators and parsers (unit); a temporary repository on the loopback host: list, create,
+switch, delete (backup ref exists), refusal of bad names and of deleting the current branch.
+
 ## 5. Open questions
 
-- Where a worktree should live by default (a sibling folder `<repo>-<branch>`?).
-- Whether squash should offer a message editor on the phone (yes, plain text field; no `$EDITOR`).
+- Resolved 2026-10-19: worktrees in a sibling folder `<repo>-<branch>`; squash message in a plain text field (no `$EDITOR`).
