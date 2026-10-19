@@ -7,6 +7,8 @@ public struct StructuredTranscriptView: View {
     @State private var atBottom = true
     @State private var unseenNew = false
     @State private var scrollToken = 0
+    @State private var highlightVersion = 0
+    @Environment(\.colorScheme) private var colorScheme
     @State private var editorExpanded = false
     @FocusState private var inputFocused: Bool
     @State private var expandedThinkingTurns: Set<String> = []
@@ -152,9 +154,16 @@ public struct StructuredTranscriptView: View {
                         }
                     },
                     atBottom: $atBottom,
-                    scrollToken: scrollToken
+                    scrollToken: scrollToken,
+                    dark: colorScheme == .dark,
+                    highlightVersion: highlightVersion
                 )
                 .background(Color.appBackground)
+                .task(id: "\(viewModel.transcriptTurns.count)|\(viewModel.transcriptTurns.last?.content?.count ?? 0)|\(colorScheme == .dark)") {
+                    if await FeedHighlightStore.prefetch(viewModel.transcriptTurns, dark: colorScheme == .dark) {
+                        highlightVersion += 1
+                    }
+                }
                 .onChange(of: viewModel.transcriptTurns) { _, _ in
                     // The text view follows the output only while the reader is at the bottom.
                     if !atBottom { unseenNew = true }

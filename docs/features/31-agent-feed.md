@@ -55,6 +55,15 @@ that expand or collapse their body. Cost: no card chrome, and code blocks are no
 yet (monospace on a tinted background); colours return when `SyntaxService` is wired into the
 builder.
 
+### 3.2 Look and formatting (2026-10-19)
+
+The feed imitates Claude Code's terminal: monospace; `>` on a tinted band for what you wrote;
+`●` for the agent's text; `● Tool(args)` with a status-coloured dot and `⎿` result lines folded to
+four lines (`… +N lines` expands); `∴ Thinking…` dim and italic. Prose is formatted: headings,
+bullet and numbered lists with hanging indents, block quotes, rules, tables as aligned columns,
+inline bold / italic / `code` / strike-through. Fenced code is syntax-coloured when feature 29 is
+on (colours arrive asynchronously, the text is rebuilt once they are in).
+
 ## 4. Security
 
 - The text typed goes to the user's own session, as today. Bracketed-paste end marker inside the

@@ -15,6 +15,9 @@ struct FeedTextView: UIViewRepresentable {
     @Binding var atBottom: Bool
     /// Changes when the user asks to jump to the newest text.
     let scrollToken: Int
+    let dark: Bool
+    /// Bumped when syntax colours for code blocks arrived, so the text is rebuilt.
+    let highlightVersion: Int
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -26,6 +29,7 @@ struct FeedTextView: UIViewRepresentable {
         tv.alwaysBounceVertical = true
         tv.keyboardDismissMode = .interactive
         tv.textContainerInset = UIEdgeInsets(top: 12, left: 12, bottom: 16, right: 12)
+        tv.textContainer.lineFragmentPadding = 0
         tv.adjustsFontForContentSizeCategory = true
         tv.linkTextAttributes = [.foregroundColor: UIColor.secondaryLabel]
         tv.delegate = context.coordinator
@@ -36,7 +40,7 @@ struct FeedTextView: UIViewRepresentable {
         let c = context.coordinator
         c.parent = self
         let text = FeedAttributedBuilder.build(
-            turns: turns, expandedThinking: expandedThinking, expandedTools: expandedTools)
+            turns: turns, expandedThinking: expandedThinking, expandedTools: expandedTools, dark: dark)
         var jump = false
         if scrollToken != c.lastToken {
             c.lastToken = scrollToken
@@ -123,142 +127,331 @@ enum FeedToggle: Equatable {
     }
 }
 
-/// Builds the feed's attributed text. Pure: same turns and expansion state, same text.
-enum FeedAttributedBuilder {
-    static func build(turns: [TranscriptTurn], expandedThinking: Set<String>, expandedTools: Set<String>) -> NSAttributedString {
-        let out = NSMutableAttributedString()
-        for (i, turn) in turns.enumerated() {
-            if i > 0 { out.append(plain("\n", size: 8)) }
-            out.append(header(turn))
-            if let thinking = turn.thinking, !thinking.isEmpty {
-                let open = expandedThinking.contains(turn.id)
-                let steps = thinking.components(separatedBy: "\n").count
-                out.append(toggleLine("\(open ? "▾" : "▸") Thinking (\(steps) steps)", FeedToggle.thinking(turn.id)))
-                if open { out.append(block(thinking, mono: 12, color: .secondaryLabel)) }
-            }
-            if let content = turn.content, !content.isEmpty {
-                out.append(contentText(content))
-            }
-            for tc in turn.toolCalls {
-                let open = expandedTools.contains(tc.callId)
-                let mark = tc.status == .running ? "…" : (tc.status == .error ? "✗" : "✓")
-                let title = "\(open ? "▾" : "▸") \(tc.toolName)  \(tc.argumentsSummary)  \(mark)"
-                out.append(toggleLine(title, FeedToggle.tool(tc.callId), bold: tc.toolName.count))
-                if open {
-                    if let args = tc.fullArgumentsJson, !args.isEmpty {
-                        out.append(block(args, mono: 11, color: .label))
-                    }
-                    if let res = tc.result, !res.isEmpty {
-                        out.append(block(res, mono: 11, color: tc.isError ? .systemRed : .label))
-                    }
+/// Syntax colours for fenced code, filled asynchronously and read synchronously by the builder.
+@MainActor
+enum FeedHighlightStore {
+    private static var cache: [String: [HighlightedLine]] = [:]
+
+    private static func key(_ lang: String, _ code: String, _ dark: Bool) -> String {
+        "\(dark ? "d" : "l")|\(lang)|\(code.hashValue)"
+    }
+
+    static func lookup(_ lang: String, _ code: String, dark: Bool) -> [HighlightedLine]? {
+        cache[key(lang, code, dark)]
+    }
+
+    /// Highlights every fenced block of `turns` that is not cached yet; true when something new
+    /// was added (the caller rebuilds the text).
+    static func prefetch(_ turns: [TranscriptTurn], dark: Bool) async -> Bool {
+        guard SyntaxSettings.enabled else { return false }
+        var added = false
+        for turn in turns {
+            guard let content = turn.content else { continue }
+            for case .code(let lang, let code) in FeedMarkdown.segments(content) {
+                let k = key(lang, code, dark)
+                guard !lang.isEmpty, cache[k] == nil, code.utf8.count < 20_000 else { continue }
+                if let lines = await SyntaxService.shared.highlight(
+                    text: code, filename: "code." + ext(lang), dark: dark) {
+                    cache[k] = lines
+                    added = true
                 }
             }
         }
-        return out
+        if cache.count > 400 { cache.removeAll() }
+        return added
     }
 
-    private static func style(spacingAfter: CGFloat = 4, indent: CGFloat = 0) -> NSMutableParagraphStyle {
+    private static func ext(_ lang: String) -> String {
+        let map = [
+            "python": "py", "javascript": "js", "typescript": "ts", "rust": "rs", "bash": "sh",
+            "shell": "sh", "zsh": "sh", "yaml": "yml", "markdown": "md", "golang": "go",
+            "kotlin": "kt", "objective-c": "m", "c++": "cpp", "csharp": "cs",
+        ]
+        return map[lang] ?? lang
+    }
+}
+
+/// Builds the feed's attributed text in the look of Claude Code's terminal: monospace, `>` for
+/// what you wrote, `●` for the agent's text and tool calls, `⎿` for results (long results fold
+/// to a few lines). Pure: same turns and expansion state, same text.
+@MainActor
+enum FeedAttributedBuilder {
+    private static let size: CGFloat = 13.5
+    private static let previewLines = 4
+
+    private static func mono(_ weight: UIFont.Weight = .regular, size: CGFloat = size) -> UIFont {
+        UIFont.monospacedSystemFont(ofSize: size, weight: weight)
+    }
+
+    private static func style(indent: CGFloat = 0, first: CGFloat? = nil, after: CGFloat = 2) -> NSMutableParagraphStyle {
         let p = NSMutableParagraphStyle()
         p.lineSpacing = 2
-        p.paragraphSpacing = spacingAfter
-        p.firstLineHeadIndent = indent
+        p.paragraphSpacing = after
+        p.firstLineHeadIndent = first ?? indent
         p.headIndent = indent
         return p
     }
 
-    private static func plain(_ s: String, size: CGFloat) -> NSAttributedString {
-        NSAttributedString(string: s, attributes: [.font: UIFont.systemFont(ofSize: size)])
+    private static func line(_ text: String, font: UIFont? = nil, color: UIColor = .label,
+                             indent: CGFloat = 0, first: CGFloat? = nil, after: CGFloat = 2,
+                             background: UIColor? = nil) -> NSMutableAttributedString {
+        var attrs: [NSAttributedString.Key: Any] = [
+            .font: font ?? mono(), .foregroundColor: color,
+            .paragraphStyle: style(indent: indent, first: first, after: after),
+        ]
+        if let background { attrs[.backgroundColor] = background }
+        return NSMutableAttributedString(string: text, attributes: attrs)
     }
 
-    private static func header(_ turn: TranscriptTurn) -> NSAttributedString {
-        let (name, color): (String, UIColor) = {
-            switch turn.turnType {
-            case .user: return ("You", .systemBlue)
-            case .assistant: return ("Agent", .systemPurple)
-            case .approvalRequest: return ("Approval request", .systemOrange)
-            case .system: return ("System", .secondaryLabel)
-            }
-        }()
-        var text = name
-        if let t = turn.timestamp, t.contains("T"), let time = t.components(separatedBy: "T").last {
-            text += "  " + String(time.prefix(8))
-        }
-        if turn.status == .error { text += "  ✗" }
-        return NSAttributedString(string: text + "\n", attributes: [
-            .font: UIFont.systemFont(ofSize: 12, weight: .bold),
-            .foregroundColor: color,
-            .paragraphStyle: style(spacingAfter: 2),
-        ])
-    }
-
-    private static func toggleLine(_ text: String, _ toggle: FeedToggle, bold: Int = 0) -> NSAttributedString {
-        let s = NSMutableAttributedString(string: text + "\n", attributes: [
-            .font: UIFont.monospacedSystemFont(ofSize: 12, weight: .regular),
-            .foregroundColor: UIColor.secondaryLabel,
-            .paragraphStyle: style(spacingAfter: 2, indent: 8),
-        ])
-        if bold > 0, s.length >= bold + 2 {
-            s.addAttribute(.font, value: UIFont.monospacedSystemFont(ofSize: 12, weight: .bold),
-                           range: NSRange(location: 2, length: bold))
-        }
-        if let url = toggle.url {
-            s.addAttribute(.link, value: url, range: NSRange(location: 0, length: max(0, s.length - 1)))
-        }
-        return s
-    }
-
-    private static func block(_ text: String, mono: CGFloat, color: UIColor) -> NSAttributedString {
-        NSAttributedString(string: text + "\n", attributes: [
-            .font: UIFont.monospacedSystemFont(ofSize: mono, weight: .regular),
-            .foregroundColor: color,
-            .backgroundColor: UIColor.secondarySystemFill,
-            .paragraphStyle: style(spacingAfter: 4, indent: 8),
-        ])
-    }
-
-    private static func contentText(_ content: String) -> NSAttributedString {
+    static func build(turns: [TranscriptTurn], expandedThinking: Set<String>, expandedTools: Set<String>, dark: Bool) -> NSAttributedString {
         let out = NSMutableAttributedString()
-        for seg in FeedMarkdown.segments(content) {
-            switch seg {
-            case .prose(let p):
-                out.append(inline(p))
-                out.append(NSAttributedString(string: "\n"))
-            case .code(let lang, let code):
-                if !lang.isEmpty {
-                    out.append(NSAttributedString(string: lang + "\n", attributes: [
-                        .font: UIFont.systemFont(ofSize: 10, weight: .medium),
-                        .foregroundColor: UIColor.secondaryLabel,
-                        .paragraphStyle: style(spacingAfter: 0, indent: 8),
-                    ]))
+        for turn in turns {
+            switch turn.turnType {
+            case .user:
+                if let c = turn.content, !c.isEmpty {
+                    out.append(line("> " + c + "\n", color: .label, indent: 14, first: 0, after: 8,
+                                    background: .secondarySystemFill))
                 }
-                out.append(block(code, mono: 13, color: .label))
+            case .system:
+                if let c = turn.content, !c.isEmpty {
+                    out.append(line(c + "\n", color: .secondaryLabel, after: 8))
+                }
+            case .approvalRequest:
+                out.append(line("⚠ Approval requested\n", font: mono(.bold), color: .systemOrange))
+                if let c = turn.content, !c.isEmpty { out.append(line(c + "\n", indent: 14, after: 8)) }
+            case .assistant:
+                appendAssistant(turn, into: out, expandedThinking, expandedTools, dark)
             }
         }
         return out
     }
 
-    /// Inline Markdown (bold, italic, code, links shown as text) as UIKit attributes.
-    static func inline(_ markdown: String) -> NSAttributedString {
-        let base = UIFont.systemFont(ofSize: 15)
+    private static func appendAssistant(_ turn: TranscriptTurn, into out: NSMutableAttributedString,
+                                        _ expandedThinking: Set<String>, _ expandedTools: Set<String>, _ dark: Bool) {
+        if let thinking = turn.thinking, !thinking.isEmpty {
+            let open = expandedThinking.contains(turn.id)
+            let t = line("∴ Thinking…\n", font: italic(mono()), color: .tertiaryLabel, after: 2)
+            if let url = FeedToggle.thinking(turn.id).url {
+                t.addAttribute(.link, value: url, range: NSRange(location: 0, length: t.length - 1))
+            }
+            out.append(t)
+            if open {
+                out.append(line(thinking + "\n", font: italic(mono(size: 12.5)), color: .tertiaryLabel,
+                                indent: 14, first: 14, after: 6))
+            }
+        }
+        if let content = turn.content, !content.isEmpty {
+            var first = true
+            for seg in FeedMarkdown.segments(content) {
+                switch seg {
+                case .prose(let text):
+                    appendProse(text, into: out, bullet: first)
+                case .code(let lang, let code):
+                    appendCode(lang, code, into: out, bullet: first, dark: dark)
+                }
+                first = false
+            }
+        }
+        for tc in turn.toolCalls {
+            appendTool(tc, into: out, open: expandedTools.contains(tc.callId))
+        }
+        out.append(NSAttributedString(string: "\n", attributes: [.font: mono(size: 6)]))
+    }
+
+    // MARK: Tools
+
+    private static func appendTool(_ tc: TranscriptToolCall, into out: NSMutableAttributedString, open: Bool) {
+        let dot: UIColor = tc.status == .error ? .systemRed : (tc.status == .running ? .systemYellow : .systemGreen)
+        let head = NSMutableAttributedString()
+        head.append(line("● ", color: dot))
+        head.append(line(tc.toolName, font: mono(.bold)))
+        head.append(line("(" + tc.argumentsSummary + ")\n", color: .secondaryLabel))
+        head.addAttribute(.paragraphStyle, value: style(indent: 14, first: 0, after: 1),
+                          range: NSRange(location: 0, length: head.length))
+        if let url = FeedToggle.tool(tc.callId).url {
+            head.addAttribute(.link, value: url, range: NSRange(location: 2, length: max(0, head.length - 3)))
+        }
+        out.append(head)
+        if open, let args = tc.fullArgumentsJson, !args.isEmpty {
+            out.append(line(args + "\n", font: mono(size: 12), color: .secondaryLabel, indent: 28, first: 28, after: 2,
+                            background: .secondarySystemFill))
+        }
+        guard let result = tc.result, !result.isEmpty else {
+            out.append(NSAttributedString(string: "", attributes: [:]))
+            return
+        }
+        let color: UIColor = tc.isError ? .systemRed : .secondaryLabel
+        let lines = result.components(separatedBy: "\n")
+        let shown = open ? lines : Array(lines.prefix(previewLines))
+        for (i, l) in shown.enumerated() {
+            out.append(line((i == 0 ? "  ⎿  " : "     ") + l + "\n", font: mono(size: 12.5), color: color,
+                            indent: 40, first: 0, after: 0))
+        }
+        if !open, lines.count > previewLines {
+            let more = line("     … +\(lines.count - previewLines) lines\n", font: mono(size: 12.5), color: .tertiaryLabel,
+                            indent: 40, first: 0, after: 0)
+            if let url = FeedToggle.tool(tc.callId).url {
+                more.addAttribute(.link, value: url, range: NSRange(location: 0, length: more.length - 1))
+            }
+            out.append(more)
+        }
+        out.append(NSAttributedString(string: "\n", attributes: [.font: mono(size: 4)]))
+    }
+
+    // MARK: Prose (headings, lists, quotes, tables, rules, inline Markdown)
+
+    private static func appendProse(_ text: String, into out: NSMutableAttributedString, bullet: Bool) {
+        var lines = text.components(separatedBy: "\n")[...]
+        var firstLine = bullet
+        func lead() -> String {
+            defer { firstLine = false }
+            return firstLine ? "● " : "  "
+        }
+        while let raw = lines.popFirst() {
+            let trimmed = raw.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty { out.append(line("\n", font: mono(size: 6), after: 0)); continue }
+            if trimmed.hasPrefix("|") {
+                var rows = [trimmed]
+                while let nxt = lines.first, nxt.trimmingCharacters(in: .whitespaces).hasPrefix("|") {
+                    rows.append(lines.popFirst()!.trimmingCharacters(in: .whitespaces))
+                }
+                out.append(line(lead(), color: .label, after: 0))
+                out.append(table(rows))
+                continue
+            }
+            if let h = trimmed.firstMatch(of: /^(#{1,6})\s+(.*)$/) {
+                let level = h.1.count
+                let f = mono(.bold, size: level <= 2 ? 15.5 : size)
+                let m = NSMutableAttributedString(attributedString: line(lead(), color: .label, after: 0))
+                m.append(inline(String(h.2), base: f, color: level <= 2 ? .label : .secondaryLabel,
+                                indent: 14, first: 0, after: 4))
+                m.append(NSAttributedString(string: "\n"))
+                out.append(m)
+                continue
+            }
+            if trimmed.range(of: #"^(-{3,}|\*{3,}|_{3,})$"#, options: .regularExpression) != nil {
+                out.append(line("  " + String(repeating: "─", count: 24) + "\n", color: .tertiaryLabel))
+                continue
+            }
+            let leadingSpaces = raw.prefix(while: { $0 == " " }).count
+            let depth = CGFloat(leadingSpaces / 2) * 14
+            if let m = trimmed.firstMatch(of: /^([-*+])\s+(.*)$/) {
+                let marker = depth > 0 ? "◦ " : "• "
+                let r = NSMutableAttributedString(attributedString: line((firstLine ? "● " : "  ") + marker, after: 2))
+                firstLine = false
+                r.append(inline(String(m.2), indent: 28 + depth, first: 0, after: 2))
+                r.addAttribute(.paragraphStyle, value: style(indent: 28 + depth, first: depth, after: 2),
+                               range: NSRange(location: 0, length: r.length))
+                r.append(NSAttributedString(string: "\n"))
+                out.append(r)
+                continue
+            }
+            if let m = trimmed.firstMatch(of: /^(\d+[.)])\s+(.*)$/) {
+                let r = NSMutableAttributedString(attributedString: line((firstLine ? "● " : "  ") + String(m.1) + " ", after: 2))
+                firstLine = false
+                r.append(inline(String(m.2), indent: 32 + depth, first: 0, after: 2))
+                r.addAttribute(.paragraphStyle, value: style(indent: 32 + depth, first: depth, after: 2),
+                               range: NSRange(location: 0, length: r.length))
+                r.append(NSAttributedString(string: "\n"))
+                out.append(r)
+                continue
+            }
+            if trimmed.hasPrefix(">") {
+                let body = trimmed.drop(while: { $0 == ">" || $0 == " " })
+                let r = NSMutableAttributedString(attributedString: line("  ▎ ", color: .tertiaryLabel, after: 2))
+                firstLine = false
+                r.append(inline(String(body), color: .secondaryLabel, indent: 28, first: 0, after: 2))
+                r.append(NSAttributedString(string: "\n"))
+                out.append(r)
+                continue
+            }
+            let r = NSMutableAttributedString(attributedString: line(lead(), after: 2))
+            r.append(inline(trimmed, indent: 14, first: 0, after: 4))
+            r.append(NSAttributedString(string: "\n"))
+            out.append(r)
+        }
+    }
+
+    /// A Markdown table as aligned columns (the font is monospace, so padding lines them up).
+    private static func table(_ rows: [String]) -> NSAttributedString {
+        let cells: [[String]] = rows.compactMap { row in
+            let parts = row.split(separator: "|", omittingEmptySubsequences: false)
+                .dropFirst().dropLast().map { $0.trimmingCharacters(in: .whitespaces) }
+            if parts.isEmpty { return nil }
+            if parts.allSatisfy({ $0.range(of: #"^:?-{2,}:?$"#, options: .regularExpression) != nil }) { return nil }
+            return parts
+        }
+        let columns = cells.map(\.count).max() ?? 0
+        var widths = [Int](repeating: 0, count: columns)
+        for r in cells { for (i, c) in r.enumerated() { widths[i] = max(widths[i], c.count) } }
+        let out = NSMutableAttributedString()
+        for (n, r) in cells.enumerated() {
+            let text = r.enumerated().map { $1.padding(toLength: widths[$0], withPad: " ", startingAt: 0) }.joined(separator: " │ ")
+            out.append(line((n == 0 ? "" : "  ") + text + "\n", font: mono(n == 0 ? .bold : .regular, size: 12.5),
+                            indent: 14, first: 0, after: 0, background: n == 0 ? .secondarySystemFill : nil))
+            if n == 0, cells.count > 1 {
+                out.append(line("  " + widths.map { String(repeating: "─", count: $0) }.joined(separator: "─┼─") + "\n",
+                                font: mono(size: 12.5), color: .tertiaryLabel, indent: 14, first: 0, after: 0))
+            }
+        }
+        return out
+    }
+
+    // MARK: Code
+
+    private static func appendCode(_ lang: String, _ code: String, into out: NSMutableAttributedString, bullet: Bool, dark: Bool) {
+        if !lang.isEmpty || bullet {
+            out.append(line((bullet ? "● " : "  ") + lang + "\n", font: mono(size: 11), color: .tertiaryLabel, after: 0))
+        }
+        let bg = UIColor.tertiarySystemFill
+        if let lines = FeedHighlightStore.lookup(lang, code, dark: dark) {
+            let body = NSMutableAttributedString()
+            for (i, l) in lines.enumerated() {
+                if i > 0 { body.append(NSAttributedString(string: "\n")) }
+                for run in l.runs {
+                    let c: UIColor = run.color.map { UIColor(red: $0.red, green: $0.green, blue: $0.blue, alpha: 1) } ?? .label
+                    body.append(NSAttributedString(string: run.text, attributes: [.foregroundColor: c]))
+                }
+            }
+            body.addAttributes([.font: mono(size: 12.5), .backgroundColor: bg,
+                                .paragraphStyle: style(indent: 14, first: 14, after: 6)],
+                               range: NSRange(location: 0, length: body.length))
+            out.append(body)
+            out.append(line("\n", font: mono(size: 12.5), after: 6))
+        } else {
+            out.append(line(code + "\n", font: mono(size: 12.5), indent: 14, first: 14, after: 6, background: bg))
+        }
+    }
+
+    // MARK: Inline Markdown
+
+    private static func italic(_ f: UIFont) -> UIFont {
+        f.fontDescriptor.withSymbolicTraits(.traitItalic).map { UIFont(descriptor: $0, size: f.pointSize) } ?? f
+    }
+
+    /// Bold, italic, `code` and strike-through as UIKit attributes; links stay plain text.
+    static func inline(_ markdown: String, base: UIFont? = nil, color: UIColor = .label,
+                       indent: CGFloat = 0, first: CGFloat = 0, after: CGFloat = 2) -> NSAttributedString {
+        let baseFont = base ?? mono()
         let attr = FeedMarkdown.inline(markdown)
         let out = NSMutableAttributedString()
         for run in attr.runs {
             let piece = String(attr[run.range].characters)
-            var font = base
+            var font = baseFont
             var extra: [NSAttributedString.Key: Any] = [:]
             if let intent = run.inlinePresentationIntent {
-                var traits: UIFontDescriptor.SymbolicTraits = []
-                if intent.contains(.stronglyEmphasized) { traits.insert(.traitBold) }
-                if intent.contains(.emphasized) { traits.insert(.traitItalic) }
-                if let d = base.fontDescriptor.withSymbolicTraits(traits) { font = UIFont(descriptor: d, size: 15) }
+                if intent.contains(.stronglyEmphasized) { font = mono(.bold, size: baseFont.pointSize) }
+                if intent.contains(.emphasized) { font = italic(font) }
                 if intent.contains(.code) {
-                    font = UIFont.monospacedSystemFont(ofSize: 14, weight: .regular)
+                    font = mono(.regular, size: baseFont.pointSize - 0.5)
                     extra[.backgroundColor] = UIColor.secondarySystemFill
+                    extra[.foregroundColor] = UIColor.systemOrange
                 }
                 if intent.contains(.strikethrough) { extra[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
             }
             var attrs: [NSAttributedString.Key: Any] = [
-                .font: font, .foregroundColor: UIColor.label, .paragraphStyle: style(spacingAfter: 6),
+                .font: font, .foregroundColor: color,
+                .paragraphStyle: style(indent: indent, first: first, after: after),
             ]
             attrs.merge(extra) { $1 }
             out.append(NSAttributedString(string: piece, attributes: attrs))
