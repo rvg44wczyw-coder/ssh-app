@@ -22,9 +22,8 @@ fn main() {
     println!("cargo:rerun-if-changed=embedded");
     println!("cargo:rerun-if-changed=build.rs");
 
-    // The legacy single-blob API (macOS arm64).
+    // The legacy single blob is the macOS arm64 build.
     let legacy = std::fs::read(dir.join("ssh-app-host")).unwrap_or_default();
-    std::fs::write(out.join("ssh-app-host"), &legacy).expect("write embedded helper");
 
     let mut table = String::from("pub static HELPERS: &[(&str, &[u8])] = &[\n");
     for triple in TRIPLES {

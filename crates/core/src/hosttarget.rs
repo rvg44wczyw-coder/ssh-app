@@ -30,8 +30,31 @@ impl HostTarget {
 }
 
 /// `uname -sm` first, then a marker line, then `/proc/version` (empty on macOS).
-pub(crate) const HOST_TARGET_SCRIPT: &str =
-    "uname -sm 2>&1 | head -n 1; echo ===PROC===; cat /proc/version 2>/dev/null | head -n 1";
+/// The `TARGET ` prefix marks the answer: whatever a login profile prints before it is ignored.
+pub(crate) const HOST_TARGET_SCRIPT: &str = "printf 'TARGET '; uname -sm 2>&1 | head -n 1; echo ===PROC===; cat /proc/version 2>/dev/null | head -n 1";
+
+/// Longest piece of host text echoed back in a message.
+const MAX_ECHO: usize = 40;
+
+fn echo(s: &str) -> String {
+    crate::approval_queue::display_safe(&s.chars().take(MAX_ECHO).collect::<String>())
+}
+
+const WINDOWS_HINT: &str =
+    "Windows without WSL2: tmux does not run there; set up WSL2 and connect to it";
+
+/// cmd.exe / PowerShell answering a POSIX command line.
+fn windows_shell_error(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    [
+        "not recognized",
+        "not recognised",
+        "commandnotfound",
+        "parsererror",
+    ]
+    .iter()
+    .any(|m| lower.contains(m))
+}
 
 fn unsupported(reason: &str) -> HostTarget {
     HostTarget::Unsupported {
@@ -42,9 +65,21 @@ fn unsupported(reason: &str) -> HostTarget {
 /// Decides the target from the probe's output (`HOST_TARGET_SCRIPT`).
 #[uniffi::export]
 pub fn parse_host_target(probe_output: String) -> HostTarget {
-    let (uname, proc_version) = probe_output
+    let (head, proc_version) = probe_output
         .split_once("===PROC===")
         .unwrap_or((probe_output.as_str(), ""));
+    // The last marked line wins; anything before it (profile greetings) is noise.
+    let Some(uname) = head
+        .lines()
+        .rev()
+        .find_map(|l| l.trim().strip_prefix("TARGET "))
+    else {
+        return if windows_shell_error(head) {
+            unsupported(WINDOWS_HINT)
+        } else {
+            unsupported("The host did not answer the system probe")
+        };
+    };
     let uname = uname.trim();
     let lower = uname.to_ascii_lowercase();
     let mut it = uname.split_whitespace();
@@ -69,32 +104,15 @@ pub fn parse_host_target(probe_output: String) -> HostTarget {
                 HostTarget::LinuxX86_64
             }
         }
-        "Darwin" | "Linux" => unsupported(&format!(
-            "Unsupported CPU: {}",
-            crate::approval_queue::display_safe(arch)
-        )),
+        "Darwin" | "Linux" => unsupported(&format!("Unsupported CPU: {}", echo(arch))),
         _ if lower.starts_with("mingw")
             || lower.starts_with("msys")
             || lower.starts_with("cygwin") =>
         {
-            unsupported(
-                "Windows without WSL2: tmux does not run there; set up WSL2 and connect to it",
-            )
-        }
-        _ if lower.contains("not recognized")
-            || lower.contains("commandnotfound")
-            || lower.contains("parsererror")
-            || lower.contains("is not recognised") =>
-        {
-            unsupported(
-                "Windows without WSL2: tmux does not run there; set up WSL2 and connect to it",
-            )
+            unsupported(WINDOWS_HINT)
         }
         "" => unsupported("The host did not answer the system probe"),
-        other => unsupported(&format!(
-            "Unsupported system: {}",
-            crate::approval_queue::display_safe(other)
-        )),
+        other => unsupported(&format!("Unsupported system: {}", echo(other))),
     }
 }
 
@@ -113,7 +131,7 @@ mod tests {
     use super::*;
 
     fn p(uname: &str, proc: &str) -> HostTarget {
-        parse_host_target(format!("{uname}\n===PROC===\n{proc}\n"))
+        parse_host_target(format!("TARGET {uname}\n===PROC===\n{proc}\n"))
     }
 
     #[test]
@@ -151,14 +169,6 @@ mod tests {
             ("MINGW64_NT-10.0-22631 x86_64", "WSL2"),
             ("MSYS_NT-10.0 x86_64", "WSL2"),
             ("CYGWIN_NT-10.0 x86_64", "WSL2"),
-            (
-                "'uname' is not recognized as an internal or external command,",
-                "WSL2",
-            ),
-            (
-                "uname : The term 'uname' is not recognized as the name of a cmdlet",
-                "WSL2",
-            ),
             ("FreeBSD amd64", "FreeBSD"),
             ("Linux riscv64", "riscv64"),
             ("", "did not answer"),
@@ -170,9 +180,48 @@ mod tests {
                 other => panic!("{u} -> {other:?}"),
             }
         }
+        // cmd.exe / PowerShell answer without the marker.
+        for raw in [
+            "'printf' is not recognized as an internal or external command,\noperable program or batch file.\n",
+            "printf : The term 'printf' is not recognized as the name of a cmdlet\n",
+        ] {
+            match parse_host_target(raw.to_string()) {
+                HostTarget::Unsupported { reason } => assert!(reason.contains("WSL2"), "{raw}"),
+                other => panic!("{raw} -> {other:?}"),
+            }
+        }
         // Hostile text cannot smuggle control characters into the message.
         match p("Evil\u{1b}[31m x", "") {
             HostTarget::Unsupported { reason } => assert!(!reason.contains('\u{1b}')),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn profile_noise_and_long_text_do_not_matter() {
+        let t = |s: &str| parse_host_target(s.to_string());
+        assert_eq!(
+            t("Welcome back!\nTARGET Darwin arm64\n===PROC===\n"),
+            HostTarget::DarwinArm64
+        );
+        assert_eq!(
+            t("Last login: Mon\nnvm loaded\nTARGET Linux x86_64\n===PROC===\nLinux version 6.1\n"),
+            HostTarget::LinuxX86_64
+        );
+        // A noise line that imitates the answer loses against the real, later one.
+        assert_eq!(
+            t("TARGET Darwin arm64 fake\nTARGET Linux aarch64\n===PROC===\n"),
+            HostTarget::LinuxAarch64
+        );
+        // No marker: no guess.
+        assert!(matches!(
+            t("Darwin arm64\n===PROC===\n"),
+            HostTarget::Unsupported { .. }
+        ));
+        match t(&format!("TARGET {} x\n===PROC===\n", "A".repeat(5_000_000))) {
+            HostTarget::Unsupported { reason } => {
+                assert!(reason.chars().count() < 100, "{}", reason.len())
+            }
             other => panic!("{other:?}"),
         }
     }

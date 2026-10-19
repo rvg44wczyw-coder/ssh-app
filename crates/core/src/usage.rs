@@ -248,20 +248,16 @@ pub enum HostHelperStatus {
     Unusable,
 }
 
-/// The helper build embedded by `build.rs` (empty when none was provided at build time).
-static BUNDLED_HELPER: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/ssh-app-host"));
-
 /// SHA-256 of the embedded helper: the digest the app pins. `None` when no helper is embedded.
 #[uniffi::export]
 pub fn bundled_host_helper_sha256() -> Option<String> {
-    use sha2::{Digest, Sha256};
-    (!BUNDLED_HELPER.is_empty()).then(|| hex::encode(Sha256::digest(BUNDLED_HELPER)))
+    bundled_host_helper_sha256_for(crate::hosttarget::HostTarget::DarwinArm64)
 }
 
 /// Size of the embedded helper in bytes (0 when none is embedded).
 #[uniffi::export]
 pub fn bundled_host_helper_size() -> u64 {
-    BUNDLED_HELPER.len() as u64
+    bundled_host_helper_size_for(crate::hosttarget::HostTarget::DarwinArm64)
 }
 
 include!(concat!(env!("OUT_DIR"), "/helpers.rs"));
@@ -287,7 +283,7 @@ pub fn bundled_host_helper_size_for(target: crate::hosttarget::HostTarget) -> u6
 }
 
 pub(crate) fn bundled_host_helper() -> &'static [u8] {
-    BUNDLED_HELPER
+    bundled_helper_for(&crate::hosttarget::HostTarget::DarwinArm64).unwrap_or(&[])
 }
 
 pub(crate) fn build_helper_status_command(sha256: &str) -> String {
