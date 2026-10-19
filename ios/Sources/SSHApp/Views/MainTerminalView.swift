@@ -853,12 +853,32 @@ struct ActiveTerminalSessionView: View {
     let onOpenAiAssistant: () -> Void
     let onOpenSnippets: () -> Void
     /// The agent whose models the quick-command menus list, from the tab's agent kind.
+    @State private var detectedMenuAgent: String?
+
     private var modelMenuAgent: String? {
         switch viewModel.session.agentType {
         case .claudeCode: return "claude"
         case .antigravity: return "antigravity"
         case .localLlm: return "ollama"
-        case .customShell: return nil
+        case .customShell: return detectedMenuAgent
+        }
+    }
+
+    /// Re-asks the host what runs in a plain session's pane (the user may start `claude` or `agy`
+    /// by hand), every 15 s while this screen is visible and connected. Typed sessions skip it.
+    private func watchPaneAgent() async {
+        guard viewModel.session.agentType == .customShell else { return }
+        while !Task.isCancelled {
+            if viewModel.state == .connected {
+                let name = await viewModel.currentPaneContext().agent
+                let mapped: String? = switch name {
+                case "claude": "claude"
+                case "agy", "antigravity": "antigravity"
+                default: nil
+                }
+                if mapped != detectedMenuAgent { detectedMenuAgent = mapped }
+            }
+            try? await Task.sleep(for: .seconds(15))
         }
     }
 
@@ -980,6 +1000,7 @@ struct ActiveTerminalSessionView: View {
                         return list.map { (id: $0.id, label: $0.label) }
                     }
                 )
+                .task(id: viewModel.state == .connected) { await watchPaneAgent() }
             }
             #endif
         }
