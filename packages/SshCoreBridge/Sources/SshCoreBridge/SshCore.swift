@@ -9129,6 +9129,11 @@ public enum GitHistoryOp: Equatable, Hashable {
     case drop(hash: String
     )
     /**
+     * Changes the message of one commit of this branch (the later commits are replayed).
+     */
+    case reword(hash: String, message: String
+    )
+    /**
      * Merges a branch into the current one (a merge commit when needed).
      */
     case merge(branch: String
@@ -9173,22 +9178,25 @@ public struct FfiConverterTypeGitHistoryOp: FfiConverterRustBuffer {
         case 2: return .drop(hash: try FfiConverterString.read(from: &buf)
         )
         
-        case 3: return .merge(branch: try FfiConverterString.read(from: &buf)
+        case 3: return .reword(hash: try FfiConverterString.read(from: &buf), message: try FfiConverterString.read(from: &buf)
         )
         
-        case 4: return .rebase(onto: try FfiConverterString.read(from: &buf)
+        case 4: return .merge(branch: try FfiConverterString.read(from: &buf)
         )
         
-        case 5: return .stashPush(message: try FfiConverterString.read(from: &buf), includeUntracked: try FfiConverterBool.read(from: &buf)
+        case 5: return .rebase(onto: try FfiConverterString.read(from: &buf)
         )
         
-        case 6: return .stashApply(index: try FfiConverterUInt32.read(from: &buf)
+        case 6: return .stashPush(message: try FfiConverterString.read(from: &buf), includeUntracked: try FfiConverterBool.read(from: &buf)
         )
         
-        case 7: return .stashPop(index: try FfiConverterUInt32.read(from: &buf)
+        case 7: return .stashApply(index: try FfiConverterUInt32.read(from: &buf)
         )
         
-        case 8: return .stashDrop(index: try FfiConverterUInt32.read(from: &buf)
+        case 8: return .stashPop(index: try FfiConverterUInt32.read(from: &buf)
+        )
+        
+        case 9: return .stashDrop(index: try FfiConverterUInt32.read(from: &buf)
         )
         
         default: throw UniffiInternalError.unexpectedEnumCase
@@ -9210,34 +9218,40 @@ public struct FfiConverterTypeGitHistoryOp: FfiConverterRustBuffer {
             FfiConverterString.write(hash, into: &buf)
             
         
-        case let .merge(branch):
+        case let .reword(hash,message):
             writeInt(&buf, Int32(3))
+            FfiConverterString.write(hash, into: &buf)
+            FfiConverterString.write(message, into: &buf)
+            
+        
+        case let .merge(branch):
+            writeInt(&buf, Int32(4))
             FfiConverterString.write(branch, into: &buf)
             
         
         case let .rebase(onto):
-            writeInt(&buf, Int32(4))
+            writeInt(&buf, Int32(5))
             FfiConverterString.write(onto, into: &buf)
             
         
         case let .stashPush(message,includeUntracked):
-            writeInt(&buf, Int32(5))
+            writeInt(&buf, Int32(6))
             FfiConverterString.write(message, into: &buf)
             FfiConverterBool.write(includeUntracked, into: &buf)
             
         
         case let .stashApply(index):
-            writeInt(&buf, Int32(6))
-            FfiConverterUInt32.write(index, into: &buf)
-            
-        
-        case let .stashPop(index):
             writeInt(&buf, Int32(7))
             FfiConverterUInt32.write(index, into: &buf)
             
         
-        case let .stashDrop(index):
+        case let .stashPop(index):
             writeInt(&buf, Int32(8))
+            FfiConverterUInt32.write(index, into: &buf)
+            
+        
+        case let .stashDrop(index):
+            writeInt(&buf, Int32(9))
             FfiConverterUInt32.write(index, into: &buf)
             
         }

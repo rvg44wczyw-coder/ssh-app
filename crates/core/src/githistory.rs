@@ -27,6 +27,11 @@ pub enum GitHistoryOp {
     Drop {
         hash: String,
     },
+    /// Changes the message of one commit of this branch (the later commits are replayed).
+    Reword {
+        hash: String,
+        message: String,
+    },
     /// Merges a branch into the current one (a merge commit when needed).
     Merge {
         branch: String,
@@ -159,6 +164,44 @@ Stopped on a conflict. The rebase was aborted; the branch is as before."
   fi
 fi"#;
 
+// $3 = hash, $4 = message. The new commit keeps the tree and the author of the old one.
+const REWORD_BODY: &str = r#"dirty=$(g status --porcelain -uno 2>/dev/null | head -c 1)
+case "$3" in ""|*[!0-9a-f]*) rc=2; out="Not a commit";; esac
+if [ -z "$rc" ]; then
+  if ! g rev-parse --verify -q "$3^{commit}" >/dev/null 2>&1; then rc=2; out="Not a commit of this repository"
+  elif ! g merge-base --is-ancestor "$3" HEAD 2>/dev/null; then rc=2; out="That commit is not in this branch's history"
+  elif [ "$(g rev-list --parents -n 1 "$3" | wc -w | tr -d ' ')" -gt 2 ]; then rc=2; out="That is a merge commit; use the terminal."
+  elif [ -n "$(g rev-list --merges "$3..HEAD" 2>/dev/null | head -c 1)" ]; then rc=2; out="A merge commit comes after it; use the terminal."
+  elif [ -n "$dirty" ]; then rc=2; out="There are uncommitted changes in tracked files. Commit or stash them first; nothing was changed."
+  elif [ -n "$(g branch -r --contains "$3" 2>/dev/null | head -c 1)" ]; then rc=2; out="That commit is already on a remote branch; rewording it would need a force push."
+  else
+    old=$(g rev-parse HEAD)
+    full=$(g rev-parse "$3^{commit}")
+    parent=$(g rev-parse -q --verify "$full^" 2>/dev/null)
+    GIT_AUTHOR_NAME=$(g log -1 --format=%an "$full"); export GIT_AUTHOR_NAME
+    GIT_AUTHOR_EMAIL=$(g log -1 --format=%ae "$full"); export GIT_AUTHOR_EMAIL
+    GIT_AUTHOR_DATE=$(g log -1 --format=%aI "$full"); export GIT_AUTHOR_DATE
+    if [ -n "$parent" ]; then new=$(g commit-tree "$full^{tree}" -p "$parent" -m "$4" 2>&1); else new=$(g commit-tree "$full^{tree}" -m "$4" 2>&1); fi
+    if [ $? != 0 ]; then rc=1; out="$new"
+    else
+      bk="refs/ssh-app/backup/$(date +%s)-reword"
+      g update-ref "$bk" "$old" 2>/dev/null
+      if [ "$full" = "$old" ]; then
+        out=$(g reset --soft "$new" 2>&1); rc=$?
+      else
+        out=$(g rebase --onto "$new" "$full" 2>&1); rc=$?
+        if [ "$rc" != 0 ]; then
+          g rebase --abort >/dev/null 2>&1
+          out="$out
+Stopped on a conflict. The rebase was aborted; the branch is as before."
+        fi
+      fi
+      if [ "$rc" = 0 ]; then out="Reworded $full
+Old tip $old saved as $bk (git reset --soft $bk to undo)"; fi
+    fi
+  fi
+fi"#;
+
 // $3 = branch.
 const MERGE_BODY: &str = r#"dirty=$(g status --porcelain -uno 2>/dev/null | head -c 1)
 git check-ref-format --branch "$3" >/dev/null 2>&1 || { rc=2; out="Not a valid branch name"; }
@@ -263,6 +306,15 @@ pub fn build_git_history_op_command(
         GitHistoryOp::Drop { hash } => {
             op_command(session, DROP_BODY, &["drop", validate_commit_hash(hash)?])
         }
+        GitHistoryOp::Reword { hash, message } => op_command(
+            session,
+            REWORD_BODY,
+            &[
+                "reword",
+                validate_commit_hash(hash)?,
+                &clean_message(message, MAX_MESSAGE)?,
+            ],
+        ),
         GitHistoryOp::Merge { branch } => {
             op_command(session, MERGE_BODY, &["merge", validate_ref_name(branch)?])
         }
@@ -333,6 +385,21 @@ mod tests {
         assert!(b(GitHistoryOp::Squash {
             count: 3,
             message: " ".into()
+        })
+        .is_err());
+        assert!(b(GitHistoryOp::Reword {
+            hash: "abcdef1".into(),
+            message: "m".into()
+        })
+        .is_ok());
+        assert!(b(GitHistoryOp::Reword {
+            hash: "HEAD".into(),
+            message: "m".into()
+        })
+        .is_err());
+        assert!(b(GitHistoryOp::Reword {
+            hash: "abcdef1".into(),
+            message: "".into()
         })
         .is_err());
         assert!(b(GitHistoryOp::Drop {

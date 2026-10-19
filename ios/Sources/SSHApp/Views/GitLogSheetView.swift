@@ -21,6 +21,7 @@ public struct GitLogSheetView: View {
     @State private var pending: PendingCommitOp?
     @State private var reword: GitLogEntry?
     @State private var rewordText = ""
+    @State private var rewordIsTip = true
     @State private var opMessage: String?
     @State private var squashCount: Int?
     @State private var squashText = ""
@@ -67,7 +68,7 @@ public struct GitLogSheetView: View {
             .safeAreaInset(edge: .bottom) { pickBar }
             .modifier(CommitDialogs(
                 pending: $pending, squashCount: $squashCount, squashText: $squashText,
-                reword: $reword, rewordText: $rewordText, run: runOp))
+                reword: $reword, rewordText: $rewordText, rewordIsTip: rewordIsTip, run: runOp))
             .onAppear {
                 fetchLog()
                 Task { context = await viewModel.currentPaneContext() }
@@ -212,12 +213,12 @@ public struct GitLogSheetView: View {
                     message: "The newer commits leave the branch; their changes stay in your files, unstaged. The old tip is saved under refs/ssh-app/backup/.",
                     op: .commit(.reset(hash: e.hash, mode: .mixed)))
             } label: { Label("Reset to here (mixed)", systemImage: "arrow.counterclockwise") }
-        } else {
-            Button {
-                rewordText = e.subject
-                reword = e
-            } label: { Label("Reword message", systemImage: "pencil") }
         }
+        Button {
+            rewordText = e.subject
+            rewordIsTip = isTip
+            reword = e
+        } label: { Label("Reword message", systemImage: "pencil") }
         Button(role: .destructive) {
             pending = PendingCommitOp(
                 title: "Drop \(e.shortHash)?", button: "Drop commit", destructive: true,
@@ -345,6 +346,7 @@ private struct CommitDialogs: ViewModifier {
     @Binding var squashText: String
     @Binding var reword: GitLogEntry?
     @Binding var rewordText: String
+    let rewordIsTip: Bool
     let run: (LogOp) -> Void
 
     func body(content: Content) -> some View {
@@ -367,12 +369,17 @@ private struct CommitDialogs: ViewModifier {
             } message: {
                 Text("The top commits become one. Refused if any is on a remote. The old tip is saved under refs/ssh-app/backup/.")
             }
-            .alert("Reword last commit", isPresented: Binding(get: { reword != nil }, set: { if !$0 { reword = nil } })) {
+            .alert(rewordIsTip ? "Reword last commit" : "Reword commit", isPresented: Binding(get: { reword != nil }, set: { if !$0 { reword = nil } })) {
                 TextField("Message", text: $rewordText, axis: .vertical)
-                Button("Save") { run(.commit(.amendMessage(message: rewordText))) }
+                Button("Save") {
+                    if rewordIsTip { run(.commit(.amendMessage(message: rewordText))) }
+                    else if let e = reword { run(.history(.reword(hash: e.hash, message: rewordText))) }
+                }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("Only the message changes. Refused when the commit is already on a remote branch.")
+                Text(rewordIsTip
+                    ? "Only the message changes. Refused when the commit is already on a remote branch."
+                    : "Only the message changes; the later commits are replayed on top. Refused if it is on a remote, after a merge commit, or if the tree is dirty. The old tip is saved under refs/ssh-app/backup/.")
             }
     }
 }

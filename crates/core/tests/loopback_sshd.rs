@@ -3439,6 +3439,48 @@ fn git_history_and_stash_operations_run_in_a_temporary_repo_on_loopback_sshd() {
         let r = op(GitHistoryOp::Drop { hash: first_pushed }).await.unwrap();
         assert!(!r.ok, "{r:?}");
 
+        // Reword: an older commit gets a new message, its tree and author stay, later commits are replayed.
+        let r1 = commit_file("rw1.txt", "1\n", "rw first");
+        commit_file("rw2.txt", "2\n", "rw second");
+        let tree_before = git(&["rev-parse", "HEAD~1^{tree}"]);
+        let author_before = git(&["log", "-1", "--format=%an|%ae|%aI", &r1]);
+        let r = op(GitHistoryOp::Reword {
+            hash: r1.clone(),
+            message: "rw: renamed\n\nbody".into(),
+        })
+        .await
+        .unwrap();
+        assert!(r.ok, "{r:?}");
+        assert_eq!(git(&["log", "-1", "--format=%s", "HEAD~1"]), "rw: renamed");
+        assert_eq!(git(&["log", "-1", "--format=%s"]), "rw second");
+        assert_eq!(git(&["rev-parse", "HEAD~1^{tree}"]), tree_before);
+        assert_eq!(
+            git(&["log", "-1", "--format=%an|%ae|%aI", "HEAD~1"]),
+            author_before
+        );
+        assert!(repo.join("rw2.txt").exists());
+        assert!(git(&["for-each-ref", "refs/ssh-app/backup"]).contains("-reword"));
+        // The tip itself can be reworded too.
+        let tip = git(&["rev-parse", "HEAD"]);
+        let r = op(GitHistoryOp::Reword {
+            hash: tip,
+            message: "rw: tip".into(),
+        })
+        .await
+        .unwrap();
+        assert!(r.ok, "{r:?}");
+        assert_eq!(git(&["log", "-1", "--format=%s"]), "rw: tip");
+        assert_eq!(git(&["status", "--porcelain"]), "");
+        // Pushed history cannot be reworded.
+        let pushed = git(&["rev-parse", "origin/main"]);
+        let r = op(GitHistoryOp::Reword {
+            hash: pushed,
+            message: "no".into(),
+        })
+        .await
+        .unwrap();
+        assert!(!r.ok && r.output.contains("remote"), "{r:?}");
+
         // Merge: clean merge works, a conflicting one is aborted.
         git(&["switch", "-q", "-c", "topic"]);
         commit_file("topic.txt", "t\n", "topic work");
