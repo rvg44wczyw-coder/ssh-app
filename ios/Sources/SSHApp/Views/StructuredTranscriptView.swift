@@ -7,6 +7,7 @@ public struct StructuredTranscriptView: View {
     @State private var atBottom = true
     @State private var unseenNew = false
     @State private var scrollToken = 0
+    @State private var editorExpanded = false
     @FocusState private var inputFocused: Bool
     @State private var expandedThinkingTurns: Set<String> = []
     @State private var expandedToolCalls: Set<String> = []
@@ -180,18 +181,28 @@ public struct StructuredTranscriptView: View {
                     Spacer()
                 }
                 HStack(alignment: .bottom, spacing: 8) {
-                    TextField("Message…", text: $promptText, axis: .vertical)
-                        .lineLimit(1...6)
-                        .focused($inputFocused)
-                        .font(.system(size: 15))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 8)
-                        .background(Color.appSecondaryBackground)
-                        .cornerRadius(10)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 10)
-                                .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
-                        )
+                    FeedEditor(
+                        text: $promptText,
+                        placeholder: "Message…",
+                        maxHeight: editorExpanded ? 360 : 140,
+                        focus: $inputFocused
+                    )
+                    .background(Color.appSecondaryBackground)
+                    .cornerRadius(10)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+                    )
+                    .overlay(alignment: .topTrailing) {
+                        Button { withAnimation { editorExpanded.toggle() } } label: {
+                            Image(systemName: editorExpanded
+                                ? "arrow.down.right.and.arrow.up.left"
+                                : "arrow.up.left.and.arrow.down.right")
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                                .padding(8)
+                        }
+                    }
 
                     Button(action: sendPrompt) {
                         Image(systemName: "arrow.up.circle.fill")

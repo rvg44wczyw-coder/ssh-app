@@ -122,13 +122,13 @@ public final class QuickCommandStore: ObservableObject {
         QuickCommand(label: "/help", text: "/help"),
         QuickCommand(label: "/compact", text: "/compact"),
         QuickCommand(label: "/status", text: "/status"),
-        QuickCommandStore.pasteButton,
     ]
 
     /// Long press on `/model` lists the models of the agent in the tab.
     static let modelMenu = QuickCommandMenu(source: .agentModels, template: "/model {choice}")
 
-    /// Sends the clipboard text without Return.
+    /// The former stock button, kept to recognise (and remove) it; the placeholder itself still
+    /// works in custom commands.
     static let pasteButton = QuickCommand(label: "📋", text: QuickCommand.clipboardToken, run: false, confirm: false)
 
     private init() {
@@ -142,15 +142,14 @@ public final class QuickCommandStore: ObservableObject {
                 }
                 UserDefaults.standard.set(true, forKey: "quick_commands_model_menu_added")
             }
-            // One-time: people who already customised the bar get the paste button too.
-            if !UserDefaults.standard.bool(forKey: "quick_commands_paste_added") {
-                if !saved.contains(where: { $0.text == QuickCommand.clipboardToken }) {
-                    commands.append(Self.pasteButton)
-                }
-                UserDefaults.standard.set(true, forKey: "quick_commands_paste_added")
+            // One-time: the stock paste button is gone (owner, 2026-10-19). Only the exact stock
+            // button is removed; a custom command that uses {{clipboard}} stays.
+            if !UserDefaults.standard.bool(forKey: "quick_commands_paste_removed") {
+                commands.removeAll { $0.label == Self.pasteButton.label && $0.text == QuickCommand.clipboardToken }
+                UserDefaults.standard.set(true, forKey: "quick_commands_paste_removed")
             }
         } else {
-            UserDefaults.standard.set(true, forKey: "quick_commands_paste_added")
+            UserDefaults.standard.set(true, forKey: "quick_commands_paste_removed")
             UserDefaults.standard.set(true, forKey: "quick_commands_model_menu_added")
             commands = Self.defaults
         }
