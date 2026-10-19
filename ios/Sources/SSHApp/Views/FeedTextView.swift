@@ -179,6 +179,19 @@ enum FeedHighlightStore {
         guard SyntaxSettings.enabled else { return false }
         var added = false
         for turn in turns {
+            // Edit / Write diffs: the old and the new text are highlighted as files of that type.
+            for tc in turn.toolCalls {
+                guard let (file, pairs) = FeedAttributedBuilder.editPairs(tc) else { continue }
+                let lang = FeedAttributedBuilder.diffLanguage(file)
+                for text in pairs.flatMap({ [$0.0, $0.1] }) {
+                    let k = key(lang, text, dark)
+                    guard !lang.isEmpty, !text.isEmpty, cache[k] == nil, text.utf8.count < 20_000 else { continue }
+                    if let lines = await SyntaxService.shared.highlight(text: text, filename: "code." + ext(lang), dark: dark) {
+                        cache[k] = lines
+                        added = true
+                    }
+                }
+            }
             guard let content = turn.content else { continue }
             for case .code(let lang, let code) in FeedMarkdown.segments(content) {
                 let k = key(lang, code, dark)
@@ -294,14 +307,14 @@ enum FeedAttributedBuilder {
             }
         }
         for tc in turn.toolCalls {
-            appendTool(tc, into: out, open: expandedTools.contains(tc.callId))
+            appendTool(tc, into: out, open: expandedTools.contains(tc.callId), dark: dark)
         }
         out.append(NSAttributedString(string: "\n", attributes: [.font: mono(size: 6)]))
     }
 
     // MARK: Tools
 
-    private static func appendTool(_ tc: TranscriptToolCall, into out: NSMutableAttributedString, open: Bool) {
+    private static func appendTool(_ tc: TranscriptToolCall, into out: NSMutableAttributedString, open: Bool, dark: Bool) {
         let dot: UIColor = tc.status == .error ? .systemRed : (tc.status == .running ? .systemYellow : .systemGreen)
         let head = NSMutableAttributedString()
         head.append(line("● ", color: dot))
@@ -313,7 +326,7 @@ enum FeedAttributedBuilder {
             head.addAttribute(.link, value: url, range: NSRange(location: 2, length: max(0, head.length - 3)))
         }
         out.append(head)
-        if open, let diff = editDiff(tc) {
+        if open, let diff = editDiff(tc, dark: dark) {
             out.append(diff)
         } else if open, let args = tc.fullArgumentsJson, !args.isEmpty {
             out.append(line(args + "\n", font: mono(size: 12), color: .secondaryLabel, indent: 28, first: 28, after: 2,
@@ -342,7 +355,8 @@ enum FeedAttributedBuilder {
     }
 
     /// Edit / Write tool calls as a coloured diff: removed lines red, added lines green.
-    private static func editDiff(_ tc: TranscriptToolCall) -> NSAttributedString? {
+    /// The file and the (old, new) texts of an Edit / MultiEdit / Write call, if it is one.
+    static func editPairs(_ tc: TranscriptToolCall) -> (file: String?, pairs: [(String, String)])? {
         guard let json = tc.fullArgumentsJson, let data = json.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else { return nil }
@@ -355,16 +369,43 @@ enum FeedAttributedBuilder {
             }
         } else if let c = obj["content"] as? String { pairs = [("", c)] }
         guard !pairs.isEmpty else { return nil }
+        return ((obj["file_path"] ?? obj["path"]) as? String, pairs)
+    }
+
+    /// The syntax language key (file extension) used for a diff of `file`.
+    static func diffLanguage(_ file: String?) -> String {
+        guard let file, let dot = file.lastIndex(of: "."), dot != file.startIndex else { return "" }
+        let e = file[file.index(after: dot)...].lowercased()
+        return e.count <= 8 && e.allSatisfy({ $0.isLetter || $0.isNumber }) ? e : ""
+    }
+
+    private static func editDiff(_ tc: TranscriptToolCall, dark: Bool) -> NSAttributedString? {
+        guard let (file, pairs) = editPairs(tc) else { return nil }
+        let lang = diffLanguage(file)
         let out = NSMutableAttributedString()
-        if let file = (obj["file_path"] ?? obj["path"]) as? String {
+        if let file {
             out.append(line(file + "\n", font: mono(.bold, size: 12), color: .secondaryLabel, indent: 28, first: 28, after: 0))
         }
         var budget = 120
         func add(_ text: String, sign: String, color: UIColor) {
-            for l in text.components(separatedBy: "\n") where budget > 0 {
+            let colored = lang.isEmpty ? nil : FeedHighlightStore.lookup(lang, text, dark: dark)
+            for (i, l) in text.components(separatedBy: "\n").enumerated() where budget > 0 {
                 budget -= 1
-                out.append(line(sign + " " + l + "\n", font: mono(size: 12), color: .label, indent: 42, first: 28, after: 0,
-                                background: color.withAlphaComponent(0.22)))
+                let row = line(sign + " " + l + "\n", font: mono(size: 12), color: .label, indent: 42, first: 28, after: 0,
+                               background: color.withAlphaComponent(0.22))
+                // Syntax colours for the code part of the line (offset 2 skips "+ " / "- ").
+                if let colored, i < colored.count {
+                    var at = 2
+                    for run in colored[i].runs {
+                        let length = (run.text as NSString).length
+                        if let c = run.color, at + length <= row.length {
+                            row.addAttribute(.foregroundColor, value: UIColor(red: c.red, green: c.green, blue: c.blue, alpha: 1),
+                                             range: NSRange(location: at, length: length))
+                        }
+                        at += length
+                    }
+                }
+                out.append(row)
             }
         }
         for (o, n) in pairs {
