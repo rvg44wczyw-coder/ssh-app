@@ -140,7 +140,7 @@
   - Remove the Python hook fallback, only after device runs of the helper path (the app must keep working on hosts without the helper).
   - Port telemetry and the file browser to the helper: spec written (`docs/features/32-helper-telemetry-and-files.md`, phases T1–T4, shell paths stay as fallback); not implemented, waits for the owner's go-ahead.
   - P3 push: waits for the owner's Apple `.p8` key and Cloudflare account.
-  - `x86_64-apple-darwin` helper build; Watch registration and Developer Mode; Files extension on a device; live hook checks of Qwen, Crush, OpenCode, Codex, Grok and `ollama launch`; Files extras (Face ID per server, favourites). Android stays excluded.
+  - Linux and Windows (WSL2) hosts: spec `docs/features/33-host-os-support.md` (phases H1–H5, owner questions in §11), not started; includes the `x86_64-apple-darwin` helper build; Watch registration and Developer Mode; Files extension on a device; live hook checks of Qwen, Crush, OpenCode, Codex, Grok and `ollama launch`; Files extras (Face ID per server, favourites). Android stays excluded.
 - [x] Hooks hardening from `docs/features/15-hooks-capability-analysis.md` §5 items 1–5 were delivered with M21 (protect-agent-config template, command analysis on the approval card, custom-command lint, drift warning, host guard rules, session registry). Only §5 item 6 stays open: Codex and Grok are not installed on this machine, so their hooks cannot be run live.
 - [x] Agent feed (`docs/features/31-agent-feed.md`): Chat mode rebuilt as one selectable text view in Claude Code's look, per-tab transcript lookup, live tail, find, diffs for Edit/Write, formatted Markdown. Device check pending.
 - [ ] Terminal: scroll/tap-as-click/quick-command bar confirmed on the phone.
