@@ -93,6 +93,7 @@ r=$(git -C "$p" rev-parse --show-toplevel 2>/dev/null)
 case "$r" in ""|*[![:print:]]*) printf 'GO_STATUS=not_a_repo\n'; exit 0;; esac
 printf 'GO_STATUS=ok\nGO_ROOT=%s\n' "$r"
 rc=""; out=""
+gp_exists() { gpp=$(g rev-parse --git-path "$1" 2>/dev/null); case "$gpp" in /*) ;; *) gpp="$r/$gpp";; esac; [ -e "$gpp" ]; }
 g() { git -C "$r" -c core.fsmonitor=false -c log.showSignature=false -c gpg.program=false "$@"; }
 "#;
 

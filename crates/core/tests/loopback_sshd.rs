@@ -2998,3 +2998,201 @@ fn git_worktree_operations_run_in_a_temporary_repo_on_loopback_sshd() {
     });
     handle.disconnect();
 }
+
+#[test]
+fn git_commit_operations_run_in_a_temporary_repo_on_loopback_sshd() {
+    use ssh_core::{GitCommitOp, GitResetMode};
+    if !have("git") {
+        eprintln!("SKIP: git unavailable");
+        return;
+    }
+    let Some(server) = start_sshd() else {
+        eprintln!("SKIP: sshd/ssh-keygen/tmux unavailable");
+        return;
+    };
+    let tmp = tempfile::tempdir().unwrap();
+    let base = tmp.path().canonicalize().unwrap();
+    let repo = base.join("repo");
+    let remote = base.join("remote.git");
+    std::fs::create_dir_all(&repo).unwrap();
+    let git_in = |dir: &std::path::Path, args: &[&str]| {
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args([
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "commit.gpgsign=false",
+            ])
+            .args(args)
+            .env("HOME", &server.home)
+            .env_remove("TMUX")
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}: {out:?}");
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    };
+    let git = |args: &[&str]| git_in(&repo, args);
+    let commit_file = |name: &str, body: &str, msg: &str| {
+        std::fs::write(repo.join(name), body).unwrap();
+        git(&["add", "."]);
+        git(&["commit", "-q", "-m", msg]);
+        git(&["rev-parse", "HEAD"])
+    };
+    git(&["init", "-q", "-b", "main"]);
+    let c1 = commit_file("a.txt", "one\n", "c1");
+    // side branch: two independent commits and one that will conflict with main
+    git(&["switch", "-q", "-c", "side"]);
+    let s1 = commit_file("s1.txt", "s1\n", "s1");
+    let s2 = commit_file("s2.txt", "s2\n", "s2");
+    let sconf = commit_file("a.txt", "side edit\n", "side edits a");
+    git(&["switch", "-q", "main"]);
+    let c2 = commit_file("a.txt", "main edit\n", "c2");
+
+    let session = format!("gc{}", server.port);
+    let ok = server
+        .tmux()
+        .args([
+            "new-session",
+            "-d",
+            "-s",
+            &session,
+            "-c",
+            repo.to_str().unwrap(),
+            "sleep 600",
+        ])
+        .status()
+        .unwrap()
+        .success();
+    assert!(ok, "tmux new-session");
+    let handle = connect(&server);
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let backups = || {
+        git(&["for-each-ref", "refs/ssh-app/backup"])
+            .lines()
+            .count()
+    };
+    rt.block_on(async {
+        let op = |op: GitCommitOp| handle.run_git_commit_op(session.clone(), op);
+
+        // Cherry-pick two commits in order.
+        let r = op(GitCommitOp::CherryPick {
+            hashes: vec![s1.clone(), s2.clone()],
+        })
+        .await
+        .unwrap();
+        assert!(r.ok, "{r:?}");
+        assert!(repo.join("s1.txt").exists() && repo.join("s2.txt").exists());
+        assert_eq!(backups(), 1);
+
+        // A conflicting pick is aborted by the app: tree clean, HEAD unchanged.
+        let head = git(&["rev-parse", "HEAD"]);
+        let r = op(GitCommitOp::CherryPick {
+            hashes: vec![sconf.clone()],
+        })
+        .await
+        .unwrap();
+        assert!(!r.ok, "{r:?}");
+        assert!(r.output.contains("aborted"), "{r:?}");
+        assert_eq!(git(&["rev-parse", "HEAD"]), head);
+        assert_eq!(git(&["status", "--porcelain"]), "");
+
+        // Not a commit / unknown id.
+        assert!(op(GitCommitOp::CherryPick {
+            hashes: vec!["HEAD~1".into()]
+        })
+        .await
+        .is_err());
+        let r = op(GitCommitOp::CherryPick {
+            hashes: vec!["abcdef1234".into()],
+        })
+        .await
+        .unwrap();
+        assert!(!r.ok);
+
+        // Dirty tracked file: refused, nothing changed.
+        std::fs::write(repo.join("a.txt"), "dirty\n").unwrap();
+        let r = op(GitCommitOp::Revert { hash: head.clone() })
+            .await
+            .unwrap();
+        assert!(!r.ok && r.output.contains("uncommitted"), "{r:?}");
+        git(&["checkout", "-q", "--", "a.txt"]);
+
+        // Revert the last commit: a new commit that removes s2.txt.
+        let r = op(GitCommitOp::Revert { hash: head.clone() })
+            .await
+            .unwrap();
+        assert!(r.ok, "{r:?}");
+        assert!(!repo.join("s2.txt").exists());
+
+        // Reset must stay inside this branch's history; the other branch is refused.
+        let r = op(GitCommitOp::Reset {
+            hash: sconf.clone(),
+            mode: GitResetMode::Soft,
+        })
+        .await
+        .unwrap();
+        assert!(!r.ok, "{r:?}");
+        let tip = git(&["rev-parse", "HEAD"]);
+        let r = op(GitCommitOp::Reset {
+            hash: c2.clone(),
+            mode: GitResetMode::Soft,
+        })
+        .await
+        .unwrap();
+        assert!(r.ok, "{r:?}");
+        assert_eq!(git(&["rev-parse", "HEAD"]), c2);
+        assert!(r.output.contains(&tip), "old tip is reported: {r:?}");
+        // Soft: the undone changes are staged, files stay.
+        assert!(repo.join("s1.txt").exists());
+        assert!(git(&["status", "--porcelain"]).contains("s1.txt"));
+        let r = op(GitCommitOp::Reset {
+            hash: c1.clone(),
+            mode: GitResetMode::Mixed,
+        })
+        .await
+        .unwrap();
+        assert!(r.ok, "{r:?}");
+        assert!(repo.join("s1.txt").exists(), "mixed keeps files");
+
+        // Reword the last commit; staged files are not swept into it.
+        git(&["add", "-A"]);
+        git(&["commit", "-q", "-m", "work"]);
+        std::fs::write(repo.join("staged.txt"), "x\n").unwrap();
+        git(&["add", "staged.txt"]);
+        let r = op(GitCommitOp::AmendMessage {
+            message: "better message\n\nbody".into(),
+        })
+        .await
+        .unwrap();
+        assert!(r.ok, "{r:?}");
+        assert_eq!(git(&["log", "-1", "--format=%s"]), "better message");
+        assert!(!git(&["show", "--name-only", "--format=", "HEAD"]).contains("staged.txt"));
+        git(&["reset", "-q", "staged.txt"]);
+
+        // Once the commit is on a remote branch, rewording is refused.
+        git_in(&base, &["init", "-q", "--bare", remote.to_str().unwrap()]);
+        git(&["remote", "add", "origin", remote.to_str().unwrap()]);
+        git(&["push", "-q", "origin", "main"]);
+        let r = op(GitCommitOp::AmendMessage {
+            message: "again".into(),
+        })
+        .await
+        .unwrap();
+        assert!(!r.ok && r.output.contains("remote"), "{r:?}");
+
+        assert!(op(GitCommitOp::Reset {
+            hash: "--hard".into(),
+            mode: GitResetMode::Soft
+        })
+        .await
+        .is_err());
+    });
+    handle.disconnect();
+}

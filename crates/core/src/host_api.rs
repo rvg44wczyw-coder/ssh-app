@@ -578,6 +578,17 @@ impl SshSessionHandle {
         Ok(crate::gitworktree::parse_git_worktree_op_output(&out))
     }
 
+    /// Cherry-pick, revert, reset (soft / mixed) or reword the last commit (feature 28, G3).
+    pub async fn run_git_commit_op(
+        &self,
+        session_name: String,
+        op: crate::gitcommit::GitCommitOp,
+    ) -> Result<crate::gitops::GitOpResult, SshCoreError> {
+        let cmd = crate::gitcommit::build_git_commit_op_command(&session_name, &op)?;
+        let out = self.execute_command_on_active_session(cmd).await?;
+        Ok(crate::gitcommit::parse_git_commit_op_output(&out))
+    }
+
     /// Whether the tab's pane runs an AI CLI or a plain shell (see `pane_context`). A host error
     /// is "unknown", which callers treat like a shell.
     pub async fn detect_pane_context(

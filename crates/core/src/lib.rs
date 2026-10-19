@@ -10,6 +10,7 @@ pub mod config;
 pub mod error;
 pub mod file_browser;
 pub mod gitbranch;
+pub mod gitcommit;
 pub mod gitdiff;
 pub mod gitlog;
 pub mod gitops;
@@ -63,6 +64,7 @@ pub use file_browser::{
     RemoteFileEntry, RemoteFileKind, RemoteFilePreview,
 };
 pub use gitbranch::{GitBranch, GitBranchOp, GitBranchesResult};
+pub use gitcommit::{GitCommitOp, GitResetMode};
 pub use gitdiff::{GitDiffResult, GitDiffStatus};
 pub use gitlog::{GitLogEntry, GitLogResult};
 pub use gitops::GitOpResult;
