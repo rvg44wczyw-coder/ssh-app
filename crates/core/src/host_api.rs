@@ -557,6 +557,27 @@ impl SshSessionHandle {
         Ok(crate::gitbranch::parse_git_branch_op_output(&out))
     }
 
+    /// Worktrees of the repository the tab's pane is in (feature 28, G2).
+    pub async fn fetch_git_worktrees(
+        &self,
+        session_name: String,
+    ) -> Result<crate::gitworktree::GitWorktreesResult, SshCoreError> {
+        let cmd = crate::gitworktree::build_git_worktrees_command(&session_name)?;
+        let out = self.execute_command_on_active_session(cmd).await?;
+        Ok(crate::gitworktree::parse_git_worktrees_output(&out))
+    }
+
+    /// Adds or removes a worktree (see `GitWorktreeOp`).
+    pub async fn run_git_worktree_op(
+        &self,
+        session_name: String,
+        op: crate::gitworktree::GitWorktreeOp,
+    ) -> Result<crate::gitops::GitOpResult, SshCoreError> {
+        let cmd = crate::gitworktree::build_git_worktree_op_command(&session_name, &op)?;
+        let out = self.execute_command_on_active_session(cmd).await?;
+        Ok(crate::gitworktree::parse_git_worktree_op_output(&out))
+    }
+
     /// Whether the tab's pane runs an AI CLI or a plain shell (see `pane_context`). A host error
     /// is "unknown", which callers treat like a shell.
     pub async fn detect_pane_context(

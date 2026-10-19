@@ -2845,3 +2845,156 @@ fn git_branch_operations_run_in_a_temporary_repo_on_loopback_sshd() {
     });
     handle.disconnect();
 }
+
+#[test]
+fn git_worktree_operations_run_in_a_temporary_repo_on_loopback_sshd() {
+    use ssh_core::{GitDiffStatus, GitWorktreeOp};
+    if !have("git") {
+        eprintln!("SKIP: git unavailable");
+        return;
+    }
+    let Some(server) = start_sshd() else {
+        eprintln!("SKIP: sshd/ssh-keygen/tmux unavailable");
+        return;
+    };
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().canonicalize().unwrap().join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    let git = |args: &[&str]| {
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(&repo)
+            .args([
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "commit.gpgsign=false",
+            ])
+            .args(args)
+            .env("HOME", &server.home)
+            .env_remove("TMUX")
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}: {out:?}");
+        String::from_utf8_lossy(&out.stdout).to_string()
+    };
+    git(&["init", "-q", "-b", "main"]);
+    std::fs::write(repo.join("a.txt"), "one\n").unwrap();
+    git(&["add", "."]);
+    git(&["commit", "-q", "-m", "first"]);
+    git(&["branch", "existing"]);
+
+    let session = format!("gw{}", server.port);
+    let ok = server
+        .tmux()
+        .args([
+            "new-session",
+            "-d",
+            "-s",
+            &session,
+            "-c",
+            repo.to_str().unwrap(),
+            "sleep 600",
+        ])
+        .status()
+        .unwrap()
+        .success();
+    assert!(ok, "tmux new-session");
+    let handle = connect(&server);
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    rt.block_on(async {
+        let op = |op: GitWorktreeOp| handle.run_git_worktree_op(session.clone(), op);
+        let list = || handle.fetch_git_worktrees(session.clone());
+
+        let r = list().await.unwrap();
+        assert_eq!(r.status, GitDiffStatus::Ok);
+        assert_eq!(r.worktrees.len(), 1);
+        assert!(r.worktrees[0].is_main && r.worktrees[0].is_current);
+
+        // New branch in a sibling folder named after the repository and the branch.
+        let added = op(GitWorktreeOp::Add {
+            branch: "feat/x".into(),
+            new_branch: true,
+            from: None,
+        })
+        .await
+        .unwrap();
+        assert!(added.ok, "{added:?}");
+        let dest = repo.parent().unwrap().join("repo-feat-x");
+        assert!(dest.join("a.txt").exists(), "{added:?}");
+        assert!(added
+            .output
+            .contains(&format!("Worktree: {}", dest.display())));
+
+        // The same name again: the folder exists, nothing is touched.
+        let again = op(GitWorktreeOp::Add {
+            branch: "feat/x".into(),
+            new_branch: true,
+            from: None,
+        })
+        .await
+        .unwrap();
+        assert!(!again.ok);
+
+        // An existing branch.
+        let ex = op(GitWorktreeOp::Add {
+            branch: "existing".into(),
+            new_branch: false,
+            from: None,
+        })
+        .await
+        .unwrap();
+        assert!(ex.ok, "{ex:?}");
+        assert_eq!(list().await.unwrap().worktrees.len(), 3);
+
+        // Removal: only listed worktrees; never the main one.
+        let main = op(GitWorktreeOp::Remove {
+            path: repo.to_str().unwrap().into(),
+            force: true,
+        })
+        .await
+        .unwrap();
+        assert!(!main.ok, "{main:?}");
+        let stray = tmp.path().join("not-a-worktree");
+        std::fs::create_dir_all(&stray).unwrap();
+        let notwt = op(GitWorktreeOp::Remove {
+            path: stray.to_str().unwrap().into(),
+            force: true,
+        })
+        .await
+        .unwrap();
+        assert!(!notwt.ok && stray.exists(), "{notwt:?}");
+
+        // A dirty worktree needs force.
+        std::fs::write(dest.join("a.txt"), "dirty\n").unwrap();
+        let soft = op(GitWorktreeOp::Remove {
+            path: dest.to_str().unwrap().into(),
+            force: false,
+        })
+        .await
+        .unwrap();
+        assert!(!soft.ok && dest.exists(), "{soft:?}");
+        let hard = op(GitWorktreeOp::Remove {
+            path: dest.to_str().unwrap().into(),
+            force: true,
+        })
+        .await
+        .unwrap();
+        assert!(hard.ok && !dest.exists(), "{hard:?}");
+
+        for bad in ["relative", "/a/../b"] {
+            assert!(op(GitWorktreeOp::Remove {
+                path: bad.into(),
+                force: false
+            })
+            .await
+            .is_err());
+        }
+    });
+    handle.disconnect();
+}

@@ -19,7 +19,7 @@ Then git operations from the phone, in phases.
 |---|---|---|
 | G0 | `fetch_git_status` (core) + coloured file list + Project view with Files / Changes / Log tabs | in progress |
 | G1 | Branches: list local/remote, current, ahead/behind; switch; create a branch from a chosen commit or branch | done (core + sheet; device check pending) |
-| G2 | Worktrees: list, add (new branch from X in a new folder), remove; open a session in a worktree | todo |
+| G2 | Worktrees: list, add (new branch from X in a new folder), remove; open a session in a worktree | in progress (4b) |
 | G3 | Commit actions: cherry-pick (one or several commits), revert, reset (soft/mixed only), amend message | todo |
 | G4 | History rewriting: squash the last N commits (or a selected range), reword, drop; stash; merge/rebase of a branch with conflict reporting | todo |
 | G5 | Staging and commit from the phone (stage/unstage files and hunks, commit); push/pull/fetch | todo |
@@ -91,6 +91,25 @@ a second confirmation with the lost commit count unknown -> says "may lose commi
 
 Tests: validators and parsers (unit); a temporary repository on the loopback host: list, create,
 switch, delete (backup ref exists), refusal of bad names and of deleting the current branch.
+
+## 4b. G2 design: worktrees (2026-10-19)
+
+Core module `gitworktree`:
+
+- `fetch_git_worktrees(session)` -> `GitWorktreesResult { status, repo_root, worktrees[] }` with
+  `{ path, branch, head_short, is_main, is_current, detached, locked, prunable }` from
+  `git worktree list --porcelain`.
+- `run_git_worktree_op(session, op)`: `Add { branch, new_branch, from }` creates
+  `<parent of the repo>/<repo>-<branch with / -> ->` (refused when that folder exists), either
+  checking out an existing branch or creating `branch` at `from`; the result's last output line is
+  `Worktree: <path>`. `Remove { path, force }` removes a worktree that appears in git's own list,
+  is not the main one and not the one the tab is in; without `force` git refuses a dirty worktree.
+- Safety: as G1 (names validated, fixed script, args as `$n`, watchdog, size caps). `path` of
+  `Remove` must be absolute without `..` and is matched against `git worktree list` output, so a
+  typed path can never delete a folder that is not a worktree.
+
+App: a "Worktrees" sheet from the branches sheet: list, "+" (new branch or existing branch), swipe
+to remove (red, dirty warning), tap = open a tab in that worktree.
 
 ## 5. Open questions
 
