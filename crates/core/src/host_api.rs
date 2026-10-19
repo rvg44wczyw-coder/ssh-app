@@ -535,6 +535,28 @@ impl SshSessionHandle {
         Ok(crate::gitlog::parse_git_show_output(&out))
     }
 
+    /// Branches of the repository the tab's pane is in (feature 28, G1).
+    pub async fn fetch_git_branches(
+        &self,
+        session_name: String,
+    ) -> Result<crate::gitbranch::GitBranchesResult, SshCoreError> {
+        let cmd = crate::gitbranch::build_git_branches_command(&session_name)?;
+        let out = self.execute_command_on_active_session(cmd).await?;
+        Ok(crate::gitbranch::parse_git_branches_output(&out))
+    }
+
+    /// Switches, creates or deletes a branch (see `GitBranchOp`). Invalid names are refused here
+    /// as an error; git's own refusals come back in the result.
+    pub async fn run_git_branch_op(
+        &self,
+        session_name: String,
+        op: crate::gitbranch::GitBranchOp,
+    ) -> Result<crate::gitops::GitOpResult, SshCoreError> {
+        let cmd = crate::gitbranch::build_git_branch_op_command(&session_name, &op)?;
+        let out = self.execute_command_on_active_session(cmd).await?;
+        Ok(crate::gitbranch::parse_git_branch_op_output(&out))
+    }
+
     /// Whether the tab's pane runs an AI CLI or a plain shell (see `pane_context`). A host error
     /// is "unknown", which callers treat like a shell.
     pub async fn detect_pane_context(

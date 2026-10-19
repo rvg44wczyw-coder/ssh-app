@@ -2655,3 +2655,193 @@ fn remote_fs_lists_downloads_uploads_and_edits_on_loopback_sshd() {
         assert!(bad.home_directory().await.is_err());
     });
 }
+
+#[test]
+fn git_branch_operations_run_in_a_temporary_repo_on_loopback_sshd() {
+    use ssh_core::{GitBranchOp, GitDiffStatus};
+    if !have("git") {
+        eprintln!("SKIP: git unavailable");
+        return;
+    }
+    let Some(server) = start_sshd() else {
+        eprintln!("SKIP: sshd/ssh-keygen/tmux unavailable");
+        return;
+    };
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().canonicalize().unwrap().join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    let git = |args: &[&str]| {
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(&repo)
+            .args([
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "commit.gpgsign=false",
+            ])
+            .args(args)
+            .env("HOME", &server.home)
+            .env_remove("TMUX")
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}: {out:?}");
+        String::from_utf8_lossy(&out.stdout).to_string()
+    };
+    git(&["init", "-q", "-b", "main"]);
+    std::fs::write(repo.join("a.txt"), "one\n").unwrap();
+    git(&["add", "."]);
+    git(&["commit", "-q", "-m", "first"]);
+
+    let session = format!("gb{}", server.port);
+    let ok = server
+        .tmux()
+        .args([
+            "new-session",
+            "-d",
+            "-s",
+            &session,
+            "-c",
+            repo.to_str().unwrap(),
+            "sleep 600",
+        ])
+        .status()
+        .unwrap()
+        .success();
+    assert!(ok, "tmux new-session");
+
+    let handle = connect(&server);
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    rt.block_on(async {
+        let op = |op: GitBranchOp| {
+            let h = &handle;
+            let s = session.clone();
+            async move { h.run_git_branch_op(s, op).await }
+        };
+        let list = || handle.fetch_git_branches(session.clone());
+
+        let r = list().await.unwrap();
+        assert_eq!(r.status, GitDiffStatus::Ok);
+        assert_eq!(r.current.as_deref(), Some("main"));
+        assert!(!r.dirty && !r.detached);
+        assert_eq!(r.branches.len(), 1);
+
+        let created = op(GitBranchOp::Create {
+            name: "feat/x".into(),
+            from: None,
+            switch_to: true,
+        })
+        .await
+        .unwrap();
+        assert!(created.ok, "{created:?}");
+        assert_eq!(list().await.unwrap().current.as_deref(), Some("feat/x"));
+
+        // A branch that is not checked out, from a named start point.
+        let other = op(GitBranchOp::Create {
+            name: "other".into(),
+            from: Some("main".into()),
+            switch_to: false,
+        })
+        .await
+        .unwrap();
+        assert!(other.ok, "{other:?}");
+        assert_eq!(list().await.unwrap().branches.len(), 3);
+
+        // Dirty tree: the list says so.
+        std::fs::write(repo.join("a.txt"), "two\n").unwrap();
+        assert!(list().await.unwrap().dirty);
+        git(&["checkout", "-q", "--", "a.txt"]);
+
+        let back = op(GitBranchOp::Switch {
+            name: "main".into(),
+        })
+        .await
+        .unwrap();
+        assert!(back.ok, "{back:?}");
+
+        // Safe delete of a merged branch keeps a backup ref.
+        let del = op(GitBranchOp::Delete {
+            name: "other".into(),
+            force: false,
+        })
+        .await
+        .unwrap();
+        assert!(del.ok, "{del:?}");
+        assert!(del.output.contains("refs/ssh-app/backup/"), "{del:?}");
+        let backups = git(&["for-each-ref", "refs/ssh-app/backup"]);
+        assert!(backups.contains("-other"), "{backups}");
+
+        // The current branch cannot be deleted.
+        let cur = op(GitBranchOp::Delete {
+            name: "main".into(),
+            force: true,
+        })
+        .await
+        .unwrap();
+        assert!(!cur.ok);
+
+        // An unmerged branch needs force; the refused attempt leaves no backup behind.
+        git(&["switch", "-q", "-c", "unmerged"]);
+        std::fs::write(repo.join("b.txt"), "x\n").unwrap();
+        git(&["add", "."]);
+        git(&["commit", "-q", "-m", "work"]);
+        git(&["switch", "-q", "main"]);
+        let before = git(&["for-each-ref", "refs/ssh-app/backup"])
+            .lines()
+            .count();
+        let soft = op(GitBranchOp::Delete {
+            name: "unmerged".into(),
+            force: false,
+        })
+        .await
+        .unwrap();
+        assert!(!soft.ok, "{soft:?}");
+        assert_eq!(
+            git(&["for-each-ref", "refs/ssh-app/backup"])
+                .lines()
+                .count(),
+            before
+        );
+        let hard = op(GitBranchOp::Delete {
+            name: "unmerged".into(),
+            force: true,
+        })
+        .await
+        .unwrap();
+        assert!(hard.ok, "{hard:?}");
+        assert!(git(&["for-each-ref", "refs/ssh-app/backup"]).contains("-unmerged"));
+
+        // Names that could be options or shell syntax never reach the host.
+        for bad in ["-f", "a;b", "x y", "a..b"] {
+            assert!(
+                op(GitBranchOp::Switch { name: bad.into() }).await.is_err(),
+                "{bad}"
+            );
+        }
+        // A plain shell session that is not in a repository.
+        let elsewhere = format!("gbn{}", server.port);
+        let ok = server
+            .tmux()
+            .args([
+                "new-session",
+                "-d",
+                "-s",
+                &elsewhere,
+                "-c",
+                "/",
+                "sleep 600",
+            ])
+            .status()
+            .unwrap()
+            .success();
+        assert!(ok);
+        let none = handle.fetch_git_branches(elsewhere).await.unwrap();
+        assert_eq!(none.status, GitDiffStatus::NotARepo);
+    });
+    handle.disconnect();
+}

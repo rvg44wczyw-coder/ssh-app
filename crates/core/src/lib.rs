@@ -9,8 +9,10 @@ pub mod buffer;
 pub mod config;
 pub mod error;
 pub mod file_browser;
+pub mod gitbranch;
 pub mod gitdiff;
 pub mod gitlog;
+pub mod gitops;
 pub mod gitstatus;
 pub mod hook_safety;
 pub mod hook_templates;
@@ -59,8 +61,10 @@ pub use file_browser::{
     parse_remote_directory_listing, quote_remote_path_for_shell, RemoteDirectoryListing,
     RemoteFileEntry, RemoteFileKind, RemoteFilePreview,
 };
+pub use gitbranch::{GitBranch, GitBranchOp, GitBranchesResult};
 pub use gitdiff::{GitDiffResult, GitDiffStatus};
 pub use gitlog::{GitLogEntry, GitLogResult};
+pub use gitops::GitOpResult;
 pub use gitstatus::{GitFileChange, GitFileState, GitStatusResult};
 pub use hook_safety::{analyze_command, lint_custom_hook_command, CommandAnalysis};
 pub use hook_templates::{hook_templates, hook_templates_for, HookTemplate};
