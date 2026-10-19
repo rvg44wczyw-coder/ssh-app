@@ -13,8 +13,16 @@ pub enum Frame {
     Output(Vec<u8>),
     /// Client -> server: the viewport changed.
     Resize { cols: u16, rows: u16 },
-    /// Client -> server: first frame, names the session and the protocol version.
-    Hello { version: u8, session: String },
+    /// Client -> server: first frame. Names the session and says how to start it if it does not
+    /// exist yet (the viewport is also the client's current size).
+    Hello {
+        version: u8,
+        session: String,
+        cols: u16,
+        rows: u16,
+        command: Option<String>,
+        start_dir: Option<String>,
+    },
     /// Server -> client: the session ended with this exit code.
     Exit(i32),
     /// Client -> server: detach, leave the session running.
@@ -45,9 +53,28 @@ impl Frame {
                 p.extend_from_slice(&rows.to_be_bytes());
                 (T_RESIZE, p)
             }
-            Frame::Hello { version, session } => {
+            Frame::Hello {
+                version,
+                session,
+                cols,
+                rows,
+                command,
+                start_dir,
+            } => {
                 let mut p = vec![*version];
-                p.extend_from_slice(session.as_bytes());
+                p.extend_from_slice(&cols.to_be_bytes());
+                p.extend_from_slice(&rows.to_be_bytes());
+                for s in [Some(session), command.as_ref(), start_dir.as_ref()] {
+                    match s {
+                        Some(s) => {
+                            let b = s.as_bytes();
+                            let n = u16::try_from(b.len()).unwrap_or(u16::MAX - 1);
+                            p.extend_from_slice(&n.to_be_bytes());
+                            p.extend_from_slice(&b[..n as usize]);
+                        }
+                        None => p.extend_from_slice(&u16::MAX.to_be_bytes()),
+                    }
+                }
                 (T_HELLO, p)
             }
             Frame::Exit(code) => (T_EXIT, code.to_be_bytes().to_vec()),
@@ -76,12 +103,50 @@ impl Frame {
                 Ok(Frame::Resize { cols, rows })
             }
             T_HELLO => {
-                let (v, name) = p.split_first().ok_or(FrameError::Malformed("hello"))?;
-                let session = String::from_utf8(name.to_vec())
-                    .map_err(|_| FrameError::Malformed("hello name"))?;
+                let bad = FrameError::Malformed("hello");
+                if p.len() < 5 {
+                    return Err(bad);
+                }
+                let (version, cols, rows) = (
+                    p[0],
+                    u16::from_be_bytes([p[1], p[2]]),
+                    u16::from_be_bytes([p[3], p[4]]),
+                );
+                if cols == 0 || rows == 0 {
+                    return Err(bad);
+                }
+                let mut rest = &p[5..];
+                let mut strings: Vec<Option<String>> = Vec::new();
+                for _ in 0..3 {
+                    if rest.len() < 2 {
+                        return Err(bad);
+                    }
+                    let n = u16::from_be_bytes([rest[0], rest[1]]);
+                    rest = &rest[2..];
+                    if n == u16::MAX {
+                        strings.push(None);
+                        continue;
+                    }
+                    let n = n as usize;
+                    if rest.len() < n {
+                        return Err(bad);
+                    }
+                    let text = String::from_utf8(rest[..n].to_vec()).map_err(|_| bad.clone())?;
+                    strings.push(Some(text));
+                    rest = &rest[n..];
+                }
+                if !rest.is_empty() {
+                    return Err(bad);
+                }
+                let mut it = strings.into_iter();
+                let session = it.next().flatten().ok_or(bad)?;
                 Ok(Frame::Hello {
-                    version: *v,
+                    version,
                     session,
+                    cols,
+                    rows,
+                    command: it.next().flatten(),
+                    start_dir: it.next().flatten(),
                 })
             }
             T_EXIT => {
@@ -133,6 +198,10 @@ mod tests {
             Frame::Hello {
                 version: 1,
                 session: "claude-1".into(),
+                cols: 80,
+                rows: 24,
+                command: Some("claude --resume é".into()),
+                start_dir: None,
             },
             Frame::Input(b"ls\r".to_vec()),
             Frame::Output(vec![0x1b, b'[', b'H', 0xff]),

@@ -204,19 +204,27 @@ impl Server {
 
     /// Serves one client until it detaches, disconnects or the session ends. `sink` is the write
     /// half of the stream, `source` the read half. The first frame must be `Hello`.
-    pub fn serve_client(
-        &self,
-        mut source: impl Read,
-        mut sink: Sink,
-        spec: &SpawnSpec,
-    ) -> Result<(), FrameError> {
+    pub fn serve_client(&self, mut source: impl Read, mut sink: Sink) -> Result<(), FrameError> {
         let mut dec = Decoder::default();
         let mut buf = [0u8; 4096];
-        let name = loop {
+        let (name, spec) = loop {
             if let Some(f) = dec.next_frame()? {
                 match f {
-                    Frame::Hello { version, session } if version == PROTOCOL_VERSION => {
-                        break session
+                    Frame::Hello {
+                        version,
+                        session,
+                        cols,
+                        rows,
+                        command,
+                        start_dir,
+                    } if version == PROTOCOL_VERSION => {
+                        let spec = SpawnSpec {
+                            cols,
+                            rows,
+                            command,
+                            start_dir,
+                        };
+                        break (session, spec);
                     }
                     _ => return Err(FrameError::Malformed("expected hello")),
                 }
@@ -229,7 +237,7 @@ impl Server {
         if crate::server::bad_name(&name) {
             return Err(FrameError::Malformed("session name"));
         }
-        if self.create(&name, spec).is_err() {
+        if self.create(&name, &spec).is_err() {
             let _ = sink.write_all(&Frame::Exit(-2).encode());
             return Ok(());
         }
@@ -465,7 +473,7 @@ mod tests {
         let (done_tx, done) = mpsc::channel();
         let s = Arc::clone(server);
         std::thread::spawn(move || {
-            let r = s.serve_client(Chan(server_rx, Vec::new()), Box::new(Tx(server_tx)), &sp);
+            let r = s.serve_client(Chan(server_rx, Vec::new()), Box::new(Tx(server_tx)));
             let _ = done_tx.send(r);
         });
         to_server
@@ -473,6 +481,10 @@ mod tests {
                 Frame::Hello {
                     version: PROTOCOL_VERSION,
                     session: name.into(),
+                    cols: sp.cols,
+                    rows: sp.rows,
+                    command: sp.command.clone(),
+                    start_dir: sp.start_dir.clone(),
                 }
                 .encode(),
             )
@@ -580,7 +592,7 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         let (stx, _srx) = mpsc::channel();
         tx.send(Frame::Input(b"x".to_vec()).encode()).unwrap();
-        let r = server.serve_client(Chan(rx, Vec::new()), Box::new(Tx(stx)), &spec(None));
+        let r = server.serve_client(Chan(rx, Vec::new()), Box::new(Tx(stx)));
         assert!(r.is_err());
     }
 
