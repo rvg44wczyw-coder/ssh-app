@@ -12,6 +12,7 @@ public struct FileBrowserSheetView: View {
     @State private var showDiff: Bool = false
     @State private var showLog: Bool = false
     @State private var showBranches: Bool = false
+    @State private var showChanges: Bool = false
 
     public init(viewModel: TerminalSessionViewModel, onClose: (() -> Void)? = nil) {
         self.viewModel = viewModel
@@ -182,8 +183,13 @@ public struct FileBrowserSheetView: View {
                 }
                 ToolbarItemGroup(placement: .primaryAction) {
                     if let git = viewModel.gitStatus {
-                        Button(action: { showDiff = true }) {
-                            Image(systemName: "plusminus.circle")
+                        Menu {
+                            Button { showDiff = true } label: { Label("Uncommitted changes (diff)", systemImage: "plusminus.circle") }
+                            Button { showChanges = true } label: { Label("Stage, commit, push", systemImage: "square.and.arrow.up") }
+                            Button { showLog = true } label: { Label("Log and commit actions", systemImage: "clock.arrow.circlepath") }
+                            Button { showBranches = true } label: { Label("Branches, worktrees, stashes", systemImage: "arrow.triangle.branch") }
+                        } label: {
+                            Image(systemName: "arrow.triangle.branch")
                                 .overlay(alignment: .topTrailing) {
                                     if !git.changes.isEmpty {
                                         Text("\(git.changes.count)\(git.truncated ? "+" : "")")
@@ -195,9 +201,7 @@ public struct FileBrowserSheetView: View {
                                     }
                                 }
                         }
-                        .accessibilityLabel("Changes")
-                        Button(action: { showLog = true }) { Image(systemName: "clock.arrow.circlepath") }
-                            .accessibilityLabel("Git log")
+                        .accessibilityLabel("Git")
                     }
                     Button(action: { load("~") }) { Image(systemName: "house") }
                         .accessibilityLabel("Home")
@@ -218,6 +222,9 @@ public struct FileBrowserSheetView: View {
             }
             .sheet(isPresented: $showLog) {
                 GitLogSheetView(viewModel: viewModel)
+            }
+            .sheet(isPresented: $showChanges) {
+                GitChangesSheetView(viewModel: viewModel) { load(viewModel.fileListing?.currentPath) }
             }
             .sheet(isPresented: $showBranches) {
                 GitBranchesSheetView(viewModel: viewModel) { load(viewModel.fileListing?.currentPath) }
