@@ -14,6 +14,8 @@ public struct KeyboardAccessoryView: View {
     public let menuScope: String
     /// False while the session is not connected; the lists are fetched once it turns true.
     public let menuReady: Bool
+    /// Pastes the clipboard through the terminal (bracketed paste when the program wants it).
+    public let onPaste: (() -> Void)?
     public let loadModels: ((String) async -> [(id: String, label: String)])?
     @State private var models: [(id: String, label: String)] = []
     @State private var modelsLoading = false
@@ -28,11 +30,13 @@ public struct KeyboardAccessoryView: View {
         menuAgent: String? = nil,
         menuScope: String = "",
         menuReady: Bool = true,
+        onPaste: (() -> Void)? = nil,
         loadModels: ((String) async -> [(id: String, label: String)])? = nil
     ) {
         self.menuAgent = menuAgent
         self.menuScope = menuScope
         self.menuReady = menuReady
+        self.onPaste = onPaste
         self.loadModels = loadModels
         self.onSendBytes = onSendBytes
         self.onAiAssistantTap = onAiAssistantTap
@@ -77,6 +81,8 @@ public struct KeyboardAccessoryView: View {
                         triggerHaptic()
                         if cmd.confirm {
                             pendingClear = cmd
+                        } else if let onPaste, cmd.text.trimmingCharacters(in: .whitespaces) == QuickCommand.clipboardToken {
+                            onPaste()
                         } else if let bytes = cmd.resolvedBytes() {
                             onSendBytes(bytes)
                         }

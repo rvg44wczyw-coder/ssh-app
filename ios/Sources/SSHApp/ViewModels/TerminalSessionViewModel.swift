@@ -15,6 +15,8 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     // Structured Transcript / Dual-Mode State
     @Published public var isChatMode: Bool = false
     private var lastTranscriptDetect: Date?
+    /// Set by the terminal view: pastes the clipboard honouring the program's bracketed-paste mode.
+    public var pasteHandler: (() -> Void)?
     @Published public var transcriptTurns: [TranscriptTurn] = []
     @Published public var isTranscriptLoading: Bool = false
     @Published public var activeTranscriptPath: String? = nil

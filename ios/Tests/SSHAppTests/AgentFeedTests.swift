@@ -27,3 +27,19 @@ final class AgentFeedTests: XCTestCase {
         XCTAssertEqual(segs, [.code(language: "py", code: "print(1)")])
     }
 }
+
+final class TerminalPasteTests: XCTestCase {
+    func testBracketedPasteKeepsLinesTogether() {
+        let b = TerminalPaste.bytes("a\r\nb", bracketed: true)
+        XCTAssertEqual(String(decoding: b, as: UTF8.self), "\u{1b}[200~a\nb\u{1b}[201~")
+    }
+
+    func testPlainPasteTurnsLineBreaksIntoEnter() {
+        XCTAssertEqual(TerminalPaste.bytes("a\nb", bracketed: false), Array("a\rb".utf8))
+    }
+
+    func testEndMarkerInsideThePasteIsRemoved() {
+        let text = String(decoding: TerminalPaste.bytes("x\u{1b}[201~y", bracketed: true), as: UTF8.self)
+        XCTAssertEqual(text, "\u{1b}[200~xy\u{1b}[201~")
+    }
+}

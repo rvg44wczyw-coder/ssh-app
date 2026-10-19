@@ -269,6 +269,8 @@ public struct TerminalContainerView: UIViewRepresentable {
             coordinator?.presentSelectionMenu(at: point)
         }
 
+        viewModel.pasteHandler = { [weak coordinator = context.coordinator] in coordinator?.pasteClipboard() }
+
         print("[TerminalView \(viewModel.instanceId)] makeUIView created for session '\(viewModel.session.title)'")
 
         // Feed existing buffered history immediately so screen is never blank,
@@ -394,6 +396,15 @@ public struct TerminalContainerView: UIViewRepresentable {
             tv.setNeedsDisplay()
             handles?.refresh()
             return true
+        }
+
+        /// Pastes the clipboard the way a terminal does: wrapped in a bracketed paste when the
+        /// program asked for it (Claude Code does), so several lines arrive as one input and not
+        /// as one Enter per line; plain text with Enter for line breaks otherwise.
+        func pasteClipboard() {
+            guard let raw = UIPasteboard.general.string, !raw.isEmpty else { return }
+            let bracketed = terminalView?.getTerminal().bracketedPasteMode == true
+            viewModel.sendInput(Data(TerminalPaste.bytes(raw, bracketed: bracketed)))
         }
 
         func presentSelectionMenu(at point: CGPoint) {
@@ -540,9 +551,7 @@ public struct TerminalContainerView: UIViewRepresentable {
 
             if UIPasteboard.general.hasStrings {
                 let pasteAction = UIAction(title: "Paste", image: UIImage(systemName: "doc.on.clipboard")) { [weak self] _ in
-                    if let str = UIPasteboard.general.string {
-                        self?.viewModel.sendInput(Data(str.utf8))
-                    }
+                    self?.pasteClipboard()
                 }
                 actions.append(pasteAction)
             }
@@ -618,3 +627,20 @@ public struct TerminalContainerView: UIViewRepresentable {
     }
 }
 #endif
+
+
+/// Bytes for a terminal paste. An end-of-paste marker inside the text is removed, so pasted
+/// content cannot leave the paste early and run as keystrokes.
+enum TerminalPaste {
+    static func bytes(_ text: String, bracketed: Bool) -> [UInt8] {
+        let clean = text
+            .replacingOccurrences(of: "\u{1b}[201~", with: "")
+            .replacingOccurrences(of: "\u{1b}[200~", with: "")
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+        if bracketed {
+            return Array("\u{1b}[200~".utf8) + Array(clean.utf8) + Array("\u{1b}[201~".utf8)
+        }
+        return Array(clean.replacingOccurrences(of: "\n", with: "\r").utf8)
+    }
+}
