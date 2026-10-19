@@ -11,3 +11,7 @@ Findings:
 4. DoS: message capped at 2000 chars, range bounded by git itself; no loop.
 
 Verdict: clean (Low accepted).
+
+## Addendum: SquashRange (arbitrary run of commits)
+
+`GitHistoryOp::SquashRange { oldest, newest, message }`, same technique (`commit-tree` with the tree and author of `newest`, parent of `oldest`, `rebase --onto`). Hashes validated in Rust and in the script; message passed as `$5`. Refusals tested: a single commit, a range starting at a pushed commit (`remote`). Also refused: first commit of the repository, merge commits in or after the range, more than 50 commits, dirty tracked tree, commits outside this branch. Conflicts abort the rebase; backup ref `…-squash` saved. The UI offers it only for an unbroken run of picked commits that does not start at the tip (the tip run keeps the old Squash N button). Verdict: clean.

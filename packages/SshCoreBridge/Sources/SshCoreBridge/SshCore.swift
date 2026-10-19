@@ -9124,6 +9124,12 @@ public enum GitHistoryOp: Equatable, Hashable {
     case squash(count: UInt32, message: String
     )
     /**
+     * The commits from `oldest` to `newest` (both on this branch, 2..=50 of them) become one
+     * commit with `message`; the commits after `newest` are replayed.
+     */
+    case squashRange(oldest: String, newest: String, message: String
+    )
+    /**
      * Removes one commit from the branch's history (the later commits are replayed).
      */
     case drop(hash: String
@@ -9175,28 +9181,31 @@ public struct FfiConverterTypeGitHistoryOp: FfiConverterRustBuffer {
         case 1: return .squash(count: try FfiConverterUInt32.read(from: &buf), message: try FfiConverterString.read(from: &buf)
         )
         
-        case 2: return .drop(hash: try FfiConverterString.read(from: &buf)
+        case 2: return .squashRange(oldest: try FfiConverterString.read(from: &buf), newest: try FfiConverterString.read(from: &buf), message: try FfiConverterString.read(from: &buf)
         )
         
-        case 3: return .reword(hash: try FfiConverterString.read(from: &buf), message: try FfiConverterString.read(from: &buf)
+        case 3: return .drop(hash: try FfiConverterString.read(from: &buf)
         )
         
-        case 4: return .merge(branch: try FfiConverterString.read(from: &buf)
+        case 4: return .reword(hash: try FfiConverterString.read(from: &buf), message: try FfiConverterString.read(from: &buf)
         )
         
-        case 5: return .rebase(onto: try FfiConverterString.read(from: &buf)
+        case 5: return .merge(branch: try FfiConverterString.read(from: &buf)
         )
         
-        case 6: return .stashPush(message: try FfiConverterString.read(from: &buf), includeUntracked: try FfiConverterBool.read(from: &buf)
+        case 6: return .rebase(onto: try FfiConverterString.read(from: &buf)
         )
         
-        case 7: return .stashApply(index: try FfiConverterUInt32.read(from: &buf)
+        case 7: return .stashPush(message: try FfiConverterString.read(from: &buf), includeUntracked: try FfiConverterBool.read(from: &buf)
         )
         
-        case 8: return .stashPop(index: try FfiConverterUInt32.read(from: &buf)
+        case 8: return .stashApply(index: try FfiConverterUInt32.read(from: &buf)
         )
         
-        case 9: return .stashDrop(index: try FfiConverterUInt32.read(from: &buf)
+        case 9: return .stashPop(index: try FfiConverterUInt32.read(from: &buf)
+        )
+        
+        case 10: return .stashDrop(index: try FfiConverterUInt32.read(from: &buf)
         )
         
         default: throw UniffiInternalError.unexpectedEnumCase
@@ -9213,45 +9222,52 @@ public struct FfiConverterTypeGitHistoryOp: FfiConverterRustBuffer {
             FfiConverterString.write(message, into: &buf)
             
         
-        case let .drop(hash):
+        case let .squashRange(oldest,newest,message):
             writeInt(&buf, Int32(2))
+            FfiConverterString.write(oldest, into: &buf)
+            FfiConverterString.write(newest, into: &buf)
+            FfiConverterString.write(message, into: &buf)
+            
+        
+        case let .drop(hash):
+            writeInt(&buf, Int32(3))
             FfiConverterString.write(hash, into: &buf)
             
         
         case let .reword(hash,message):
-            writeInt(&buf, Int32(3))
+            writeInt(&buf, Int32(4))
             FfiConverterString.write(hash, into: &buf)
             FfiConverterString.write(message, into: &buf)
             
         
         case let .merge(branch):
-            writeInt(&buf, Int32(4))
+            writeInt(&buf, Int32(5))
             FfiConverterString.write(branch, into: &buf)
             
         
         case let .rebase(onto):
-            writeInt(&buf, Int32(5))
+            writeInt(&buf, Int32(6))
             FfiConverterString.write(onto, into: &buf)
             
         
         case let .stashPush(message,includeUntracked):
-            writeInt(&buf, Int32(6))
+            writeInt(&buf, Int32(7))
             FfiConverterString.write(message, into: &buf)
             FfiConverterBool.write(includeUntracked, into: &buf)
             
         
         case let .stashApply(index):
-            writeInt(&buf, Int32(7))
-            FfiConverterUInt32.write(index, into: &buf)
-            
-        
-        case let .stashPop(index):
             writeInt(&buf, Int32(8))
             FfiConverterUInt32.write(index, into: &buf)
             
         
-        case let .stashDrop(index):
+        case let .stashPop(index):
             writeInt(&buf, Int32(9))
+            FfiConverterUInt32.write(index, into: &buf)
+            
+        
+        case let .stashDrop(index):
+            writeInt(&buf, Int32(10))
             FfiConverterUInt32.write(index, into: &buf)
             
         }

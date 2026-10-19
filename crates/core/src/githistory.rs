@@ -23,6 +23,13 @@ pub enum GitHistoryOp {
         count: u32,
         message: String,
     },
+    /// The commits from `oldest` to `newest` (both on this branch, 2..=50 of them) become one
+    /// commit with `message`; the commits after `newest` are replayed.
+    SquashRange {
+        oldest: String,
+        newest: String,
+        message: String,
+    },
     /// Removes one commit from the branch's history (the later commits are replayed).
     Drop {
         hash: String,
@@ -138,6 +145,46 @@ The squash failed and the branch was put back."
       else out="$out
 Old tip $old saved as $bk (git reset --soft $bk to undo)"; fi
     else rc=1; out="Could not move the branch"; g update-ref -d "$bk" 2>/dev/null; fi
+  fi
+fi"#;
+
+// $3 = oldest, $4 = newest, $5 = message. The new commit has the tree and author of `newest`.
+const SQUASH_RANGE_BODY: &str = r#"dirty=$(g status --porcelain -uno 2>/dev/null | head -c 1)
+case "$3$4" in ""|*[!0-9a-f]*) rc=2; out="Not a commit";; esac
+if [ -z "$rc" ]; then
+  a=$(g rev-parse --verify -q "$3^{commit}" 2>/dev/null); b=$(g rev-parse --verify -q "$4^{commit}" 2>/dev/null)
+  parent=$(g rev-parse --verify -q "$a^" 2>/dev/null)
+  n=$(g rev-list --count "$a^..$b" 2>/dev/null)
+  if [ -z "$a" ] || [ -z "$b" ]; then rc=2; out="Not a commit of this repository"
+  elif [ "$a" = "$b" ] || ! g merge-base --is-ancestor "$a" "$b" 2>/dev/null; then rc=2; out="Pick two or more commits in one line of history"
+  elif ! g merge-base --is-ancestor "$b" HEAD 2>/dev/null; then rc=2; out="Those commits are not in this branch's history"
+  elif [ -z "$parent" ]; then rc=2; out="The range starts at the first commit of the repository; use the terminal."
+  elif [ -z "$n" ] || [ "$n" -gt 50 ]; then rc=2; out="Squash needs between 2 and 50 commits"
+  elif [ -n "$(g rev-list --merges "$a^..HEAD" 2>/dev/null | head -c 1)" ]; then rc=2; out="A merge commit is in or after the range; use the terminal."
+  elif [ -n "$dirty" ]; then rc=2; out="There are uncommitted changes in tracked files. Commit or stash them first; nothing was changed."
+  elif [ -n "$(g branch -r --contains "$a" 2>/dev/null | head -c 1)" ]; then rc=2; out="Some of these commits are already on a remote branch; squashing them would need a force push."
+  else
+    old=$(g rev-parse HEAD)
+    GIT_AUTHOR_NAME=$(g log -1 --format=%an "$b"); export GIT_AUTHOR_NAME
+    GIT_AUTHOR_EMAIL=$(g log -1 --format=%ae "$b"); export GIT_AUTHOR_EMAIL
+    GIT_AUTHOR_DATE=$(g log -1 --format=%aI "$b"); export GIT_AUTHOR_DATE
+    new=$(g commit-tree "$b^{tree}" -p "$parent" -m "$5" 2>&1)
+    if [ $? != 0 ]; then rc=1; out="$new"
+    else
+      bk="refs/ssh-app/backup/$(date +%s)-squash"
+      g update-ref "$bk" "$old" 2>/dev/null
+      if [ "$b" = "$old" ]; then out=$(g reset --soft "$new" 2>&1); rc=$?
+      else
+        out=$(g rebase --onto "$new" "$b" 2>&1); rc=$?
+        if [ "$rc" != 0 ]; then
+          g rebase --abort >/dev/null 2>&1
+          out="$out
+Stopped on a conflict. The rebase was aborted; the branch is as before."
+        fi
+      fi
+      if [ "$rc" = 0 ]; then out="Squashed $n commits
+Old tip $old saved as $bk (git reset --soft $bk to undo)"; fi
+    fi
   fi
 fi"#;
 
@@ -303,6 +350,20 @@ pub fn build_git_history_op_command(
                 ],
             )
         }
+        GitHistoryOp::SquashRange {
+            oldest,
+            newest,
+            message,
+        } => op_command(
+            session,
+            SQUASH_RANGE_BODY,
+            &[
+                "squashrange",
+                validate_commit_hash(oldest)?,
+                validate_commit_hash(newest)?,
+                &clean_message(message, MAX_MESSAGE)?,
+            ],
+        ),
         GitHistoryOp::Drop { hash } => {
             op_command(session, DROP_BODY, &["drop", validate_commit_hash(hash)?])
         }
@@ -385,6 +446,18 @@ mod tests {
         assert!(b(GitHistoryOp::Squash {
             count: 3,
             message: " ".into()
+        })
+        .is_err());
+        assert!(b(GitHistoryOp::SquashRange {
+            oldest: "abcdef1".into(),
+            newest: "abcdef2".into(),
+            message: "m".into()
+        })
+        .is_ok());
+        assert!(b(GitHistoryOp::SquashRange {
+            oldest: "HEAD~3".into(),
+            newest: "abcdef2".into(),
+            message: "m".into()
         })
         .is_err());
         assert!(b(GitHistoryOp::Reword {

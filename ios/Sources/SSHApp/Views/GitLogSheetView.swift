@@ -25,6 +25,7 @@ public struct GitLogSheetView: View {
     @State private var opMessage: String?
     @State private var squashCount: Int?
     @State private var squashText = ""
+    @State private var squashRange: (oldest: String, newest: String)?
     @State private var opFailed = false
 
     public init(viewModel: TerminalSessionViewModel) {
@@ -68,7 +69,7 @@ public struct GitLogSheetView: View {
             .safeAreaInset(edge: .bottom) { pickBar }
             .modifier(CommitDialogs(
                 pending: $pending, squashCount: $squashCount, squashText: $squashText,
-                reword: $reword, rewordText: $rewordText, rewordIsTip: rewordIsTip, run: runOp))
+                squashRange: $squashRange, reword: $reword, rewordText: $rewordText, rewordIsTip: rewordIsTip, run: runOp))
             .onAppear {
                 fetchLog()
                 Task { context = await viewModel.currentPaneContext() }
@@ -244,6 +245,16 @@ public struct GitLogSheetView: View {
                     Text("Cherry-pick \(ordered.count)").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
+                if let rng = pickedRange(r.entries), rng.count >= 2, rng.first != 0 {
+                    Button {
+                        let sel = r.entries[rng]
+                        squashText = sel.reversed().map(\.subject).joined(separator: "\n")
+                        squashRange = (oldest: sel.last!.hash, newest: sel.first!.hash)
+                    } label: {
+                        Text("Squash \(rng.count)").frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                }
                 if topCount >= 2 && topCount == picked.count {
                     Button {
                         squashText = r.entries.prefix(topCount).reversed().map(\.subject).joined(separator: "\n")
@@ -257,6 +268,13 @@ public struct GitLogSheetView: View {
             .padding()
             .background(.bar)
         }
+    }
+
+    /// Indices of the picked commits when they form one unbroken run in the list (newest first).
+    private func pickedRange(_ entries: [GitLogEntry]) -> Range<Int>? {
+        let idx = entries.indices.filter { picked.contains(entries[$0].hash) }
+        guard let lo = idx.first, let hi = idx.last, hi - lo + 1 == idx.count, idx.count == picked.count else { return nil }
+        return lo..<(hi + 1)
     }
 
     private func runOp(_ op: LogOp) {
@@ -344,6 +362,7 @@ private struct CommitDialogs: ViewModifier {
     @Binding var pending: PendingCommitOp?
     @Binding var squashCount: Int?
     @Binding var squashText: String
+    @Binding var squashRange: (oldest: String, newest: String)?
     @Binding var reword: GitLogEntry?
     @Binding var rewordText: String
     let rewordIsTip: Bool
@@ -368,6 +387,15 @@ private struct CommitDialogs: ViewModifier {
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text("The top commits become one. Refused if any is on a remote. The old tip is saved under refs/ssh-app/backup/.")
+            }
+            .alert("Squash selected commits", isPresented: Binding(get: { squashRange != nil }, set: { if !$0 { squashRange = nil } })) {
+                TextField("Message", text: $squashText, axis: .vertical)
+                Button("Squash", role: .destructive) {
+                    if let r = squashRange { run(.history(.squashRange(oldest: r.oldest, newest: r.newest, message: squashText))) }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("The selected run becomes one commit; the later commits are replayed. Refused if any is on a remote or a merge is involved. The old tip is saved under refs/ssh-app/backup/.")
             }
             .alert(rewordIsTip ? "Reword last commit" : "Reword commit", isPresented: Binding(get: { reword != nil }, set: { if !$0 { reword = nil } })) {
                 TextField("Message", text: $rewordText, axis: .vertical)

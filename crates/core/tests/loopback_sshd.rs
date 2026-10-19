@@ -3471,6 +3471,49 @@ fn git_history_and_stash_operations_run_in_a_temporary_repo_on_loopback_sshd() {
         assert!(r.ok, "{r:?}");
         assert_eq!(git(&["log", "-1", "--format=%s"]), "rw: tip");
         assert_eq!(git(&["status", "--porcelain"]), "");
+        // Squash a range in the middle of history; the commits after it are replayed.
+        let s1 = commit_file("sr1.txt", "1\n", "sr one");
+        commit_file("sr2.txt", "2\n", "sr two");
+        let s3 = commit_file("sr3.txt", "3\n", "sr three");
+        commit_file("sr4.txt", "4\n", "sr four");
+        let count_before: u32 = git(&["rev-list", "--count", "HEAD"]).parse().unwrap();
+        let r = op(GitHistoryOp::SquashRange {
+            oldest: s1.clone(),
+            newest: s1.clone(),
+            message: "x".into(),
+        })
+        .await
+        .unwrap();
+        assert!(!r.ok, "a single commit is not a range: {r:?}");
+        let r = op(GitHistoryOp::SquashRange {
+            oldest: s1.clone(),
+            newest: s3,
+            message: "sr: middle".into(),
+        })
+        .await
+        .unwrap();
+        assert!(r.ok, "{r:?}");
+        assert_eq!(
+            git(&["rev-list", "--count", "HEAD"])
+                .parse::<u32>()
+                .unwrap(),
+            count_before - 2
+        );
+        assert_eq!(git(&["log", "-1", "--format=%s", "HEAD~1"]), "sr: middle");
+        assert_eq!(git(&["log", "-1", "--format=%s"]), "sr four");
+        assert!(["sr1", "sr2", "sr3", "sr4"]
+            .iter()
+            .all(|n| repo.join(format!("{n}.txt")).exists()));
+        assert_eq!(git(&["status", "--porcelain"]), "");
+        let pushed = git(&["rev-parse", "origin/main"]);
+        let r = op(GitHistoryOp::SquashRange {
+            oldest: pushed,
+            newest: git(&["rev-parse", "HEAD"]),
+            message: "no".into(),
+        })
+        .await
+        .unwrap();
+        assert!(!r.ok && r.output.contains("remote"), "{r:?}");
         // Pushed history cannot be reworded.
         let pushed = git(&["rev-parse", "origin/main"]);
         let r = op(GitHistoryOp::Reword {
