@@ -109,6 +109,14 @@ pub fn ai_cli_in(command: &str) -> Option<String> {
     })
 }
 
+/// `ollama run ...` or `ollama serve` (a local model runtime, not an AI CLI: `!` means nothing to
+/// it, so it is reported as a shell pane that carries the agent name).
+fn is_ollama_runtime(command: &str) -> bool {
+    let mut tokens = command.split_whitespace();
+    let first = tokens.next().unwrap_or("");
+    first.rsplit('/').next() == Some("ollama") && matches!(tokens.next(), Some("run" | "serve"))
+}
+
 pub fn parse_pane_context(output: &str) -> PaneContext {
     if !output.lines().any(|l| l == "PC_STATUS=ok") {
         return PaneContext::unknown();
@@ -121,9 +129,17 @@ pub fn parse_pane_context(output: &str) -> PaneContext {
             };
         }
     }
+    let ollama = output
+        .lines()
+        .filter_map(|l| l.strip_prefix("PC_PROC="))
+        .any(is_ollama_runtime);
     PaneContext {
         kind: PaneKind::Shell,
-        agent: String::new(),
+        agent: if ollama {
+            "ollama".into()
+        } else {
+            String::new()
+        },
     }
 }
 
@@ -145,6 +161,18 @@ mod tests {
 
     fn ctx(out: &str) -> PaneContext {
         parse_pane_context(out)
+    }
+
+    #[test]
+    fn ollama_run_and_serve_are_named_but_stay_a_shell() {
+        for cmd in ["ollama run llama3", "/opt/homebrew/bin/ollama serve"] {
+            let c = ctx(&format!("PC_STATUS=ok\nPC_PROC=-zsh\nPC_PROC={cmd}\n"));
+            assert_eq!((c.kind, c.agent.as_str()), (PaneKind::Shell, "ollama"));
+        }
+        let list = ctx("PC_STATUS=ok\nPC_PROC=ollama list\n");
+        assert_eq!(list.agent, "");
+        let launched = ctx("PC_STATUS=ok\nPC_PROC=ollama run x\nPC_PROC=claude\n");
+        assert_eq!(launched.kind, PaneKind::AiCli);
     }
 
     #[test]

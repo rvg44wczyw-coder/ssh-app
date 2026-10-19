@@ -874,6 +874,7 @@ struct ActiveTerminalSessionView: View {
                 let mapped: String? = switch name {
                 case "claude": "claude"
                 case "agy", "antigravity": "antigravity"
+                case "ollama": "ollama"
                 default: nil
                 }
                 if mapped != detectedMenuAgent { detectedMenuAgent = mapped }
