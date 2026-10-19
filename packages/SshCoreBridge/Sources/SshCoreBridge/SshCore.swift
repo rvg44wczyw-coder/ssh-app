@@ -1445,8 +1445,10 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     
     /**
      * Collects a snapshot of remote host telemetry (CPU load, RAM, Disk, Battery, and AI/dev processes).
+     * With the app's pin (`helper_sha256`) the pinned host helper answers with typed JSON; without
+     * it, or when it is absent, older or replaced, the shell script runs as before.
      */
-    func fetchHostTelemetry() async throws  -> HostTelemetrySnapshot
+    func fetchHostTelemetry(helperSha256: String?) async throws  -> HostTelemetrySnapshot
     
     /**
      * Reads recent commands from the remote host's shell history (`~/.zsh_history` / `~/.bash_history`)
@@ -2182,13 +2184,15 @@ open func fetchGitWorktrees(sessionName: String)async throws  -> GitWorktreesRes
     
     /**
      * Collects a snapshot of remote host telemetry (CPU load, RAM, Disk, Battery, and AI/dev processes).
+     * With the app's pin (`helper_sha256`) the pinned host helper answers with typed JSON; without
+     * it, or when it is absent, older or replaced, the shell script runs as before.
      */
-open func fetchHostTelemetry()async throws  -> HostTelemetrySnapshot  {
+open func fetchHostTelemetry(helperSha256: String?)async throws  -> HostTelemetrySnapshot  {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_ssh_core_fn_method_sshsessionhandle_fetch_host_telemetry(
-                        self.uniffiCloneHandle()
+                        self.uniffiCloneHandle(),FfiConverterOptionString.lower(helperSha256)
                 )
             },
             pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
@@ -12820,11 +12824,11 @@ public func executeRemoteCommand(config: RemoteServerConfig, command: String)asy
  * One snapshot of the host without a live terminal session: a single short-lived connection.
  * This is the entry point for anything that cannot keep a session open (a home-screen widget).
  */
-public func fetchHostTelemetryOnce(config: RemoteServerConfig)async throws  -> HostTelemetrySnapshot  {
+public func fetchHostTelemetryOnce(config: RemoteServerConfig, helperSha256: String?)async throws  -> HostTelemetrySnapshot  {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_ssh_core_fn_func_fetch_host_telemetry_once(FfiConverterTypeRemoteServerConfig_lower(config)
+                uniffi_ssh_core_fn_func_fetch_host_telemetry_once(FfiConverterTypeRemoteServerConfig_lower(config),FfiConverterOptionString.lower(helperSha256)
                 )
             },
             pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
@@ -13210,7 +13214,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_func_execute_remote_command() != 30132) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_ssh_core_checksum_func_fetch_host_telemetry_once() != 29721) {
+    if (uniffi_ssh_core_checksum_func_fetch_host_telemetry_once() != 50021) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_fetch_host_usage() != 1126) {
@@ -13366,7 +13370,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_fetch_git_worktrees() != 36477) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_ssh_core_checksum_method_sshsessionhandle_fetch_host_telemetry() != 38116) {
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_fetch_host_telemetry() != 27225) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_fetch_remote_shell_history() != 12286) {

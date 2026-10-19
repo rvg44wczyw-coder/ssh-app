@@ -5,7 +5,7 @@
 
 use serde_json::json;
 use ssh_app_host::queue::{install_signal_handlers, Paths};
-use ssh_app_host::{agent, ctl, hook, models, rpc, statusline, usage};
+use ssh_app_host::{agent, ctl, hook, models, rpc, statusline, telemetry, usage};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -16,7 +16,7 @@ fn main() {
         Some("hello") => {
             println!(
                 "{}",
-                json!({"v": 1, "name": "ssh-app-host", "version": VERSION, "caps": ["usage", "hook", "agent", "models"]})
+                json!({"v": 1, "name": "ssh-app-host", "version": VERSION, "caps": ["usage", "hook", "agent", "models", "telemetry"]})
             );
             0
         }
@@ -42,6 +42,10 @@ fn main() {
                 }
                 Err(e) => fail(&e),
             }
+        }
+        Some("telemetry") => {
+            println!("{}", telemetry::snapshot());
+            0
         }
         Some("models") => {
             let home = std::env::var("HOME").unwrap_or_default();

@@ -16,6 +16,6 @@ public enum HostMonitorClient {
             privateKeyPem: privateKey,
             pinnedHostKey: server.hostKeyFingerprint
         )
-        return try await fetchHostTelemetryOnce(config: config)
+        return try await fetchHostTelemetryOnce(config: config, helperSha256: bundledHostHelperSha256())
     }
 }

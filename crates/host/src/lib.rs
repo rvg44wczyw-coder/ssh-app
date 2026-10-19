@@ -11,5 +11,6 @@ pub mod queue;
 pub mod rpc;
 pub mod sessions;
 pub mod statusline;
+pub mod telemetry;
 pub mod timefmt;
 pub mod usage;

@@ -193,3 +193,29 @@ a loopback run that compares helper and shell answers on a folder with ordinary 
   anyway" path is wanted it should be a separate confirmation, not a flag.
 - No contradictions found with 24, 25, 26 or 28; the capability list and the pin mechanism are the
   ones already in use.
+
+## 10. Implementation notes
+
+### T1 (2026-10-19): `telemetry` — done in core and helper; not run on a device
+
+- Helper: `crates/host/src/telemetry.rs`, subcommand `telemetry`, cap `"telemetry"` in `hello`.
+  `sysctl`, `vm_stat`, `df -k /`, `pmset -g batt`, `ps -Ao …`, `uname`, `hostname` run with a fixed
+  argv (no shell, `LC_ALL=C`, 4 s each, 1 MiB output cap); load average via `getloadavg`. The reply
+  carries raw values (`mem.total/used` bytes, `disk.total_kb/avail_kb`, `load[3]`, `me_uid`,
+  `procs[]`); percentages, GB/MB, process group and category are derived in the core, so the
+  classification code stays single-sourced. A source that fails is left out.
+- Deviation from §3.1: `args` and `started` are not in the reply yet. The monitor shows the `comm`
+  path only (as before); `started` arrives with `kill` in T3.
+- Core: `fetch_host_telemetry(helper_sha256: Option<String>)` and
+  `fetch_host_telemetry_once(config, helper_sha256)` (UniFFI signature change; bindings regenerated,
+  Swift callers pass `bundledHostHelperSha256()`). Any non-usable reply (absent, old, replaced
+  helper; `{"ok":false}`; garbage) falls back to the shell script. A malformed pin is an error.
+- Tests: 5 helper unit tests (vm_stat formula and page size, df, pmset, ps cut/keep/controls),
+  3 core tests (reply → snapshot, fallback replies, pinned command), loopback test compares
+  helper and shell answers (hostname, OS, cores, memory total, disk total) and checks that a wrong
+  pin still answers via the shell. fmt, clippy `-D warnings` and the whole workspace pass; the
+  real tmux server (pid 35350, `HOME=/Users/ivs`) was unchanged by the run.
+- Security view: read-only, no user text reaches the helper or any command; output is bounded
+  (400 processes, 240-character names, control characters removed). No hacker pass needed for T1
+  beyond this; T2 and T3 get one.
+- The user must press "Update on this host" once for the new helper to be picked up (digest pin).

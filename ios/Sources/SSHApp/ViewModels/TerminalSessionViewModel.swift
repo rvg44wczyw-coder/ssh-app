@@ -281,7 +281,7 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         telemetryError = nil
         Task {
             do {
-                let snap = try await handle.fetchHostTelemetry()
+                let snap = try await handle.fetchHostTelemetry(helperSha256: bundledHostHelperSha256())
                 self.telemetrySnapshot = snap
                 self.telemetryUpdatedAt = Date()
                 self.isTelemetryLoading = false

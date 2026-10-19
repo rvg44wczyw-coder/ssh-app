@@ -169,9 +169,23 @@ impl SshSessionHandle {
     }
 
     /// Collects a snapshot of remote host telemetry (CPU load, RAM, Disk, Battery, and AI/dev processes).
+    /// With the app's pin (`helper_sha256`) the pinned host helper answers with typed JSON; without
+    /// it, or when it is absent, older or replaced, the shell script runs as before.
     pub async fn fetch_host_telemetry(
         &self,
+        helper_sha256: Option<String>,
     ) -> Result<crate::telemetry::HostTelemetrySnapshot, SshCoreError> {
+        if let Some(pin) = &helper_sha256 {
+            crate::usage::validate_sha256(pin)?;
+            let out = self
+                .execute_command_on_active_session(
+                    crate::telemetry::build_helper_telemetry_command(pin),
+                )
+                .await?;
+            if let Some(snap) = crate::telemetry::parse_helper_telemetry(&out) {
+                return Ok(snap);
+            }
+        }
         let raw_output = self
             .execute_command_on_active_session(
                 crate::telemetry::TELEMETRY_COLLECTION_SCRIPT.to_string(),

@@ -482,7 +482,12 @@ fn parse_process_list(lines: &[&str], me_uid: Option<u32>) -> Vec<RemoteProcessI
         });
     }
 
-    // Prioritize AI Agents, Local LLMs, and Build Tools at the top, then sort by CPU% descending
+    sort_processes(&mut results);
+    results
+}
+
+/// Agents, local LLMs and build tools first, then by CPU; at most 120 rows.
+fn sort_processes(results: &mut Vec<RemoteProcessInfo>) {
     results.sort_by(|a, b| {
         let priority = |cat: ProcessCategory| -> u8 {
             match cat {
@@ -503,11 +508,178 @@ fn parse_process_list(lines: &[&str], me_uid: Option<u32>) -> Vec<RemoteProcessI
     });
 
     results.truncate(120);
-    results
+}
+
+/// The pinned helper's `telemetry` call (feature 32): a fixed script, no user text. Prints
+/// `HELPER_ABSENT` when the helper is missing, a symlink or not exactly the pinned build.
+pub(crate) fn build_helper_telemetry_command(sha256: &str) -> String {
+    let script = format!(
+        "h={path}; if [ ! -f \"$h\" ] || [ -L \"$h\" ] || \
+         [ \"$(shasum -a 256 < \"$h\" 2>/dev/null | cut -d' ' -f1)\" != '{sha256}' ]; then echo HELPER_ABSENT; \
+         else \"$h\" telemetry 2>/dev/null; fi",
+        path = crate::usage::HELPER_PATH_EXPR
+    );
+    crate::hostprobe::login_sh_script(&script, &[], 20)
+}
+
+#[derive(Deserialize)]
+struct HelperProc {
+    pid: u32,
+    uid: u32,
+    user: String,
+    cpu: f64,
+    mem: f64,
+    etime: String,
+    comm: String,
+}
+
+#[derive(Deserialize)]
+struct HelperBattery {
+    percent: Option<u8>,
+    charging: Option<bool>,
+    source: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct HelperMem {
+    total: u64,
+    used: u64,
+}
+
+#[derive(Deserialize)]
+struct HelperDisk {
+    total_kb: u64,
+    avail_kb: u64,
+}
+
+#[derive(Deserialize)]
+struct HelperTelemetry {
+    ok: bool,
+    host: Option<String>,
+    os: Option<String>,
+    cores: Option<u32>,
+    load: Option<[f64; 3]>,
+    mem: Option<HelperMem>,
+    disk: Option<HelperDisk>,
+    battery: Option<HelperBattery>,
+    me_uid: Option<u32>,
+    #[serde(default)]
+    procs: Vec<HelperProc>,
+}
+
+/// Builds the snapshot from the helper's reply; `None` when there is no usable reply (absent
+/// helper, older helper without `telemetry`, malformed output), so the caller falls back to the
+/// shell script.
+pub(crate) fn parse_helper_telemetry(out: &str) -> Option<HostTelemetrySnapshot> {
+    let h: HelperTelemetry = out.lines().find_map(|l| {
+        let l = l.trim();
+        if !l.starts_with('{') {
+            return None;
+        }
+        serde_json::from_str::<HelperTelemetry>(l)
+            .ok()
+            .filter(|t| t.ok)
+    })?;
+    let (used_b, total_b) = h.mem.as_ref().map_or((0, 0), |m| (m.used, m.total));
+    let total_mb = total_b / (1024 * 1024);
+    let used_mb = (used_b / (1024 * 1024)).min(if total_mb > 0 { total_mb } else { u64::MAX });
+    let pct = |used: f64, total: f64| {
+        if total > 0.0 {
+            (((used / total) * 100.0).clamp(0.0, 100.0) * 10.0).round() / 10.0
+        } else {
+            0.0
+        }
+    };
+    let (avail_kb, total_kb) = h.disk.as_ref().map_or((0, 0), |d| (d.avail_kb, d.total_kb));
+    let used_kb = total_kb.saturating_sub(avail_kb);
+    let gb = |kb: u64| ((kb as f64) / (1024.0 * 1024.0) * 10.0).round() / 10.0;
+    let [load_1m, load_5m, load_15m] = h.load.unwrap_or([0.0; 3]);
+    let me_uid = h.me_uid;
+    let mut processes: Vec<RemoteProcessInfo> = h
+        .procs
+        .into_iter()
+        .map(|p| {
+            let command_line: String = p.comm.chars().take(240).collect();
+            let name = command_line
+                .rsplit('/')
+                .next()
+                .unwrap_or(&command_line)
+                .to_string();
+            RemoteProcessInfo {
+                pid: p.pid,
+                group: classify_process_group(p.uid, p.user.clone(), command_line.clone(), me_uid),
+                category: classify_process_category(command_line.clone()),
+                owner: p.user,
+                name,
+                command_line,
+                cpu_percent: p.cpu,
+                mem_percent: p.mem,
+                elapsed: p.etime,
+            }
+        })
+        .collect();
+    sort_processes(&mut processes);
+    Some(HostTelemetrySnapshot {
+        hostname: h.host.unwrap_or_else(|| "unknown".to_string()),
+        os_name: h.os.unwrap_or_else(|| "Unix".to_string()),
+        cpu_cores: h.cores.filter(|&c| c > 0).unwrap_or(1),
+        load_1m,
+        load_5m,
+        load_15m,
+        memory_used_mb: used_mb,
+        memory_total_mb: total_mb,
+        memory_usage_percent: pct(used_mb as f64, total_mb as f64),
+        disk_used_gb: gb(used_kb),
+        disk_total_gb: gb(total_kb),
+        disk_usage_percent: pct(used_kb as f64, total_kb as f64),
+        battery_percent: h.battery.as_ref().and_then(|b| b.percent),
+        is_charging: h.battery.as_ref().and_then(|b| b.charging),
+        power_source: h.battery.and_then(|b| b.source),
+        processes,
+    })
 }
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn helper_reply_becomes_a_snapshot() {
+        let reply = r#"noise
+{"ok":true,"host":"mac","os":"Darwin 25 arm64","cores":8,"load":[1.5,1.0,0.5],"mem":{"total":17179869184,"used":8589934592},"disk":{"total_kb":1048576,"avail_kb":524288},"battery":{"percent":80,"charging":false,"source":"Battery Power"},"me_uid":501,"procs":[{"pid":10,"uid":501,"user":"u","cpu":1.0,"mem":2.0,"etime":"01:00","comm":"/usr/bin/zsh"},{"pid":11,"uid":501,"user":"u","cpu":0.0,"mem":1.0,"etime":"01:00","comm":"/opt/ollama"},{"pid":12,"uid":0,"user":"root","cpu":9.0,"mem":0.1,"etime":"01:00","comm":"/usr/libexec/x"}]}"#;
+        let s = super::parse_helper_telemetry(reply).expect("snapshot");
+        assert_eq!((s.hostname.as_str(), s.cpu_cores), ("mac", 8));
+        assert_eq!(
+            (s.memory_total_mb, s.memory_used_mb, s.memory_usage_percent),
+            (16384, 8192, 50.0)
+        );
+        assert_eq!(
+            (s.disk_total_gb, s.disk_used_gb, s.disk_usage_percent),
+            (1.0, 0.5, 50.0)
+        );
+        assert_eq!((s.battery_percent, s.is_charging), (Some(80), Some(false)));
+        assert_eq!(s.processes[0].name, "ollama");
+        assert_eq!(s.processes[0].category, ProcessCategory::LocalLlm);
+        assert_eq!(
+            s.processes.last().map(|p| p.group),
+            Some(ProcessGroup::System)
+        );
+    }
+
+    #[test]
+    fn unusable_helper_replies_fall_back() {
+        assert!(super::parse_helper_telemetry("HELPER_ABSENT").is_none());
+        assert!(super::parse_helper_telemetry("{\"error\":\"usage\"}").is_none());
+        assert!(super::parse_helper_telemetry("{\"ok\":false}").is_none());
+        assert!(super::parse_helper_telemetry("").is_none());
+    }
+
+    #[test]
+    fn helper_command_is_pinned_and_fixed() {
+        let c = super::build_helper_telemetry_command(&"a".repeat(64));
+        assert!(
+            c.contains("HELPER_ABSENT") && c.contains("telemetry") && c.contains(&"a".repeat(64))
+        );
+    }
+
     #[test]
     fn idle_agents_and_llm_servers_survive_the_process_cut() {
         // 400 busy processes, then an idle ollama and an idle claude at the very end.

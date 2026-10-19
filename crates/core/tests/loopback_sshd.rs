@@ -220,7 +220,7 @@ fn exec_based_methods_against_loopback_sshd() {
 
     rt.block_on(async {
         // --- telemetry ---
-        let snap = handle.fetch_host_telemetry().await.expect("telemetry");
+        let snap = handle.fetch_host_telemetry(None).await.expect("telemetry");
         assert!(snap.cpu_cores >= 1);
         assert!(snap.memory_total_mb > 0);
 
@@ -1542,7 +1542,7 @@ fn reconnect_and_one_shot_tmux_calls_against_loopback_sshd() {
         let after = list_remote_tmux_sessions(cfg.clone()).await.unwrap();
         assert!(!after.iter().any(|s| s.name == name), "{after:?}");
         // A snapshot without any live session (the widget path): one short-lived connection.
-        let snap = ssh_core::fetch_host_telemetry_once(cfg.clone())
+        let snap = ssh_core::fetch_host_telemetry_once(cfg.clone(), None)
             .await
             .unwrap();
         assert!(snap.cpu_cores > 0 && !snap.processes.is_empty());
@@ -1789,6 +1789,24 @@ fn usage_report_finds_models_in_tmux_sessions_and_reads_transcripts() {
             .unwrap();
         check(via_helper.clone());
         assert_eq!(via_helper, python, "helper and Python give the same report");
+
+        // 3a. Telemetry through the pinned helper matches the shell script's static facts; a wrong
+        // pin falls back to the script and still answers.
+        let shell = handle.fetch_host_telemetry(None).await.unwrap();
+        let typed = handle.fetch_host_telemetry(Some(pin.clone())).await.unwrap();
+        assert_eq!(typed.hostname, shell.hostname);
+        assert_eq!(typed.os_name, shell.os_name);
+        assert_eq!(typed.cpu_cores, shell.cpu_cores);
+        assert_eq!(typed.memory_total_mb, shell.memory_total_mb);
+        assert_eq!(typed.disk_total_gb, shell.disk_total_gb);
+        assert!(typed.memory_used_mb > 0 && !typed.processes.is_empty());
+        assert!(typed.processes.iter().any(|p| p.name.contains("sshd")), "{:?}", typed.processes.len());
+        let wrong = handle
+            .fetch_host_telemetry(Some("0".repeat(64)))
+            .await
+            .unwrap();
+        assert_eq!(wrong.cpu_cores, shell.cpu_cores);
+        assert!(handle.fetch_host_telemetry(Some("zz".into())).await.is_err());
 
         // 3b. The host agent starts through `rpc`, answers, and is stopped again by the test.
         let st = handle

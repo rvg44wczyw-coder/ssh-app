@@ -491,8 +491,22 @@ pub async fn list_remote_tmux_sessions(
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn fetch_host_telemetry_once(
     config: RemoteServerConfig,
+    helper_sha256: Option<String>,
 ) -> Result<crate::telemetry::HostTelemetrySnapshot, SshCoreError> {
+    if let Some(pin) = &helper_sha256 {
+        crate::usage::validate_sha256(pin)?;
+    }
     let handle = RUNTIME.spawn(async move {
+        if let Some(pin) = &helper_sha256 {
+            let out = execute_remote_command_internal(
+                &config,
+                &crate::telemetry::build_helper_telemetry_command(pin),
+            )
+            .await?;
+            if let Some(snap) = crate::telemetry::parse_helper_telemetry(&out) {
+                return Ok(snap);
+            }
+        }
         let raw =
             execute_remote_command_internal(&config, crate::telemetry::TELEMETRY_COLLECTION_SCRIPT)
                 .await?;
