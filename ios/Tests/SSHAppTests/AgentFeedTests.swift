@@ -18,12 +18,12 @@ final class AgentFeedTests: XCTestCase {
     }
 
     func testMarkdownSplitsFencedCode() {
-        let segs = FeedMarkdownView.segments("intro\n```swift\nlet a = 1\n```\nafter")
+        let segs = FeedMarkdown.segments("intro\n```swift\nlet a = 1\n```\nafter")
         XCTAssertEqual(segs, [.prose("intro"), .code(language: "swift", code: "let a = 1"), .prose("after")])
     }
 
     func testUnclosedFenceRunsToTheEnd() {
-        let segs = FeedMarkdownView.segments("```py\nprint(1)")
+        let segs = FeedMarkdown.segments("```py\nprint(1)")
         XCTAssertEqual(segs, [.code(language: "py", code: "print(1)")])
     }
 }

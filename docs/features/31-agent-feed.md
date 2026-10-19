@@ -46,6 +46,15 @@ SwiftTerm, parsing the terminal grid.
    disappear, on leaving Chat mode and on background (the connection is closed by lifecycle code
    anyway).
 
+### 3.1 Text selection (changed 2026-10-19)
+
+SwiftUI `textSelection` selects inside one `Text` only. The feed is therefore ONE native
+`UITextView` (`FeedTextView`) built from an attributed string: selection runs across turns with
+the system handles, magnifier and Copy / Share / Look Up. "Thinking" and tool headers are links
+that expand or collapse their body. Cost: no card chrome, and code blocks are not syntax-coloured
+yet (monospace on a tinted background); colours return when `SyntaxService` is wired into the
+builder.
+
 ## 4. Security
 
 - The text typed goes to the user's own session, as today. Bracketed-paste end marker inside the
