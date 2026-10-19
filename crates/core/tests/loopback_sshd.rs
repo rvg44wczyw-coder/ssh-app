@@ -1793,6 +1793,20 @@ fn usage_report_finds_models_in_tmux_sessions_and_reads_transcripts() {
         check(via_helper.clone());
         assert_eq!(via_helper, python, "helper and Python give the same report");
 
+        // 3-. The host system is recognised, and an unsupported / not embedded target is refused.
+        let target = handle.detect_host_target().await.unwrap();
+        if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+            assert_eq!(target, ssh_core::HostTarget::DarwinArm64);
+        }
+        assert!(handle
+            .install_bundled_host_helper_for(ssh_core::HostTarget::Unsupported { reason: "x".into() })
+            .await
+            .is_err());
+        assert!(handle
+            .install_bundled_host_helper_for(ssh_core::HostTarget::LinuxAarch64)
+            .await
+            .is_err(), "no Linux build is embedded yet");
+
         // 3a. Telemetry through the pinned helper matches the shell script's static facts; a wrong
         // pin falls back to the script and still answers.
         let shell = handle.fetch_host_telemetry(None).await.unwrap();

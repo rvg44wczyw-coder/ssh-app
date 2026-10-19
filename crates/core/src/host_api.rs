@@ -1087,6 +1087,37 @@ impl SshSessionHandle {
         Ok(())
     }
 
+    /// Which kind of host this is (macOS / Linux / WSL2 and the CPU), from one short probe.
+    pub async fn detect_host_target(&self) -> Result<crate::hosttarget::HostTarget, SshCoreError> {
+        let out = self
+            .execute_command_on_active_session(crate::hostprobe::login_sh_script(
+                crate::hosttarget::HOST_TARGET_SCRIPT,
+                &[],
+                10,
+            ))
+            .await?;
+        Ok(crate::hosttarget::parse_host_target(out))
+    }
+
+    /// Installs the helper build that matches `target` (digest checked on the host as always).
+    /// Fails for an unsupported system or a build this app does not embed.
+    pub async fn install_bundled_host_helper_for(
+        &self,
+        target: crate::hosttarget::HostTarget,
+    ) -> Result<(), SshCoreError> {
+        let triple = crate::hosttarget::require_supported(&target)?;
+        let bytes =
+            crate::usage::bundled_helper_for(&target).ok_or(SshCoreError::InvalidInput {
+                reason: format!("This build of the app has no host helper for {triple}"),
+            })?;
+        let sha = crate::usage::bundled_host_helper_sha256_for(target).ok_or(
+            SshCoreError::InvalidInput {
+                reason: "This build has no host helper for that system".to_string(),
+            },
+        )?;
+        self.install_host_helper(bytes.to_vec(), sha).await
+    }
+
     /// Installs the helper embedded in this build (see `bundled_host_helper_sha256`).
     pub async fn install_bundled_host_helper(&self) -> Result<(), SshCoreError> {
         let bytes = crate::usage::bundled_host_helper();

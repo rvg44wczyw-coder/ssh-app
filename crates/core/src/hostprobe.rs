@@ -7,6 +7,11 @@
 
 use crate::tmux::shell_quote;
 
+/// SHA-256 of the file `$h` (or `$t`) as a shell expression: `shasum` (macOS, most Linux), else
+/// `sha256sum` (coreutils, busybox), else `openssl`; the first token of the output is the digest.
+pub(crate) const SHA256_OF_H: &str = "$( { shasum -a 256 || sha256sum || openssl dgst -sha256 -r; } < \"$h\" 2>/dev/null | cut -d' ' -f1)";
+pub(crate) const SHA256_OF_T: &str = "$( { shasum -a 256 || sha256sum || openssl dgst -sha256 -r; } < \"$t\" 2>/dev/null | cut -d' ' -f1)";
+
 /// Wraps `command` (a single shell command that writes to stdout) in a POSIX `sh -c` that kills
 /// the command and all its descendants after `secs` seconds. All stderr is discarded; merge it
 /// into stdout inside `command` if it is wanted.
@@ -53,4 +58,55 @@ pub(crate) fn login_sh_script(script: &str, args: &[String], secs: u32) -> Strin
         shell_quote(&via_sh)
     );
     watchdog_sh(&inner, secs)
+}
+
+#[cfg(test)]
+mod sha_tests {
+    use super::*;
+    use sha2::{Digest, Sha256};
+
+    #[test]
+    fn the_digest_expression_matches_sha256_on_this_machine() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("blob");
+        std::fs::write(&f, b"hello digest").unwrap();
+        let want = hex::encode(Sha256::digest(b"hello digest"));
+        for (var, expr) in [("h", SHA256_OF_H), ("t", SHA256_OF_T)] {
+            let script = format!(
+                "{var}={}; printf %s \"{expr}\"",
+                shell_quote(&f.to_string_lossy())
+            );
+            let out = std::process::Command::new("sh")
+                .args(["-c", &script])
+                .output()
+                .unwrap();
+            assert_eq!(String::from_utf8_lossy(&out.stdout), want, "{var}");
+        }
+        // With no `shasum` on PATH the next tool answers.
+        let bin = dir.path().join("bin");
+        std::fs::create_dir(&bin).unwrap();
+        for tool in ["sh", "cut", "sha256sum", "openssl", "printf"] {
+            if let Ok(p) = std::process::Command::new("sh")
+                .args(["-c", &format!("command -v {tool}")])
+                .output()
+            {
+                let path = String::from_utf8_lossy(&p.stdout).trim().to_string();
+                if path.starts_with('/') {
+                    let _ = std::os::unix::fs::symlink(&path, bin.join(tool));
+                }
+            }
+        }
+        if bin.join("sha256sum").exists() || bin.join("openssl").exists() {
+            let script = format!(
+                "h={}; printf %s \"{SHA256_OF_H}\"",
+                shell_quote(&f.to_string_lossy())
+            );
+            let out = std::process::Command::new(bin.join("sh"))
+                .env("PATH", &bin)
+                .args(["-c", &script])
+                .output()
+                .unwrap();
+            assert_eq!(String::from_utf8_lossy(&out.stdout), want, "without shasum");
+        }
+    }
 }

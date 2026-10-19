@@ -197,3 +197,31 @@ relative to feature 32: T3 (`read`/`kill`) first, because H2 needs a stable help
   variance and a PATH dependency (cf. the T1 hacker finding on `PATH`-resolved tools).
 - No contradiction found with 24, 26, 28 or 32; `AGENTS.md`'s "dynamic `$SHELL`, login shell"
   rule is kept (scripts still run through the login shell and `sh`).
+
+## 13. Implementation notes
+
+### H1 (2026-10-19): target detection, helper table, portable digest — done; not run on a device
+
+- `crates/core/src/hosttarget.rs`: `HostTarget` (UniFFI enum, `Unsupported { reason }`),
+  `parse_host_target(probe_output)`, the probe `uname -sm` + `/proc/version`; Windows shells
+  (cmd / PowerShell errors, MSYS / MinGW / Cygwin) give "Windows without WSL2…"; messages go through
+  `display_safe`. `SshSessionHandle::detect_host_target()`.
+- Helper table: `crates/core/build.rs` embeds `embedded/ssh-app-host-<triple>` for the four triples
+  (the legacy `ssh-app-host` is the `aarch64-apple-darwin` entry); new exports
+  `bundled_host_helper_sha256_for(target)`, `bundled_host_helper_size_for(target)`;
+  `install_bundled_host_helper_for(target)` refuses unsupported targets and builds that are not
+  embedded. The old no-argument API is unchanged (macOS arm64).
+- `scripts/build-xcframework.sh` builds the other targets with `cargo zigbuild` (installed here:
+  `cargo-zigbuild`, `zig 0.17`; `rustup target add` done) and skips what it cannot build.
+  Result today: `x86_64-apple-darwin` builds (2.9 MB, embedded); both Linux musl targets fail to
+  compile because the helper uses `libc::getpeereid` (agent socket peer check), which Linux does not
+  have: that is H2 (`SO_PEERCRED`) together with the `/proc` telemetry.
+- `SHA256_OF_H` / `SHA256_OF_T` in `hostprobe.rs` replace the ten `shasum -a 256` uses: `shasum`,
+  else `sha256sum`, else `openssl dgst -sha256 -r`; test runs the expression with `sh` against Rust's
+  digest, also with only `sha256sum`/`openssl` on `PATH`.
+- Tests: detection table (macOS, Linux, WSL2 on both CPUs, MSYS/MinGW/Cygwin, cmd, PowerShell,
+  FreeBSD, riscv, empty, hostile text), table lookups, loopback (`detect_host_target` on this Mac,
+  unsupported and not-embedded installs refused). fmt, clippy and the workspace pass; the
+  developer's tmux (pid 35350) was untouched.
+- The pin stays the app's own digest of its own blob (§5); `detect_host_target` only chooses which
+  blob. Swift does not use the new API yet (H4).

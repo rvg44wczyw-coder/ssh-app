@@ -1,4 +1,5 @@
 use crate::error::SshCoreError;
+use crate::hostprobe::SHA256_OF_H;
 use crate::tmux::shell_quote;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
@@ -163,7 +164,7 @@ pub(crate) fn build_helper_ls_command(
     let value = if arg.is_some() { " \"$1\"" } else { "" };
     let script = format!(
         "h={path}; if [ ! -f \"$h\" ] || [ -L \"$h\" ] || \
-         [ \"$(shasum -a 256 < \"$h\" 2>/dev/null | cut -d' ' -f1)\" != '{sha256}' ]; then echo HELPER_ABSENT; \
+         [ \"{SHA256_OF_H}\" != '{sha256}' ]; then echo HELPER_ABSENT; \
          else \"$h\" ls {flag}{value}{hidden} 2>/dev/null; fi",
         path = crate::usage::HELPER_PATH_EXPR
     );
@@ -268,7 +269,7 @@ pub(crate) fn parse_helper_listing(
 pub(crate) fn build_helper_read_command(sha256: &str, path: &str, max_bytes: usize) -> String {
     let script = format!(
         "h={hp}; if [ ! -f \"$h\" ] || [ -L \"$h\" ] || \
-         [ \"$(shasum -a 256 < \"$h\" 2>/dev/null | cut -d' ' -f1)\" != '{sha256}' ]; then echo HELPER_ABSENT; \
+         [ \"{SHA256_OF_H}\" != '{sha256}' ]; then echo HELPER_ABSENT; \
          else \"$h\" read --path \"$1\" --max {max_bytes} 2>/dev/null; fi",
         hp = crate::usage::HELPER_PATH_EXPR
     );

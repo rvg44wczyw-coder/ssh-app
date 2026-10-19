@@ -23,6 +23,7 @@ pub mod hook_templates;
 pub(crate) mod host_api;
 pub mod host_guard;
 pub(crate) mod hostprobe;
+pub mod hosttarget;
 pub mod keys;
 pub mod pane_context;
 pub mod permissions;
@@ -82,6 +83,7 @@ pub use host_guard::{
     host_guard_warnings, parse_agent_sessions, validate_host_guard, AgentSessionInfo, HostGuard,
     HostGuardPreset,
 };
+pub use hosttarget::{parse_host_target, HostTarget};
 pub use keys::{derive_public_key, generate_keypair, KeypairResult};
 pub use pane_context::{shell_command_for_pane, PaneContext, PaneKind};
 pub use permissions::{

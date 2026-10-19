@@ -11,6 +11,7 @@
 //! non-interactive reader. The totals are what the transcripts on this host record.
 
 use crate::error::SshCoreError;
+use crate::hostprobe::{SHA256_OF_H, SHA256_OF_T};
 use serde::Deserialize;
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
@@ -263,6 +264,28 @@ pub fn bundled_host_helper_size() -> u64 {
     BUNDLED_HELPER.len() as u64
 }
 
+include!(concat!(env!("OUT_DIR"), "/helpers.rs"));
+
+/// The embedded helper build for `target`, if the app was built with it.
+pub(crate) fn bundled_helper_for(target: &crate::hosttarget::HostTarget) -> Option<&'static [u8]> {
+    let triple = target.triple()?;
+    HELPERS.iter().find(|(t, _)| *t == triple).map(|(_, b)| *b)
+}
+
+/// SHA-256 of the embedded helper build for `target`: the digest the app pins on that host.
+/// `None` for an unsupported system or a build that is not embedded.
+#[uniffi::export]
+pub fn bundled_host_helper_sha256_for(target: crate::hosttarget::HostTarget) -> Option<String> {
+    use sha2::{Digest, Sha256};
+    bundled_helper_for(&target).map(|b| hex::encode(Sha256::digest(b)))
+}
+
+/// Size in bytes of the embedded helper build for `target` (0 when there is none).
+#[uniffi::export]
+pub fn bundled_host_helper_size_for(target: crate::hosttarget::HostTarget) -> u64 {
+    bundled_helper_for(&target).map_or(0, |b| b.len() as u64)
+}
+
 pub(crate) fn bundled_host_helper() -> &'static [u8] {
     BUNDLED_HELPER
 }
@@ -270,7 +293,7 @@ pub(crate) fn bundled_host_helper() -> &'static [u8] {
 pub(crate) fn build_helper_status_command(sha256: &str) -> String {
     let script = format!(
         "h={HELPER_PATH_EXPR}; if [ ! -f \"$h\" ] || [ -L \"$h\" ]; then echo HELPER_ABSENT; \
-         elif [ \"$(shasum -a 256 < \"$h\" 2>/dev/null | cut -d' ' -f1)\" != '{sha256}' ]; then echo HELPER_MISMATCH; \
+         elif [ \"{SHA256_OF_H}\" != '{sha256}' ]; then echo HELPER_MISMATCH; \
          else \"$h\" hello 2>/dev/null || echo HELPER_UNUSABLE; fi"
     );
     crate::hostprobe::login_sh_script(&script, &[], 10)
@@ -333,7 +356,7 @@ pub struct HostAgentEvent {
 pub(crate) fn build_agent_state_command(sha256: &str) -> String {
     let script = format!(
         "h={HELPER_PATH_EXPR}; if [ ! -f \"$h\" ] || [ -L \"$h\" ] || \
-         [ \"$(shasum -a 256 < \"$h\" 2>/dev/null | cut -d' ' -f1)\" != '{sha256}' ]; then echo HELPER_ABSENT; \
+         [ \"{SHA256_OF_H}\" != '{sha256}' ]; then echo HELPER_ABSENT; \
          else printf '%s\\n' '{{\"id\":1,\"m\":\"state\"}}' | \"$h\" rpc --lease 43200 2>/dev/null; fi"
     );
     crate::hostprobe::login_sh_script(&script, &[], 15)
@@ -345,7 +368,7 @@ pub(crate) fn build_agent_state_command(sha256: &str) -> String {
 pub(crate) fn build_agent_watch_command(sha256: &str) -> String {
     let script = format!(
         "h={HELPER_PATH_EXPR}; if [ ! -f \"$h\" ] || [ -L \"$h\" ] || \
-         [ \"$(shasum -a 256 < \"$h\" 2>/dev/null | cut -d' ' -f1)\" != '{sha256}' ]; then echo HELPER_ABSENT; \
+         [ \"{SHA256_OF_H}\" != '{sha256}' ]; then echo HELPER_ABSENT; \
          else exec \"$h\" rpc --lease 43200 2>/dev/null; fi"
     );
     format!("sh -c {}", crate::tmux::shell_quote(&script))
@@ -374,7 +397,7 @@ pub(crate) fn build_models_command(sha256: &str, agent: &str) -> Result<String, 
     }
     let script = format!(
         "h={HELPER_PATH_EXPR}; if [ ! -f \"$h\" ] || [ -L \"$h\" ] || \
-         [ \"$(shasum -a 256 < \"$h\" 2>/dev/null | cut -d' ' -f1)\" != '{sha256}' ]; then echo HELPER_ABSENT; \
+         [ \"{SHA256_OF_H}\" != '{sha256}' ]; then echo HELPER_ABSENT; \
          else \"$h\" models {agent} 2>/dev/null; fi"
     );
     Ok(crate::hostprobe::login_sh_script(&script, &[], 40))
@@ -545,7 +568,7 @@ pub(crate) fn build_helper_install_commands(
     cmds.push(format!(
         "set -e; umask 077; cd {dir}; t=.ssh-app-host.tmp; rm -f \"$t\"; \
          (base64 -d < .ssh-app-host.b64 > \"$t\" 2>/dev/null || base64 -D < .ssh-app-host.b64 > \"$t\"); rm -f .ssh-app-host.b64; \
-         [ \"$(shasum -a 256 < \"$t\" | cut -d' ' -f1)\" = '{sha256}' ] || {{ rm -f \"$t\"; echo HELPER_DIGEST_MISMATCH; exit 3; }}; \
+         [ \"{SHA256_OF_T}\" = '{sha256}' ] || {{ rm -f \"$t\"; echo HELPER_DIGEST_MISMATCH; exit 3; }}; \
          chmod 700 \"$t\"; mv -f \"$t\" ssh-app-host; echo HELPER_INSTALLED"
     ));
     Ok(cmds)
@@ -603,7 +626,7 @@ pub(crate) fn build_usage_command(dirs: &[String], helper_sha256: Option<&str>) 
     let helper = match helper_sha256.filter(|h| validate_sha256(h).is_ok()) {
         Some(pin) => format!(
             "h={HELPER_PATH_EXPR}; if [ -f \"$h\" ] && [ ! -L \"$h\" ] && \
-             [ \"$(shasum -a 256 < \"$h\" 2>/dev/null | cut -d' ' -f1)\" = '{pin}' ]; then \
+             [ \"{SHA256_OF_H}\" = '{pin}' ]; then \
              o=$(\"$h\" usage --agent \"$@\" 2>/dev/null) && [ -n \"$o\" ] && {{ printf '%s\\n' \"$o\"; exit 0; }}; fi; "
         ),
         None => String::new(),
@@ -617,6 +640,32 @@ pub(crate) const USAGE_PROBE_PY: &str = include_str!("usage_probe.py");
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn helper_table_is_keyed_by_target() {
+        use crate::hosttarget::HostTarget;
+        let unsupported = HostTarget::Unsupported { reason: "x".into() };
+        assert_eq!(bundled_host_helper_sha256_for(unsupported.clone()), None);
+        assert_eq!(bundled_host_helper_size_for(unsupported), 0);
+        // Whatever is embedded is found under its own triple and the sizes agree.
+        for (triple, bytes) in HELPERS {
+            let t = match *triple {
+                "aarch64-apple-darwin" => HostTarget::DarwinArm64,
+                "x86_64-apple-darwin" => HostTarget::DarwinX86_64,
+                "x86_64-unknown-linux-musl" => HostTarget::LinuxX86_64,
+                _ => HostTarget::LinuxAarch64,
+            };
+            assert_eq!(bundled_host_helper_size_for(t.clone()), bytes.len() as u64);
+            assert_eq!(bundled_host_helper_sha256_for(t).map(|h| h.len()), Some(64));
+        }
+        // The legacy API is the arm64 macOS build.
+        if let Some(legacy) = bundled_host_helper_sha256() {
+            assert_eq!(
+                bundled_host_helper_sha256_for(HostTarget::DarwinArm64),
+                Some(legacy)
+            );
+        }
+    }
+
     use super::*;
 
     #[test]

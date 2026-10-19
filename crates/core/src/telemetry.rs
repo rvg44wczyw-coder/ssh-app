@@ -1,4 +1,5 @@
 use crate::error::SshCoreError;
+use crate::hostprobe::SHA256_OF_H;
 use crate::transcript::strip_ansi_codes;
 use serde::{Deserialize, Serialize};
 
@@ -519,7 +520,7 @@ fn sort_processes(results: &mut Vec<RemoteProcessInfo>) {
 pub(crate) fn build_helper_telemetry_command(sha256: &str) -> String {
     let script = format!(
         "h={path}; if [ ! -f \"$h\" ] || [ -L \"$h\" ] || \
-         [ \"$(shasum -a 256 < \"$h\" 2>/dev/null | cut -d' ' -f1)\" != '{sha256}' ]; then echo HELPER_ABSENT; \
+         [ \"{SHA256_OF_H}\" != '{sha256}' ]; then echo HELPER_ABSENT; \
          else \"$h\" telemetry 2>/dev/null; fi",
         path = crate::usage::HELPER_PATH_EXPR
     );
@@ -669,7 +670,7 @@ pub(crate) fn build_helper_kill_command(
     let started = started.map_or(String::new(), |s| format!(" --started {s}"));
     let script = format!(
         "h={path}; if [ ! -f \"$h\" ] || [ -L \"$h\" ] || \
-         [ \"$(shasum -a 256 < \"$h\" 2>/dev/null | cut -d' ' -f1)\" != '{sha256}' ]; then echo HELPER_ABSENT; \
+         [ \"{SHA256_OF_H}\" != '{sha256}' ]; then echo HELPER_ABSENT; \
          else \"$h\" kill --pid {pid}{force}{started} 2>/dev/null; fi",
         path = crate::usage::HELPER_PATH_EXPR
     );

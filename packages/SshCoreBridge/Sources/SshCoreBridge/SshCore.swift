@@ -1380,6 +1380,11 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func detectActiveTranscriptPath(baseDir: String?) async throws  -> String?
     
     /**
+     * Which kind of host this is (macOS / Linux / WSL2 and the CPU), from one short probe.
+     */
+    func detectHostTarget() async throws  -> HostTarget
+    
+    /**
      * Whether the tab's pane runs an AI CLI or a plain shell (see `pane_context`). A host error
      * is "unknown", which callers treat like a shell.
      */
@@ -1495,6 +1500,12 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
      * Installs the helper embedded in this build (see `bundled_host_helper_sha256`).
      */
     func installBundledHostHelper() async throws 
+    
+    /**
+     * Installs the helper build that matches `target` (digest checked on the host as always).
+     * Fails for an unsupported system or a build this app does not embed.
+     */
+    func installBundledHostHelperFor(target: HostTarget) async throws 
     
     /**
      * Installs the status line wrapper (and the host script it runs) into the Claude profile so
@@ -1972,6 +1983,25 @@ open func detectActiveTranscriptPath(baseDir: String?)async throws  -> String?  
 }
     
     /**
+     * Which kind of host this is (macOS / Linux / WSL2 and the CPU), from one short probe.
+     */
+open func detectHostTarget()async throws  -> HostTarget  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_detect_host_target(
+                        self.uniffiCloneHandle()
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeHostTarget_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
      * Whether the tab's pane runs an AI CLI or a plain shell (see `pane_context`). A host error
      * is "unknown", which callers treat like a shell.
      */
@@ -2358,6 +2388,26 @@ open func installBundledHostHelper()async throws   {
             rustFutureFunc: {
                 uniffi_ssh_core_fn_method_sshsessionhandle_install_bundled_host_helper(
                         self.uniffiCloneHandle()
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_void,
+            completeFunc: ffi_ssh_core_rust_future_complete_void,
+            freeFunc: ffi_ssh_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Installs the helper build that matches `target` (digest checked on the host as always).
+     * Fails for an unsupported system or a build this app does not embed.
+     */
+open func installBundledHostHelperFor(target: HostTarget)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_install_bundled_host_helper_for(
+                        self.uniffiCloneHandle(),FfiConverterTypeHostTarget_lower(target)
                 )
             },
             pollFunc: ffi_ssh_core_rust_future_poll_void,
@@ -9396,6 +9446,110 @@ public func FfiConverterTypeHostHelperStatus_lower(_ value: HostHelperStatus) ->
 
 
 
+public enum HostTarget: Equatable, Hashable {
+    
+    case darwinArm64
+    case darwinX8664
+    case linuxX8664
+    case linuxAarch64
+    case wslX8664
+    case wslAarch64
+    case unsupported(reason: String
+    )
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension HostTarget: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHostTarget: FfiConverterRustBuffer {
+    typealias SwiftType = HostTarget
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HostTarget {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .darwinArm64
+        
+        case 2: return .darwinX8664
+        
+        case 3: return .linuxX8664
+        
+        case 4: return .linuxAarch64
+        
+        case 5: return .wslX8664
+        
+        case 6: return .wslAarch64
+        
+        case 7: return .unsupported(reason: try FfiConverterString.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: HostTarget, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .darwinArm64:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .darwinX8664:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .linuxX8664:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .linuxAarch64:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .wslX8664:
+            writeInt(&buf, Int32(5))
+        
+        
+        case .wslAarch64:
+            writeInt(&buf, Int32(6))
+        
+        
+        case let .unsupported(reason):
+            writeInt(&buf, Int32(7))
+            FfiConverterString.write(reason, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHostTarget_lift(_ buf: RustBuffer) throws -> HostTarget {
+    return try FfiConverterTypeHostTarget.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHostTarget_lower(_ value: HostTarget) -> RustBuffer {
+    return FfiConverterTypeHostTarget.lower(value)
+}
+
+
+
+
 public enum PaneKind: Equatable, Hashable {
     
     /**
@@ -12746,6 +12900,17 @@ public func validateHostGuard(`guard`: HostGuard)throws  -> HostGuard  {
     )
 })
 }
+/**
+ * Decides the target from the probe's output (`HOST_TARGET_SCRIPT`).
+ */
+public func parseHostTarget(probeOutput: String) -> HostTarget  {
+    return try!  FfiConverterTypeHostTarget_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_parse_host_target(
+        FfiConverterString.lower(probeOutput),uniffiCallStatus
+    )
+})
+}
 public func derivePublicKey(privateKeyOpenssh: String)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
         uniffiCallStatus in
@@ -13054,12 +13219,35 @@ public func bundledHostHelperSha256() -> String?  {
 })
 }
 /**
+ * SHA-256 of the embedded helper build for `target`: the digest the app pins on that host.
+ * `None` for an unsupported system or a build that is not embedded.
+ */
+public func bundledHostHelperSha256For(target: HostTarget) -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_bundled_host_helper_sha256_for(
+        FfiConverterTypeHostTarget_lower(target),uniffiCallStatus
+    )
+})
+}
+/**
  * Size of the embedded helper in bytes (0 when none is embedded).
  */
 public func bundledHostHelperSize() -> UInt64  {
     return try!  FfiConverterUInt64.lift(try! rustCall() {
         uniffiCallStatus in
     uniffi_ssh_core_fn_func_bundled_host_helper_size(uniffiCallStatus
+    )
+})
+}
+/**
+ * Size in bytes of the embedded helper build for `target` (0 when there is none).
+ */
+public func bundledHostHelperSizeFor(target: HostTarget) -> UInt64  {
+    return try!  FfiConverterUInt64.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_bundled_host_helper_size_for(
+        FfiConverterTypeHostTarget_lower(target),uniffiCallStatus
     )
 })
 }
@@ -13244,6 +13432,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_func_validate_host_guard() != 42342) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_func_parse_host_target() != 43015) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_func_derive_public_key() != 26782) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -13319,7 +13510,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_func_bundled_host_helper_sha256() != 54613) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_func_bundled_host_helper_sha256_for() != 31141) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_func_bundled_host_helper_size() != 2278) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_bundled_host_helper_size_for() != 50266) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_hostagentwatch_stop() != 8202) {
@@ -13400,6 +13597,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_detect_active_transcript_path() != 46936) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_detect_host_target() != 63785) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_detect_pane_context() != 3123) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -13458,6 +13658,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_install_bundled_host_helper() != 24733) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_install_bundled_host_helper_for() != 51166) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_install_claude_statusline() != 23468) {
