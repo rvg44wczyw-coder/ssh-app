@@ -288,4 +288,9 @@ build and pin, the Linux telemetry/FS sources, the WSL2 route and what is explic
   pid 1 cases refused, read of text / binary / truncated / `.env` / link into `.ssh` / harmless
   link / directory / FIFO), core (reply parsing, hostile replies, commands), loopback through the
   installed helper (read, refusals, wrong pin fallback, kill with stale and correct start time).
-- Still to do: hacker pass.
+- Hacker pass done: `docs/security-findings/2026-10-19-helper-read-kill-t3.md` (six Low findings,
+  fixed: tmux server detection by children, fail-closed ancestor walk, pid range, hard-link inode
+  check, whole-buffer binary detection, display-safe file name).
+
+All four phases T1–T3 are done; T4 (device run, pin passed everywhere, host service card shows the
+caps) waits for the owner's "собери".

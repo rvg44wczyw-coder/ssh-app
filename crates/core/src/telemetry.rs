@@ -81,9 +81,9 @@ pub struct HostTelemetrySnapshot {
 
 /// Validates that a PID is safe to signal (rejects PID 0 and PID 1 `launchd`/`init`).
 pub fn validate_kill_pid(pid: u32) -> Result<u32, SshCoreError> {
-    if pid <= 1 {
+    if pid <= 1 || i32::try_from(pid).is_err() {
         return Err(SshCoreError::ChannelError {
-            reason: format!("Refusing to signal reserved system PID {pid}"),
+            reason: format!("Refusing to signal reserved or invalid PID {pid}"),
         });
     }
     Ok(pid)
@@ -845,6 +845,8 @@ mod tests {
     fn test_validate_kill_pid() {
         assert!(validate_kill_pid(0).is_err());
         assert!(validate_kill_pid(1).is_err());
+        assert!(validate_kill_pid(2_147_483_648).is_err() && validate_kill_pid(u32::MAX).is_err());
+        assert!(validate_kill_pid(2_147_483_647).is_ok());
         assert_eq!(validate_kill_pid(4210).unwrap(), 4210);
     }
 

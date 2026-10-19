@@ -146,7 +146,12 @@ fn kill_reply(args: &[String]) -> serde_json::Value {
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
-            "--pid" => pid = it.next().and_then(|n| n.parse::<u32>().ok()),
+            "--pid" => {
+                pid = it
+                    .next()
+                    .and_then(|n| n.parse::<i32>().ok())
+                    .and_then(|n| u32::try_from(n).ok())
+            }
             "--force" => force = true,
             "--started" => started = it.next().and_then(|n| n.parse::<u64>().ok()),
             _ => {

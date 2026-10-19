@@ -11,7 +11,7 @@ use crate::proc::run_with_input;
 use serde_json::{json, Value};
 use std::io::Read;
 use std::os::fd::AsRawFd;
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
@@ -260,6 +260,22 @@ pub fn list(target: &Target, hidden: bool, max: usize) -> Value {
     json!({"ok": true, "path": real_s, "parent": parent, "truncated": truncated, "entries": entries})
 }
 
+/// Whether `meta` is the same file (device and inode) as one of the credential files in the home
+/// folder: a hard link carries no hint in its name.
+fn is_blocked_inode(meta: &std::fs::Metadata) -> bool {
+    let home = home();
+    let mut candidates: Vec<PathBuf> = BLOCKED_FILES.iter().map(|n| home.join(n)).collect();
+    for dir in [".ssh", ".aws", ".gnupg", ".kube"] {
+        if let Ok(rd) = std::fs::read_dir(home.join(dir)) {
+            candidates.extend(rd.flatten().take(500).map(|e| e.path()));
+        }
+    }
+    candidates.iter().any(|c| {
+        std::fs::symlink_metadata(c)
+            .is_ok_and(|m| m.is_file() && m.dev() == meta.dev() && m.ino() == meta.ino())
+    })
+}
+
 pub const DEFAULT_READ: usize = 65_536;
 pub const MAX_READ: usize = 131_072;
 
@@ -315,6 +331,9 @@ pub fn read(path: &str, max: usize) -> Value {
     if !meta.is_file() {
         return json!({"ok": false, "error": "Not a regular file"});
     }
+    if meta.nlink() > 1 && is_blocked_inode(&meta) {
+        return json!({"ok": false, "error": "Reading sensitive credential file is restricted (hard link)"});
+    }
     match fd_path(&file) {
         Some(at) => {
             if let Err(e) = file_policy(&at) {
@@ -329,7 +348,7 @@ pub fn read(path: &str, max: usize) -> Value {
     }
     let truncated = buf.len() > max;
     buf.truncate(max);
-    let binary = buf[..buf.len().min(8192)].contains(&0);
+    let binary = buf.contains(&0);
     let mut v = json!({"ok": true, "path": real_s, "size": meta.len(), "truncated": truncated,
                        "binary": binary, "read": buf.len()});
     if !binary {
@@ -527,5 +546,26 @@ mod tests {
         let t = std::time::Instant::now();
         assert_eq!(read(&p.to_string_lossy(), 0)["error"], "Not a regular file");
         assert!(t.elapsed() < std::time::Duration::from_secs(2));
+    }
+
+    #[test]
+    fn nul_anywhere_marks_binary_and_hard_links_to_keys_are_refused() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(tmp.path()).unwrap();
+        let mut data = vec![b'a'; 9000];
+        data.push(0);
+        std::fs::write(root.join("late_nul"), &data).unwrap();
+        assert_eq!(
+            read(&root.join("late_nul").to_string_lossy(), 0)["binary"],
+            true
+        );
+        // The home folder of the test is the temp dir (HOME is process-wide, so only the pure
+        // inode comparison is exercised here).
+        std::fs::write(root.join("key"), "k").unwrap();
+        std::fs::hard_link(root.join("key"), root.join("notes.txt")).unwrap();
+        let m = std::fs::metadata(root.join("notes.txt")).unwrap();
+        assert_eq!(m.nlink(), 2);
+        let same = std::fs::metadata(root.join("key")).unwrap();
+        assert_eq!((m.dev(), m.ino()), (same.dev(), same.ino()));
     }
 }

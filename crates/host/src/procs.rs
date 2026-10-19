@@ -5,7 +5,7 @@
 //! processes of another account, the tmux server (it would end every session), and a pid whose
 //! start time no longer matches the one the app saw in the list (the pid was reused).
 
-use crate::telemetry::proc_info;
+use crate::telemetry::{has_children, proc_info};
 use serde_json::{json, Value};
 use std::time::Duration;
 
@@ -13,23 +13,30 @@ const MAX_CHAIN: usize = 64;
 /// Start times come from `ps` elapsed time (whole seconds, measured at two moments).
 const START_TOLERANCE: u64 = 3;
 
-fn ancestors(mut pid: u32) -> Vec<u32> {
-    let mut chain = vec![pid];
-    while chain.len() < MAX_CHAIN {
-        match proc_info(pid) {
-            Some((ppid, ..)) if ppid > 1 && !chain.contains(&ppid) => {
-                chain.push(ppid);
-                pid = ppid;
-            }
-            _ => break,
+/// This helper and every ancestor up to the top, or `None` when the walk could not be completed
+/// (a failing `ps`, a loop, more than `MAX_CHAIN` hops): the caller then refuses, because an
+/// incomplete list would let the SSH session's own processes through.
+fn ancestors(me: u32) -> Option<Vec<u32>> {
+    // SAFETY: getppid has no preconditions.
+    let mut pid = unsafe { libc::getppid() } as u32;
+    let mut chain = vec![me];
+    while pid > 1 {
+        if chain.len() >= MAX_CHAIN || chain.contains(&pid) {
+            return None;
         }
+        chain.push(pid);
+        let (ppid, ..) = proc_info(pid)?;
+        pid = ppid;
     }
-    chain
+    Some(chain)
 }
 
-pub fn is_tmux_server(comm: &str, ppid: u32) -> bool {
+/// A tmux process that is the server: a daemon (parent 1), or one that has child processes (the
+/// panes' shells; a client has none), or one whose children could not be listed (fail closed). The
+/// parent-1 rule alone misses a server under a supervisor or a systemd user manager.
+pub fn is_tmux_server(comm: &str, ppid: u32, children: Option<bool>) -> bool {
     let base = comm.rsplit('/').next().unwrap_or(comm);
-    (base == "tmux" || base.starts_with("tmux:")) && ppid == 1
+    (base == "tmux" || base.starts_with("tmux:")) && (ppid == 1 || children != Some(false))
 }
 
 pub fn refusal(
@@ -37,11 +44,16 @@ pub fn refusal(
     me: u32,
     my_chain: &[u32],
     info: Option<(u32, u32, u64, String)>,
+    children: Option<bool>,
     my_uid: u32,
     started: Option<u64>,
 ) -> Option<String> {
     if pid <= 1 {
         return Some(format!("Refusing to signal reserved system PID {pid}"));
+    }
+    // `kill(2)` takes an `i32`: a larger value would wrap to a negative pid (process group / all).
+    if i32::try_from(pid).is_err() {
+        return Some("That is not a valid process id".into());
     }
     if pid == me || my_chain.contains(&pid) {
         return Some(
@@ -54,7 +66,7 @@ pub fn refusal(
     if uid != my_uid {
         return Some("That process belongs to another account".into());
     }
-    if is_tmux_server(&comm, ppid) {
+    if is_tmux_server(&comm, ppid, children) {
         return Some("That is the tmux server; stopping it ends every session (use the terminal to do that on purpose)".into());
     }
     if let Some(seen) = started {
@@ -69,8 +81,12 @@ pub fn kill(pid: u32, force: bool, started: Option<u64>) -> Value {
     // SAFETY: getuid has no preconditions.
     let my_uid = unsafe { libc::getuid() };
     let me = std::process::id();
-    let my_chain = ancestors(me);
-    if let Some(why) = refusal(pid, me, &my_chain, proc_info(pid), my_uid, started) {
+    let Some(my_chain) = ancestors(me) else {
+        return json!({"ok": false, "error": "Cannot verify which processes carry this SSH connection; try again"});
+    };
+    let info = proc_info(pid);
+    let children = info.as_ref().and_then(|_| has_children(pid));
+    if let Some(why) = refusal(pid, me, &my_chain, info, children, my_uid, started) {
         return json!({"ok": false, "error": why});
     }
     let sig = if force { libc::SIGKILL } else { libc::SIGTERM };
@@ -96,7 +112,7 @@ mod tests {
     #[test]
     fn refusals() {
         let chain = [500, 400, 300];
-        let r = |pid, i, st| refusal(pid, 500, &chain, i, 501, st);
+        let r = |pid, i, st| refusal(pid, 500, &chain, i, Some(false), 501, st);
         assert!(r(0, None, None).unwrap().contains("reserved"));
         assert!(r(1, None, None).unwrap().contains("reserved"));
         assert!(r(500, info(400, 501, 0, "helper"), None)
@@ -152,6 +168,7 @@ mod tests {
         // helper IS the test process.
         let own = kill(std::process::id(), true, None);
         assert_eq!(own["ok"], false, "{own}");
+        assert!(ancestors(std::process::id()).is_some_and(|c| c.contains(&std::process::id())));
         assert_eq!(kill(1, true, None)["ok"], false);
         let ok = kill(pid, false, Some(start));
         assert_eq!(ok["ok"], true, "{ok}");

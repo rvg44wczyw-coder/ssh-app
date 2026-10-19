@@ -99,6 +99,13 @@ pub fn proc_info(pid: u32) -> Option<(u32, u32, u64, String)> {
     Some((ppid, uid, started, clean(&it.collect::<Vec<_>>().join(" "))))
 }
 
+/// Whether any process has `pid` as its parent; `None` when the process table could not be read.
+pub fn has_children(pid: u32) -> Option<bool> {
+    let deadline = Instant::now() + TOOL_TIMEOUT;
+    let out = tool("ps", &["-Ao", "ppid="], deadline)?;
+    Some(out.lines().any(|l| l.trim().parse::<u32>() == Ok(pid)))
+}
+
 fn tool(program: &str, args: &[&str], deadline: Instant) -> Option<String> {
     run_tool(program, args, deadline).map(|(t, _)| t)
 }
