@@ -486,6 +486,72 @@ pub async fn list_remote_tmux_sessions(
     })?
 }
 
+/// Which system a host runs, from one short connection (before a terminal session exists). It is
+/// advice for choosing the multiplexer and the helper build, never trusted for security.
+#[uniffi::export(async_runtime = "tokio")]
+pub async fn detect_host_target_once(
+    config: RemoteServerConfig,
+) -> Result<crate::hosttarget::HostTarget, SshCoreError> {
+    let handle = RUNTIME.spawn(async move {
+        let out = execute_remote_command_internal(
+            &config,
+            &crate::hostprobe::login_sh_script(crate::hosttarget::HOST_TARGET_SCRIPT, &[], 10),
+        )
+        .await
+        .unwrap_or_default();
+        let target = crate::hosttarget::parse_host_target(out);
+        if let crate::hosttarget::HostTarget::Unsupported { reason } = &target {
+            if reason.starts_with("Windows without WSL2") {
+                let out = execute_remote_command_internal(
+                    &config,
+                    crate::hosttarget::WINDOWS_TARGET_SCRIPT,
+                )
+                .await
+                .unwrap_or_default();
+                if let Some(windows) = crate::hosttarget::parse_windows_target(&out) {
+                    return Ok(windows);
+                }
+            }
+        }
+        Ok(target)
+    });
+    handle.await.map_err(|e| SshCoreError::ConnectionError {
+        reason: format!("Task join error: {e}"),
+    })?
+}
+
+/// Sessions on a host, for the kind of multiplexer it runs (`HostTarget::multiplexer`).
+#[uniffi::export(async_runtime = "tokio")]
+pub async fn list_remote_sessions(
+    config: RemoteServerConfig,
+    multiplexer: crate::multiplexer::MultiplexerKind,
+) -> Result<Vec<TmuxSessionInfo>, SshCoreError> {
+    let handle = RUNTIME.spawn(async move {
+        let raw = execute_remote_command_internal(&config, &multiplexer.list_detailed()).await?;
+        Ok(crate::tmux::parse_tmux_sessions_output(&raw))
+    });
+    handle.await.map_err(|e| SshCoreError::ConnectionError {
+        reason: format!("Task join error: {e}"),
+    })?
+}
+
+/// Ends one session, for the kind of multiplexer the host runs.
+#[uniffi::export(async_runtime = "tokio")]
+pub async fn kill_remote_session(
+    config: RemoteServerConfig,
+    session_name: String,
+    multiplexer: crate::multiplexer::MultiplexerKind,
+) -> Result<(), SshCoreError> {
+    let handle = RUNTIME.spawn(async move {
+        let cmd = multiplexer.kill(&session_name)?;
+        let _ = execute_remote_command_internal(&config, &cmd).await?;
+        Ok(())
+    });
+    handle.await.map_err(|e| SshCoreError::ConnectionError {
+        reason: format!("Task join error: {e}"),
+    })?
+}
+
 /// One snapshot of the host without a live terminal session: a single short-lived connection.
 /// This is the entry point for anything that cannot keep a session open (a home-screen widget).
 #[uniffi::export(async_runtime = "tokio")]

@@ -13,7 +13,12 @@ pub enum HostTarget {
     LinuxAarch64,
     WslX86_64,
     WslAarch64,
-    Unsupported { reason: String },
+    /// Native Windows (OpenSSH Server, no WSL2): sessions run in the helper's own multiplexer.
+    WindowsX86_64,
+    WindowsAarch64,
+    Unsupported {
+        reason: String,
+    },
 }
 
 impl HostTarget {
@@ -24,12 +29,27 @@ impl HostTarget {
             HostTarget::DarwinX86_64 => Some("x86_64-apple-darwin"),
             HostTarget::LinuxX86_64 | HostTarget::WslX86_64 => Some("x86_64-unknown-linux-musl"),
             HostTarget::LinuxAarch64 | HostTarget::WslAarch64 => Some("aarch64-unknown-linux-musl"),
+            HostTarget::WindowsX86_64 => Some("x86_64-pc-windows-gnu"),
+            HostTarget::WindowsAarch64 => Some("aarch64-pc-windows-gnullvm"),
             HostTarget::Unsupported { .. } => None,
         }
     }
 }
 
 impl HostTarget {
+    pub fn is_windows(&self) -> bool {
+        matches!(self, HostTarget::WindowsX86_64 | HostTarget::WindowsAarch64)
+    }
+
+    /// What keeps terminal sessions alive on this host.
+    pub fn multiplexer(&self) -> crate::multiplexer::MultiplexerKind {
+        if self.is_windows() {
+            crate::multiplexer::MultiplexerKind::WindowsMux
+        } else {
+            crate::multiplexer::MultiplexerKind::Tmux
+        }
+    }
+
     pub fn is_wsl(&self) -> bool {
         matches!(self, HostTarget::WslX86_64 | HostTarget::WslAarch64)
     }
@@ -45,8 +65,16 @@ pub fn host_target_label(target: HostTarget) -> String {
         HostTarget::LinuxAarch64 => "Linux (aarch64)".into(),
         HostTarget::WslX86_64 => "Windows (WSL2, x86_64)".into(),
         HostTarget::WslAarch64 => "Windows (WSL2, aarch64)".into(),
+        HostTarget::WindowsX86_64 => "Windows (x86_64)".into(),
+        HostTarget::WindowsAarch64 => "Windows (ARM64)".into(),
         HostTarget::Unsupported { reason } => reason,
     }
+}
+
+/// What keeps terminal sessions alive on this host (tmux, or the helper's `mux` on native Windows).
+#[uniffi::export]
+pub fn host_target_multiplexer(target: HostTarget) -> crate::multiplexer::MultiplexerKind {
+    target.multiplexer()
 }
 
 /// Battery and power source describe a VM under WSL2, so the UI hides them.
@@ -85,6 +113,26 @@ fn windows_shell_error(text: &str) -> bool {
 fn unsupported(reason: &str) -> HostTarget {
     HostTarget::Unsupported {
         reason: reason.to_string(),
+    }
+}
+
+/// Second probe, run only when the first one looked like cmd.exe / PowerShell answering. `cmd /c`
+/// expands `%PROCESSOR_ARCHITECTURE%` in both shells.
+pub(crate) const WINDOWS_TARGET_SCRIPT: &str =
+    r#"cmd /c "echo TARGET Windows %PROCESSOR_ARCHITECTURE%""#;
+
+/// Reads the answer of `WINDOWS_TARGET_SCRIPT`; `None` when it is not a Windows answer.
+pub fn parse_windows_target(probe_output: &str) -> Option<HostTarget> {
+    let arch = probe_output
+        .lines()
+        .rev()
+        .find_map(|l| l.trim().strip_prefix("TARGET Windows "))?
+        .trim();
+    match arch.to_ascii_uppercase().as_str() {
+        "AMD64" | "X86_64" => Some(HostTarget::WindowsX86_64),
+        "ARM64" => Some(HostTarget::WindowsAarch64),
+        a if a.starts_with('%') => None,
+        _ => Some(unsupported(&format!("Unsupported CPU: {}", echo(arch)))),
     }
 }
 
@@ -263,6 +311,28 @@ mod tests {
             Some("x86_64-apple-darwin")
         );
         assert!(require_supported(&unsupported("nope")).is_err());
+        assert!(
+            HostTarget::WindowsX86_64.multiplexer()
+                == crate::multiplexer::MultiplexerKind::WindowsMux
+        );
+        assert!(HostTarget::LinuxX86_64.multiplexer() == crate::multiplexer::MultiplexerKind::Tmux);
+        assert_eq!(
+            parse_windows_target("TARGET Windows AMD64\r\n"),
+            Some(HostTarget::WindowsX86_64)
+        );
+        assert_eq!(
+            parse_windows_target("banner\r\nTARGET Windows ARM64"),
+            Some(HostTarget::WindowsAarch64)
+        );
+        assert_eq!(
+            parse_windows_target("TARGET Windows %PROCESSOR_ARCHITECTURE%"),
+            None
+        );
+        assert_eq!(parse_windows_target("cmd: not found"), None);
+        assert!(matches!(
+            parse_windows_target("TARGET Windows IA64"),
+            Some(HostTarget::Unsupported { .. })
+        ));
         assert!(host_target_hides_battery(HostTarget::WslX86_64));
         assert!(!host_target_hides_battery(HostTarget::LinuxX86_64));
         assert_eq!(

@@ -80,6 +80,35 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         hostKey = HostTargetCache.key(host: host, port: port, username: username)
         publicKeyLine = try? derivePublicKey(privateKeyOpenssh: privateKeyPEM)
 
+        // The first connection to a host in this app run asks which system it is (a Mac, Linux, WSL2
+        // or native Windows), because that decides what keeps the session alive. It is advice only:
+        // when it fails the tab uses tmux as before.
+        if let known = HostTargetCache.target(forKey: hostKey) {
+            hostTarget = known
+            connect(host: host, port: port, username: username, privateKeyPEM: privateKeyPEM,
+                    multiplexer: hostTargetMultiplexer(target: known))
+            return
+        }
+        self.state = .connecting
+        self.errorMessage = nil
+        let probe = RemoteServerConfig(host: host, port: port, username: username,
+                                       privateKeyPem: privateKeyPEM, pinnedHostKey: pinnedHostKey)
+        Task { @MainActor in
+            let target = try? await detectHostTargetOnce(config: probe)
+            var multiplexer = MultiplexerKind.tmux
+            if let target {
+                hostTarget = target
+                HostTargetCache.set(target, forKey: hostKey)
+                multiplexer = hostTargetMultiplexer(target: target)
+            }
+            self.state = .disconnected
+            connect(host: host, port: port, username: username, privateKeyPEM: privateKeyPEM,
+                    multiplexer: multiplexer)
+        }
+    }
+
+    private func connect(host: String, port: UInt16, username: String, privateKeyPEM: String,
+                         multiplexer: MultiplexerKind) {
         let config = SessionConfig(
             host: host,
             port: port,
@@ -91,7 +120,7 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
             command: session.command,
             startDir: startDir,
             pinnedHostKey: pinnedHostKey,
-            multiplexer: .tmux
+            multiplexer: multiplexer
         )
 
         let sessionHandle = SshSessionHandle(config: config)

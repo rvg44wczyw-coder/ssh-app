@@ -33,7 +33,7 @@ public final class TmuxSessionManagerViewModel: ObservableObject {
 
         Task {
             do {
-                let fetched = try await listRemoteTmuxSessions(config: config)
+                let fetched = try await listRemoteSessions(config: config, multiplexer: HostTargetCache.multiplexer(host: server.host, port: server.port, username: server.username))
                 self.sessions = fetched
                 self.isLoading = false
             } catch {
@@ -81,8 +81,8 @@ public final class TmuxSessionManagerViewModel: ObservableObject {
 
         Task {
             do {
-                try await killRemoteTmuxSession(config: config, sessionName: name)
-                let fetched = try await listRemoteTmuxSessions(config: config)
+                try await killRemoteSession(config: config, sessionName: name, multiplexer: HostTargetCache.multiplexer(host: server.host, port: server.port, username: server.username))
+                let fetched = try await listRemoteSessions(config: config, multiplexer: HostTargetCache.multiplexer(host: server.host, port: server.port, username: server.username))
                 self.sessions = fetched
                 self.isLoading = false
             } catch {

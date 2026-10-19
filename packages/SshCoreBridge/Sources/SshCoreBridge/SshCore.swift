@@ -9532,6 +9532,11 @@ public enum HostTarget: Equatable, Hashable {
     case linuxAarch64
     case wslX8664
     case wslAarch64
+    /**
+     * Native Windows (OpenSSH Server, no WSL2): sessions run in the helper's own multiplexer.
+     */
+    case windowsX8664
+    case windowsAarch64
     case unsupported(reason: String
     )
 
@@ -9567,7 +9572,11 @@ public struct FfiConverterTypeHostTarget: FfiConverterRustBuffer {
         
         case 6: return .wslAarch64
         
-        case 7: return .unsupported(reason: try FfiConverterString.read(from: &buf)
+        case 7: return .windowsX8664
+        
+        case 8: return .windowsAarch64
+        
+        case 9: return .unsupported(reason: try FfiConverterString.read(from: &buf)
         )
         
         default: throw UniffiInternalError.unexpectedEnumCase
@@ -9602,8 +9611,16 @@ public struct FfiConverterTypeHostTarget: FfiConverterRustBuffer {
             writeInt(&buf, Int32(6))
         
         
-        case let .unsupported(reason):
+        case .windowsX8664:
             writeInt(&buf, Int32(7))
+        
+        
+        case .windowsAarch64:
+            writeInt(&buf, Int32(8))
+        
+        
+        case let .unsupported(reason):
+            writeInt(&buf, Int32(9))
             FfiConverterString.write(reason, into: &buf)
             
         }
@@ -13177,6 +13194,17 @@ public func hostTargetLabel(target: HostTarget) -> String  {
 })
 }
 /**
+ * What keeps terminal sessions alive on this host (tmux, or the helper's `mux` on native Windows).
+ */
+public func hostTargetMultiplexer(target: HostTarget) -> MultiplexerKind  {
+    return try!  FfiConverterTypeMultiplexerKind_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_host_target_multiplexer(
+        FfiConverterTypeHostTarget_lower(target),uniffiCallStatus
+    )
+})
+}
+/**
  * Decides the target from the probe's output (`HOST_TARGET_SCRIPT`).
  */
 public func parseHostTarget(probeOutput: String) -> HostTarget  {
@@ -13307,6 +13335,24 @@ public func suggestPermissionChanges(current: AgentPermissions, context: [AgentP
     )
 })
 }
+/**
+ * Which system a host runs, from one short connection (before a terminal session exists). It is
+ * advice for choosing the multiplexer and the helper build, never trusted for security.
+ */
+public func detectHostTargetOnce(config: RemoteServerConfig)async throws  -> HostTarget  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_func_detect_host_target_once(FfiConverterTypeRemoteServerConfig_lower(config)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeHostTarget_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
 public func executeRemoteCommand(config: RemoteServerConfig, command: String)async throws  -> String  {
     return
         try  await uniffiRustCallAsync(
@@ -13357,6 +13403,23 @@ public func fetchHostUsage(config: RemoteServerConfig, configDirs: [String], hel
             errorHandler: FfiConverterTypeSshCoreError_lift
         )
 }
+/**
+ * Ends one session, for the kind of multiplexer the host runs.
+ */
+public func killRemoteSession(config: RemoteServerConfig, sessionName: String, multiplexer: MultiplexerKind)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_func_kill_remote_session(FfiConverterTypeRemoteServerConfig_lower(config),FfiConverterString.lower(sessionName),FfiConverterTypeMultiplexerKind_lower(multiplexer)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_void,
+            completeFunc: ffi_ssh_core_rust_future_complete_void,
+            freeFunc: ffi_ssh_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
 public func killRemoteTmuxSession(config: RemoteServerConfig, sessionName: String)async throws   {
     return
         try  await uniffiRustCallAsync(
@@ -13368,6 +13431,23 @@ public func killRemoteTmuxSession(config: RemoteServerConfig, sessionName: Strin
             completeFunc: ffi_ssh_core_rust_future_complete_void,
             freeFunc: ffi_ssh_core_rust_future_free_void,
             liftFunc: { $0 },
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+/**
+ * Sessions on a host, for the kind of multiplexer it runs (`HostTarget::multiplexer`).
+ */
+public func listRemoteSessions(config: RemoteServerConfig, multiplexer: MultiplexerKind)async throws  -> [TmuxSessionInfo]  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_func_list_remote_sessions(FfiConverterTypeRemoteServerConfig_lower(config),FfiConverterTypeMultiplexerKind_lower(multiplexer)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceTypeTmuxSessionInfo.lift,
             errorHandler: FfiConverterTypeSshCoreError_lift
         )
 }
@@ -13728,6 +13808,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_func_host_target_label() != 34582) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_func_host_target_multiplexer() != 41120) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_func_parse_host_target() != 43015) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -13761,6 +13844,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_func_suggest_permission_changes() != 16497) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_func_detect_host_target_once() != 32496) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_func_execute_remote_command() != 30132) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -13770,7 +13856,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_func_fetch_host_usage() != 1126) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_func_kill_remote_session() != 57929) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_func_kill_remote_tmux_session() != 45685) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_list_remote_sessions() != 45532) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_list_remote_tmux_sessions() != 48899) {

@@ -1096,7 +1096,22 @@ impl SshSessionHandle {
                 10,
             ))
             .await?;
-        Ok(crate::hosttarget::parse_host_target(out))
+        let target = crate::hosttarget::parse_host_target(out);
+        // cmd.exe / PowerShell answered the POSIX probe with an error: ask them the Windows way.
+        if matches!(&target, crate::hosttarget::HostTarget::Unsupported { reason } if reason.starts_with("Windows without WSL2"))
+        {
+            if let Ok(out) = self
+                .execute_command_on_active_session(
+                    crate::hosttarget::WINDOWS_TARGET_SCRIPT.to_string(),
+                )
+                .await
+            {
+                if let Some(windows) = crate::hosttarget::parse_windows_target(&out) {
+                    return Ok(windows);
+                }
+            }
+        }
+        Ok(target)
     }
 
     /// Installs the helper build that matches `target` (digest checked on the host as always).

@@ -163,3 +163,19 @@ Each phase follows the dev-chain with a hacker pass.
   Cross-compiled with `cargo zigbuild --target x86_64-pc-windows-gnu` (1.2 MB) and linted;
   **never run**. The embedded blob is not wired into `make xcframework` yet (W4).
 - Hacker pass: `docs/security-findings/2026-10-19-windows-mux-w1-w2.md`.
+
+### W3 (2026-10-19): detection and session lifecycle in the app — compiled and unit-tested; not run on Windows
+
+- `HostTarget::WindowsX86_64/WindowsAarch64`; `detect_host_target_once(config)` runs the POSIX probe
+  and, only when cmd.exe / PowerShell answered with an error, a second probe
+  `cmd /c "echo TARGET Windows %PROCESSOR_ARCHITECTURE%"` (works in both shells; an unexpanded
+  `%...%` is not taken for Windows). `host_target_multiplexer(target)` maps it to `MultiplexerKind`.
+- The terminal view model asks once per host and app run (cache `HostTargetCache`), falls back to
+  tmux when the probe fails, and passes the kind to `SessionConfig`. Session list and kill use
+  `list_remote_sessions` / `kill_remote_session` with the cached kind.
+- **Scope of version 1 on native Windows (honest list).** Works by design: terminal tabs that survive
+  a dropped connection, resize, list and end sessions. Not available yet: everything that is
+  written as a POSIX shell script on the host (agent feed and hooks, transcript detection, git
+  sheets, pane-context / model badge, usage strip, `ssh-app-host` telemetry / file browser / kill)
+  until W4/W5 port them to the Windows helper; the app shows the generic "unavailable" errors there.
+  The helper blob for Windows is not embedded yet (W4), so "Install on this host" says so.

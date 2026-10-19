@@ -135,7 +135,7 @@ public final class TerminalTabsManager: ObservableObject {
             Task.detached {
                 print("[TabsManager] Terminating remote tmux session '\(tmuxSessionName)' on \(server.name)...")
                 do {
-                    try await killRemoteTmuxSession(config: config, sessionName: tmuxSessionName)
+                    try await killRemoteSession(config: config, sessionName: tmuxSessionName, multiplexer: HostTargetCache.multiplexer(host: server.host, port: server.port, username: server.username))
                     print("[TabsManager] Successfully terminated remote tmux session '\(tmuxSessionName)'")
                 } catch {
                     print("[TabsManager] Warning: Failed to kill remote tmux session '\(tmuxSessionName)': \(error)")

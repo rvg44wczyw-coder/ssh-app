@@ -36,6 +36,17 @@ public final class HostTargetCache: @unchecked Sendable {
         shared.targets[key] = target
     }
 
+    public static func target(forKey key: String) -> HostTarget? {
+        shared.lock.lock(); defer { shared.lock.unlock() }
+        return shared.targets[key]
+    }
+
+    /// What keeps sessions alive on this host (tmux unless it is known to be native Windows).
+    public static func multiplexer(host: String, port: UInt16, username: String) -> MultiplexerKind {
+        guard let t = target(forKey: key(host: host, port: port, username: username)) else { return .tmux }
+        return hostTargetMultiplexer(target: t)
+    }
+
     public static func pin(host: String, port: UInt16, username: String) -> String? {
         shared.lock.lock(); defer { shared.lock.unlock() }
         guard let target = shared.targets[key(host: host, port: port, username: username)] else {
