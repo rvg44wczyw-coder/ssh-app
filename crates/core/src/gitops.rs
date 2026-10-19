@@ -105,11 +105,21 @@ exit 0"#;
 
 /// The full host command: prelude + body + epilogue, run through the login shell with a watchdog.
 pub(crate) fn op_command(session: &str, body: &str, args: &[&str]) -> Result<String, SshCoreError> {
+    op_command_secs(session, body, args, 25)
+}
+
+/// Like `op_command` with its own watchdog (network operations and commit hooks take longer).
+pub(crate) fn op_command_secs(
+    session: &str,
+    body: &str,
+    args: &[&str],
+    secs: u32,
+) -> Result<String, SshCoreError> {
     validate_session_name(session)?;
     let script = format!("{PRELUDE}{body}{EPILOGUE}");
     let mut quoted = vec![shell_quote(session.trim())];
     quoted.extend(args.iter().map(|a| shell_quote(a)));
-    Ok(crate::hostprobe::login_sh_script(&script, &quoted, 25))
+    Ok(crate::hostprobe::login_sh_script(&script, &quoted, secs))
 }
 
 fn status_of(output: &str) -> GitDiffStatus {

@@ -114,3 +114,30 @@ to remove (red, dirty warning), tap = open a tab in that worktree.
 ## 5. Open questions
 
 - Resolved 2026-10-19: worktrees in a sibling folder `<repo>-<branch>`; squash message in a plain text field (no `$EDITOR`).
+
+## 4c. G5 design: staging, commit, push / pull / fetch (2026-10-19)
+
+Core module `gitindex`:
+
+- `fetch_git_changes(session)` -> `GitChangesResult { status, repo_root, branch, upstream, ahead,
+  behind, entries[], truncated }`; an entry has repository-relative `path`, `index_state`
+  (staged) and `worktree_state` (unstaged) from `git status --porcelain=v1 -z`, plus `orig_path` for
+  renames. Capped at 2000 entries.
+- `run_git_index_op(session, op)`: `Stage { paths }`, `Unstage { paths }` (`git restore --staged`
+  or `rm --cached` before the first commit), `StageAll`, `UnstageAll`, `Commit { message }`
+  (refused when nothing is staged), `Push`, `Pull`, `Fetch`.
+- Paths are repository-relative, at most 200, no `..`, no leading `-`, no control characters, passed
+  as separate arguments after `--` with `GIT_LITERAL_PATHSPECS=1` (no globs / pathspec magic).
+- `Push` never forces: plain `git push`; without an upstream it uses `-u <the only remote>` and
+  refuses when there are several remotes or a detached HEAD. `Pull` is `--ff-only` (never creates
+  a merge or rewrites). `Fetch` is `fetch --all`. Network calls run with `GIT_TERMINAL_PROMPT=0`
+  and `GIT_SSH_COMMAND="ssh -o BatchMode=yes"` so a missing credential fails fast instead of
+  hanging; 60 s watchdog (commit hooks included).
+- Discarding working-tree changes is deliberately NOT offered (it cannot be undone); the app says
+  to use the terminal.
+- Backup: a commit saves nothing (it is additive); push/pull/fetch change no local history except
+  the fast-forward of `pull`, which saves the old tip under `refs/ssh-app/backup/`.
+
+App: a "Changes" sheet reached from the log sheet's "Uncommitted changes" row: staged and
+unstaged groups with checkboxes, "Stage all", a message field and Commit, and a bar with
+Fetch / Pull / Push (Push confirms with "N commits to <remote>/<branch>").

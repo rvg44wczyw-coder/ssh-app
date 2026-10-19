@@ -610,6 +610,27 @@ impl SshSessionHandle {
         Ok(crate::githistory::parse_git_stashes_output(&out))
     }
 
+    /// Staged / unstaged changes with branch and upstream state (feature 28, G5).
+    pub async fn fetch_git_changes(
+        &self,
+        session_name: String,
+    ) -> Result<crate::gitindex::GitChangesResult, SshCoreError> {
+        let cmd = crate::gitindex::build_git_changes_command(&session_name)?;
+        let out = self.execute_command_on_active_session(cmd).await?;
+        Ok(crate::gitindex::parse_git_changes_output(&out))
+    }
+
+    /// Stage, unstage, commit, push, pull (fast-forward only) or fetch (feature 28, G5).
+    pub async fn run_git_index_op(
+        &self,
+        session_name: String,
+        op: crate::gitindex::GitIndexOp,
+    ) -> Result<crate::gitops::GitOpResult, SshCoreError> {
+        let cmd = crate::gitindex::build_git_index_op_command(&session_name, &op)?;
+        let out = self.execute_command_on_active_session(cmd).await?;
+        Ok(crate::gitindex::parse_git_index_op_output(&out))
+    }
+
     /// Whether the tab's pane runs an AI CLI or a plain shell (see `pane_context`). A host error
     /// is "unknown", which callers treat like a shell.
     pub async fn detect_pane_context(

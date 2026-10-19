@@ -3441,3 +3441,233 @@ fn git_history_and_stash_operations_run_in_a_temporary_repo_on_loopback_sshd() {
     });
     handle.disconnect();
 }
+
+#[test]
+fn git_index_and_remote_operations_run_in_a_temporary_repo_on_loopback_sshd() {
+    use ssh_core::{GitFileState, GitIndexOp};
+    if !have("git") {
+        eprintln!("SKIP: git unavailable");
+        return;
+    }
+    let Some(server) = start_sshd() else {
+        eprintln!("SKIP: sshd/ssh-keygen/tmux unavailable");
+        return;
+    };
+    let tmp = tempfile::tempdir().unwrap();
+    let base = tmp.path().canonicalize().unwrap();
+    let repo = base.join("repo");
+    let remote = base.join("remote.git");
+    let other = base.join("other");
+    std::fs::create_dir_all(&repo).unwrap();
+    let git_in = |dir: &std::path::Path, args: &[&str]| {
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args([
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "commit.gpgsign=false",
+            ])
+            .args(args)
+            .env("HOME", &server.home)
+            .env_remove("TMUX")
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}: {out:?}");
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    };
+    let git = |args: &[&str]| git_in(&repo, args);
+    git(&["init", "-q", "-b", "main"]);
+    std::fs::write(repo.join("a.txt"), "a\n").unwrap();
+    git(&["add", "."]);
+    git(&["commit", "-q", "-m", "first"]);
+    git_in(&base, &["init", "-q", "--bare", remote.to_str().unwrap()]);
+    git(&["remote", "add", "origin", remote.to_str().unwrap()]);
+
+    let session = format!("gx{}", server.port);
+    let ok = server
+        .tmux()
+        .args([
+            "new-session",
+            "-d",
+            "-s",
+            &session,
+            "-c",
+            repo.to_str().unwrap(),
+            "sleep 600",
+        ])
+        .status()
+        .unwrap()
+        .success();
+    assert!(ok, "tmux new-session");
+    let handle = connect(&server);
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    rt.block_on(async {
+        let op = |op: GitIndexOp| handle.run_git_index_op(session.clone(), op);
+        let changes = || handle.fetch_git_changes(session.clone());
+        let paths = |p: &[&str]| p.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+
+        std::fs::write(repo.join("a.txt"), "a2\n").unwrap();
+        std::fs::write(repo.join("new.txt"), "n\n").unwrap();
+        std::fs::write(repo.join("star*.txt"), "literal\n").unwrap();
+        std::fs::write(repo.join("star1.txt"), "other\n").unwrap();
+        let c = changes().await.unwrap();
+        let e = |c: &ssh_core::GitChangesResult, p: &str| {
+            c.entries.iter().find(|e| e.path == p).cloned()
+        };
+        assert_eq!(
+            e(&c, "a.txt").unwrap().worktree_state,
+            Some(GitFileState::Modified)
+        );
+        assert_eq!(
+            e(&c, "new.txt").unwrap().worktree_state,
+            Some(GitFileState::Untracked)
+        );
+        assert_eq!(c.branch.as_deref(), Some("main"));
+        assert!(c.upstream.is_none());
+
+        // Nothing staged yet: commit refused.
+        let r = op(GitIndexOp::Commit {
+            message: "x".into(),
+        })
+        .await
+        .unwrap();
+        assert!(!r.ok && r.output.contains("Nothing is staged"), "{r:?}");
+
+        // A path is literal: "star*.txt" stages that file, not star1.txt.
+        let r = op(GitIndexOp::Stage {
+            paths: paths(&["a.txt", "star*.txt"]),
+        })
+        .await
+        .unwrap();
+        assert!(r.ok, "{r:?}");
+        let c = changes().await.unwrap();
+        assert_eq!(
+            e(&c, "a.txt").unwrap().index_state,
+            Some(GitFileState::Modified)
+        );
+        assert_eq!(
+            e(&c, "star*.txt").unwrap().index_state,
+            Some(GitFileState::Added)
+        );
+        assert_eq!(
+            e(&c, "star1.txt").unwrap().index_state,
+            None,
+            "glob did not expand"
+        );
+
+        let r = op(GitIndexOp::Unstage {
+            paths: paths(&["star*.txt"]),
+        })
+        .await
+        .unwrap();
+        assert!(r.ok, "{r:?}");
+        assert_eq!(
+            e(&changes().await.unwrap(), "star*.txt")
+                .unwrap()
+                .index_state,
+            None
+        );
+
+        let r = op(GitIndexOp::Commit {
+            message: "feat: a\n\nbody".into(),
+        })
+        .await
+        .unwrap();
+        assert!(r.ok, "{r:?}");
+        assert_eq!(git(&["log", "-1", "--format=%s"]), "feat: a");
+        assert!(!git(&["show", "--name-only", "--format=", "HEAD"]).contains("new.txt"));
+
+        let r = op(GitIndexOp::StageAll).await.unwrap();
+        assert!(r.ok);
+        assert!(changes()
+            .await
+            .unwrap()
+            .entries
+            .iter()
+            .all(|x| x.index_state.is_some()));
+        let r = op(GitIndexOp::UnstageAll).await.unwrap();
+        assert!(r.ok);
+        assert!(changes()
+            .await
+            .unwrap()
+            .entries
+            .iter()
+            .all(|x| x.index_state.is_none()));
+
+        // Push without an upstream and exactly one remote: sets it.
+        let r = op(GitIndexOp::Push).await.unwrap();
+        assert!(r.ok, "{r:?}");
+        let c = changes().await.unwrap();
+        assert_eq!(c.upstream.as_deref(), Some("origin/main"));
+        assert_eq!((c.ahead, c.behind), (0, 0));
+
+        // Someone else pushes; fetch shows behind 1; dirty tree blocks pull; clean pull fast-forwards.
+        git_in(
+            &base,
+            &[
+                "clone",
+                "-q",
+                remote.to_str().unwrap(),
+                other.to_str().unwrap(),
+            ],
+        );
+        std::fs::write(other.join("remote.txt"), "r\n").unwrap();
+        git_in(&other, &["add", "."]);
+        git_in(&other, &["commit", "-q", "-m", "remote work"]);
+        git_in(&other, &["push", "-q", "origin", "main"]);
+        let r = op(GitIndexOp::Fetch).await.unwrap();
+        assert!(r.ok, "{r:?}");
+        assert_eq!(changes().await.unwrap().behind, 1);
+        // Untracked files do not block a fast-forward; a modified tracked file does.
+        std::fs::write(repo.join("a.txt"), "dirty tracked\n").unwrap();
+        let r = op(GitIndexOp::Pull).await.unwrap();
+        assert!(!r.ok && r.output.contains("uncommitted"), "dirty: {r:?}");
+        git(&["checkout", "-q", "--", "a.txt"]);
+        git(&["add", "star1.txt", "new.txt", "star*.txt"]);
+        git(&["commit", "-q", "-m", "local"]);
+        // Diverged: pull --ff-only refuses and changes nothing.
+        let head = git(&["rev-parse", "HEAD"]);
+        let r = op(GitIndexOp::Pull).await.unwrap();
+        assert!(!r.ok, "{r:?}");
+        assert_eq!(git(&["rev-parse", "HEAD"]), head);
+        // A rejected (non-fast-forward) push is reported, never forced.
+        let r = op(GitIndexOp::Push).await.unwrap();
+        assert!(!r.ok, "{r:?}");
+        assert_ne!(git(&["rev-parse", "origin/main"]), head);
+        git(&["reset", "-q", "--hard", "origin/main"]);
+        let r = op(GitIndexOp::Pull).await.unwrap();
+        assert!(r.ok, "{r:?}");
+        assert!(repo.join("remote.txt").exists());
+
+        // Bad paths never reach the host.
+        for bad in ["-A", "../x", "/etc/passwd", "a\nb"] {
+            assert!(
+                op(GitIndexOp::Stage {
+                    paths: paths(&[bad])
+                })
+                .await
+                .is_err(),
+                "{bad}"
+            );
+        }
+        assert!(op(GitIndexOp::Commit {
+            message: " ".into()
+        })
+        .await
+        .is_err());
+
+        // Several remotes and no upstream: refuse to guess.
+        git(&["switch", "-q", "-c", "solo"]);
+        git(&["remote", "add", "second", remote.to_str().unwrap()]);
+        let r = op(GitIndexOp::Push).await.unwrap();
+        assert!(!r.ok && r.output.contains("several remotes"), "{r:?}");
+    });
+    handle.disconnect();
+}
