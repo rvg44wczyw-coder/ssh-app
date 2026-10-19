@@ -180,7 +180,7 @@ relative to feature 32: T3 (`read`/`kill`) first, because H2 needs a stable help
 
 ## 11. Open questions for the owner
 
-1. App size: four blobs (about +9 MB) acceptable, or size-optimise first?
+1. App size: four blobs (about +9 MB) acceptable, or size-optimise first? **Answered 2026-10-19: acceptable** (no size work before H1).
 2. Linux distros to name as supported (proposal: anything with glibc or musl, OpenSSH, tmux ≥ 3.0).
 3. WSL2: is the checklist-in-app enough, or should the app also generate the `.wslconfig` /
    `wsl.conf` snippets for the user to paste?
