@@ -1,0 +1,27 @@
+[package]
+name = "ssh-app-host-win"
+version = "0.1.0"
+edition = "2021"
+license = "BUSL-1.1"
+description = "Windows helper binary: the ConPTY multiplexer server and client (feature 34). Installed as ssh-app-host.exe."
+
+[[bin]]
+name = "ssh-app-host-win"
+path = "src/main.rs"
+
+[dependencies]
+ssh-app-mux = { path = "../mux" }
+serde_json = "1"
+
+[target.'cfg(windows)'.dependencies.windows-sys]
+version = "0.59"
+features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Console",
+    "Win32_System_IO",
+    "Win32_System_Pipes",
+    "Win32_System_Threading",
+]

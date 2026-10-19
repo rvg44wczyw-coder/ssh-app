@@ -149,3 +149,17 @@ Each phase follows the dev-chain with a hacker pass.
   stays for the client-to-server hop only.
 - Test fix: the process list is chosen by name (`comm`), so the kill test now uses a symlink named
   `claude-victim`; a copied system binary is killed by macOS (code signature).
+
+### W2 (2026-10-19): server logic and Windows glue — logic tested, glue compiled only
+
+- `crates/mux/src/server.rs`: session registry over a `PtyBackend`, one client per session (a new
+  attach replaces the old), repaint on attach, resize, `capture`, `Control` lines (`list`, `kill`,
+  `detach`, `has`, `capture`), 32-session limit, per-client bounded queue. Tested with a Unix pty
+  (19 tests including a fuzzed client, a non-reading client and the limits).
+- `Hello` now carries size, command and start folder; `winquote::quote_arg` quotes a command line.
+- `crates/winhost` (`ssh-app-host-win.exe`, to be installed as `ssh-app-host.exe`): ConPTY backend
+  (PowerShell 7, then Windows PowerShell, then `%ComSpec%`, found on `PATH`), per-user named pipe
+  with SID DACL, console client for `attach`, `mux ensure|serve|list|kill|detach|capture`.
+  Cross-compiled with `cargo zigbuild --target x86_64-pc-windows-gnu` (1.2 MB) and linted;
+  **never run**. The embedded blob is not wired into `make xcframework` yet (W4).
+- Hacker pass: `docs/security-findings/2026-10-19-windows-mux-w1-w2.md`.

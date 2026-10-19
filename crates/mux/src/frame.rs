@@ -27,6 +27,10 @@ pub enum Frame {
     Exit(i32),
     /// Client -> server: detach, leave the session running.
     Detach,
+    /// Client -> server, instead of `Hello`: one management line (`list`, `kill NAME`, ...).
+    Control(String),
+    /// Server -> client: the answer to a `Control` line.
+    Reply(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42,6 +46,8 @@ const T_RESIZE: u8 = 3;
 const T_HELLO: u8 = 4;
 const T_EXIT: u8 = 5;
 const T_DETACH: u8 = 6;
+const T_CONTROL: u8 = 7;
+const T_REPLY: u8 = 8;
 
 impl Frame {
     pub fn encode(&self) -> Vec<u8> {
@@ -79,6 +85,8 @@ impl Frame {
             }
             Frame::Exit(code) => (T_EXIT, code.to_be_bytes().to_vec()),
             Frame::Detach => (T_DETACH, Vec::new()),
+            Frame::Control(t) => (T_CONTROL, t.as_bytes().to_vec()),
+            Frame::Reply(t) => (T_REPLY, t.as_bytes().to_vec()),
         };
         let mut out = Vec::with_capacity(HEADER + payload.len());
         out.push(t);
@@ -153,6 +161,15 @@ impl Frame {
                 let b: [u8; 4] = p.try_into().map_err(|_| FrameError::Malformed("exit"))?;
                 Ok(Frame::Exit(i32::from_be_bytes(b)))
             }
+            T_CONTROL | T_REPLY => {
+                let text =
+                    String::from_utf8(p.to_vec()).map_err(|_| FrameError::Malformed("text"))?;
+                Ok(if t == T_CONTROL {
+                    Frame::Control(text)
+                } else {
+                    Frame::Reply(text)
+                })
+            }
             T_DETACH if p.is_empty() => Ok(Frame::Detach),
             T_DETACH => Err(FrameError::Malformed("detach")),
             other => Err(FrameError::UnknownType(other)),
@@ -208,6 +225,8 @@ mod tests {
             Frame::Resize { cols: 80, rows: 24 },
             Frame::Exit(-1),
             Frame::Detach,
+            Frame::Control("kill s1".into()),
+            Frame::Reply("ok\n".into()),
             Frame::Input(Vec::new()),
         ]
     }
@@ -240,6 +259,7 @@ mod tests {
             (T_HELLO, vec![]),
             (T_HELLO, vec![1, 0xff, 0xfe]),
             (T_EXIT, vec![1]),
+            (T_CONTROL, vec![0xff]),
             (T_DETACH, vec![1]),
         ] {
             let mut d = Decoder::default();

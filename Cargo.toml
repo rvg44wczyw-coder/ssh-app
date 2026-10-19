@@ -3,6 +3,7 @@ members = [
     "crates/core",
     "crates/host",
     "crates/mux",
+    "crates/winhost",
 ]
 resolver = "2"
 

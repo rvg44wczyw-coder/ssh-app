@@ -10,6 +10,7 @@ use crate::frame::{Decoder, Frame, FrameError};
 use crate::screen::Screen;
 use std::collections::HashMap;
 use std::io::{self, Read, Write};
+use std::sync::mpsc::{sync_channel, SyncSender};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -36,7 +37,11 @@ pub trait PtyBackend: Send + Sync + 'static {
     fn spawn(&self, spec: &SpawnSpec) -> io::Result<Box<dyn Pty>>;
 }
 
-type Sink = Box<dyn Write + Send>;
+type RawSink = Box<dyn Write + Send>;
+/// Frames for one client go through a bounded queue to a writer thread, so a client that stops
+/// reading is dropped instead of stalling the session (and everything that locks it).
+type Sink = SyncSender<Vec<u8>>;
+const CLIENT_QUEUE: usize = 256;
 
 struct Inner {
     screen: Screen,
@@ -126,7 +131,7 @@ impl Server {
                         inner.screen.feed(&buf[..n]);
                         let frame = Frame::Output(buf[..n].to_vec()).encode();
                         if let Some((_, sink)) = inner.client.as_mut() {
-                            if sink.write_all(&frame).and_then(|_| sink.flush()).is_err() {
+                            if sink.try_send(frame).is_err() {
                                 inner.client = None;
                             }
                         }
@@ -135,9 +140,8 @@ impl Server {
             }
             let mut inner = lock(&pump.inner);
             inner.exit = Some(0);
-            if let Some((_, sink)) = inner.client.as_mut() {
-                let _ = sink.write_all(&Frame::Exit(0).encode());
-                let _ = sink.flush();
+            if let Some((_, sink)) = inner.client.as_ref() {
+                let _ = sink.try_send(Frame::Exit(0).encode());
             }
             inner.client = None;
         });
@@ -202,14 +206,37 @@ impl Server {
         w.write_all(bytes).and_then(|_| w.flush()).is_ok()
     }
 
+    /// One management line from `ssh-app-host.exe mux list|kill|detach|has|capture`.
+    pub fn control(&self, line: &str) -> String {
+        let mut it = line.split_whitespace();
+        let (cmd, name, flag) = (it.next().unwrap_or(""), it.next(), it.next());
+        match (cmd, name) {
+            ("list", None) => self.list_lines(),
+            (_, Some(n)) if bad_name(n) => "error: bad session name\n".into(),
+            ("kill", Some(n)) => reply(self.kill(n)),
+            ("detach", Some(n)) => reply(self.detach(n)),
+            ("has", Some(n)) => reply(self.has(n)),
+            ("capture", Some(n)) => self
+                .capture(n, flag == Some("full"))
+                .map_or_else(|| "error: no such session\n".to_string(), |t| t + "\n"),
+            _ => "error: unknown command\n".into(),
+        }
+    }
+
     /// Serves one client until it detaches, disconnects or the session ends. `sink` is the write
     /// half of the stream, `source` the read half. The first frame must be `Hello`.
-    pub fn serve_client(&self, mut source: impl Read, mut sink: Sink) -> Result<(), FrameError> {
+    pub fn serve_client(&self, mut source: impl Read, mut sink: RawSink) -> Result<(), FrameError> {
         let mut dec = Decoder::default();
         let mut buf = [0u8; 4096];
         let (name, spec) = loop {
             if let Some(f) = dec.next_frame()? {
                 match f {
+                    Frame::Control(line) => {
+                        let answer = self.control(&line);
+                        let _ = sink.write_all(&Frame::Reply(answer).encode());
+                        let _ = sink.flush();
+                        return Ok(());
+                    }
                     Frame::Hello {
                         version,
                         session,
@@ -239,6 +266,7 @@ impl Server {
         }
         if self.create(&name, &spec).is_err() {
             let _ = sink.write_all(&Frame::Exit(-2).encode());
+            let _ = sink.flush();
             return Ok(());
         }
         let session = self
@@ -253,6 +281,7 @@ impl Server {
             let mut inner = lock(&session.inner);
             if let Some(code) = inner.exit {
                 let _ = sink.write_all(&Frame::Exit(code).encode());
+                let _ = sink.flush();
                 return Ok(());
             }
             let (cols, rows) = (spec.cols, spec.rows);
@@ -260,11 +289,16 @@ impl Server {
                 inner.screen.resize(cols as usize, rows as usize);
                 let _ = session.pty.resize(cols, rows);
             }
-            let redraw = Frame::Output(inner.screen.redraw()).encode();
-            if sink.write_all(&redraw).and_then(|_| sink.flush()).is_err() {
-                return Ok(());
-            }
-            inner.client = Some((id, sink));
+            let (queue, frames) = sync_channel::<Vec<u8>>(CLIENT_QUEUE);
+            let _ = queue.try_send(Frame::Output(inner.screen.redraw()).encode());
+            std::thread::spawn(move || {
+                for frame in frames {
+                    if sink.write_all(&frame).and_then(|_| sink.flush()).is_err() {
+                        break;
+                    }
+                }
+            });
+            inner.client = Some((id, queue));
         }
         let result = loop {
             loop {
@@ -314,6 +348,15 @@ impl Server {
             inner.client = None;
         }
     }
+}
+
+fn reply(ok: bool) -> String {
+    if ok {
+        "ok\n"
+    } else {
+        "error: no such session\n"
+    }
+    .into()
 }
 
 /// Session names are the same alphabet the app validates (`[A-Za-z0-9_.-]`, 1-64, no leading `-`).
@@ -581,11 +624,20 @@ mod tests {
         let server = Server::new(Arc::new(UnixBackend));
         let c = connect(&server, "s3", spec(Some("echo bye")));
         c.wait_for("bye");
+        // The real client closes its pipe after `Exit`; here the channel is dropped.
+        drop(c.to_server);
         assert!(c
             .done
             .recv_timeout(Duration::from_secs(10))
             .unwrap()
             .is_ok());
+        // The pty reports end of output a moment after the shell exited.
+        for _ in 0..100 {
+            if !server.has("s3") {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
         assert!(!server.has("s3"));
         assert!(server.list().is_empty());
         // Hostile first frame.
@@ -594,6 +646,112 @@ mod tests {
         tx.send(Frame::Input(b"x".to_vec()).encode()).unwrap();
         let r = server.serve_client(Chan(rx, Vec::new()), Box::new(Tx(stx)));
         assert!(r.is_err());
+    }
+
+    #[test]
+    fn control_lines_manage_sessions() {
+        let server = Server::new(Arc::new(UnixBackend));
+        assert_eq!(server.control("list"), "");
+        assert!(server.create("c1", &spec(None)).unwrap());
+        assert!(server.control("list").starts_with("c1|1|0|"));
+        assert_eq!(server.control("has c1"), "ok\n");
+        assert!(server.send_input("c1", b"echo cap-$((1+1))\n"));
+        for _ in 0..50 {
+            if server.control("capture c1").contains("cap-2") {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        assert!(server.control("capture c1 full").contains("cap-2"));
+        assert!(server.control("kill ../x").starts_with("error"));
+        assert!(server.control("bogus").starts_with("error"));
+        assert_eq!(server.control("kill c1"), "ok\n");
+        assert_eq!(server.control("kill c1"), "error: no such session\n");
+        // Over a client stream: the reply comes back as a frame.
+        let (tx, rx) = mpsc::channel();
+        let (stx, srx) = mpsc::channel();
+        tx.send(Frame::Control("list".into()).encode()).unwrap();
+        server
+            .serve_client(Chan(rx, Vec::new()), Box::new(Tx(stx)))
+            .unwrap();
+        let mut dec = Decoder::default();
+        dec.push(&srx.recv().unwrap());
+        assert_eq!(dec.next_frame().unwrap(), Some(Frame::Reply(String::new())));
+    }
+
+    /// A client that never reads: its writes block forever.
+    struct Stuck(mpsc::Receiver<()>);
+    impl Write for Stuck {
+        fn write(&mut self, b: &[u8]) -> io::Result<usize> {
+            let _ = self.0.recv();
+            Ok(b.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_client_that_stops_reading_cannot_stall_the_session() {
+        let server = Server::new(Arc::new(UnixBackend));
+        let (hold, gate) = mpsc::channel::<()>();
+        let (tx, rx) = mpsc::channel();
+        tx.send(
+            Frame::Hello {
+                version: PROTOCOL_VERSION,
+                session: "stuck".into(),
+                cols: 40,
+                rows: 6,
+                command: Some("while true; do echo flood-flood-flood-flood; done".into()),
+                start_dir: None,
+            }
+            .encode(),
+        )
+        .unwrap();
+        let s = Arc::clone(&server);
+        std::thread::spawn(move || {
+            let _ = s.serve_client(Chan(rx, Vec::new()), Box::new(Stuck(gate)));
+        });
+        // The shell floods the screen; the queue fills and the client is dropped, while the
+        // server keeps answering.
+        let started = std::time::Instant::now();
+        for _ in 0..100 {
+            let _ = server.list();
+            let _ = server.capture("stuck", false);
+            if server.list().first().is_some_and(|s| !s.attached)
+                && started.elapsed() > Duration::from_millis(300)
+            {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(
+            server.list().first().is_some_and(|s| !s.attached),
+            "client was not dropped"
+        );
+        assert!(started.elapsed() < Duration::from_secs(8));
+        assert!(server.kill("stuck"));
+        drop(hold);
+        drop(tx);
+    }
+
+    #[test]
+    fn random_bytes_as_a_client_never_panic() {
+        let server = Server::new(Arc::new(UnixBackend));
+        let mut x: u32 = 99;
+        for round in 0..200 {
+            let mut data = Vec::new();
+            for _ in 0..(round % 40) * 7 {
+                x = x.wrapping_mul(1664525).wrapping_add(1013904223);
+                data.push((x >> 24) as u8);
+            }
+            let (tx, rx) = mpsc::channel();
+            let (stx, _srx) = mpsc::channel();
+            tx.send(data).unwrap();
+            drop(tx);
+            let _ = server.serve_client(Chan(rx, Vec::new()), Box::new(Tx(stx)));
+        }
+        assert!(server.list().is_empty());
     }
 
     #[test]

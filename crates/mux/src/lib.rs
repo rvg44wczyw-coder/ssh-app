@@ -5,3 +5,4 @@
 pub mod frame;
 pub mod screen;
 pub mod server;
+pub mod winquote;
