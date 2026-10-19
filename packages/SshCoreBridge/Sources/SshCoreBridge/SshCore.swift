@@ -6925,13 +6925,21 @@ public struct RemoteDirectoryListing: Equatable, Hashable {
     public var currentPath: String
     public var parentPath: String?
     public var entries: [RemoteFileEntry]
+    /**
+     * More entries exist than were returned (the host stopped at its limit).
+     */
+    public var isTruncated: Bool
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(currentPath: String, parentPath: String?, entries: [RemoteFileEntry]) {
+    public init(currentPath: String, parentPath: String?, entries: [RemoteFileEntry], 
+        /**
+         * More entries exist than were returned (the host stopped at its limit).
+         */isTruncated: Bool) {
         self.currentPath = currentPath
         self.parentPath = parentPath
         self.entries = entries
+        self.isTruncated = isTruncated
     }
 
     
@@ -6952,7 +6960,8 @@ public struct FfiConverterTypeRemoteDirectoryListing: FfiConverterRustBuffer {
             try RemoteDirectoryListing(
                 currentPath: FfiConverterString.read(from: &buf), 
                 parentPath: FfiConverterOptionString.read(from: &buf), 
-                entries: FfiConverterSequenceTypeRemoteFileEntry.read(from: &buf)
+                entries: FfiConverterSequenceTypeRemoteFileEntry.read(from: &buf), 
+                isTruncated: FfiConverterBool.read(from: &buf)
         )
     }
 
@@ -6960,6 +6969,7 @@ public struct FfiConverterTypeRemoteDirectoryListing: FfiConverterRustBuffer {
         FfiConverterString.write(value.currentPath, into: &buf)
         FfiConverterOptionString.write(value.parentPath, into: &buf)
         FfiConverterSequenceTypeRemoteFileEntry.write(value.entries, into: &buf)
+        FfiConverterBool.write(value.isTruncated, into: &buf)
     }
 }
 
@@ -12562,6 +12572,18 @@ public func signApprovalSshsig(privateKeyOpenssh: String, message: Data)throws  
 })
 }
 /**
+ * A path or file name for the screen: bidi / zero-width / control characters become a visible
+ * marker. The raw string stays the one used for navigation.
+ */
+public func displaySafeText(raw: String) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_display_safe_text(
+        FfiConverterString.lower(raw),uniffiCallStatus
+    )
+})
+}
+/**
  * Parses the output of `build_list_directory_command` into a structured `RemoteDirectoryListing`.
  */
 public func parseRemoteDirectoryListing(rawOutput: String, includeHidden: Bool) -> RemoteDirectoryListing  {
@@ -13156,6 +13178,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_sign_approval_sshsig() != 39274) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_display_safe_text() != 44786) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_parse_remote_directory_listing() != 14774) {

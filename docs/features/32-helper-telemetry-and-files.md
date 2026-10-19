@@ -241,7 +241,9 @@ a loopback run that compares helper and shell answers on a folder with ordinary 
 - Tests: 4 helper unit tests (table, modes, odd names / links / restricted / hidden / refusal,
   truncation and `$HOME` fallback), 4 core tests, loopback comparison with the shell listing and a
   wrong pin. fmt, clippy and the whole workspace pass; the real tmux (pid 35350) was unchanged.
-- Still to do for this phase: hacker pass.
+- Hacker pass done: `docs/security-findings/2026-10-19-helper-ls-t2.md` (four Low findings, all
+  fixed except the informational ones; 8 s deadline, exact tmux target, hidden entries not counted,
+  display-safe paths, truncated notice).
 
 ## 11. Other host systems (owner request 2026-10-19)
 

@@ -23,6 +23,13 @@ pub fn validate_session_name(name: &str) -> Result<(), SshCoreError> {
         });
     }
 
+    if trimmed.starts_with('-') {
+        return Err(SshCoreError::InvalidSessionName {
+            name: name.to_string(),
+            reason: "Session name cannot start with '-'".to_string(),
+        });
+    }
+
     if !SESSION_NAME_REGEX.is_match(trimmed) {
         return Err(SshCoreError::InvalidSessionName {
             name: name.to_string(),

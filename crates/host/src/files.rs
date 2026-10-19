@@ -14,7 +14,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
-/// Entries returned at most; the folder is read up to ten times this before the rest is ignored.
+/// Entries returned at most; up to ten times as many are collected before sorting (and ten times
+/// that many directory entries inspected) before the rest is ignored.
 pub const MAX_ENTRIES: usize = 2000;
 const READ_LIMIT: usize = MAX_ENTRIES * 10;
 
@@ -94,9 +95,11 @@ fn home() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("/"))
 }
 
+/// Letters, digits, `_ . -`, not starting with `-` (tmux would read it as an option / current pane).
 fn valid_session_name(s: &str) -> bool {
     !s.is_empty()
         && s.len() <= 64
+        && !s.starts_with('-')
         && s.bytes()
             .all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
 }
@@ -215,8 +218,12 @@ pub fn list(target: &Target, hidden: bool, max: usize) -> Value {
     };
     let mut entries: Vec<Value> = Vec::new();
     let mut truncated = false;
-    for (i, item) in rd.flatten().enumerate() {
-        if i >= READ_LIMIT {
+    let mut seen = 0usize;
+    for item in rd.flatten() {
+        // Entries that are skipped (hidden, odd names) do not count, so a flood of dotfiles cannot
+        // push ordinary files out of the listing; `seen` still bounds the work.
+        seen += 1;
+        if entries.len() >= READ_LIMIT || seen > READ_LIMIT * 10 {
             truncated = true;
             break;
         }
@@ -371,5 +378,27 @@ mod tests {
             std::fs::canonicalize(home()).ok()
         );
         assert_eq!(list(&Target::Pane("a b".into()), false, 10)["ok"], false);
+    }
+
+    #[test]
+    fn dotfile_flood_does_not_hide_ordinary_files_and_pane_names_are_strict() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(tmp.path()).unwrap();
+        for i in 0..2500 {
+            std::fs::write(root.join(format!(".d{i:05}")), "").unwrap();
+        }
+        for i in 0..20 {
+            std::fs::write(root.join(format!("real{i:02}")), "").unwrap();
+        }
+        let r = list(&Target::Path(root.to_string_lossy().into()), false, 100);
+        assert_eq!(
+            r["entries"].as_array().unwrap().len(),
+            20,
+            "{}",
+            r["truncated"]
+        );
+        assert!(
+            !valid_session_name("-x") && !valid_session_name("") && valid_session_name("a-b_1.2")
+        );
     }
 }

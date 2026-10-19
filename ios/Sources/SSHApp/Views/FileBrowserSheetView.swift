@@ -90,7 +90,7 @@ public struct FileBrowserSheetView: View {
                             .buttonStyle(.plain)
                             .accessibilityHint("Open the branch list")
                         }
-                        Text(listing.currentPath)
+                        Text(displaySafeText(raw: listing.currentPath))
                             .font(.system(size: 12, design: .monospaced))
                             .lineLimit(1)
                             .truncationMode(.head)
@@ -133,6 +133,11 @@ public struct FileBrowserSheetView: View {
                             Spacer()
                             GitStateBadge(state: .deleted)
                         }
+                    }
+                    if viewModel.fileListing?.isTruncated == true {
+                        Label("More entries exist than are shown", systemImage: "ellipsis.circle")
+                            .font(.caption)
+                            .foregroundColor(.orange)
                     }
                     ForEach(filteredEntries, id: \.path) { entry in
                         Button(action: {

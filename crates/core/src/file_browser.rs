@@ -26,6 +26,8 @@ pub struct RemoteDirectoryListing {
     pub current_path: String,
     pub parent_path: Option<String>,
     pub entries: Vec<RemoteFileEntry>,
+    /// More entries exist than were returned (the host stopped at its limit).
+    pub is_truncated: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
@@ -121,7 +123,7 @@ pub fn build_list_directory_command(
             shell_quote(&safe)
         }
         None => {
-            let quoted_sess = shell_quote(session_name);
+            let quoted_sess = shell_quote(&format!("={session_name}"));
             format!(
                 "$(tmux display-message -p -t {quoted_sess} '#{{pane_current_path}}' 2>/dev/null || printf '%s' \"$HOME\")"
             )
@@ -164,6 +166,13 @@ pub(crate) fn build_helper_ls_command(
     );
     let args: Vec<String> = arg.iter().map(|a| shell_quote(a)).collect();
     Ok(crate::hostprobe::login_sh_script(&script, &args, 20))
+}
+
+/// A path or file name for the screen: bidi / zero-width / control characters become a visible
+/// marker. The raw string stays the one used for navigation.
+#[uniffi::export]
+pub fn display_safe_text(raw: String) -> String {
+    crate::approval_queue::display_safe(&raw)
 }
 
 /// Result of the helper's `ls`: a listing, a refusal the helper stated (shown, not retried through
@@ -243,6 +252,10 @@ pub(crate) fn parse_helper_listing(
             current_path,
             parent_path,
             entries,
+            is_truncated: v
+                .get("truncated")
+                .and_then(|t| t.as_bool())
+                .unwrap_or(false),
         }));
     }
     None
@@ -339,6 +352,7 @@ pub fn parse_remote_directory_listing(
         current_path,
         parent_path,
         entries,
+        is_truncated: false,
     }
 }
 
@@ -468,6 +482,22 @@ pub fn quote_remote_path_for_shell(path: String) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn display_safe_text_marks_bidi_and_pane_target_is_exact() {
+        assert_eq!(
+            display_safe_text("/a/dir\u{202e}evil".into()),
+            "/a/dir⟦U+202E⟧evil"
+        );
+        let c = build_list_directory_command(None, "main").unwrap();
+        assert!(c.contains("-t '=main'"), "{c}");
+        assert!(crate::tmux::validate_session_name("-x").is_err());
+        let r = parse_helper_listing(
+            r#"{"ok":true,"path":"/w","entries":[],"truncated":true}"#,
+            false,
+        );
+        assert!(r.unwrap().unwrap().is_truncated);
+    }
+
     #[test]
     fn policy_matches_the_table_shared_with_the_helper() {
         let table = include_str!("../../host/testdata/fs_policy_cases.tsv");

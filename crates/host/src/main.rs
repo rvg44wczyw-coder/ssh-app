@@ -93,7 +93,16 @@ fn ls_reply(args: &[String]) -> serde_json::Value {
         }
     }
     match target {
-        Some(t) => files::list(&t, hidden, max),
+        // A link into a stalled mount can block `canonicalize`; answer without `ok` after 8 s so the
+        // app falls back to the plain listing instead of waiting for its own watchdog.
+        Some(t) => {
+            let (tx, rx) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                let _ = tx.send(files::list(&t, hidden, max));
+            });
+            rx.recv_timeout(std::time::Duration::from_secs(8))
+                .unwrap_or_else(|_| json!({"error": "timeout"}))
+        }
         None => json!({"ok": false, "error": "ls needs --path, --home or --pane"}),
     }
 }
