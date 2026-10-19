@@ -68,9 +68,22 @@ pub fn pipe_name() -> io::Result<String> {
     Ok(format!(r"\\.\pipe\ssh-app-mux-{}", current_sid()?))
 }
 
-/// Connects to the server's pipe.
+/// `ERROR_PIPE_BUSY`: every instance is taken and the server is still creating the next one.
+const PIPE_BUSY: i32 = 231;
+
+/// Connects to the server's pipe, waiting a moment while all instances are busy.
 pub fn connect() -> io::Result<File> {
-    OpenOptions::new().read(true).write(true).open(pipe_name()?)
+    let name = pipe_name()?;
+    let mut tries = 0;
+    loop {
+        match OpenOptions::new().read(true).write(true).open(&name) {
+            Err(e) if e.raw_os_error() == Some(PIPE_BUSY) && tries < 40 => {
+                tries += 1;
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            other => return other,
+        }
+    }
 }
 
 /// Runs the server: one thread per client, until the idle timeout.

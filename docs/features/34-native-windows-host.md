@@ -194,3 +194,7 @@ Each phase follows the dev-chain with a hacker pass.
   or standard accounts, Tailscale, a check. The setup sheet has a "WSL2 / Windows directly" switch.
 - Hacker pass: `docs/security-findings/2026-10-19-windows-install-w3-w4.md`.
 - Open: helper features on Windows (telemetry, file browser, kill, hooks) = W4b/W5, device checklist = W7.
+
+### Wine smoke test (2026-10-19)
+
+`ssh-app-host-win.exe` was run under Wine 10 (Debian, `linux/amd64` container, Xvfb). Worked: start, `mux serve`, the named pipe with its DACL, `mux list`, `mux kill` (error for an unknown session). Found and fixed: the client got `ERROR_PIPE_BUSY` (231) while the server was creating the next pipe instance; `pipe::connect` now retries for up to 2 s. Inconclusive: a ConPTY session started and the client received the first repaint, but the shell produced no output and the session ended at once; Wine's pseudo console is incomplete, so this says nothing about real Windows. The W7 checklist on a real Windows (or a Windows 11 ARM VM) stays open.
