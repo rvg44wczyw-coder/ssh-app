@@ -13,6 +13,7 @@ pub mod gitbranch;
 pub mod gitcommit;
 pub mod gitdiff;
 pub mod githistory;
+pub mod githunks;
 pub mod gitindex;
 pub mod gitlog;
 pub mod gitops;

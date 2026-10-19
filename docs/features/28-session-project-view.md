@@ -22,7 +22,7 @@ Then git operations from the phone, in phases.
 | G2 | Worktrees: list, add (new branch from X in a new folder), remove; open a session in a worktree | done (core + sheet + open in tab; device check pending) |
 | G3 | Commit actions: cherry-pick (one or several commits), revert, reset (soft/mixed only), amend message | done (core + log sheet; device check pending) |
 | G4 | History rewriting: squash the top N commits, drop, stash, merge/rebase with conflict abort (reword of the last commit is G3; older commits and arbitrary ranges stay in the terminal) | done (core + sheets; device check pending) |
-| G5 | Staging and commit from the phone (files, not hunks; commit); push/pull/fetch | done (core + Changes sheet; device check pending; hunk staging not done) |
+| G5 | Staging and commit from the phone (files, not hunks; commit); push/pull/fetch | done (core + Changes sheet; device check pending); G5b hunk staging done 2026-10-19 (swipe "Hunks" on a modified file; `docs/security-findings/2026-10-19-git-hunks-g5b.md`) |
 
 "All of git" is a direction, not a promise: interactive flows that need an editor or a full conflict
 resolver (interactive rebase with conflicts, `add -p` edge cases) stay in the terminal; the app shows

@@ -15,6 +15,7 @@ public struct GitChangesSheetView: View {
     @State private var messageIsError = false
     @State private var commitText = ""
     @State private var confirmPush = false
+    @State private var hunkTarget: HunkTarget?
 
     public init(viewModel: TerminalSessionViewModel, onChanged: @escaping () -> Void = {}) {
         self.viewModel = viewModel
@@ -44,6 +45,9 @@ public struct GitChangesSheetView: View {
                     Button("Cancel", role: .cancel) {}
                 } message: {
                     Text(pushText)
+                }
+                .sheet(item: $hunkTarget, onDismiss: load) { target in
+                    GitHunksSheetView(viewModel: viewModel, path: target.path, staged: target.staged, onChanged: onChanged)
                 }
         }
     }
@@ -77,6 +81,7 @@ public struct GitChangesSheetView: View {
                     Section {
                         ForEach(staged, id: \.path) { e in
                             fileRow(e, state: e.indexState, checked: true) { run(.unstage(paths: [e.path])) }
+                                .swipeActions { hunkAction(e, staged: true) }
                         }
                     } header: {
                         HStack { Text("Staged"); Spacer(); Button("Unstage all") { run(.unstageAll) }.font(.caption) }
@@ -86,6 +91,7 @@ public struct GitChangesSheetView: View {
                     if unstaged.isEmpty { Text("No unstaged changes").foregroundColor(.secondary) }
                     ForEach(unstaged, id: \.path) { e in
                         fileRow(e, state: e.worktreeState, checked: false) { run(.stage(paths: [e.path])) }
+                            .swipeActions { hunkAction(e, staged: false) }
                     }
                 } header: {
                     HStack { Text("Not staged"); Spacer(); if !unstaged.isEmpty { Button("Stage all") { run(.stageAll) }.font(.caption) } }
@@ -100,6 +106,18 @@ public struct GitChangesSheetView: View {
                     .foregroundColor(.secondary)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    /// Single hunks make sense for text changes of tracked files (not new, deleted or renamed ones).
+    @ViewBuilder
+    private func hunkAction(_ e: GitChangeEntry, staged: Bool) -> some View {
+        let state = staged ? e.indexState : e.worktreeState
+        if state == .modified {
+            Button { hunkTarget = HunkTarget(path: e.path, staged: staged) } label: {
+                Label("Hunks", systemImage: "list.bullet.indent")
+            }
+            .tint(.indigo)
         }
     }
 
@@ -164,6 +182,110 @@ public struct GitChangesSheetView: View {
                     message = r.output.isEmpty ? (r.ok ? "Done" : "Failed (exit \(r.exitCode))") : r.output
                     messageIsError = !r.ok
                     if r.ok { onSuccess?(); onChanged() }
+                    busy = false
+                    load()
+                }
+            } catch {
+                await MainActor.run { message = error.localizedDescription; messageIsError = true; busy = false }
+            }
+        }
+    }
+}
+
+struct HunkTarget: Identifiable {
+    let path: String
+    let staged: Bool
+    var id: String { "\(staged ? "s" : "w"):\(path)" }
+}
+
+/// The hunks of one file's diff with a button per hunk to stage it (or take it out of the index
+/// again). The working tree is never touched; a hunk that no longer matches is refused by git.
+struct GitHunksSheetView: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject var viewModel: TerminalSessionViewModel
+    let path: String
+    let staged: Bool
+    var onChanged: () -> Void
+
+    @State private var hunks: GitFileHunks?
+    @State private var loading = true
+    @State private var busy = false
+    @State private var message: String?
+    @State private var messageIsError = false
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if let message {
+                    Text(message).font(.caption).foregroundColor(messageIsError ? .red : .secondary)
+                }
+                if loading && hunks == nil {
+                    ProgressView()
+                } else if let hunks {
+                    if hunks.binary { Text("Binary file: stage the whole file.").foregroundColor(.secondary) }
+                    if hunks.hunks.isEmpty && !hunks.binary { Text("No hunks left.").foregroundColor(.secondary) }
+                    if hunks.truncated { Text("The diff is long; only the first hunks are shown.").font(.caption).foregroundColor(.orange) }
+                    ForEach(Array(hunks.hunks.enumerated()), id: \.offset) { _, hunk in
+                        Section {
+                            ForEach(Array(hunk.lines.enumerated()), id: \.offset) { _, line in
+                                Text(line)
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .foregroundColor(color(line))
+                                    .listRowBackground(background(line))
+                            }
+                            Button(staged ? "Unstage this hunk" : "Stage this hunk") { apply(hunk) }
+                                .disabled(busy || !hunk.stageable)
+                            if !hunk.stageable {
+                                Text("Has unusual characters: stage the whole file instead.").font(.caption2).foregroundColor(.secondary)
+                            }
+                        } header: {
+                            Text("\(hunk.header)  +\(hunk.added) −\(hunk.removed)").font(.system(size: 10, design: .monospaced))
+                        }
+                    }
+                }
+            }
+            .navigationTitle((path as NSString).lastPathComponent)
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } } }
+            .onAppear(perform: load)
+        }
+    }
+
+    private func color(_ line: String) -> Color {
+        line.hasPrefix("+") ? .green : (line.hasPrefix("-") ? .red : .primary)
+    }
+
+    private func background(_ line: String) -> Color? {
+        line.hasPrefix("+") ? Color.green.opacity(0.10) : (line.hasPrefix("-") ? Color.red.opacity(0.10) : nil)
+    }
+
+    private func load() {
+        guard let handle = viewModel.sessionHandle else { return }
+        let name = viewModel.session.sessionName
+        loading = true
+        Task {
+            do {
+                let r = try await handle.fetchGitFileHunks(sessionName: name, path: path, staged: staged)
+                await MainActor.run { hunks = r; loading = false }
+            } catch {
+                await MainActor.run { message = error.localizedDescription; messageIsError = true; loading = false }
+            }
+        }
+    }
+
+    private func apply(_ hunk: GitHunk) {
+        guard let handle = viewModel.sessionHandle else { return }
+        let name = viewModel.session.sessionName
+        busy = true
+        Task {
+            do {
+                let r = try await handle.applyGitHunks(sessionName: name, path: path, hunks: [hunk], unstage: staged)
+                await MainActor.run {
+                    message = r.ok ? nil : (r.output.isEmpty ? "Failed (exit \(r.exitCode))" : r.output)
+                    messageIsError = !r.ok
+                    if r.ok { onChanged() }
                     busy = false
                     load()
                 }

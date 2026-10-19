@@ -689,6 +689,34 @@ impl SshSessionHandle {
         Ok(crate::gitindex::parse_git_index_op_output(&out))
     }
 
+    /// The hunks of one file's diff (`staged`: the index against HEAD, else the working tree
+    /// against the index), for staging single hunks (feature 28, G5b).
+    pub async fn fetch_git_file_hunks(
+        &self,
+        session_name: String,
+        path: String,
+        staged: bool,
+    ) -> Result<crate::githunks::GitFileHunks, SshCoreError> {
+        let cmd = crate::githunks::build_git_hunks_command(&session_name, &path, staged)?;
+        let out = self.execute_command_on_active_session(cmd).await?;
+        Ok(crate::githunks::parse_git_hunks_output(&out))
+    }
+
+    /// Puts the chosen hunks in the index (or takes them out again with `unstage`); the working
+    /// tree is not touched.
+    pub async fn apply_git_hunks(
+        &self,
+        session_name: String,
+        path: String,
+        hunks: Vec<crate::githunks::GitHunk>,
+        unstage: bool,
+    ) -> Result<crate::gitops::GitOpResult, SshCoreError> {
+        let cmd =
+            crate::githunks::build_git_apply_hunks_command(&session_name, &path, &hunks, unstage)?;
+        let out = self.execute_command_on_active_session(cmd).await?;
+        Ok(crate::githunks::parse_git_apply_output(&out))
+    }
+
     /// Whether the tab's pane runs an AI CLI or a plain shell (see `pane_context`). A host error
     /// is "unknown", which callers treat like a shell.
     pub async fn detect_pane_context(

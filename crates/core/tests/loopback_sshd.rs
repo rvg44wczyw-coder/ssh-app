@@ -3791,3 +3791,165 @@ fn git_index_and_remote_operations_run_in_a_temporary_repo_on_loopback_sshd() {
     });
     handle.disconnect();
 }
+
+#[test]
+fn single_hunks_are_staged_and_unstaged_in_a_temporary_repo_on_loopback_sshd() {
+    if !have("git") {
+        eprintln!("SKIP: git unavailable");
+        return;
+    }
+    let Some(server) = start_sshd() else {
+        eprintln!("SKIP: sshd/ssh-keygen/tmux unavailable");
+        return;
+    };
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().canonicalize().unwrap().join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    let git = |args: &[&str]| {
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(&repo)
+            .args([
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "commit.gpgsign=false",
+            ])
+            .args(args)
+            .env("HOME", &server.home)
+            .env_remove("TMUX")
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}: {out:?}");
+        String::from_utf8_lossy(&out.stdout).to_string()
+    };
+    git(&["init", "-q", "-b", "main"]);
+    let original: String = (1..=40).map(|i| format!("line {i}\n")).collect();
+    std::fs::write(repo.join("f f.txt"), &original).unwrap();
+    git(&["add", "."]);
+    git(&["commit", "-q", "-m", "first"]);
+    // Two changes far apart: two hunks.
+    let changed = original
+        .replace("line 3\n", "line THREE\n")
+        .replace("line 37\n", "line 37 changed\n");
+    std::fs::write(repo.join("f f.txt"), &changed).unwrap();
+
+    let session = format!("gh{}", server.port);
+    let ok = server
+        .tmux()
+        .args([
+            "new-session",
+            "-d",
+            "-s",
+            &session,
+            "-c",
+            repo.to_str().unwrap(),
+            "sleep 600",
+        ])
+        .status()
+        .unwrap()
+        .success();
+    assert!(ok, "tmux new-session");
+    let handle = connect(&server);
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    rt.block_on(async {
+        let hunks = handle
+            .fetch_git_file_hunks(session.clone(), "f f.txt".into(), false)
+            .await
+            .unwrap();
+        assert_eq!(hunks.hunks.len(), 2, "{hunks:?}");
+        assert!(hunks.hunks.iter().all(|h| h.stageable));
+
+        // Stage only the second hunk.
+        let r = handle
+            .apply_git_hunks(
+                session.clone(),
+                "f f.txt".into(),
+                vec![hunks.hunks[1].clone()],
+                false,
+            )
+            .await
+            .unwrap();
+        assert!(r.ok, "{r:?}");
+        let cached = git(&["diff", "--cached", "-U0"]);
+        assert!(
+            cached.contains("+line 37 changed") && !cached.contains("THREE"),
+            "{cached}"
+        );
+        // The working tree is untouched.
+        assert_eq!(
+            std::fs::read_to_string(repo.join("f f.txt")).unwrap(),
+            changed
+        );
+        // The worktree diff now has one hunk; the staged one lists the other.
+        let rest = handle
+            .fetch_git_file_hunks(session.clone(), "f f.txt".into(), false)
+            .await
+            .unwrap();
+        assert_eq!(rest.hunks.len(), 1);
+        assert!(rest.hunks[0].lines.iter().any(|l| l.contains("THREE")));
+        let staged = handle
+            .fetch_git_file_hunks(session.clone(), "f f.txt".into(), true)
+            .await
+            .unwrap();
+        assert_eq!(staged.hunks.len(), 1);
+
+        // Stage the first one as well (its offsets shifted by nothing here, but the header is stale
+        // relative to the index: git still applies it by context).
+        let r = handle
+            .apply_git_hunks(session.clone(), "f f.txt".into(), rest.hunks.clone(), false)
+            .await
+            .unwrap();
+        assert!(r.ok, "{r:?}");
+        assert!(git(&["diff", "--quiet"]).is_empty());
+        // Unstage the second hunk only.
+        let r = handle
+            .apply_git_hunks(
+                session.clone(),
+                "f f.txt".into(),
+                vec![staged.hunks[0].clone()],
+                true,
+            )
+            .await
+            .unwrap();
+        assert!(r.ok, "{r:?}");
+        let cached = git(&["diff", "--cached", "-U0"]);
+        assert!(
+            cached.contains("THREE") && !cached.contains("37 changed"),
+            "{cached}"
+        );
+
+        // A stale hunk (its text no longer matches) is refused by git and nothing changes.
+        let mut stale = staged.hunks[0].clone();
+        stale.lines = stale
+            .lines
+            .iter()
+            .map(|l| l.replace(" line 38", " line 38 edited elsewhere"))
+            .collect();
+        let before = git(&["diff", "--cached"]);
+        let r = handle
+            .apply_git_hunks(session.clone(), "f f.txt".into(), vec![stale], false)
+            .await
+            .unwrap();
+        assert!(!r.ok, "{r:?}");
+        assert_eq!(git(&["diff", "--cached"]), before);
+
+        // Hostile input never reaches the host.
+        let mut bad = hunks.hunks[0].clone();
+        bad.lines.push("diff --git a/x b/x".into());
+        assert!(handle
+            .apply_git_hunks(session.clone(), "f f.txt".into(), vec![bad], false)
+            .await
+            .is_err());
+        assert!(handle
+            .fetch_git_file_hunks(session.clone(), "../x".into(), false)
+            .await
+            .is_err());
+    });
+    handle.disconnect();
+}

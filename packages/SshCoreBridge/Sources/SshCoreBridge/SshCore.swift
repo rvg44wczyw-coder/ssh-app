@@ -1342,6 +1342,12 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func applyAgentPermissions(agent: AgentKind, configDir: String?, permissions: AgentPermissions) async throws 
     
     /**
+     * Puts the chosen hunks in the index (or takes them out again with `unstage`); the working
+     * tree is not touched.
+     */
+    func applyGitHunks(sessionName: String, path: String, hunks: [GitHunk], unstage: Bool) async throws  -> GitOpResult
+    
+    /**
      * Validates and writes the host guard (folder `0700`, file `0600`).
      */
     func applyHostGuard(`guard`: HostGuard) async throws 
@@ -1421,6 +1427,12 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
      * its usage text.
      */
     func fetchGitDiff(sessionName: String) async throws  -> GitDiffResult
+    
+    /**
+     * The hunks of one file's diff (`staged`: the index against HEAD, else the working tree
+     * against the index), for staging single hunks (feature 28, G5b).
+     */
+    func fetchGitFileHunks(sessionName: String, path: String, staged: Bool) async throws  -> GitFileHunks
     
     /**
      * The latest commits of the repository the tab's pane is in (newest first).
@@ -1847,6 +1859,26 @@ open func applyAgentPermissions(agent: AgentKind, configDir: String?, permission
 }
     
     /**
+     * Puts the chosen hunks in the index (or takes them out again with `unstage`); the working
+     * tree is not touched.
+     */
+open func applyGitHunks(sessionName: String, path: String, hunks: [GitHunk], unstage: Bool)async throws  -> GitOpResult  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_apply_git_hunks(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(sessionName),FfiConverterString.lower(path),FfiConverterSequenceTypeGitHunk.lower(hunks),FfiConverterBool.lower(unstage)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeGitOpResult_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
      * Validates and writes the host guard (folder `0700`, file `0600`).
      */
 open func applyHostGuard(`guard`: HostGuard)async throws   {
@@ -2119,6 +2151,26 @@ open func fetchGitDiff(sessionName: String)async throws  -> GitDiffResult  {
             completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
             freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
             liftFunc: FfiConverterTypeGitDiffResult_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * The hunks of one file's diff (`staged`: the index against HEAD, else the working tree
+     * against the index), for staging single hunks (feature 28, G5b).
+     */
+open func fetchGitFileHunks(sessionName: String, path: String, staged: Bool)async throws  -> GitFileHunks  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_fetch_git_file_hunks(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(sessionName),FfiConverterString.lower(path),FfiConverterBool.lower(staged)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeGitFileHunks_lift,
             errorHandler: FfiConverterTypeSshCoreError_lift
         )
 }
@@ -4804,6 +4856,152 @@ public func FfiConverterTypeGitFileChange_lift(_ buf: RustBuffer) throws -> GitF
 #endif
 public func FfiConverterTypeGitFileChange_lower(_ value: GitFileChange) -> RustBuffer {
     return FfiConverterTypeGitFileChange.lower(value)
+}
+
+
+public struct GitFileHunks: Equatable, Hashable {
+    public var status: GitDiffStatus
+    public var hunks: [GitHunk]
+    public var binary: Bool
+    public var truncated: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(status: GitDiffStatus, hunks: [GitHunk], binary: Bool, truncated: Bool) {
+        self.status = status
+        self.hunks = hunks
+        self.binary = binary
+        self.truncated = truncated
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension GitFileHunks: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeGitFileHunks: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> GitFileHunks {
+        return
+            try GitFileHunks(
+                status: FfiConverterTypeGitDiffStatus.read(from: &buf), 
+                hunks: FfiConverterSequenceTypeGitHunk.read(from: &buf), 
+                binary: FfiConverterBool.read(from: &buf), 
+                truncated: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: GitFileHunks, into buf: inout [UInt8]) {
+        FfiConverterTypeGitDiffStatus.write(value.status, into: &buf)
+        FfiConverterSequenceTypeGitHunk.write(value.hunks, into: &buf)
+        FfiConverterBool.write(value.binary, into: &buf)
+        FfiConverterBool.write(value.truncated, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGitFileHunks_lift(_ buf: RustBuffer) throws -> GitFileHunks {
+    return try FfiConverterTypeGitFileHunks.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGitFileHunks_lower(_ value: GitFileHunks) -> RustBuffer {
+    return FfiConverterTypeGitFileHunks.lower(value)
+}
+
+
+public struct GitHunk: Equatable, Hashable {
+    /**
+     * `@@ -a,b +c,d @@ context`
+     */
+    public var header: String
+    /**
+     * Body lines with their `+`, `-`, ` ` or `\` prefix.
+     */
+    public var lines: [String]
+    public var added: UInt32
+    public var removed: UInt32
+    /**
+     * False when a line has control or bidi characters (stage the whole file instead).
+     */
+    public var stageable: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * `@@ -a,b +c,d @@ context`
+         */header: String, 
+        /**
+         * Body lines with their `+`, `-`, ` ` or `\` prefix.
+         */lines: [String], added: UInt32, removed: UInt32, 
+        /**
+         * False when a line has control or bidi characters (stage the whole file instead).
+         */stageable: Bool) {
+        self.header = header
+        self.lines = lines
+        self.added = added
+        self.removed = removed
+        self.stageable = stageable
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension GitHunk: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeGitHunk: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> GitHunk {
+        return
+            try GitHunk(
+                header: FfiConverterString.read(from: &buf), 
+                lines: FfiConverterSequenceString.read(from: &buf), 
+                added: FfiConverterUInt32.read(from: &buf), 
+                removed: FfiConverterUInt32.read(from: &buf), 
+                stageable: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: GitHunk, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.header, into: &buf)
+        FfiConverterSequenceString.write(value.lines, into: &buf)
+        FfiConverterUInt32.write(value.added, into: &buf)
+        FfiConverterUInt32.write(value.removed, into: &buf)
+        FfiConverterBool.write(value.stageable, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGitHunk_lift(_ buf: RustBuffer) throws -> GitHunk {
+    return try FfiConverterTypeGitHunk.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGitHunk_lower(_ value: GitHunk) -> RustBuffer {
+    return FfiConverterTypeGitHunk.lower(value)
 }
 
 
@@ -11913,6 +12111,31 @@ fileprivate struct FfiConverterSequenceTypeGitFileChange: FfiConverterRustBuffer
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeGitHunk: FfiConverterRustBuffer {
+    typealias SwiftType = [GitHunk]
+
+    public static func write(_ value: [GitHunk], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeGitHunk.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [GitHunk] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [GitHunk]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeGitHunk.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeGitLogEntry: FfiConverterRustBuffer {
     typealias SwiftType = [GitLogEntry]
 
@@ -14004,6 +14227,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_apply_agent_permissions() != 31164) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_apply_git_hunks() != 50160) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_apply_host_guard() != 15363) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -14044,6 +14270,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_fetch_git_diff() != 14960) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_fetch_git_file_hunks() != 34244) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_fetch_git_log() != 41416) {
