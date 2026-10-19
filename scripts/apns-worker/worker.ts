@@ -1,159 +1,85 @@
 /**
- * Cloudflare Worker: Zero-Knowledge APNs Wake-up Gateway for ssh-app
+ * Cloudflare Worker: zero-knowledge APNs relay for ssh-app (feature 35).
  *
- * PRIVACY GUARANTEE:
- * - This worker accepts ONLY an opaque device token (and optional notification type).
- * - NO command names, NO project paths, and NO agent details are ever sent to or processed by this worker.
- * - Cost: $0/month on Cloudflare Workers Free Tier (100,000 requests/day included).
+ * The request carries a device token, one of four fixed categories and the APNs environment.
+ * Nothing about the work on the Mac (command, path, project, agent, message) can be sent: there is
+ * no field for it, and the notification text is a constant per category.
  */
 
+import {
+  allowed,
+  apnsHost,
+  base64Url,
+  headersFor,
+  parseRequest,
+  payloadFor,
+  rateSlot,
+  safeEqual,
+} from "./relay.ts";
+
 export interface Env {
-  APPLE_KEY_ID: string;      // e.g. "ABC123XYZ"
-  APPLE_TEAM_ID: string;     // e.g. "DEF456UVW"
-  APPLE_BUNDLE_ID: string;   // e.g. "com.semenov.sshapp"
-  APPLE_P8_PRIVATE_KEY: string; // OpenSSL PKCS#8 private key in PEM format
-  AUTH_SECRET?: string;      // Optional shared secret between your Mac and Worker
+  APPLE_KEY_ID: string;
+  APPLE_TEAM_ID: string;
+  APPLE_BUNDLE_ID: string;
+  APPLE_P8_PRIVATE_KEY: string; // secret: PKCS#8 PEM
+  RELAY_SECRET: string; // secret: bearer token shared with the phone and its hosts
+  RATE: KVNamespace;
 }
 
-interface WakeUpRequest {
-  device_token: string;
-  notification_type?: "alert" | "liveactivity";
-}
+let cachedJwt: { token: string; at: number } | undefined;
+
+const json = (status: number, body: object) =>
+  new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    if (request.method !== "POST") {
-      return new Response("Method Not Allowed", { status: 405 });
-    }
+    const url = new URL(request.url);
+    if (url.pathname !== "/push") return json(404, { error: "not found" });
+    if (request.method !== "POST") return json(405, { error: "method" });
+    if (!env.RELAY_SECRET || env.RELAY_SECRET.length < 32) return json(503, { error: "not configured" });
 
-    // Optional authentication check from your Mac
-    if (env.AUTH_SECRET) {
-      const authHeader = request.headers.get("Authorization");
-      if (authHeader !== `Bearer ${env.AUTH_SECRET}`) {
-        return new Response("Unauthorized", { status: 401 });
-      }
-    }
+    const auth = request.headers.get("authorization") ?? "";
+    if (!safeEqual(auth, `Bearer ${env.RELAY_SECRET}`)) return json(401, { error: "unauthorized" });
 
+    const parsed = parseRequest(await request.text());
+    if (typeof parsed === "string") return json(400, { error: parsed });
+
+    const nowSec = Math.floor(Date.now() / 1000);
+    const slot = rateSlot(parsed.token, nowSec);
+    const count = Number((await env.RATE.get(slot)) ?? "0");
+    if (!allowed(count)) return json(429, { error: "rate limited" });
+    await env.RATE.put(slot, String(count + 1), { expirationTtl: 7200 });
+
+    let jwt: string;
     try {
-      const body = (await request.json()) as WakeUpRequest;
-      const deviceToken = body.device_token?.trim();
-
-      // Validate device token format (hex string 64 chars)
-      if (!deviceToken || !/^[a-fA-F0-9]{64}$/.test(deviceToken)) {
-        return new Response(
-          JSON.stringify({ error: "Invalid device_token hex format" }),
-          { status: 400, headers: { "Content-Type": "application/json" } }
-        );
-      }
-
-      // Generate Apple APNs JWT (valid for 1 hour)
-      const jwtToken = await generateApnsJwt(env);
-
-      // Determine APNs endpoint and headers
-      const isLiveActivity = body.notification_type === "liveactivity";
-      const apnsTopic = isLiveActivity
-        ? `${env.APPLE_BUNDLE_ID}.push-type.liveactivity`
-        : env.APPLE_BUNDLE_ID;
-      const apnsPushType = isLiveActivity ? "liveactivity" : "alert";
-
-      // Dispatch to production APNs over HTTP/2
-      const apnsUrl = `https://api.push.apple.com/3/device/${deviceToken}`;
-      const apnsPayload = {
-        aps: {
-          "content-available": 1,
-          alert: {
-            title: "Agent Approval",
-            body: "An agent requires human approval",
-          },
-          sound: "default",
-          category: "AGENT_APPROVAL",
-        },
-      };
-
-      const apnsResponse = await fetch(apnsUrl, {
-        method: "POST",
-        headers: {
-          authorization: `bearer ${jwtToken}`,
-          "apns-topic": apnsTopic,
-          "apns-push-type": apnsPushType,
-          "apns-priority": "10",
-          "apns-expiration": "0",
-          "content-type": "application/json",
-        },
-        body: JSON.stringify(apnsPayload),
-      });
-
-      if (!apnsResponse.ok) {
-        const errorText = await apnsResponse.text();
-        return new Response(
-          JSON.stringify({ error: "APNs error", status: apnsResponse.status, detail: errorText }),
-          { status: 502, headers: { "Content-Type": "application/json" } }
-        );
-      }
-
-      return new Response(
-        JSON.stringify({ success: true, message: "Wake-up ping dispatched" }),
-        { status: 200, headers: { "Content-Type": "application/json" } }
-      );
-    } catch (err: any) {
-      return new Response(
-        JSON.stringify({ error: "Internal Server Error", detail: err?.message || String(err) }),
-        { status: 500, headers: { "Content-Type": "application/json" } }
-      );
+      jwt = await apnsJwt(env, nowSec);
+    } catch {
+      return json(503, { error: "not configured" });
     }
+    const res = await fetch(`https://${apnsHost(parsed.env)}/3/device/${parsed.token}`, {
+      method: "POST",
+      headers: headersFor(parsed.category, env.APPLE_BUNDLE_ID, jwt, nowSec),
+      body: JSON.stringify(payloadFor(parsed.category)),
+    });
+    if (res.ok) return json(200, { ok: true });
+    // Apple's reason is a short code ("BadDeviceToken"); no raw text is passed on.
+    if (res.status === 410) return json(410, { error: "unregistered" });
+    const reason = ((await res.json().catch(() => ({}))) as { reason?: string }).reason ?? "";
+    if (res.status === 400 && reason === "BadDeviceToken") return json(410, { error: "unregistered" });
+    return json(502, { error: "apns", status: res.status });
   },
 };
 
-/**
- * Generates an ES256-signed JWT for Apple APNs.
- */
-async function generateApnsJwt(env: Env): Promise<string> {
-  const header = {
-    alg: "ES256",
-    kid: env.APPLE_KEY_ID,
-  };
-
-  const nowSec = Math.floor(Date.now() / 1000);
-  const claims = {
-    iss: env.APPLE_TEAM_ID,
-    iat: nowSec,
-  };
-
-  const headerB64 = base64UrlEncode(JSON.stringify(header));
-  const claimsB64 = base64UrlEncode(JSON.stringify(claims));
-  const unsignedToken = `${headerB64}.${claimsB64}`;
-
-  // Import PKCS#8 private key
-  const pem = env.APPLE_P8_PRIVATE_KEY
-    .replace(/-----BEGIN PRIVATE KEY-----/, "")
-    .replace(/-----END PRIVATE KEY-----/, "")
-    .replace(/\s+/g, "");
-  const binaryDer = Uint8Array.from(atob(pem), (c) => c.charCodeAt(0));
-
-  const cryptoKey = await crypto.subtle.importKey(
-    "pkcs8",
-    binaryDer.buffer,
-    { name: "ECDSA", namedCurve: "P-256" },
-    false,
-    ["sign"]
-  );
-
-  const signature = await crypto.subtle.sign(
-    { name: "ECDSA", hash: { name: "SHA-256" } },
-    cryptoKey,
-    new TextEncoder().encode(unsignedToken)
-  );
-
-  const signatureB64 = base64UrlEncode(new Uint8Array(signature));
-  return `${unsignedToken}.${signatureB64}`;
-}
-
-function base64UrlEncode(input: string | Uint8Array): string {
-  let base64 = "";
-  if (typeof input === "string") {
-    base64 = btoa(input);
-  } else {
-    base64 = btoa(String.fromCharCode(...input));
-  }
-  return base64.replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+async function apnsJwt(env: Env, nowSec: number): Promise<string> {
+  if (cachedJwt && nowSec - cachedJwt.at < 50 * 60) return cachedJwt.token;
+  const enc = new TextEncoder();
+  const head = base64Url(enc.encode(JSON.stringify({ alg: "ES256", kid: env.APPLE_KEY_ID })));
+  const claims = base64Url(enc.encode(JSON.stringify({ iss: env.APPLE_TEAM_ID, iat: nowSec })));
+  const pem = env.APPLE_P8_PRIVATE_KEY.replace(/-----(BEGIN|END) PRIVATE KEY-----/g, "").replace(/\s+/g, "");
+  const der = Uint8Array.from(atob(pem), (c) => c.charCodeAt(0));
+  const key = await crypto.subtle.importKey("pkcs8", der, { name: "ECDSA", namedCurve: "P-256" }, false, ["sign"]);
+  const sig = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, key, enc.encode(`${head}.${claims}`));
+  const token = `${head}.${claims}.${base64Url(new Uint8Array(sig))}`;
+  cachedJwt = { token, at: nowSec };
+  return token;
 }

@@ -6,7 +6,12 @@ compatibility_date = "2024-04-01"
 APPLE_KEY_ID = "YOUR_KEY_ID"
 APPLE_TEAM_ID = "YOUR_TEAM_ID"
 APPLE_BUNDLE_ID = "com.semenov.sshapp"
-# Do NOT place APPLE_P8_PRIVATE_KEY here in plaintext!
-# Instead, add it via encrypted secret:
-# wrangler secret put APPLE_P8_PRIVATE_KEY
-# wrangler secret put AUTH_SECRET
+
+# wrangler kv namespace create RATE   (then paste the id)
+[[kv_namespaces]]
+binding = "RATE"
+id = "YOUR_KV_ID"
+
+# Secrets are never placed here:
+#   wrangler secret put APPLE_P8_PRIVATE_KEY < /path/to/AuthKey_XXXX.p8
+#   openssl rand -hex 32 | wrangler secret put RELAY_SECRET   (keep a copy for the app's Settings)
