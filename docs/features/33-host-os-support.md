@@ -225,3 +225,18 @@ relative to feature 32: T3 (`read`/`kill`) first, because H2 needs a stable help
   developer's tmux (pid 35350) was untouched.
 - The pin stays the app's own digest of its own blob (§5); `detect_host_target` only chooses which
   blob. Swift does not use the new API yet (H4).
+
+### H2 implementation notes (2026-10-19)
+
+- `crates/host/src/linux.rs`: parsers for `/proc/meminfo`, `loadavg`, `cpuinfo`, `<pid>/stat` (name between
+  the first `(` and the last `)`), `status` (uid), `uptime`, `/etc/passwd`, `cmdline` and `power_supply`,
+  tested on every OS; the readers are Linux-only. The `telemetry` JSON is identical to macOS (no `ps`,
+  `vm_stat`, `pmset`, no `PATH` dependency). `proc_info`/`has_children` use `/proc` too.
+- Both musl builds (aarch64 2.5 MB, x86_64 2.7 MB) are embedded by `make xcframework`
+  (`peer_is_us` uses `SO_PEERCRED` on Linux). Checked in a `debian:stable-slim` container: `hello`,
+  `telemetry`, `ls --pane`, `read`, `kill` (refusals, stale pid, tmux server under a supervisor).
+- Policy: added `~/.config/gcloud`, `~/.config/gh`, `~/.docker`, `~/.password-store`,
+  `~/.local/share/keyrings`, `/etc/sudoers(.d)`, `/etc/gshadow` and the file name `gshadow`.
+- Core transcript detection reads `/proc/<pid>/cwd` and `/proc/<pid>/fd` first, `lsof` as fallback.
+- Not tested: a full app-to-Linux-sshd session (the loopback suite runs against the Mac), x86_64 at run time.
+- Hacker pass: `docs/security-findings/2026-10-19-linux-helper-h2.md`.

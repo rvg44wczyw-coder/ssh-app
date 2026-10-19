@@ -1262,7 +1262,8 @@ found=$(ps -Ao pid=,ppid=,args= 2>/dev/null | awk -v root="$pid" '
       break } q=pp[q]; d++ } } }')
 kind=${found%% *}; apid=${found##* }
 case "$apid" in ""|*[!0-9]*) exit 0;; esac
-cwd=$(lsof -a -p "$apid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -n 1)
+cwd=$(readlink "/proc/$apid/cwd" 2>/dev/null)
+[ -n "$cwd" ] || cwd=$(lsof -a -p "$apid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -n 1)
 case "$kind" in
   claude)
     [ -n "$cwd" ] || exit 0
@@ -1270,7 +1271,8 @@ case "$kind" in
     f=$(ls -t "$HOME/.claude/projects/$slug"/*.jsonl 2>/dev/null | head -n 1)
     [ -f "$f" ] && echo "$f";;
   agy)
-    d=$(lsof -p "$apid" -Fn 2>/dev/null | sed -n 's/^n//p' | grep -o "^.*/brain/[^/]*" | head -n 1)
+    d=$(ls -l "/proc/$apid/fd" 2>/dev/null | grep -o "/[^ ]*/brain/[^/]*" | head -n 1)
+    [ -n "$d" ] || d=$(lsof -p "$apid" -Fn 2>/dev/null | sed -n 's/^n//p' | grep -o "^.*/brain/[^/]*" | head -n 1)
     [ -n "$d" ] || d=$(ls -td "$HOME/.gemini/antigravity-cli/brain"/* 2>/dev/null | head -n 1)
     f="$d/.system_generated/logs/transcript.jsonl"
     [ -n "$d" ] && [ -f "$f" ] && echo "$f";;

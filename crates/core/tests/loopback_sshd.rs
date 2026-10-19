@@ -1802,10 +1802,11 @@ fn usage_report_finds_models_in_tmux_sessions_and_reads_transcripts() {
             .install_bundled_host_helper_for(ssh_core::HostTarget::Unsupported { reason: "x".into() })
             .await
             .is_err());
-        assert!(handle
-            .install_bundled_host_helper_for(ssh_core::HostTarget::LinuxAarch64)
-            .await
-            .is_err(), "no Linux build is embedded yet");
+        // The Linux builds are embedded too (not installed here: the loopback host is a Mac).
+        for t in [ssh_core::HostTarget::LinuxAarch64, ssh_core::HostTarget::LinuxX86_64] {
+            assert!(ssh_core::usage::bundled_host_helper_size_for(t.clone()) > 1_000_000, "{t:?}");
+            assert_eq!(ssh_core::usage::bundled_host_helper_sha256_for(t).unwrap().len(), 64);
+        }
 
         // 3a. Telemetry through the pinned helper matches the shell script's static facts; a wrong
         // pin falls back to the script and still answers.
@@ -1883,7 +1884,12 @@ fn usage_report_finds_models_in_tmux_sessions_and_reads_transcripts() {
             .await
             .unwrap();
         assert_eq!(wrong.content, "hello");
-        let mut victim = std::process::Command::new("sleep").arg("120").spawn().unwrap();
+        // "claude" in the command line keeps it in the helper's list even on a busy machine (only the
+        // top processes by CPU are listed otherwise).
+        let mut victim = std::process::Command::new("sh")
+            .args(["-c", "sleep 120; :", "claude"])
+            .spawn()
+            .unwrap();
         let snap = handle.fetch_host_telemetry(Some(pin.clone())).await.unwrap();
         let seen = snap.processes.iter().find(|p| p.pid == victim.id());
         let started = seen.and_then(|p| p.started_epoch);

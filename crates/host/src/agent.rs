@@ -155,11 +155,30 @@ fn extend(shared: &Mutex<Shared>, secs: i64) -> i64 {
     s.lease_until
 }
 
+/// Whether the process on the other end of the socket runs as the same user.
+#[cfg(not(target_os = "linux"))]
 fn peer_is_us(stream: &UnixStream) -> bool {
     let (mut uid, mut gid) = (0 as libc::uid_t, 0 as libc::gid_t);
     // SAFETY: valid descriptor and valid out-pointers for the duration of the call.
     let rc = unsafe { libc::getpeereid(stream.as_raw_fd(), &mut uid, &mut gid) };
     rc == 0 && uid == euid()
+}
+
+#[cfg(target_os = "linux")]
+fn peer_is_us(stream: &UnixStream) -> bool {
+    // SAFETY: a zeroed `ucred` is a valid out-buffer; `len` matches its size.
+    let mut cred: libc::ucred = unsafe { std::mem::zeroed() };
+    let mut len = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
+    let rc = unsafe {
+        libc::getsockopt(
+            stream.as_raw_fd(),
+            libc::SOL_SOCKET,
+            libc::SO_PEERCRED,
+            std::ptr::addr_of_mut!(cred).cast::<libc::c_void>(),
+            &mut len,
+        )
+    };
+    rc == 0 && cred.uid == euid()
 }
 
 fn reply(out: &Mutex<UnixStream>, v: &Value) -> bool {

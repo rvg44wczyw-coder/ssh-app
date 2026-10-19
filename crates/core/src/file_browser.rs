@@ -67,6 +67,14 @@ pub fn validate_remote_dir_path(path: &str) -> Result<String, SshCoreError> {
         "/library/keychains",
         "/etc/shadow",
         "/etc/master.passwd",
+        "/.config/gcloud",
+        "/.config/gh",
+        "/.docker",
+        "/.password-store",
+        "/.local/share/keyrings",
+        "/etc/sudoers",
+        "/etc/sudoers.d",
+        "/etc/gshadow",
     ];
     for blocked in blocked_dirs {
         if lowered.ends_with(blocked) || lowered.contains(&format!("{blocked}/")) {
@@ -100,6 +108,7 @@ pub fn validate_remote_file_read_path(path: &str) -> Result<String, SshCoreError
         ".bash_history",
         "shadow",
         "master.passwd",
+        "gshadow",
     ];
 
     if blocked_files.contains(&filename)

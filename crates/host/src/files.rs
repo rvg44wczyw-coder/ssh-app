@@ -21,7 +21,7 @@ use std::time::Duration;
 pub const MAX_ENTRIES: usize = 2000;
 const READ_LIMIT: usize = MAX_ENTRIES * 10;
 
-const BLOCKED_DIRS: [&str; 7] = [
+const BLOCKED_DIRS: [&str; 15] = [
     "/.ssh",
     "/.aws",
     "/.gnupg",
@@ -29,9 +29,17 @@ const BLOCKED_DIRS: [&str; 7] = [
     "/library/keychains",
     "/etc/shadow",
     "/etc/master.passwd",
+    "/.config/gcloud",
+    "/.config/gh",
+    "/.docker",
+    "/.password-store",
+    "/.local/share/keyrings",
+    "/etc/sudoers",
+    "/etc/sudoers.d",
+    "/etc/gshadow",
 ];
 
-const BLOCKED_FILES: [&str; 14] = [
+const BLOCKED_FILES: [&str; 15] = [
     "id_ed25519",
     "id_rsa",
     "id_ecdsa",
@@ -46,6 +54,7 @@ const BLOCKED_FILES: [&str; 14] = [
     ".bash_history",
     "shadow",
     "master.passwd",
+    "gshadow",
 ];
 
 /// Same rules as `validate_remote_dir_path` in the core (a shared table tests both).

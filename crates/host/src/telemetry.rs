@@ -5,11 +5,16 @@
 //! timeout) but are parsed here, once, and handed over as raw values; the app derives percentages
 //! and classifies the processes. A source that fails leaves its field out.
 
+#[cfg(not(target_os = "linux"))]
 use crate::proc::{run_with_input, MAX_OUT};
 use serde_json::{json, Value};
+#[cfg(not(target_os = "linux"))]
 use std::process::Command;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(not(target_os = "linux"))]
+use std::time::Instant;
 
+#[cfg(not(target_os = "linux"))]
 const TOOL_TIMEOUT: Duration = Duration::from_secs(4);
 /// All tools together; the app's host-side watchdog is 20 s, so a partial answer beats none.
 const TOTAL_BUDGET: Duration = Duration::from_secs(12);
@@ -33,6 +38,7 @@ const ALWAYS_KEEP: [&str; 11] = [
 
 /// System tools by absolute path, so a program earlier in the user's `PATH` cannot stand in for
 /// them; the bare name is the fallback where the absolute path does not exist.
+#[cfg(not(target_os = "linux"))]
 fn resolve(program: &str) -> String {
     ["/bin", "/usr/bin", "/usr/sbin", "/sbin"]
         .iter()
@@ -44,6 +50,7 @@ fn resolve(program: &str) -> String {
 /// Output of a tool that finished before `deadline` (and within `TOOL_TIMEOUT`). A tool that was
 /// cut off because it wrote more than `MAX_OUT` (it dies from SIGPIPE) still counts: the text is
 /// shortened to its last complete line and the flag says so.
+#[cfg(not(target_os = "linux"))]
 fn run_tool(program: &str, args: &[&str], deadline: Instant) -> Option<(String, bool)> {
     let left = deadline.checked_duration_since(Instant::now())?;
     let mut cmd = Command::new(resolve(program));
@@ -85,6 +92,14 @@ fn now_epoch() -> u64 {
 
 /// One process as `ps` sees it: (parent pid, uid, start epoch, command).
 pub fn proc_info(pid: u32) -> Option<(u32, u32, u64, String)> {
+    #[cfg(target_os = "linux")]
+    return crate::linux::proc_info(pid);
+    #[cfg(not(target_os = "linux"))]
+    proc_info_ps(pid)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn proc_info_ps(pid: u32) -> Option<(u32, u32, u64, String)> {
     let deadline = Instant::now() + TOOL_TIMEOUT;
     let out = tool(
         "ps",
@@ -101,11 +116,20 @@ pub fn proc_info(pid: u32) -> Option<(u32, u32, u64, String)> {
 
 /// Whether any process has `pid` as its parent; `None` when the process table could not be read.
 pub fn has_children(pid: u32) -> Option<bool> {
+    #[cfg(target_os = "linux")]
+    return crate::linux::has_children(pid);
+    #[cfg(not(target_os = "linux"))]
+    has_children_ps(pid)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn has_children_ps(pid: u32) -> Option<bool> {
     let deadline = Instant::now() + TOOL_TIMEOUT;
     let out = tool("ps", &["-Ao", "ppid="], deadline)?;
     Some(out.lines().any(|l| l.trim().parse::<u32>() == Ok(pid)))
 }
 
+#[cfg(not(target_os = "linux"))]
 fn tool(program: &str, args: &[&str], deadline: Instant) -> Option<String> {
     run_tool(program, args, deadline).map(|(t, _)| t)
 }
@@ -259,6 +283,7 @@ pub fn parse_ps(text: &str) -> Vec<Value> {
         .collect()
 }
 
+#[cfg(not(target_os = "linux"))]
 fn load_average() -> Option<[f64; 3]> {
     let mut l = [0f64; 3];
     // SAFETY: `l` has room for the 3 samples requested.
@@ -271,6 +296,71 @@ pub fn snapshot() -> Value {
 }
 
 fn snapshot_within(budget: Duration) -> Value {
+    #[cfg(target_os = "linux")]
+    {
+        let _ = budget;
+        return snapshot_linux();
+    }
+    #[cfg(not(target_os = "linux"))]
+    snapshot_macos(budget)
+}
+
+/// Linux: `/proc`, `/sys` and `statvfs` only (no external tools, so no time budget is needed).
+#[cfg(target_os = "linux")]
+fn snapshot_linux() -> Value {
+    use crate::linux as l;
+    let mut o = serde_json::Map::new();
+    o.insert("ok".into(), json!(true));
+    let (host, os) = l::host_and_os();
+    if let Some(h) = host {
+        o.insert("host".into(), json!(clean(&h)));
+    }
+    if let Some(u) = os {
+        o.insert("os".into(), json!(clean(&u)));
+    }
+    if let Some(c) = l::cores() {
+        o.insert("cores".into(), json!(c));
+    }
+    if let Some(v) = l::load() {
+        o.insert("load".into(), json!(v));
+    }
+    if let Some((t, u)) = l::memory() {
+        o.insert("mem".into(), json!({"total": t, "used": u}));
+    }
+    if let Some((t, a)) = l::disk() {
+        o.insert("disk".into(), json!({"total_kb": t, "avail_kb": a}));
+    }
+    let (pct, charging, source) = l::battery();
+    if pct.is_some() || source.is_some() {
+        o.insert(
+            "battery".into(),
+            json!({"percent": pct, "charging": charging, "source": source}),
+        );
+    }
+    // SAFETY: getuid has no preconditions.
+    o.insert("me_uid".into(), json!(unsafe { libc::getuid() }));
+    let keep = |line: &str| {
+        let lower = line.to_lowercase();
+        ALWAYS_KEEP.iter().any(|k| lower.contains(k))
+    };
+    let procs: Vec<Value> = l::processes(&keep, TOP_BY_CPU, MAX_PROCS)
+        .into_iter()
+        .map(|mut p| {
+            p["comm"] = json!(clean(p["comm"].as_str().unwrap_or(""))
+                .chars()
+                .take(MAX_COMM)
+                .collect::<String>());
+            p["user"] = json!(clean(p["user"].as_str().unwrap_or("")));
+            p
+        })
+        .collect();
+    o.insert("procs".into(), Value::Array(procs));
+    o.insert("procs_truncated".into(), json!(false));
+    Value::Object(o)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn snapshot_macos(budget: Duration) -> Value {
     let deadline = Instant::now() + budget;
     let mut o = serde_json::Map::new();
     o.insert("ok".into(), json!(true));
