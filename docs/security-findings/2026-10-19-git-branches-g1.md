@@ -63,3 +63,28 @@ untracked included on request). Real tmux pid and HOME unchanged after every run
    the terminal does; `core.fsmonitor`, `gpg.program` and signature display are disabled.
 
 Verdict: clean (no Medium or higher open).
+
+## Addendum: staging, commit, remote operations (G5)
+
+Live (temporary repo plus a bare "remote" on the loopback host; no network): stage / unstage /
+stage-all / unstage-all, commit (refused with nothing staged), push without upstream (one remote →
+`-u`), push rejected as non-fast-forward (not forced), fetch, pull (dirty tracked tree refused,
+diverged → `--ff-only` refuses and changes nothing, clean fast-forward works), several remotes
+and no upstream → refused.
+
+1. **Pathspec injection (InputValidation)** — paths are repository-relative, no `..`, no leading
+   `-` or `/`, no control characters, at most 200, passed after `--` with
+   `GIT_LITERAL_PATHSPECS=1`. Verified: a file literally named `star*.txt` is staged, `star1.txt`
+   is not (no glob expansion); `-A`, `../x`, `/etc/passwd`, newline paths are refused before the
+   host is contacted.
+2. **Force / destructive (High if present)** — none exists: no `--force`, no `--hard`, no discard
+   of working changes; `pull` is `--ff-only`; the old tip is saved before a pull.
+3. **Credential prompts / hangs (DoS)** — `GIT_TERMINAL_PROMPT=0` and
+   `GIT_SSH_COMMAND="ssh -o BatchMode=yes"` make a missing credential fail fast; 60 s watchdog
+   kills the process tree.
+4. **Hooks (SandboxEscape, accepted)** — commit and push run the repository's own hooks as the
+   terminal would; `fsmonitor` and `gpg.program` are disabled.
+5. **Remote choice (Spoofing-like)** — with several remotes and no upstream the app refuses to
+   pick one for the user.
+
+Verdict: clean.

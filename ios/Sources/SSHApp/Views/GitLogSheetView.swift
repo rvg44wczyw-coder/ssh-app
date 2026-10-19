@@ -13,6 +13,7 @@ public struct GitLogSheetView: View {
     @State private var limit: UInt32 = 50
     @State private var selected: GitLogEntry? = nil
     @State private var showWorkingTree = false
+    @State private var showChanges = false
     @State private var context: PaneContext? = nil
     // Commit operations (feature 28, G3).
     @State private var selecting = false
@@ -56,6 +57,9 @@ public struct GitLogSheetView: View {
             }
             .sheet(item: $selected) { entry in
                 DiffViewerSheetView(viewModel: viewModel, commit: entry)
+            }
+            .sheet(isPresented: $showChanges, onDismiss: fetchLog) {
+                GitChangesSheetView(viewModel: viewModel)
             }
             .sheet(isPresented: $showWorkingTree) {
                 DiffViewerSheetView(viewModel: viewModel)
@@ -136,6 +140,10 @@ public struct GitLogSheetView: View {
                     if let opMessage {
                         Text(opMessage).font(.system(size: 12, design: .monospaced))
                             .foregroundColor(opFailed ? .red : .secondary)
+                    }
+                    Button { showChanges = true } label: {
+                        Label("Stage, commit, push…", systemImage: "square.and.arrow.up")
+                            .font(.system(size: 14, weight: .medium))
                     }
                     Button { showWorkingTree = true } label: {
                         Label("Uncommitted changes", systemImage: "pencil.and.list.clipboard")

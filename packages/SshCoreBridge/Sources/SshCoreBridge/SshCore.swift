@@ -1406,6 +1406,11 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func fetchGitBranches(sessionName: String) async throws  -> GitBranchesResult
     
     /**
+     * Staged / unstaged changes with branch and upstream state (feature 28, G5).
+     */
+    func fetchGitChanges(sessionName: String) async throws  -> GitChangesResult
+    
+    /**
      * Git diff (`HEAD`) of the repository the tmux session's pane is working in. The command runs
      * in the pane's directory: an exec channel starts in `$HOME`, where `git diff` just prints
      * its usage text.
@@ -1594,6 +1599,11 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
      * Squash, drop, merge, rebase and stash operations (feature 28, G4).
      */
     func runGitHistoryOp(sessionName: String, op: GitHistoryOp) async throws  -> GitOpResult
+    
+    /**
+     * Stage, unstage, commit, push, pull (fast-forward only) or fetch (feature 28, G5).
+     */
+    func runGitIndexOp(sessionName: String, op: GitIndexOp) async throws  -> GitOpResult
     
     /**
      * Adds or removes a worktree (see `GitWorktreeOp`).
@@ -2030,6 +2040,25 @@ open func fetchGitBranches(sessionName: String)async throws  -> GitBranchesResul
             completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
             freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
             liftFunc: FfiConverterTypeGitBranchesResult_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Staged / unstaged changes with branch and upstream state (feature 28, G5).
+     */
+open func fetchGitChanges(sessionName: String)async throws  -> GitChangesResult  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_fetch_git_changes(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(sessionName)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeGitChangesResult_lift,
             errorHandler: FfiConverterTypeSshCoreError_lift
         )
 }
@@ -2690,6 +2719,25 @@ open func runGitHistoryOp(sessionName: String, op: GitHistoryOp)async throws  ->
             rustFutureFunc: {
                 uniffi_ssh_core_fn_method_sshsessionhandle_run_git_history_op(
                         self.uniffiCloneHandle(),FfiConverterString.lower(sessionName),FfiConverterTypeGitHistoryOp_lower(op)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeGitOpResult_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Stage, unstage, commit, push, pull (fast-forward only) or fetch (feature 28, G5).
+     */
+open func runGitIndexOp(sessionName: String, op: GitIndexOp)async throws  -> GitOpResult  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_run_git_index_op(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(sessionName),FfiConverterTypeGitIndexOp_lower(op)
                 )
             },
             pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
@@ -4378,6 +4426,164 @@ public func FfiConverterTypeGitBranchesResult_lift(_ buf: RustBuffer) throws -> 
 #endif
 public func FfiConverterTypeGitBranchesResult_lower(_ value: GitBranchesResult) -> RustBuffer {
     return FfiConverterTypeGitBranchesResult.lower(value)
+}
+
+
+public struct GitChangeEntry: Equatable, Hashable {
+    /**
+     * Relative to the repository root.
+     */
+    public var path: String
+    /**
+     * What is staged for the next commit, if anything.
+     */
+    public var indexState: GitFileState?
+    /**
+     * What changed in the working tree since (or untracked), if anything.
+     */
+    public var worktreeState: GitFileState?
+    public var origPath: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Relative to the repository root.
+         */path: String, 
+        /**
+         * What is staged for the next commit, if anything.
+         */indexState: GitFileState?, 
+        /**
+         * What changed in the working tree since (or untracked), if anything.
+         */worktreeState: GitFileState?, origPath: String?) {
+        self.path = path
+        self.indexState = indexState
+        self.worktreeState = worktreeState
+        self.origPath = origPath
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension GitChangeEntry: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeGitChangeEntry: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> GitChangeEntry {
+        return
+            try GitChangeEntry(
+                path: FfiConverterString.read(from: &buf), 
+                indexState: FfiConverterOptionTypeGitFileState.read(from: &buf), 
+                worktreeState: FfiConverterOptionTypeGitFileState.read(from: &buf), 
+                origPath: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: GitChangeEntry, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.path, into: &buf)
+        FfiConverterOptionTypeGitFileState.write(value.indexState, into: &buf)
+        FfiConverterOptionTypeGitFileState.write(value.worktreeState, into: &buf)
+        FfiConverterOptionString.write(value.origPath, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGitChangeEntry_lift(_ buf: RustBuffer) throws -> GitChangeEntry {
+    return try FfiConverterTypeGitChangeEntry.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGitChangeEntry_lower(_ value: GitChangeEntry) -> RustBuffer {
+    return FfiConverterTypeGitChangeEntry.lower(value)
+}
+
+
+public struct GitChangesResult: Equatable, Hashable {
+    public var status: GitDiffStatus
+    public var repoRoot: String?
+    public var branch: String?
+    public var upstream: String?
+    public var ahead: UInt32
+    public var behind: UInt32
+    public var entries: [GitChangeEntry]
+    public var truncated: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(status: GitDiffStatus, repoRoot: String?, branch: String?, upstream: String?, ahead: UInt32, behind: UInt32, entries: [GitChangeEntry], truncated: Bool) {
+        self.status = status
+        self.repoRoot = repoRoot
+        self.branch = branch
+        self.upstream = upstream
+        self.ahead = ahead
+        self.behind = behind
+        self.entries = entries
+        self.truncated = truncated
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension GitChangesResult: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeGitChangesResult: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> GitChangesResult {
+        return
+            try GitChangesResult(
+                status: FfiConverterTypeGitDiffStatus.read(from: &buf), 
+                repoRoot: FfiConverterOptionString.read(from: &buf), 
+                branch: FfiConverterOptionString.read(from: &buf), 
+                upstream: FfiConverterOptionString.read(from: &buf), 
+                ahead: FfiConverterUInt32.read(from: &buf), 
+                behind: FfiConverterUInt32.read(from: &buf), 
+                entries: FfiConverterSequenceTypeGitChangeEntry.read(from: &buf), 
+                truncated: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: GitChangesResult, into buf: inout [UInt8]) {
+        FfiConverterTypeGitDiffStatus.write(value.status, into: &buf)
+        FfiConverterOptionString.write(value.repoRoot, into: &buf)
+        FfiConverterOptionString.write(value.branch, into: &buf)
+        FfiConverterOptionString.write(value.upstream, into: &buf)
+        FfiConverterUInt32.write(value.ahead, into: &buf)
+        FfiConverterUInt32.write(value.behind, into: &buf)
+        FfiConverterSequenceTypeGitChangeEntry.write(value.entries, into: &buf)
+        FfiConverterBool.write(value.truncated, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGitChangesResult_lift(_ buf: RustBuffer) throws -> GitChangesResult {
+    return try FfiConverterTypeGitChangesResult.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGitChangesResult_lower(_ value: GitChangesResult) -> RustBuffer {
+    return FfiConverterTypeGitChangesResult.lower(value)
 }
 
 
@@ -8678,6 +8884,132 @@ public func FfiConverterTypeGitHistoryOp_lower(_ value: GitHistoryOp) -> RustBuf
 
 
 
+public enum GitIndexOp: Equatable, Hashable {
+    
+    case stage(paths: [String]
+    )
+    case unstage(paths: [String]
+    )
+    case stageAll
+    case unstageAll
+    case commit(message: String
+    )
+    /**
+     * Plain `git push` (sets the upstream when there is exactly one remote). Never forces.
+     */
+    case push
+    /**
+     * `git pull --ff-only`.
+     */
+    case pull
+    /**
+     * `git fetch --all`.
+     */
+    case fetch
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension GitIndexOp: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeGitIndexOp: FfiConverterRustBuffer {
+    typealias SwiftType = GitIndexOp
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> GitIndexOp {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .stage(paths: try FfiConverterSequenceString.read(from: &buf)
+        )
+        
+        case 2: return .unstage(paths: try FfiConverterSequenceString.read(from: &buf)
+        )
+        
+        case 3: return .stageAll
+        
+        case 4: return .unstageAll
+        
+        case 5: return .commit(message: try FfiConverterString.read(from: &buf)
+        )
+        
+        case 6: return .push
+        
+        case 7: return .pull
+        
+        case 8: return .fetch
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: GitIndexOp, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case let .stage(paths):
+            writeInt(&buf, Int32(1))
+            FfiConverterSequenceString.write(paths, into: &buf)
+            
+        
+        case let .unstage(paths):
+            writeInt(&buf, Int32(2))
+            FfiConverterSequenceString.write(paths, into: &buf)
+            
+        
+        case .stageAll:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .unstageAll:
+            writeInt(&buf, Int32(4))
+        
+        
+        case let .commit(message):
+            writeInt(&buf, Int32(5))
+            FfiConverterString.write(message, into: &buf)
+            
+        
+        case .push:
+            writeInt(&buf, Int32(6))
+        
+        
+        case .pull:
+            writeInt(&buf, Int32(7))
+        
+        
+        case .fetch:
+            writeInt(&buf, Int32(8))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGitIndexOp_lift(_ buf: RustBuffer) throws -> GitIndexOp {
+    return try FfiConverterTypeGitIndexOp.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGitIndexOp_lower(_ value: GitIndexOp) -> RustBuffer {
+    return FfiConverterTypeGitIndexOp.lower(value)
+}
+
+
+
+
 public enum GitResetMode: Equatable, Hashable {
     
     /**
@@ -10805,6 +11137,30 @@ fileprivate struct FfiConverterOptionTypeOllamaLoad: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeGitFileState: FfiConverterRustBuffer {
+    typealias SwiftType = GitFileState?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeGitFileState.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeGitFileState.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceUInt32: FfiConverterRustBuffer {
     typealias SwiftType = [UInt32]
 
@@ -11047,6 +11403,31 @@ fileprivate struct FfiConverterSequenceTypeGitBranch: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeGitBranch.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeGitChangeEntry: FfiConverterRustBuffer {
+    typealias SwiftType = [GitChangeEntry]
+
+    public static func write(_ value: [GitChangeEntry], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeGitChangeEntry.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [GitChangeEntry] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [GitChangeEntry]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeGitChangeEntry.read(from: &buf))
         }
         return seq
     }
@@ -12964,6 +13345,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_fetch_git_branches() != 21280) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_fetch_git_changes() != 48454) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_fetch_git_diff() != 14960) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -13064,6 +13448,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_run_git_history_op() != 31136) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_run_git_index_op() != 35273) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_run_git_worktree_op() != 63823) {
