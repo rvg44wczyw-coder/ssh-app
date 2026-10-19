@@ -60,6 +60,45 @@ fn run_tool(program: &str, args: &[&str], deadline: Instant) -> Option<(String, 
     Some((text, capped))
 }
 
+/// `[[dd-]hh:]mm:ss` as seconds.
+pub fn etime_secs(e: &str) -> Option<u64> {
+    let (days, rest) = match e.split_once('-') {
+        Some((d, r)) => (d.parse::<u64>().ok()?, r),
+        None => (0, e),
+    };
+    let mut secs = 0u64;
+    let parts: Vec<&str> = rest.split(':').collect();
+    if parts.is_empty() || parts.len() > 3 {
+        return None;
+    }
+    for p in parts {
+        secs = secs.checked_mul(60)?.checked_add(p.parse::<u64>().ok()?)?;
+    }
+    days.checked_mul(86_400)?.checked_add(secs)
+}
+
+fn now_epoch() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
+}
+
+/// One process as `ps` sees it: (parent pid, uid, start epoch, command).
+pub fn proc_info(pid: u32) -> Option<(u32, u32, u64, String)> {
+    let deadline = Instant::now() + TOOL_TIMEOUT;
+    let out = tool(
+        "ps",
+        &["-o", "ppid=,uid=,etime=,comm=", "-p", &pid.to_string()],
+        deadline,
+    )?;
+    let line = out.lines().next()?;
+    let mut it = line.split_whitespace();
+    let ppid = it.next()?.parse().ok()?;
+    let uid = it.next()?.parse().ok()?;
+    let started = now_epoch().saturating_sub(etime_secs(it.next()?)?);
+    Some((ppid, uid, started, clean(&it.collect::<Vec<_>>().join(" "))))
+}
+
 fn tool(program: &str, args: &[&str], deadline: Instant) -> Option<String> {
     run_tool(program, args, deadline).map(|(t, _)| t)
 }
@@ -196,7 +235,8 @@ pub fn parse_ps(text: &str) -> Vec<Value> {
             cpu,
             keep: ALWAYS_KEEP.iter().any(|k| lower.contains(k)),
             v: json!({"pid": pid, "uid": uid, "user": clean(user), "cpu": cpu, "mem": mem,
-                      "etime": clean(etime), "comm": comm}),
+                      "etime": clean(etime), "comm": comm,
+                      "started": etime_secs(etime).map(|e| now_epoch().saturating_sub(e))}),
         });
     }
     all.sort_by(|a, b| {

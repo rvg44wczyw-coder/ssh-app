@@ -292,11 +292,11 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         }
     }
 
-    public func killRemoteProcess(pid: UInt32, force: Bool) {
+    public func killRemoteProcess(pid: UInt32, force: Bool, started: UInt64? = nil) {
         guard let handle = handle, state == .connected else { return }
         Task {
             do {
-                try await handle.killRemoteProcess(pid: pid, force: force)
+                try await handle.killRemoteProcess(pid: pid, force: force, started: started, helperSha256: bundledHostHelperSha256())
                 self.refreshHostTelemetry()
             } catch {
                 self.telemetryError = error.localizedDescription
@@ -335,7 +335,7 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         fileBrowserError = nil
         Task {
             do {
-                self.filePreview = try await handle.readRemoteFilePreview(path: path, maxBytes: 131_072)
+                self.filePreview = try await handle.readRemoteFilePreview(path: path, maxBytes: 131_072, helperSha256: bundledHostHelperSha256())
             } catch {
                 self.fileBrowserError = error.localizedDescription
             }

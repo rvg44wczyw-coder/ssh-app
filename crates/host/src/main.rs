@@ -5,7 +5,7 @@
 
 use serde_json::json;
 use ssh_app_host::queue::{install_signal_handlers, Paths};
-use ssh_app_host::{agent, ctl, files, hook, models, rpc, statusline, telemetry, usage};
+use ssh_app_host::{agent, ctl, files, hook, models, procs, rpc, statusline, telemetry, usage};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -16,7 +16,7 @@ fn main() {
         Some("hello") => {
             println!(
                 "{}",
-                json!({"v": 1, "name": "ssh-app-host", "version": VERSION, "caps": ["usage", "hook", "agent", "models", "telemetry", "fs"]})
+                json!({"v": 1, "name": "ssh-app-host", "version": VERSION, "caps": ["usage", "hook", "agent", "models", "telemetry", "fs", "read", "kill"]})
             );
             0
         }
@@ -45,6 +45,16 @@ fn main() {
         }
         Some("ls") => {
             let reply = ls_reply(&args[1..]);
+            println!("{reply}");
+            i32::from(reply["ok"] != true)
+        }
+        Some("read") => {
+            let reply = read_reply(&args[1..]);
+            println!("{reply}");
+            i32::from(reply["ok"] != true)
+        }
+        Some("kill") => {
+            let reply = kill_reply(&args[1..]);
             println!("{reply}");
             i32::from(reply["ok"] != true)
         }
@@ -104,6 +114,49 @@ fn ls_reply(args: &[String]) -> serde_json::Value {
                 .unwrap_or_else(|_| json!({"error": "timeout"}))
         }
         None => json!({"ok": false, "error": "ls needs --path, --home or --pane"}),
+    }
+}
+
+/// `read --path P [--max N]`; like `ls`, a file on a stalled mount is cut off after 8 s with a reply
+/// that has no `ok`, so the app falls back to the plain read.
+fn read_reply(args: &[String]) -> serde_json::Value {
+    let (mut path, mut max) = (None, 0usize);
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--path" => path = it.next().cloned(),
+            "--max" => max = it.next().and_then(|n| n.parse().ok()).unwrap_or(0),
+            _ => return json!({"ok": false, "error": "usage: read --path P [--max N]"}),
+        }
+    }
+    let Some(path) = path else {
+        return json!({"ok": false, "error": "read needs --path"});
+    };
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(files::read(&path, max));
+    });
+    rx.recv_timeout(std::time::Duration::from_secs(8))
+        .unwrap_or_else(|_| json!({"error": "timeout"}))
+}
+
+/// `kill --pid N [--force] [--started EPOCH]`.
+fn kill_reply(args: &[String]) -> serde_json::Value {
+    let (mut pid, mut force, mut started) = (None, false, None);
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--pid" => pid = it.next().and_then(|n| n.parse::<u32>().ok()),
+            "--force" => force = true,
+            "--started" => started = it.next().and_then(|n| n.parse::<u64>().ok()),
+            _ => {
+                return json!({"ok": false, "error": "usage: kill --pid N [--force] [--started EPOCH]"})
+            }
+        }
+    }
+    match pid {
+        Some(p) => procs::kill(p, force, started),
+        None => json!({"ok": false, "error": "kill needs --pid"}),
     }
 }
 

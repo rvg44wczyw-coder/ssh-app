@@ -1517,8 +1517,11 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     
     /**
      * Safely terminates a remote process by PID (`SIGTERM` or `SIGKILL`), rejecting reserved PIDs <= 1.
+     * With the app's pin the pinned host helper does it and refuses the dangerous targets (this
+     * connection's own processes, other accounts, the tmux server, a reused pid when `started` is
+     * given); without it the plain `kill` runs as before.
      */
-    func killRemoteProcess(pid: UInt32, force: Bool) async throws 
+    func killRemoteProcess(pid: UInt32, force: Bool, started: UInt64?, helperSha256: String?) async throws 
     
     /**
      * Agent sessions the hook script registered (needs the "Register sessions" template).
@@ -1580,8 +1583,10 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     
     /**
      * Reads a preview of a remote file (up to `max_bytes`, capped at 128 KB), blocking sensitive credential files.
+     * With the app's pin the pinned host helper reads it in one step (canonical path, policy, open
+     * without following links, regular files only); otherwise `realpath` + `head` as before.
      */
-    func readRemoteFilePreview(path: String, maxBytes: UInt32) async throws  -> RemoteFilePreview
+    func readRemoteFilePreview(path: String, maxBytes: UInt32, helperSha256: String?) async throws  -> RemoteFilePreview
     
     /**
      * Reads and parses the latest transcript from the remote host.
@@ -2426,13 +2431,16 @@ open func installedAgentHooks(agent: AgentKind, configDir: String?)async throws 
     
     /**
      * Safely terminates a remote process by PID (`SIGTERM` or `SIGKILL`), rejecting reserved PIDs <= 1.
+     * With the app's pin the pinned host helper does it and refuses the dangerous targets (this
+     * connection's own processes, other accounts, the tmux server, a reused pid when `started` is
+     * given); without it the plain `kill` runs as before.
      */
-open func killRemoteProcess(pid: UInt32, force: Bool)async throws   {
+open func killRemoteProcess(pid: UInt32, force: Bool, started: UInt64?, helperSha256: String?)async throws   {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_ssh_core_fn_method_sshsessionhandle_kill_remote_process(
-                        self.uniffiCloneHandle(),FfiConverterUInt32.lower(pid),FfiConverterBool.lower(force)
+                        self.uniffiCloneHandle(),FfiConverterUInt32.lower(pid),FfiConverterBool.lower(force),FfiConverterOptionUInt64.lower(started),FfiConverterOptionString.lower(helperSha256)
                 )
             },
             pollFunc: ffi_ssh_core_rust_future_poll_void,
@@ -2643,13 +2651,15 @@ open func readHostGuard()async throws  -> HostGuard  {
     
     /**
      * Reads a preview of a remote file (up to `max_bytes`, capped at 128 KB), blocking sensitive credential files.
+     * With the app's pin the pinned host helper reads it in one step (canonical path, policy, open
+     * without following links, regular files only); otherwise `realpath` + `head` as before.
      */
-open func readRemoteFilePreview(path: String, maxBytes: UInt32)async throws  -> RemoteFilePreview  {
+open func readRemoteFilePreview(path: String, maxBytes: UInt32, helperSha256: String?)async throws  -> RemoteFilePreview  {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_ssh_core_fn_method_sshsessionhandle_read_remote_file_preview(
-                        self.uniffiCloneHandle(),FfiConverterString.lower(path),FfiConverterUInt32.lower(maxBytes)
+                        self.uniffiCloneHandle(),FfiConverterString.lower(path),FfiConverterUInt32.lower(maxBytes),FfiConverterOptionString.lower(helperSha256)
                 )
             },
             pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
@@ -7236,13 +7246,22 @@ public struct RemoteProcessInfo: Equatable, Hashable {
     public var memPercent: Double
     public var elapsed: String
     public var category: ProcessCategory
+    /**
+     * Start time (epoch seconds) when the host reported it; sent back with a kill request so a
+     * reused pid is refused.
+     */
+    public var startedEpoch: UInt64?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
     public init(pid: UInt32, 
         /**
          * Account that owns the process (as `ps` prints it, may be truncated).
-         */owner: String, group: ProcessGroup, name: String, commandLine: String, cpuPercent: Double, memPercent: Double, elapsed: String, category: ProcessCategory) {
+         */owner: String, group: ProcessGroup, name: String, commandLine: String, cpuPercent: Double, memPercent: Double, elapsed: String, category: ProcessCategory, 
+        /**
+         * Start time (epoch seconds) when the host reported it; sent back with a kill request so a
+         * reused pid is refused.
+         */startedEpoch: UInt64?) {
         self.pid = pid
         self.owner = owner
         self.group = group
@@ -7252,6 +7271,7 @@ public struct RemoteProcessInfo: Equatable, Hashable {
         self.memPercent = memPercent
         self.elapsed = elapsed
         self.category = category
+        self.startedEpoch = startedEpoch
     }
 
     
@@ -7278,7 +7298,8 @@ public struct FfiConverterTypeRemoteProcessInfo: FfiConverterRustBuffer {
                 cpuPercent: FfiConverterDouble.read(from: &buf), 
                 memPercent: FfiConverterDouble.read(from: &buf), 
                 elapsed: FfiConverterString.read(from: &buf), 
-                category: FfiConverterTypeProcessCategory.read(from: &buf)
+                category: FfiConverterTypeProcessCategory.read(from: &buf), 
+                startedEpoch: FfiConverterOptionUInt64.read(from: &buf)
         )
     }
 
@@ -7292,6 +7313,7 @@ public struct FfiConverterTypeRemoteProcessInfo: FfiConverterRustBuffer {
         FfiConverterDouble.write(value.memPercent, into: &buf)
         FfiConverterString.write(value.elapsed, into: &buf)
         FfiConverterTypeProcessCategory.write(value.category, into: &buf)
+        FfiConverterOptionUInt64.write(value.startedEpoch, into: &buf)
     }
 }
 
@@ -13447,7 +13469,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_installed_agent_hooks() != 44534) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_ssh_core_checksum_method_sshsessionhandle_kill_remote_process() != 61505) {
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_kill_remote_process() != 50724) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_list_agent_sessions() != 54724) {
@@ -13480,7 +13502,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_read_host_guard() != 33399) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_ssh_core_checksum_method_sshsessionhandle_read_remote_file_preview() != 57830) {
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_read_remote_file_preview() != 48715) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_read_remote_transcript() != 17846) {

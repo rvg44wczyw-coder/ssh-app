@@ -156,7 +156,7 @@ public struct HostTelemetrySheetView: View {
                     processToForceKill = nil
                 }
                 Button("SIGKILL (-9)", role: .destructive) {
-                    viewModel.killRemoteProcess(pid: proc.pid, force: true)
+                    viewModel.killRemoteProcess(pid: proc.pid, force: true, started: proc.startedEpoch)
                     processToForceKill = nil
                 }
             } message: { proc in
@@ -355,7 +355,7 @@ public struct HostTelemetrySheetView: View {
                     if proc.pid > 1 {
                         Menu {
                             Button {
-                                viewModel.killRemoteProcess(pid: proc.pid, force: false)
+                                viewModel.killRemoteProcess(pid: proc.pid, force: false, started: proc.startedEpoch)
                             } label: {
                                 Label("Terminate (SIGTERM)", systemImage: "stop.circle")
                             }

@@ -195,8 +195,30 @@ impl SshSessionHandle {
     }
 
     /// Safely terminates a remote process by PID (`SIGTERM` or `SIGKILL`), rejecting reserved PIDs <= 1.
-    pub async fn kill_remote_process(&self, pid: u32, force: bool) -> Result<(), SshCoreError> {
+    /// With the app's pin the pinned host helper does it and refuses the dangerous targets (this
+    /// connection's own processes, other accounts, the tmux server, a reused pid when `started` is
+    /// given); without it the plain `kill` runs as before.
+    pub async fn kill_remote_process(
+        &self,
+        pid: u32,
+        force: bool,
+        started: Option<u64>,
+        helper_sha256: Option<String>,
+    ) -> Result<(), SshCoreError> {
         let safe_pid = crate::telemetry::validate_kill_pid(pid)?;
+        if let Some(pin) = &helper_sha256 {
+            crate::usage::validate_sha256(pin)?;
+            let out = self
+                .execute_command_on_active_session(crate::telemetry::build_helper_kill_command(
+                    pin, safe_pid, force, started,
+                ))
+                .await?;
+            match crate::telemetry::parse_helper_kill(&out) {
+                Some(Ok(())) => return Ok(()),
+                Some(Err(reason)) => return Err(SshCoreError::IoError { reason }),
+                None => {}
+            }
+        }
         let sig = if force { "-KILL" } else { "-TERM" };
         let out = self
             .exec_raw(&format!("kill {sig} -- {safe_pid}"), DEFAULT_EXEC_TIMEOUT)
@@ -1108,13 +1130,29 @@ impl SshSessionHandle {
     }
 
     /// Reads a preview of a remote file (up to `max_bytes`, capped at 128 KB), blocking sensitive credential files.
+    /// With the app's pin the pinned host helper reads it in one step (canonical path, policy, open
+    /// without following links, regular files only); otherwise `realpath` + `head` as before.
     pub async fn read_remote_file_preview(
         &self,
         path: String,
         max_bytes: u32,
+        helper_sha256: Option<String>,
     ) -> Result<crate::file_browser::RemoteFilePreview, SshCoreError> {
         let requested = crate::file_browser::validate_remote_file_read_path(&path)?;
         let capped_max = (max_bytes as usize).clamp(1024, 131_072);
+        if let Some(pin) = &helper_sha256 {
+            crate::usage::validate_sha256(pin)?;
+            let cmd = crate::file_browser::build_helper_read_command(pin, &requested, capped_max);
+            let out = self.execute_command_on_active_session(cmd).await?;
+            match crate::file_browser::parse_helper_read(&out) {
+                Some(Ok(preview)) => {
+                    crate::file_browser::validate_remote_file_read_path(&preview.path)?;
+                    return Ok(preview);
+                }
+                Some(Err(reason)) => return Err(SshCoreError::IoError { reason }),
+                None => {}
+            }
+        }
         // Resolve symlinks first so a harmless-looking link cannot expose a blocked file.
         let resolved = self
             .execute_command_on_active_session(crate::file_browser::build_resolve_path_command(

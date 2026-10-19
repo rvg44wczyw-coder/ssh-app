@@ -30,6 +30,9 @@ pub struct RemoteDirectoryListing {
     pub is_truncated: bool,
 }
 
+/// A helper preview is never longer than this many characters, whatever the reply says.
+const MAX_PREVIEW_CHARS: usize = 140_000;
+
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct RemoteFilePreview {
     pub path: String,
@@ -261,6 +264,71 @@ pub(crate) fn parse_helper_listing(
     None
 }
 
+/// The pinned helper's `read`; the path is the only user text and travels as `$1`.
+pub(crate) fn build_helper_read_command(sha256: &str, path: &str, max_bytes: usize) -> String {
+    let script = format!(
+        "h={hp}; if [ ! -f \"$h\" ] || [ -L \"$h\" ] || \
+         [ \"$(shasum -a 256 < \"$h\" 2>/dev/null | cut -d' ' -f1)\" != '{sha256}' ]; then echo HELPER_ABSENT; \
+         else \"$h\" read --path \"$1\" --max {max_bytes} 2>/dev/null; fi",
+        hp = crate::usage::HELPER_PATH_EXPR
+    );
+    crate::hostprobe::login_sh_script(&script, &[shell_quote(path)], 20)
+}
+
+/// `Some(Ok)` a preview, `Some(Err)` a refusal the helper stated, `None` no usable reply.
+pub(crate) fn parse_helper_read(out: &str) -> Option<Result<RemoteFilePreview, String>> {
+    for line in out.lines() {
+        let line = line.trim();
+        if !line.starts_with('{') {
+            continue;
+        }
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        match v.get("ok").and_then(|o| o.as_bool()) {
+            Some(false) => {
+                let why = v.get("error").and_then(|e| e.as_str())?;
+                return Some(Err(crate::approval_queue::display_safe(
+                    &why.chars().take(300).collect::<String>(),
+                )));
+            }
+            Some(true) => {}
+            None => continue,
+        }
+        let path = v.get("path")?.as_str()?.to_string();
+        if path.chars().any(char::is_control) {
+            return None;
+        }
+        let is_binary = v.get("binary")?.as_bool()?;
+        let content = if is_binary {
+            "[Binary file — preview not available]".to_string()
+        } else {
+            v.get("text")?
+                .as_str()?
+                .chars()
+                .take(MAX_PREVIEW_CHARS)
+                .collect()
+        };
+        let filename = path
+            .rsplit('/')
+            .find(|s| !s.is_empty())
+            .unwrap_or(&path)
+            .to_string();
+        return Some(Ok(RemoteFilePreview {
+            filename,
+            content,
+            size_bytes: v.get("read").and_then(|r| r.as_u64()).unwrap_or(0),
+            is_truncated: v
+                .get("truncated")
+                .and_then(|t| t.as_bool())
+                .unwrap_or(false),
+            is_binary,
+            path,
+        }));
+    }
+    None
+}
+
 /// Builds a command printing the fully resolved (symlink-free) path of `path`, or nothing if it does not exist.
 pub fn build_resolve_path_command(path: &str) -> String {
     let q = shell_quote(path);
@@ -482,6 +550,49 @@ pub fn quote_remote_path_for_shell(path: String) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn helper_read_replies() {
+        let ok = r#"{"ok":true,"path":"/w/a.txt","size":11,"truncated":false,"binary":false,"read":11,"text":"hello\nworld"}"#;
+        let p = parse_helper_read(ok).unwrap().unwrap();
+        assert_eq!(
+            (
+                p.filename.as_str(),
+                p.content.as_str(),
+                p.size_bytes,
+                p.is_binary
+            ),
+            ("a.txt", "hello\nworld", 11, false)
+        );
+        let b = parse_helper_read(
+            r#"{"ok":true,"path":"/w/b","size":3,"truncated":false,"binary":true,"read":3}"#,
+        )
+        .unwrap()
+        .unwrap();
+        assert!(b.is_binary && b.content.contains("Binary"));
+        assert!(
+            matches!(parse_helper_read(r#"{"ok":false,"error":"Not a regular file"}"#), Some(Err(e)) if e.contains("regular"))
+        );
+        for none in [
+            "HELPER_ABSENT",
+            "",
+            r#"{"error":"usage"}"#,
+            r#"{"ok":true,"path":"/a\u001b","binary":false,"text":""}"#,
+            r#"{"ok":true}"#,
+        ] {
+            assert!(parse_helper_read(none).is_none(), "{none}");
+        }
+        let huge = format!(
+            r#"{{"ok":true,"path":"/h","binary":false,"text":"{}"}}"#,
+            "x".repeat(500_000)
+        );
+        assert_eq!(
+            parse_helper_read(&huge).unwrap().unwrap().content.len(),
+            MAX_PREVIEW_CHARS
+        );
+        let c = build_helper_read_command(&"d".repeat(64), "/a b", 4096);
+        assert!(c.contains("read --path \"$1\" --max 4096") && c.contains("HELPER_ABSENT"));
+    }
+
     #[test]
     fn display_safe_text_marks_bidi_and_pane_target_is_exact() {
         assert_eq!(

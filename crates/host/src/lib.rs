@@ -7,6 +7,7 @@ pub mod guard;
 pub mod hook;
 pub mod models;
 pub mod proc;
+pub mod procs;
 pub mod pyjson;
 pub mod queue;
 pub mod rpc;

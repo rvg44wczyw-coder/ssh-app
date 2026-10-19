@@ -54,6 +54,9 @@ pub struct RemoteProcessInfo {
     pub mem_percent: f64,
     pub elapsed: String,
     pub category: ProcessCategory,
+    /// Start time (epoch seconds) when the host reported it; sent back with a kill request so a
+    /// reused pid is refused.
+    pub started_epoch: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, uniffi::Record)]
@@ -479,6 +482,7 @@ fn parse_process_list(lines: &[&str], me_uid: Option<u32>) -> Vec<RemoteProcessI
             mem_percent,
             elapsed: elapsed_str.to_string(),
             category,
+            started_epoch: None,
         });
     }
 
@@ -533,6 +537,8 @@ struct HelperProc {
     mem: Option<f64>,
     etime: String,
     comm: String,
+    #[serde(default)]
+    started: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -627,6 +633,7 @@ pub(crate) fn parse_helper_telemetry(out: &str) -> Option<HostTelemetrySnapshot>
                 cpu_percent: finite_in(p.cpu, 100_000.0),
                 mem_percent: finite_in(p.mem, 100.0),
                 elapsed: safe(&p.etime),
+                started_epoch: p.started,
             }
         })
         .collect();
@@ -651,8 +658,70 @@ pub(crate) fn parse_helper_telemetry(out: &str) -> Option<HostTelemetrySnapshot>
     })
 }
 
+/// The pinned helper's `kill` call: only numbers reach the script.
+pub(crate) fn build_helper_kill_command(
+    sha256: &str,
+    pid: u32,
+    force: bool,
+    started: Option<u64>,
+) -> String {
+    let force = if force { " --force" } else { "" };
+    let started = started.map_or(String::new(), |s| format!(" --started {s}"));
+    let script = format!(
+        "h={path}; if [ ! -f \"$h\" ] || [ -L \"$h\" ] || \
+         [ \"$(shasum -a 256 < \"$h\" 2>/dev/null | cut -d' ' -f1)\" != '{sha256}' ]; then echo HELPER_ABSENT; \
+         else \"$h\" kill --pid {pid}{force}{started} 2>/dev/null; fi",
+        path = crate::usage::HELPER_PATH_EXPR
+    );
+    crate::hostprobe::login_sh_script(&script, &[], 20)
+}
+
+/// `Some(Ok)` the process was signalled, `Some(Err(why))` the helper refused (shown, not retried
+/// through the shell: the shell would not know the rules), `None` no usable reply.
+pub(crate) fn parse_helper_kill(out: &str) -> Option<Result<(), String>> {
+    for line in out.lines() {
+        let line = line.trim();
+        if !line.starts_with('{') {
+            continue;
+        }
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        match v.get("ok").and_then(|o| o.as_bool()) {
+            Some(true) => return Some(Ok(())),
+            Some(false) => {
+                let why = v.get("error").and_then(|e| e.as_str()).unwrap_or("refused");
+                return Some(Err(crate::approval_queue::display_safe(
+                    &why.chars().take(300).collect::<String>(),
+                )));
+            }
+            None => {}
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn kill_replies() {
+        assert!(matches!(
+            super::parse_helper_kill(r#"{"ok":true,"signalled":true}"#),
+            Some(Ok(()))
+        ));
+        assert!(
+            matches!(super::parse_helper_kill(r#"{"ok":false,"error":"That is the tmux server"}"#), Some(Err(e)) if e.contains("tmux"))
+        );
+        for none in ["HELPER_ABSENT", "", r#"{"error":"usage"}"#] {
+            assert!(super::parse_helper_kill(none).is_none(), "{none}");
+        }
+        let c = super::build_helper_kill_command(&"c".repeat(64), 123, true, Some(1700000000));
+        assert!(
+            c.contains("kill --pid 123 --force --started 1700000000")
+                && c.contains("HELPER_ABSENT")
+        );
+    }
+
     #[test]
     fn helper_reply_becomes_a_snapshot() {
         let reply = r#"noise

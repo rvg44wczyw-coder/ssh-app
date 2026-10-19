@@ -9,7 +9,9 @@
 
 use crate::proc::run_with_input;
 use serde_json::{json, Value};
-use std::os::unix::fs::PermissionsExt;
+use std::io::Read;
+use std::os::fd::AsRawFd;
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
@@ -258,6 +260,84 @@ pub fn list(target: &Target, hidden: bool, max: usize) -> Value {
     json!({"ok": true, "path": real_s, "parent": parent, "truncated": truncated, "entries": entries})
 }
 
+pub const DEFAULT_READ: usize = 65_536;
+pub const MAX_READ: usize = 131_072;
+
+/// The path the kernel says an open descriptor refers to.
+#[cfg(target_os = "macos")]
+fn fd_path(f: &std::fs::File) -> Option<String> {
+    let mut buf = vec![0u8; libc::PATH_MAX as usize];
+    // SAFETY: F_GETPATH writes a NUL-terminated path of at most PATH_MAX bytes into `buf`.
+    if unsafe { libc::fcntl(f.as_raw_fd(), libc::F_GETPATH, buf.as_mut_ptr()) } == -1 {
+        return None;
+    }
+    let end = buf.iter().position(|b| *b == 0)?;
+    String::from_utf8(buf[..end].to_vec()).ok()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn fd_path(f: &std::fs::File) -> Option<String> {
+    std::fs::read_link(format!("/proc/self/fd/{}", f.as_raw_fd()))
+        .ok()
+        .map(|p| p.to_string_lossy().into_owned())
+}
+
+/// Reads at most `max` bytes of a regular file. The path is canonicalised, checked, opened with
+/// `O_NOFOLLOW | O_NONBLOCK` (a FIFO or device never blocks), the descriptor must be a regular file,
+/// and the policy is applied once more to where the descriptor really points, so a component swapped
+/// for a link after the first check cannot reach a blocked file.
+pub fn read(path: &str, max: usize) -> Value {
+    let max = if max == 0 {
+        DEFAULT_READ
+    } else {
+        max.min(MAX_READ)
+    };
+    if let Err(e) = file_policy(path) {
+        return json!({"ok": false, "error": e});
+    }
+    let Ok(real) = std::fs::canonicalize(path.trim()) else {
+        return json!({"ok": false, "error": "File not found"});
+    };
+    let real_s = real.to_string_lossy().into_owned();
+    if let Err(e) = file_policy(&real_s) {
+        return json!({"ok": false, "error": e});
+    }
+    let opened = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(&real);
+    let Ok(file) = opened else {
+        return json!({"ok": false, "error": "Cannot open the file"});
+    };
+    let Ok(meta) = file.metadata() else {
+        return json!({"ok": false, "error": "Cannot open the file"});
+    };
+    if !meta.is_file() {
+        return json!({"ok": false, "error": "Not a regular file"});
+    }
+    match fd_path(&file) {
+        Some(at) => {
+            if let Err(e) = file_policy(&at) {
+                return json!({"ok": false, "error": e});
+            }
+        }
+        None => return json!({"ok": false, "error": "Cannot verify the file location"}),
+    }
+    let mut buf = Vec::new();
+    if file.take(max as u64 + 1).read_to_end(&mut buf).is_err() {
+        return json!({"ok": false, "error": "Cannot read the file"});
+    }
+    let truncated = buf.len() > max;
+    buf.truncate(max);
+    let binary = buf[..buf.len().min(8192)].contains(&0);
+    let mut v = json!({"ok": true, "path": real_s, "size": meta.len(), "truncated": truncated,
+                       "binary": binary, "read": buf.len()});
+    if !binary {
+        v["text"] = json!(String::from_utf8_lossy(&buf));
+    }
+    v
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -400,5 +480,52 @@ mod tests {
         assert!(
             !valid_session_name("-x") && !valid_session_name("") && valid_session_name("a-b_1.2")
         );
+    }
+
+    #[test]
+    fn reads_text_binary_truncated_and_refuses_the_rest() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(tmp.path()).unwrap();
+        let f = |n: &str| root.join(n).to_string_lossy().into_owned();
+        std::fs::write(root.join("a.txt"), "hello\nworld").unwrap();
+        std::fs::write(root.join("bin.dat"), [1u8, 0, 2]).unwrap();
+        std::fs::write(root.join("big.txt"), "x".repeat(5000)).unwrap();
+        std::fs::write(root.join(".env"), "S=1").unwrap();
+        std::fs::create_dir(root.join(".ssh")).unwrap();
+        std::fs::write(root.join(".ssh/k"), "key").unwrap();
+        std::os::unix::fs::symlink(root.join(".ssh/k"), root.join("innocent")).unwrap();
+        std::os::unix::fs::symlink(root.join("a.txt"), root.join("fine")).unwrap();
+        let t = read(&f("a.txt"), 0);
+        assert_eq!(
+            (t["ok"].clone(), t["text"].as_str(), t["size"].clone()),
+            (json!(true), Some("hello\nworld"), json!(11))
+        );
+        assert_eq!(read(&f("bin.dat"), 0)["binary"], true);
+        assert!(read(&f("bin.dat"), 0).get("text").is_none());
+        let b = read(&f("big.txt"), 1000);
+        assert_eq!(
+            (b["truncated"].clone(), b["read"].clone(), b["size"].clone()),
+            (json!(true), json!(1000), json!(5000))
+        );
+        assert_eq!(read(&f(".env"), 0)["ok"], false);
+        assert_eq!(read(&f("innocent"), 0)["ok"], false, "link into .ssh");
+        assert_eq!(read(&f("fine"), 0)["ok"], true, "harmless link");
+        assert_eq!(read(&f("missing"), 0)["ok"], false);
+        assert_eq!(
+            read(&root.to_string_lossy(), 0)["error"],
+            "Not a regular file"
+        );
+    }
+
+    #[test]
+    fn a_fifo_is_refused_without_blocking() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = tmp.path().join("pipe");
+        let c = std::ffi::CString::new(p.to_string_lossy().as_bytes()).unwrap();
+        // SAFETY: valid NUL-terminated path.
+        assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+        let t = std::time::Instant::now();
+        assert_eq!(read(&p.to_string_lossy(), 0)["error"], "Not a regular file");
+        assert!(t.elapsed() < std::time::Duration::from_secs(2));
     }
 }

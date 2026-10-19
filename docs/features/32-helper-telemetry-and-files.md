@@ -265,3 +265,27 @@ Facts that shape the work:
 
 This needs its own spec (proposed number 33) before any code: host OS detection, per-OS helper
 build and pin, the Linux telemetry/FS sources, the WSL2 route and what is explicitly unsupported.
+
+### T3 (2026-10-19): `read` and `kill` — done in core and helper; not run on a device
+
+- `read --path P [--max N]` (`files::read`): policy on the given and the canonical path,
+  `open(O_NOFOLLOW | O_NONBLOCK)`, the descriptor must be a regular file (a FIFO is refused without
+  blocking), the policy is applied once more to where the descriptor really points (`F_GETPATH` on
+  macOS, `/proc/self/fd` elsewhere), at most 128 KB, binary detection host-side (no text sent for
+  binary files), 8 s deadline (reply without `ok` ⇒ the app falls back to `realpath` + `head`).
+- `kill --pid N [--force] [--started EPOCH]` (`procs::kill`): refuses pid ≤ 1, the helper and all its
+  ancestors, another account's process, the tmux server (comm `tmux` with parent 1) and a pid whose
+  start time differs by more than 3 s from `started`; then `SIGTERM`/`SIGKILL`, 200 ms, and says
+  whether it is still running.
+- `started` (epoch seconds, from `ps` elapsed time) now comes with every process of `telemetry`;
+  `RemoteProcessInfo.started_epoch` carries it to the app, which sends it back with the kill
+  request. Cap list: `["usage","hook","agent","models","telemetry","fs","read","kill"]`.
+- Core: `read_remote_file_preview(path, max, helper_sha256)` and
+  `kill_remote_process(pid, force, started, helper_sha256)`; a refusal stated by the helper is the
+  error shown (no shell retry); no usable reply falls back to the old commands. Swift passes the pin
+  and the start time.
+- Tests: helper (refusal table, etime parsing, spawned `sleep` killed and the stale / own-process /
+  pid 1 cases refused, read of text / binary / truncated / `.env` / link into `.ssh` / harmless
+  link / directory / FIFO), core (reply parsing, hostile replies, commands), loopback through the
+  installed helper (read, refusals, wrong pin fallback, kill with stale and correct start time).
+- Still to do: hacker pass.

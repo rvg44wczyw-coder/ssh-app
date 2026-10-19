@@ -253,34 +253,34 @@ fn exec_based_methods_against_loopback_sshd() {
 
         // --- file preview ---
         let ok = handle
-            .read_remote_file_preview(format!("{work_s}/hello.txt"), 4096)
+            .read_remote_file_preview(format!("{work_s}/hello.txt"), 4096, None)
             .await
             .expect("preview");
         assert_eq!(ok.content, "line1\nline2\n");
         assert!(!ok.is_binary && !ok.is_truncated);
 
         let bin = handle
-            .read_remote_file_preview(format!("{work_s}/blob.bin"), 4096)
+            .read_remote_file_preview(format!("{work_s}/blob.bin"), 4096, None)
             .await
             .expect("binary preview");
         assert!(bin.is_binary);
 
         // Symlink named innocently, pointing at a private key: must not leak.
         let leaked = handle
-            .read_remote_file_preview(format!("{work_s}/notes.txt"), 4096)
+            .read_remote_file_preview(format!("{work_s}/notes.txt"), 4096, None)
             .await;
         assert!(leaked.is_err(), "symlink to id_rsa must be blocked");
 
         // Directories are not regular files.
         assert!(handle
-            .read_remote_file_preview(format!("{work_s}/sub"), 4096)
+            .read_remote_file_preview(format!("{work_s}/sub"), 4096, None)
             .await
             .map(|p| !p.content.contains("PRIVATE"))
             .unwrap_or(true));
 
         // Missing file.
         assert!(handle
-            .read_remote_file_preview(format!("{work_s}/nope.txt"), 4096)
+            .read_remote_file_preview(format!("{work_s}/nope.txt"), 4096, None)
             .await
             .is_err());
     });
@@ -1445,13 +1445,16 @@ fn history_transcript_kill_and_probes_against_loopback_sshd() {
         // Kill: a real process dies, reserved and unknown pids are errors (not silent successes).
         let mut victim = Command::new("sleep").arg("300").spawn().unwrap();
         handle
-            .kill_remote_process(victim.id(), false)
+            .kill_remote_process(victim.id(), false, None, None)
             .await
             .unwrap();
         assert!(!victim.wait().unwrap().success());
-        assert!(handle.kill_remote_process(1, true).await.is_err());
+        assert!(handle
+            .kill_remote_process(1, true, None, None)
+            .await
+            .is_err());
         let gone = handle
-            .kill_remote_process(2_000_000_000, false)
+            .kill_remote_process(2_000_000_000, false, None, None)
             .await
             .unwrap_err();
         assert!(matches!(gone, SshCoreError::IoError { .. }), "{gone:?}");
@@ -1846,6 +1849,42 @@ fn usage_report_finds_models_in_tmux_sessions_and_reads_transcripts() {
         assert!(wrong.entries.iter().any(|e| e.name == "note.txt"));
         let home_ls = handle.list_remote_directory(Some("~".into()), false, Some(pin.clone())).await.unwrap();
         assert_eq!(home_ls.current_path, server.home.canonicalize().unwrap().to_str().unwrap());
+
+        // 3a''. Reading and stopping processes through the pinned helper.
+        let via = handle
+            .read_remote_file_preview(format!("{fs_s}/note.txt"), 4096, Some(pin.clone()))
+            .await
+            .unwrap();
+        assert_eq!((via.content.as_str(), via.is_binary), ("hello", false));
+        assert!(handle
+            .read_remote_file_preview(format!("{fs_s}/.env"), 4096, Some(pin.clone()))
+            .await
+            .is_err());
+        assert!(handle
+            .read_remote_file_preview(format!("{fs_s}/d"), 4096, Some(pin.clone()))
+            .await
+            .is_err());
+        let wrong = handle
+            .read_remote_file_preview(format!("{fs_s}/note.txt"), 4096, Some("0".repeat(64)))
+            .await
+            .unwrap();
+        assert_eq!(wrong.content, "hello");
+        let mut victim = std::process::Command::new("sleep").arg("120").spawn().unwrap();
+        let snap = handle.fetch_host_telemetry(Some(pin.clone())).await.unwrap();
+        let seen = snap.processes.iter().find(|p| p.pid == victim.id());
+        let started = seen.and_then(|p| p.started_epoch);
+        assert!(started.is_some(), "helper lists the process with its start time");
+        assert!(handle
+            .kill_remote_process(victim.id(), false, Some(started.unwrap() - 500), Some(pin.clone()))
+            .await
+            .is_err(), "stale start time");
+        assert!(victim.try_wait().unwrap().is_none());
+        assert!(handle.kill_remote_process(1, true, None, Some(pin.clone())).await.is_err());
+        handle
+            .kill_remote_process(victim.id(), false, started, Some(pin.clone()))
+            .await
+            .unwrap();
+        let _ = victim.wait();
 
         // 3b. The host agent starts through `rpc`, answers, and is stopped again by the test.
         let st = handle
