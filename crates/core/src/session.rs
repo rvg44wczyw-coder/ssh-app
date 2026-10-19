@@ -261,6 +261,40 @@ impl SshSessionHandle {
         collect_output(channel, limit).await
     }
 
+    /// Like `exec_raw`, but sends `input` on the channel's stdin and then EOF. For values that must
+    /// not appear in a command line (the relay secret): the command reads them from stdin.
+    pub(crate) async fn exec_raw_with_stdin(
+        &self,
+        command: &str,
+        input: &[u8],
+        limit: Duration,
+    ) -> Result<ExecOutput, SshCoreError> {
+        let channel = {
+            let slot = self.ssh_client.lock().await;
+            let handle = slot.as_ref().ok_or(SshCoreError::NotConnected)?;
+            exec_start(handle, command).await?
+        };
+        channel
+            .data(input)
+            .await
+            .map_err(|e| SshCoreError::ChannelError {
+                reason: format!("Could not send input: {e}"),
+            })?;
+        let _ = channel.eof().await;
+        collect_output(channel, limit).await
+    }
+
+    pub(crate) async fn exec_with_stdin_text(
+        &self,
+        command: &str,
+        input: &[u8],
+    ) -> Result<String, SshCoreError> {
+        Ok(self
+            .exec_raw_with_stdin(command, input, DEFAULT_EXEC_TIMEOUT)
+            .await?
+            .text())
+    }
+
     /// Opens an exec channel the caller reads itself (long-lived streams).
     pub(crate) async fn exec_open(
         &self,

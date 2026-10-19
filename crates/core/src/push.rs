@@ -3,8 +3,7 @@
 //! file and lets the host agent ask the relay for one of four constant notifications.
 
 use crate::error::SshCoreError;
-use crate::hostprobe::{login_sh_script, SHA256_OF_H};
-use crate::tmux::shell_quote;
+use crate::hostprobe::{login_sh_script, stdin_to_env, SHA256_OF_H};
 use crate::usage::{validate_sha256, HELPER_PATH_EXPR};
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
@@ -71,10 +70,12 @@ fn validate_token(t: &str) -> Result<(), SshCoreError> {
     }
 }
 
-/// Runs a helper subcommand when the helper is the pinned build. `input` is piped to its stdin.
-fn command(sha256: &str, sub: &str, input: Option<&str>) -> String {
-    let feed = if input.is_some() {
-        "printf '%s' \"$1\" | "
+/// Runs a helper subcommand when the helper is the pinned build. With `stdin`, the command first
+/// reads the channel's stdin into `SSH_APP_IN` and pipes that to the helper, so the registration
+/// (with the relay secret) is never part of a command line.
+fn command(sha256: &str, sub: &str, stdin: bool) -> String {
+    let feed = if stdin {
+        "printf '%s' \"$SSH_APP_IN\" | "
     } else {
         ""
     };
@@ -83,17 +84,22 @@ fn command(sha256: &str, sub: &str, input: Option<&str>) -> String {
          [ \"{SHA256_OF_H}\" != '{sha256}' ]; then echo HELPER_ABSENT; \
          else {feed}\"$h\" {sub} 2>/dev/null; fi"
     );
-    let args: Vec<String> = input.map(shell_quote).into_iter().collect();
-    login_sh_script(&script, &args, 20)
+    let inner = login_sh_script(&script, &[], 20);
+    if stdin {
+        stdin_to_env(&inner)
+    } else {
+        inner
+    }
 }
 
+/// The registration command and the JSON that must be sent on its stdin.
 pub(crate) fn build_register_command(
     sha256: &str,
     token: &str,
     env: &str,
     url: &str,
     secret: &str,
-) -> Result<String, SshCoreError> {
+) -> Result<(String, String), SshCoreError> {
     validate_sha256(sha256)?;
     validate_token(token)?;
     if env != "production" && env != "sandbox" {
@@ -103,7 +109,7 @@ pub(crate) fn build_register_command(
     validate_relay_secret(secret)?;
     let json =
         serde_json::json!({"token": token, "env": env, "url": url, "secret": secret}).to_string();
-    Ok(command(sha256, "push-register", Some(&json)))
+    Ok((command(sha256, "push-register", true), json))
 }
 
 pub(crate) fn build_push_command(sha256: &str, sub: &str) -> Result<String, SshCoreError> {
@@ -112,7 +118,7 @@ pub(crate) fn build_push_command(sha256: &str, sub: &str) -> Result<String, SshC
         sub,
         "push-status" | "push-unregister" | "push-test"
     ));
-    Ok(command(sha256, sub, None))
+    Ok(command(sha256, sub, false))
 }
 
 fn reply(out: &str) -> Option<serde_json::Value> {
@@ -210,15 +216,17 @@ mod tests {
     }
 
     #[test]
-    fn the_registration_travels_as_one_quoted_argument_to_the_pinned_helper() {
-        let c = build_register_command(SHA, TOKEN, "sandbox", URL, SECRET).unwrap();
+    fn the_registration_travels_on_stdin_never_in_the_command_line() {
+        let (c, input) = build_register_command(SHA, TOKEN, "sandbox", URL, SECRET).unwrap();
         assert!(c.contains("push-register"));
         assert!(c.contains(SHA));
         assert!(c.contains("HELPER_ABSENT"));
+        assert!(c.contains("SSH_APP_IN"));
         assert!(
-            !c.contains("push-register '"),
-            "the secret is not an argument of the helper"
+            !c.contains(SECRET) && !c.contains(TOKEN),
+            "nothing sensitive in the command line"
         );
+        assert!(input.contains(SECRET) && input.contains(TOKEN));
         let s = build_push_command(SHA, "push-status").unwrap();
         assert!(s.contains("push-status") && !s.contains(SECRET));
     }

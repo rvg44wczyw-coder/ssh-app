@@ -43,6 +43,14 @@ pub(crate) fn cancellable_sh(command: &str) -> String {
     format!("sh -c {}", shell_quote(&script))
 }
 
+/// Wraps an already built command so that up to 4 KiB of its stdin are read first and handed to it
+/// in the environment variable `SSH_APP_IN` (not in argv, so `ps` on the host does not show it).
+/// The exec channel must send its input and EOF.
+pub(crate) fn stdin_to_env(command: &str) -> String {
+    let script = format!("SSH_APP_IN=$(head -c 4096); export SSH_APP_IN; {command}");
+    format!("sh -c {}", shell_quote(&script))
+}
+
 /// Runs the POSIX `script` through the user's login shell (so `PATH` from `.zprofile` is set;
 /// never a hard-coded shell), then through `sh` (the login shell may be fish), under a host-side
 /// watchdog. `args` become `$1...` and must already be shell-quoted (or an expression such as

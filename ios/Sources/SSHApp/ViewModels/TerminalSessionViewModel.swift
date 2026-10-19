@@ -45,6 +45,8 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     /// Public half of this tab's key, for the WSL2 setup snippets (the private key is not kept).
     public private(set) var publicKeyLine: String? = nil
     private var hostKey: String = ""
+    /// `user@host:port`, the key the app uses for per-host settings (push registration).
+    public var hostCacheKey: String { hostKey }
 
     private var handle: SshSessionHandle?
     /// The live core session, for host-side management actions (e.g. agent hook install).
@@ -451,6 +453,8 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
                     print("[SwiftVM \(self.instanceId)] Connected! Applying window size: \(self.lastCols)x\(self.lastRows)")
                     try? handle.resize(cols: self.lastCols, rows: self.lastRows)
                 }
+                // Keeps the push registration of hosts the user registered once current (token changes).
+                Task { await PushManager.shared.syncIfRegistered(viewModel: self) }
             }
         }
     }

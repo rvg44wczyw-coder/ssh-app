@@ -267,7 +267,10 @@ private struct PushSection: View {
                     .disabled(push.token == nil || url.isEmpty || secret.isEmpty)
                 Button("Test") { Task { await run { try await $0.hostPushTest(expectedSha256: $1) } } }
                     .disabled(status?.registered != true)
-                Button("Remove", role: .destructive) { Task { await run { try await $0.hostPushUnregister(expectedSha256: $1) } } }
+                Button("Remove", role: .destructive) {
+                    push.forget(viewModel.hostCacheKey)
+                    Task { await run { try await $0.hostPushUnregister(expectedSha256: $1) } }
+                }
                     .disabled(status?.registered != true)
             }
             .buttonStyle(.bordered)
@@ -284,6 +287,7 @@ private struct PushSection: View {
     private func register() async {
         guard let token = push.token else { return }
         await run { try await $0.hostPushRegister(expectedSha256: $1, token: token, env: PushManager.apsEnvironment, relayUrl: url, relaySecret: secret) }
+        if status?.registered == true { push.markRegistered(viewModel.hostCacheKey) }
     }
 
     private func run(_ call: (SshSessionHandle, String) async throws -> HostPushResult) async {

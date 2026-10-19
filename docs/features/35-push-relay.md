@@ -106,6 +106,8 @@ Update: the owner created key `R2LYYFG7JF` (APNs, Sandbox & Production) and it r
 ## 7. T2/T3 implementation notes (2026-10-19)
 
 - Host: `crates/host/src/push.rs`; commands `push-register` (JSON on stdin), `push-unregister`, `push-status`, `push-test`; `hello` caps gained `push`; the agent now runs with `PushSink`. 7 unit tests; a real send through `curl` to the deployed Worker was checked with a fake token (410 removes the registration).
-- Core: `crates/core/src/push.rs` and `host_push_register/status/unregister/test` on the session handle; the registration travels as one shell-quoted argument (the exec channel has no stdin; see the hacker note), 3 unit tests and a loopback test.
+- Core: `crates/core/src/push.rs` and `host_push_register/status/unregister/test` on the session handle; the registration travels on the exec channel's stdin (`exec_raw_with_stdin`, read into `SSH_APP_IN` by a wrapper), never in a command line, 3 unit tests and a loopback test.
 - App: `PushManager` (permission, token, relay address in preferences, secret in the Keychain, environment read from the embedded provisioning profile) and a Push section in the host card; entitlement `aps-environment` added. Not yet run on a device; Xcode must have the Push Notifications capability on the App ID (the owner enabled it).
 - Findings: `docs/security-findings/2026-10-19-push-relay-t1-t3.md`.
+
+- Token changes: hosts the user registered once (kept in preferences) are re-registered automatically on connect when the stored token tail or environment differs from this install (`PushManager.syncIfRegistered`); hosts never registered are never sent the relay secret.

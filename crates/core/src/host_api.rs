@@ -985,14 +985,14 @@ impl SshSessionHandle {
         relay_url: String,
         relay_secret: String,
     ) -> Result<crate::push::HostPushResult, SshCoreError> {
-        let cmd = crate::push::build_register_command(
+        let (cmd, input) = crate::push::build_register_command(
             &expected_sha256,
             &token,
             &env,
             &relay_url,
             &relay_secret,
         )?;
-        let out = self.execute_command_on_active_session(cmd).await?;
+        let out = self.exec_with_stdin_text(&cmd, input.as_bytes()).await?;
         Ok(crate::push::parse_result(&out))
     }
 

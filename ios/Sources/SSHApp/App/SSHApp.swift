@@ -1,6 +1,7 @@
 import SwiftUI
 import UserNotifications
 import Security
+import SshCoreBridge
 
 @main
 public struct SSHMobileApp: App {
@@ -96,7 +97,32 @@ final class PushManager: ObservableObject {
         }
     }
 
-    func didRegister(token: String) { self.token = token; lastError = nil }
+    func didRegister(token: String) {
+        self.token = token
+        lastError = nil
+    }
+
+    /// Hosts the user registered for push once; only these are kept in sync automatically, so the
+    /// relay secret never goes to a host the user did not choose.
+    private static let hostsKey = "push_registered_hosts"
+    private var registeredHosts: Set<String> {
+        get { Set(UserDefaults.standard.stringArray(forKey: Self.hostsKey) ?? []) }
+        set { UserDefaults.standard.set(Array(newValue).sorted(), forKey: Self.hostsKey) }
+    }
+    func markRegistered(_ hostKey: String) { registeredHosts.insert(hostKey) }
+    func forget(_ hostKey: String) { registeredHosts.remove(hostKey) }
+
+    /// On connect: if this host was registered before and its stored token or environment no
+    /// longer match this install, register again.
+    func syncIfRegistered(viewModel: TerminalSessionViewModel) async {
+        let key = viewModel.hostCacheKey
+        guard registeredHosts.contains(key), let token, !relayURL.isEmpty, !relaySecret.isEmpty,
+              let handle = viewModel.sessionHandle, let pin = await viewModel.helperPin() else { return }
+        let env = Self.apsEnvironment
+        if let st = try? await handle.hostPushStatus(expectedSha256: pin), st.registered,
+           st.tokenTail == String(token.suffix(6)), st.env == env { return }
+        _ = try? await handle.hostPushRegister(expectedSha256: pin, token: token, env: env, relayUrl: relayURL, relaySecret: relaySecret)
+    }
     func didFail(_ message: String) { lastError = message }
 
     private static func query() -> [String: Any] {

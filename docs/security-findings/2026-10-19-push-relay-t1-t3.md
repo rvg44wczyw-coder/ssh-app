@@ -8,10 +8,10 @@ Live attacks run
 - Core: URL/secret/token validators reject quote and `;` injections before a command string is built (unit tests); the loopback test registers, reads back, refuses a different pin on the host, unregisters.
 
 Findings
-1. Metadata, Low (accepted): the registration JSON (with the relay secret) is an argument of the `sh -c` command that carries it over SSH, so for a few milliseconds it is visible in `ps` to other users of the host. The app's exec channel has no stdin; the host is the owner's personal Mac and `ctl decide` already works this way. Impact is bounded: with the secret one can only trigger the four constant notifications to a token one also knows. Direction: a stdin-capable exec in the core would remove it.
+1. Metadata, Low (fixed): the registration (with the relay secret) was an argument of the `sh -c` command and visible in `ps` on the host for a few milliseconds. Now the exec channel sends it on stdin (`exec_raw_with_stdin`), a small wrapper (`stdin_to_env`) reads up to 4 KiB into the environment variable `SSH_APP_IN` and the command pipes that to `push-register`; the command line contains nothing sensitive (unit test) and the loopback test registers and reads back through this path.
 2. DoS, Low (accepted): the hourly counter is in KV (eventually consistent), so a burst across edge locations can pass slightly more than 20. Only secret holders reach it.
 3. Replay, none: a captured request just repeats a constant notification, limited by the counter and by `apns-collapse-id`.
 4. Not applicable: key confusion, downgrade (one fixed call), MITM beyond TLS to Cloudflare/curl with `--proto =https` and no redirect following.
 5. `.p8` handling: only as a Worker secret; local copy has mode 0600 outside the repository. Sandbox needs a key created for "Sandbox & Production" (done, `R2LYYFG7JF`).
 
-Verdict: clean (two Low accepted).
+Verdict: clean (one Low accepted, one fixed).
