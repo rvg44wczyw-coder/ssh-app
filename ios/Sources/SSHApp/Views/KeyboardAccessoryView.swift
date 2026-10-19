@@ -12,6 +12,8 @@ public struct KeyboardAccessoryView: View {
     public let menuAgent: String?
     /// Tells servers apart in the model-list cache (the lists differ per host).
     public let menuScope: String
+    /// False while the session is not connected; the lists are fetched once it turns true.
+    public let menuReady: Bool
     public let loadModels: ((String) async -> [(id: String, label: String)])?
     @State private var models: [(id: String, label: String)] = []
     @State private var modelsLoading = false
@@ -25,10 +27,12 @@ public struct KeyboardAccessoryView: View {
         onSnippetsTap: (() -> Void)? = nil,
         menuAgent: String? = nil,
         menuScope: String = "",
+        menuReady: Bool = true,
         loadModels: ((String) async -> [(id: String, label: String)])? = nil
     ) {
         self.menuAgent = menuAgent
         self.menuScope = menuScope
+        self.menuReady = menuReady
         self.loadModels = loadModels
         self.onSendBytes = onSendBytes
         self.onAiAssistantTap = onAiAssistantTap
@@ -89,7 +93,7 @@ public struct KeyboardAccessoryView: View {
             .padding(.vertical, 6)
         }
         .background(Color.appSecondaryBackground)
-        .task(id: "\(menuScope)|\(menuAgent ?? "")") { await prefetchModels() }
+        .task(id: "\(menuScope)|\(menuAgent ?? "")|\(menuReady)") { await prefetchModels() }
         .sheet(isPresented: $showEditor) { QuickCommandsEditorView() }
         .confirmationDialog(
             "Run \(pendingClear?.label ?? "")?",
@@ -137,7 +141,7 @@ public struct KeyboardAccessoryView: View {
     /// Asks the host once per agent (cached for hours) when a command uses model lists.
     private func prefetchModels() async {
         models = []
-        guard let agent = menuAgent, let loadModels,
+        guard menuReady, let agent = menuAgent, let loadModels,
             store.commands.contains(where: { $0.menu?.source == .agentModels })
         else { return }
         let cacheKey = "\(menuScope)|\(agent)"

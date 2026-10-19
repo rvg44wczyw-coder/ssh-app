@@ -971,6 +971,7 @@ struct ActiveTerminalSessionView: View {
                     },
                     menuAgent: modelMenuAgent,
                     menuScope: viewModel.session.serverId?.uuidString ?? "",
+                    menuReady: viewModel.state == .connected && viewModel.sessionHandle != nil,
                     loadModels: { agent in
                         guard let handle = viewModel.sessionHandle, let pin = bundledHostHelperSha256(),
                             viewModel.state == .connected
