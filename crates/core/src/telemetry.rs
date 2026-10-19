@@ -527,8 +527,10 @@ struct HelperProc {
     pid: u32,
     uid: u32,
     user: String,
-    cpu: f64,
-    mem: f64,
+    #[serde(default)]
+    cpu: Option<f64>,
+    #[serde(default)]
+    mem: Option<f64>,
     etime: String,
     comm: String,
 }
@@ -563,8 +565,18 @@ struct HelperTelemetry {
     disk: Option<HelperDisk>,
     battery: Option<HelperBattery>,
     me_uid: Option<u32>,
-    #[serde(default)]
-    procs: Vec<HelperProc>,
+    /// Missing means the helper could not list processes: the shell script is asked instead.
+    procs: Option<Vec<HelperProc>>,
+}
+
+/// Text from the host that is shown in the app: bidi / zero-width / control characters become a
+/// visible marker, whatever the helper did (an older or replaced build may not clean them).
+fn safe(s: &str) -> String {
+    crate::approval_queue::display_safe(s)
+}
+
+fn finite_in(v: Option<f64>, max: f64) -> f64 {
+    v.filter(|x| x.is_finite()).unwrap_or(0.0).clamp(0.0, max)
 }
 
 /// Builds the snapshot from the helper's reply; `None` when there is no usable reply (absent
@@ -596,7 +608,7 @@ pub(crate) fn parse_helper_telemetry(out: &str) -> Option<HostTelemetrySnapshot>
     let [load_1m, load_5m, load_15m] = h.load.unwrap_or([0.0; 3]);
     let me_uid = h.me_uid;
     let mut processes: Vec<RemoteProcessInfo> = h
-        .procs
+        .procs?
         .into_iter()
         .map(|p| {
             let command_line: String = p.comm.chars().take(240).collect();
@@ -609,19 +621,19 @@ pub(crate) fn parse_helper_telemetry(out: &str) -> Option<HostTelemetrySnapshot>
                 pid: p.pid,
                 group: classify_process_group(p.uid, p.user.clone(), command_line.clone(), me_uid),
                 category: classify_process_category(command_line.clone()),
-                owner: p.user,
-                name,
-                command_line,
-                cpu_percent: p.cpu,
-                mem_percent: p.mem,
-                elapsed: p.etime,
+                owner: safe(&p.user),
+                name: safe(&name),
+                command_line: safe(&command_line),
+                cpu_percent: finite_in(p.cpu, 100_000.0),
+                mem_percent: finite_in(p.mem, 100.0),
+                elapsed: safe(&p.etime),
             }
         })
         .collect();
     sort_processes(&mut processes);
     Some(HostTelemetrySnapshot {
-        hostname: h.host.unwrap_or_else(|| "unknown".to_string()),
-        os_name: h.os.unwrap_or_else(|| "Unix".to_string()),
+        hostname: h.host.map_or_else(|| "unknown".to_string(), |v| safe(&v)),
+        os_name: h.os.map_or_else(|| "Unix".to_string(), |v| safe(&v)),
         cpu_cores: h.cores.filter(|&c| c > 0).unwrap_or(1),
         load_1m,
         load_5m,
@@ -661,6 +673,23 @@ mod tests {
         assert_eq!(
             s.processes.last().map(|p| p.group),
             Some(ProcessGroup::System)
+        );
+    }
+
+    #[test]
+    fn a_reply_without_the_process_list_or_with_null_numbers_is_handled() {
+        // No `procs`: ask the shell script (None); a null cpu in one row must not drop the reply.
+        assert!(super::parse_helper_telemetry(r#"{"ok":true,"host":"m"}"#).is_none());
+        let reply = r#"{"ok":true,"procs":[{"pid":3,"uid":501,"user":"u","cpu":null,"mem":-4.0,"etime":"0:1","comm":"/bin/x\u202egnp.txt"}]}"#;
+        let s = super::parse_helper_telemetry(reply).expect("snapshot");
+        assert_eq!(
+            (s.processes[0].cpu_percent, s.processes[0].mem_percent),
+            (0.0, 0.0)
+        );
+        assert!(
+            s.processes[0].command_line.contains("U+202E"),
+            "{}",
+            s.processes[0].command_line
         );
     }
 

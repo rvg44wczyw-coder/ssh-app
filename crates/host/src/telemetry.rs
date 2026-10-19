@@ -5,12 +5,14 @@
 //! timeout) but are parsed here, once, and handed over as raw values; the app derives percentages
 //! and classifies the processes. A source that fails leaves its field out.
 
-use crate::proc::run_with_input;
+use crate::proc::{run_with_input, MAX_OUT};
 use serde_json::{json, Value};
 use std::process::Command;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const TOOL_TIMEOUT: Duration = Duration::from_secs(4);
+/// All tools together; the app's host-side watchdog is 20 s, so a partial answer beats none.
+const TOTAL_BUDGET: Duration = Duration::from_secs(12);
 const TOP_BY_CPU: usize = 150;
 const MAX_PROCS: usize = 400;
 const MAX_COMM: usize = 240;
@@ -29,19 +31,62 @@ const ALWAYS_KEEP: [&str; 11] = [
     "mlx",
 ];
 
-fn tool(program: &str, args: &[&str]) -> Option<String> {
-    let mut cmd = Command::new(program);
+/// System tools by absolute path, so a program earlier in the user's `PATH` cannot stand in for
+/// them; the bare name is the fallback where the absolute path does not exist.
+fn resolve(program: &str) -> String {
+    ["/bin", "/usr/bin", "/usr/sbin", "/sbin"]
+        .iter()
+        .map(|d| format!("{d}/{program}"))
+        .find(|p| std::path::Path::new(p).is_file())
+        .unwrap_or_else(|| program.to_string())
+}
+
+/// Output of a tool that finished before `deadline` (and within `TOOL_TIMEOUT`). A tool that was
+/// cut off because it wrote more than `MAX_OUT` (it dies from SIGPIPE) still counts: the text is
+/// shortened to its last complete line and the flag says so.
+fn run_tool(program: &str, args: &[&str], deadline: Instant) -> Option<(String, bool)> {
+    let left = deadline.checked_duration_since(Instant::now())?;
+    let mut cmd = Command::new(resolve(program));
     cmd.args(args).env("LC_ALL", "C");
-    let (code, out) = run_with_input(cmd, b"", TOOL_TIMEOUT)?;
-    (code == Some(0)).then(|| String::from_utf8_lossy(&out).into_owned())
+    let (code, out) = run_with_input(cmd, b"", left.min(TOOL_TIMEOUT))?;
+    let capped = out.len() as u64 >= MAX_OUT;
+    if code != Some(0) && !capped {
+        return None;
+    }
+    let mut text = String::from_utf8_lossy(&out).into_owned();
+    if capped {
+        text.truncate(text.rfind('\n').map_or(0, |i| i + 1));
+    }
+    Some((text, capped))
+}
+
+fn tool(program: &str, args: &[&str], deadline: Instant) -> Option<String> {
+    run_tool(program, args, deadline).map(|(t, _)| t)
+}
+
+/// Characters that reorder or hide text (controls, bidi, zero-width, line separators): dropped,
+/// because a process name is shown where the user decides what to stop.
+fn spoofy(c: char) -> bool {
+    c.is_control()
+        || matches!(c,
+            '\u{ad}' | '\u{61c}' | '\u{180e}' | '\u{200b}'..='\u{200f}' | '\u{2028}'..='\u{202e}'
+            | '\u{2060}'..='\u{206f}' | '\u{feff}' | '\u{fff9}'..='\u{fffb}')
 }
 
 fn clean(s: &str) -> String {
     s.chars()
-        .filter(|c| !c.is_control())
+        .filter(|c| !spoofy(*c))
         .collect::<String>()
         .trim()
         .to_string()
+}
+
+fn finite(v: f64, max: f64) -> f64 {
+    if v.is_finite() {
+        v.clamp(0.0, max)
+    } else {
+        0.0
+    }
 }
 
 /// Used bytes on macOS: active + wired + compressor pages times the page size `vm_stat` reports.
@@ -141,8 +186,11 @@ pub fn parse_ps(text: &str) -> Vec<Value> {
         if comm.is_empty() {
             continue;
         }
-        let cpu = cpu.replace(',', ".").parse::<f64>().unwrap_or(0.0);
-        let mem = mem.replace(',', ".").parse::<f64>().unwrap_or(0.0);
+        let cpu = finite(
+            cpu.replace(',', ".").parse::<f64>().unwrap_or(0.0),
+            100_000.0,
+        );
+        let mem = finite(mem.replace(',', ".").parse::<f64>().unwrap_or(0.0), 100.0);
         let lower = comm.to_lowercase();
         all.push(P {
             cpu,
@@ -172,29 +220,37 @@ fn load_average() -> Option<[f64; 3]> {
 }
 
 pub fn snapshot() -> Value {
+    snapshot_within(TOTAL_BUDGET)
+}
+
+fn snapshot_within(budget: Duration) -> Value {
+    let deadline = Instant::now() + budget;
     let mut o = serde_json::Map::new();
     o.insert("ok".into(), json!(true));
-    if let Some(h) = tool("hostname", &[]) {
+    if let Some(h) = tool("hostname", &[], deadline) {
         o.insert("host".into(), json!(clean(&h)));
     }
-    if let Some(u) = tool("uname", &["-srm"]) {
+    if let Some(u) = tool("uname", &["-srm"], deadline) {
         o.insert("os".into(), json!(clean(&u)));
     }
-    if let Some(c) = tool("sysctl", &["-n", "hw.ncpu"]).and_then(|s| s.trim().parse::<u32>().ok()) {
+    if let Some(c) =
+        tool("sysctl", &["-n", "hw.ncpu"], deadline).and_then(|s| s.trim().parse::<u32>().ok())
+    {
         o.insert("cores".into(), json!(c));
     }
     if let Some(l) = load_average() {
         o.insert("load".into(), json!(l));
     }
-    let total = tool("sysctl", &["-n", "hw.memsize"]).and_then(|s| s.trim().parse::<u64>().ok());
-    let used = tool("vm_stat", &[]).and_then(|s| parse_vm_stat_used(&s));
+    let total =
+        tool("sysctl", &["-n", "hw.memsize"], deadline).and_then(|s| s.trim().parse::<u64>().ok());
+    let used = tool("vm_stat", &[], deadline).and_then(|s| parse_vm_stat_used(&s));
     if let (Some(t), Some(u)) = (total, used) {
         o.insert("mem".into(), json!({"total": t, "used": u.min(t)}));
     }
-    if let Some((t, a)) = tool("df", &["-k", "/"]).and_then(|s| parse_df(&s)) {
+    if let Some((t, a)) = tool("df", &["-k", "/"], deadline).and_then(|s| parse_df(&s)) {
         o.insert("disk".into(), json!({"total_kb": t, "avail_kb": a}));
     }
-    if let Some(b) = tool("pmset", &["-g", "batt"]) {
+    if let Some(b) = tool("pmset", &["-g", "batt"], deadline) {
         let (pct, charging, source) = parse_battery(&b);
         if pct.is_some() || source.is_some() {
             o.insert(
@@ -205,8 +261,13 @@ pub fn snapshot() -> Value {
     }
     // SAFETY: getuid has no preconditions.
     o.insert("me_uid".into(), json!(unsafe { libc::getuid() }));
-    if let Some(p) = tool("ps", &["-Ao", "pid=,uid=,user=,pcpu=,pmem=,etime=,comm="]) {
+    if let Some((p, capped)) = run_tool(
+        "ps",
+        &["-Ao", "pid=,uid=,user=,pcpu=,pmem=,etime=,comm="],
+        deadline,
+    ) {
         o.insert("procs".into(), Value::Array(parse_ps(&p)));
+        o.insert("procs_truncated".into(), json!(capped));
     }
     Value::Object(o)
 }
@@ -279,5 +340,57 @@ mod tests {
         assert_eq!(s["ok"], true);
         assert!(s["load"].is_array());
         assert!(s["procs"].as_array().is_some_and(|p| !p.is_empty()));
+    }
+
+    #[test]
+    fn bidi_and_zero_width_are_dropped() {
+        let procs = parse_ps("12 501 u 1.0 2.0 00:05 /bin/e\u{202e}\u{200b}gnp.txt\u{2066}\n");
+        assert_eq!(procs[0]["comm"], "/bin/egnp.txt");
+        assert_eq!(clean("a\u{feff}b\u{85}c"), "abc");
+    }
+
+    #[test]
+    fn non_finite_and_negative_numbers_are_made_safe() {
+        let procs =
+            parse_ps("1 501 u nan 1e999 0:1 /a\n2 501 u inf -3 0:1 /b\n3 501 u -5 1.0 0:1 /c\n");
+        assert_eq!(procs.len(), 3);
+        for p in &procs {
+            assert!(
+                p["cpu"]
+                    .as_f64()
+                    .is_some_and(|c| (0.0..=100_000.0).contains(&c)),
+                "{p}"
+            );
+            assert!(
+                p["mem"]
+                    .as_f64()
+                    .is_some_and(|m| (0.0..=100.0).contains(&m)),
+                "{p}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_expired_budget_skips_the_tool_and_a_slow_tool_is_cut() {
+        assert!(run_tool("sleep", &["5"], Instant::now()).is_none());
+        let t = Instant::now();
+        assert!(run_tool("sleep", &["5"], Instant::now() + Duration::from_millis(300)).is_none());
+        assert!(t.elapsed() < Duration::from_secs(2));
+        let s = snapshot_within(Duration::ZERO);
+        assert_eq!(s["ok"], true);
+        assert!(s.get("procs").is_none() && s.get("host").is_none());
+    }
+
+    #[test]
+    fn output_over_the_cap_is_cut_at_a_whole_line_and_flagged() {
+        // `yes` writes forever and dies from SIGPIPE once the cap is read: partial output, not none.
+        let (text, capped) = run_tool(
+            "yes",
+            &["1 501 u 1.0 1.0 0:1 /opt/x"],
+            Instant::now() + Duration::from_secs(5),
+        )
+        .expect("capped output");
+        assert!(capped && text.ends_with('\n') && text.len() as u64 <= MAX_OUT);
+        assert!(!parse_ps(&text).is_empty());
     }
 }

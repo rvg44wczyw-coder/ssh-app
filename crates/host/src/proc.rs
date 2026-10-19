@@ -5,7 +5,7 @@ use std::io::{Read, Write};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-const MAX_OUT: u64 = 1 << 20;
+pub const MAX_OUT: u64 = 1 << 20;
 
 /// Runs `cmd`, feeding it `input`, and returns its exit code and stdout, or `None` when it could
 /// not start, wrote too much, or did not finish within `timeout` (it is killed then).
