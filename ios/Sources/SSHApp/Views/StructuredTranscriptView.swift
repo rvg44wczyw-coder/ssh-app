@@ -5,6 +5,8 @@ public struct StructuredTranscriptView: View {
     @ObservedObject var viewModel: TerminalSessionViewModel
     @State private var promptText: String = ""
     @State private var atBottom = true
+    /// Pinch in the feed changes this (0.75-1.8); kept across launches.
+    @AppStorage("feedTextScale") private var feedTextScale: Double = 1.0
     @State private var unseenNew = false
     @State private var scrollToken = 0
     @State private var findToken = 0
@@ -162,7 +164,9 @@ public struct StructuredTranscriptView: View {
                     scrollToken: scrollToken,
                     findToken: findToken,
                     dark: colorScheme == .dark,
-                    highlightVersion: highlightVersion
+                    highlightVersion: highlightVersion,
+                    textScale: CGFloat(feedTextScale),
+                    onScale: { feedTextScale = Double($0) }
                 )
                 .background(Color.appBackground)
                 .task(id: "\(viewModel.transcriptTurns.count)|\(viewModel.transcriptTurns.last?.content?.count ?? 0)|\(colorScheme == .dark)") {

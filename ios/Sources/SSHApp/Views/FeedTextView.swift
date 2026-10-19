@@ -20,6 +20,9 @@ struct FeedTextView: UIViewRepresentable {
     let dark: Bool
     /// Bumped when syntax colours for code blocks arrived, so the text is rebuilt.
     let highlightVersion: Int
+    /// Text size factor (pinch to change); `onScale` reports the new one when the gesture ends.
+    let textScale: CGFloat
+    let onScale: (CGFloat) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -36,12 +39,16 @@ struct FeedTextView: UIViewRepresentable {
         tv.linkTextAttributes = [.foregroundColor: UIColor.secondaryLabel]
         tv.isFindInteractionEnabled = true
         tv.delegate = context.coordinator
+        let pinch = UIPinchGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.pinched(_:)))
+        pinch.delegate = context.coordinator
+        tv.addGestureRecognizer(pinch)
         return tv
     }
 
     func updateUIView(_ tv: UITextView, context: Context) {
         let c = context.coordinator
         c.parent = self
+        FeedAttributedBuilder.scale = textScale
         let text = FeedAttributedBuilder.build(
             turns: turns, expandedThinking: expandedThinking, expandedTools: expandedTools, dark: dark)
         if findToken != c.lastFind {
@@ -71,8 +78,25 @@ struct FeedTextView: UIViewRepresentable {
         }
     }
 
-    final class Coordinator: NSObject, UITextViewDelegate {
+    final class Coordinator: NSObject, UITextViewDelegate, UIGestureRecognizerDelegate {
         var parent: FeedTextView
+        private var pinchBase: CGFloat = 1
+
+        static let range: ClosedRange<CGFloat> = 0.75...1.8
+
+        /// Selection and scrolling keep working; the pinch only adds the size change.
+        func gestureRecognizer(_ g: UIGestureRecognizer,
+                               shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
+
+        @objc func pinched(_ g: UIPinchGestureRecognizer) {
+            switch g.state {
+            case .began: pinchBase = parent.textScale
+            case .ended:
+                let next = min(max(pinchBase * g.scale, Self.range.lowerBound), Self.range.upperBound)
+                if abs(next - parent.textScale) > 0.02 { parent.onScale(next) }
+            default: break
+            }
+        }
         var lastText = NSAttributedString()
         var lastToken = 0
         var lastFind = 0
@@ -188,7 +212,15 @@ enum FeedAttributedBuilder {
     nonisolated private static let size: CGFloat = 13.5
     private static let previewLines = 4
 
+    /// Text size factor set by the pinch gesture (1 = the designed sizes); applied to every size below.
+    static var scale: CGFloat = 1
+
     private static func mono(_ weight: UIFont.Weight = .regular, size: CGFloat = size) -> UIFont {
+        UIFont.monospacedSystemFont(ofSize: size * scale, weight: weight)
+    }
+
+    /// For sizes that were already scaled (taken from an existing font).
+    private static func monoExact(_ weight: UIFont.Weight = .regular, size: CGFloat) -> UIFont {
         UIFont.monospacedSystemFont(ofSize: size, weight: weight)
     }
 
@@ -485,10 +517,10 @@ enum FeedAttributedBuilder {
             var font = baseFont
             var extra: [NSAttributedString.Key: Any] = [:]
             if let intent = run.inlinePresentationIntent {
-                if intent.contains(.stronglyEmphasized) { font = mono(.bold, size: baseFont.pointSize) }
+                if intent.contains(.stronglyEmphasized) { font = monoExact(.bold, size: baseFont.pointSize) }
                 if intent.contains(.emphasized) { font = italic(font) }
                 if intent.contains(.code) {
-                    font = mono(.regular, size: baseFont.pointSize - 0.5)
+                    font = monoExact(.regular, size: baseFont.pointSize - 0.5)
                     extra[.backgroundColor] = UIColor.secondarySystemFill
                     extra[.foregroundColor] = UIColor.systemOrange
                 }

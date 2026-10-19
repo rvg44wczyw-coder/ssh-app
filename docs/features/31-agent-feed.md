@@ -89,7 +89,7 @@ to the pane. Reload errors are shown once in the header, not replacing turns.
 
 Done 2026-10-19: F2 Edit / Write tool calls show a red/green diff when expanded, F3 search
 (system find bar from the magnifier in the header), F4 a "Feed" button over the terminal when an
-agent runs in the pane. Left: F5 pinch to change text size, syntax colours in diffs.
+agent runs in the pane. F5 pinch to change text size done (2026-10-19, simulator build only; factor 0.75-1.8 kept in `feedTextScale`). Left: syntax colours in diffs.
 
 ## 8. Review notes
 
