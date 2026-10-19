@@ -1892,6 +1892,8 @@ fn usage_report_finds_models_in_tmux_sessions_and_reads_transcripts() {
             .args(["-c", "sleep 120; :", "claude"])
             .spawn()
             .unwrap();
+        // Right after the fork the process still carries the parent's command line.
+        tokio::time::sleep(Duration::from_millis(500)).await;
         let snap = handle.fetch_host_telemetry(Some(pin.clone())).await.unwrap();
         let seen = snap.processes.iter().find(|p| p.pid == victim.id());
         let started = seen.and_then(|p| p.started_epoch);
