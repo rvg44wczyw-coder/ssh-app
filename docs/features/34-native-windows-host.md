@@ -179,3 +179,18 @@ Each phase follows the dev-chain with a hacker pass.
   sheets, pane-context / model badge, usage strip, `ssh-app-host` telemetry / file browser / kill)
   until W4/W5 port them to the Windows helper; the app shows the generic "unavailable" errors there.
   The helper blob for Windows is not embedded yet (W4), so "Install on this host" says so.
+
+### W4/W6 (2026-10-19): helper install and setup text — unit-tested; not run on Windows
+
+- `x86_64-pc-windows-gnu` blob (`ssh-app-host-win.exe`, 1.3 MB) is built by `make xcframework`
+  (cargo-zigbuild) and embedded; Windows on ARM uses it through emulation.
+- `ensure_windows_helper_once(config)`: `certutil -hashfile` of `.ssh-app\bin\ssh-app-host-<12 hex>.exe`;
+  if absent or different, the file is appended as hex in chunks of 6 000 characters with `echo`, then
+  `certutil -decodehex` + `-hashfile`; a wrong digest deletes the file. About 430 small commands for
+  1.3 MB. The name carries the digest, so an update never touches a file a running server holds.
+- Requires `cmd.exe` as the SSH shell (the setup text sets `DefaultShell`); the terminal tab itself
+  still opens PowerShell 7 or Windows PowerShell.
+- `windows_setup_snippets(public_key)`: OpenSSH Server, DefaultShell, key into the right file for admin
+  or standard accounts, Tailscale, a check. The setup sheet has a "WSL2 / Windows directly" switch.
+- Hacker pass: `docs/security-findings/2026-10-19-windows-install-w3-w4.md`.
+- Open: helper features on Windows (telemetry, file browser, kill, hooks) = W4b/W5, device checklist = W7.

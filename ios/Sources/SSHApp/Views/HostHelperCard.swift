@@ -18,6 +18,7 @@ struct HostHelperCard: View {
 
     private var target: HostTarget? { viewModel.hostTarget }
     private var isUnsupported: Bool { if case .unsupported? = target { return true }; return false }
+    private var isWindows: Bool { target.map { hostTargetMultiplexer(target: $0) == .windowsMux } ?? false }
     private var isWsl: Bool {
         switch target {
         case .wslX8664?, .wslAarch64?: return true
@@ -32,10 +33,14 @@ struct HostHelperCard: View {
                 Text(hostTargetLabel(target: target)).font(.caption.bold())
             }
             Text(summary).font(.caption).foregroundColor(.secondary)
-            if isWsl || isUnsupported {
+            if isWsl || isUnsupported || isWindows {
                 Button("WSL2 setup for Windows") { showWslSetup = true }.buttonStyle(.bordered)
             }
-            if let pin, !isUnsupported {
+            if isWindows {
+                Text("Windows host: the app installs and verifies its helper (the session multiplexer) itself when a tab connects.")
+                    .font(.caption2).foregroundColor(.secondary)
+            }
+            if let pin, !isUnsupported, !isWindows {
                 Text("ssh-app-host · \((target.map { bundledHostHelperSizeFor(target: $0) } ?? bundledHostHelperSize()) / 1024) KB · sha256 \(pin.prefix(12))…")
                     .font(.system(size: 10, design: .monospaced)).foregroundColor(.secondary)
                 Text("Installs to ~/.ssh-app/bin/ssh-app-host (mode 700). Nothing runs in the background until you check the agent below.")
@@ -47,7 +52,7 @@ struct HostHelperCard: View {
             if let error { Text(error).font(.caption).foregroundColor(.red) }
             if busy {
                 ProgressView()
-            } else if pin != nil, !isUnsupported, viewModel.sessionHandle != nil, viewModel.state == .connected {
+            } else if pin != nil, !isUnsupported, !isWindows, viewModel.sessionHandle != nil, viewModel.state == .connected {
                 Button(installTitle) { Task { await install() } }
                     .buttonStyle(.bordered)
                     .disabled(isReady)
@@ -137,7 +142,7 @@ struct HostHelperCard: View {
     private func refresh() async {
         guard let handle = viewModel.sessionHandle, viewModel.state == .connected else { return }
         pin = await viewModel.helperPin()
-        guard let pin, !isUnsupported else { return }
+        guard let pin, !isUnsupported, !isWindows else { return }
         status = try? await handle.hostHelperStatus(expectedSha256: pin)
     }
 
@@ -162,11 +167,13 @@ struct HostHelperCard: View {
 /// Ready-to-copy commands that turn a Windows PC into a host through WSL2 (feature 33).
 struct WslSetupView: View {
     let publicKey: String?
+    @State private var windowsNative = false
     @State private var route: WslNetworkRoute = .tailscaleInDistro
     @State private var port = "22"
     @Environment(\.dismiss) private var dismiss
 
     private var snippets: [WslSnippet] {
+        if windowsNative, let publicKey { return (try? windowsSetupSnippets(publicKey: publicKey)) ?? [] }
         guard let publicKey, let p = UInt16(port) else { return [] }
         return (try? wslSetupSnippets(route: route, publicKey: publicKey, sshPort: p)) ?? []
     }
@@ -177,12 +184,21 @@ struct WslSetupView: View {
                 Section {
                     Text("tmux does not run natively on Windows. Use WSL2: sshd, tmux and the helper run inside a Linux distro on the PC. Do these steps once.")
                         .font(.caption)
-                    Picker("Network", selection: $route) {
+                    Picker("Setup", selection: $windowsNative) {
+                        Text("WSL2 (recommended)").tag(false)
+                        Text("Windows directly").tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                    if windowsNative {
+                        Text("Terminal tabs, session list and end work. Agent feed, git, usage and the file browser need the POSIX shell and are not available yet.")
+                            .font(.caption2).foregroundColor(.orange)
+                    }
+                    if !windowsNative { Picker("Network", selection: $route) {
                         Text("Tailscale in WSL").tag(WslNetworkRoute.tailscaleInDistro)
                         Text("Mirrored networking").tag(WslNetworkRoute.mirroredNetworking)
                         Text("Port forward").tag(WslNetworkRoute.portProxy)
-                    }
-                    if route != .tailscaleInDistro {
+                    } }
+                    if !windowsNative, route != .tailscaleInDistro {
                         HStack {
                             Text("Windows port")
                             TextField("22", text: $port).keyboardType(.numberPad).multilineTextAlignment(.trailing)

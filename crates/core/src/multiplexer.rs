@@ -15,8 +15,15 @@ pub enum MultiplexerKind {
 }
 
 /// The helper as seen from the SSH login directory of a Windows account: a relative path works in
-/// cmd.exe and PowerShell alike and needs no variable expansion or quoting.
-const WIN_HELPER: &str = r".\.ssh-app\bin\ssh-app-host.exe";
+/// cmd.exe and PowerShell alike and needs no variable expansion or quoting. The file name carries
+/// the digest of the build this app embeds (see `windows_install`).
+fn win_helper() -> String {
+    match crate::usage::bundled_host_helper_sha256_for(crate::hosttarget::HostTarget::WindowsX86_64)
+    {
+        Some(sha) => crate::windows_install::run_path(&sha),
+        None => r".\.ssh-app\bin\ssh-app-host.exe".to_string(),
+    }
+}
 
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
@@ -55,7 +62,7 @@ impl MultiplexerKind {
             MultiplexerKind::WindowsMux => {
                 validate_session_name(session)?;
                 let spec = win_spec(session, command, start_dir)?;
-                Ok(format!("{WIN_HELPER} mux attach --spec {spec}"))
+                Ok(format!("{} mux attach --spec {spec}", win_helper()))
             }
         }
     }
@@ -65,7 +72,7 @@ impl MultiplexerKind {
             MultiplexerKind::Tmux => tmux::build_tmux_detach_command(session),
             MultiplexerKind::WindowsMux => {
                 validate_session_name(session)?;
-                Ok(format!("{WIN_HELPER} mux detach --session {session}"))
+                Ok(format!("{} mux detach --session {session}", win_helper()))
             }
         }
     }
@@ -75,7 +82,7 @@ impl MultiplexerKind {
             MultiplexerKind::Tmux => tmux::build_tmux_kill_session_command(session),
             MultiplexerKind::WindowsMux => {
                 validate_session_name(session)?;
-                Ok(format!("{WIN_HELPER} mux kill --session {session}"))
+                Ok(format!("{} mux kill --session {session}", win_helper()))
             }
         }
     }
@@ -84,7 +91,7 @@ impl MultiplexerKind {
     pub fn list_detailed(self) -> String {
         match self {
             MultiplexerKind::Tmux => tmux::build_tmux_list_sessions_detailed_command(),
-            MultiplexerKind::WindowsMux => format!("{WIN_HELPER} mux list"),
+            MultiplexerKind::WindowsMux => format!("{} mux list", win_helper()),
         }
     }
 }
@@ -124,7 +131,7 @@ mod tests {
             .attach_or_create("claude-1", Some(nasty), Some("C:\\a b"))
             .unwrap();
         let tail = c
-            .strip_prefix(&format!("{WIN_HELPER} mux attach --spec "))
+            .strip_prefix(&format!("{} mux attach --spec ", win_helper()))
             .unwrap();
         assert!(tail.chars().all(|ch| ch.is_ascii_hexdigit()), "{c}");
         // The hex decodes back to the exact JSON.
@@ -145,7 +152,7 @@ mod tests {
             .is_err());
         assert_eq!(
             k.kill("s1").unwrap(),
-            format!("{WIN_HELPER} mux kill --session s1")
+            format!("{} mux kill --session s1", win_helper())
         );
         assert!(k.list_detailed().ends_with("mux list"));
     }

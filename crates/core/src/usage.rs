@@ -648,6 +648,7 @@ mod tests {
                 "aarch64-apple-darwin" => HostTarget::DarwinArm64,
                 "x86_64-apple-darwin" => HostTarget::DarwinX86_64,
                 "x86_64-unknown-linux-musl" => HostTarget::LinuxX86_64,
+                "x86_64-pc-windows-gnu" => HostTarget::WindowsX86_64,
                 _ => HostTarget::LinuxAarch64,
             };
             assert_eq!(bundled_host_helper_size_for(t.clone()), bytes.len() as u64);

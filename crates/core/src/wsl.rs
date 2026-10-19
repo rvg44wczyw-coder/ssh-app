@@ -130,6 +130,47 @@ pub fn wsl_setup_snippets(
     Ok(out)
 }
 
+/// Setup text for a Windows PC used directly (no WSL2): OpenSSH Server with `cmd.exe` as the SSH
+/// shell, the app's key in the right file for the account type, Tailscale.
+#[uniffi::export]
+pub fn windows_setup_snippets(public_key: String) -> Result<Vec<WslSnippet>, SshCoreError> {
+    let key = validate_public_key(&public_key)?;
+    Ok(vec![
+        WslSnippet {
+            title: "Install and start OpenSSH Server".into(),
+            where_to_run: "Windows PowerShell (as administrator)".into(),
+            body: "Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0\nSet-Service -Name sshd -StartupType Automatic\nStart-Service sshd".into(),
+            note: "Windows 10 1809 or newer. The firewall rule for port 22 is created by this step.".into(),
+        },
+        WslSnippet {
+            title: "Use cmd.exe as the SSH shell".into(),
+            where_to_run: "Windows PowerShell (as administrator)".into(),
+            body: "New-ItemProperty -Path \"HKLM:\\SOFTWARE\\OpenSSH\" -Name DefaultShell -Value \"C:\\Windows\\System32\\cmd.exe\" -PropertyType String -Force".into(),
+            note: "The app starts its helper through cmd.exe. Your terminal tabs still open PowerShell 7 (or Windows PowerShell).".into(),
+        },
+        WslSnippet {
+            title: "Allow this app's key".into(),
+            where_to_run: "Windows PowerShell (as administrator if your account is an administrator)".into(),
+            body: format!(
+                "$k = '{key}'\n$admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)\nif ($admin) {{\n  $f = \"$env:ProgramData\\ssh\\administrators_authorized_keys\"\n  Add-Content -Path $f -Value $k -Encoding ascii\n  icacls $f /inheritance:r /grant \"Administrators:F\" /grant \"SYSTEM:F\"\n}} else {{\n  New-Item -ItemType Directory -Force \"$HOME\\.ssh\" | Out-Null\n  Add-Content -Path \"$HOME\\.ssh\\authorized_keys\" -Value $k -Encoding ascii\n}}"
+            ),
+            note: "Administrator accounts use a different file on Windows; this picks the right one. Only the public key is shown here.".into(),
+        },
+        WslSnippet {
+            title: "Tailscale".into(),
+            where_to_run: "Windows PowerShell".into(),
+            body: "winget install Tailscale.Tailscale".into(),
+            note: "Sign in, then connect the phone to the PC's tailnet address on port 22.".into(),
+        },
+        WslSnippet {
+            title: "Check".into(),
+            where_to_run: "Windows PowerShell".into(),
+            body: "Get-Service sshd\ncertutil -v | Select-Object -First 1".into(),
+            note: "sshd must be Running. certutil ships with Windows; the app uses it to install and verify its helper.".into(),
+        },
+    ])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -154,6 +195,16 @@ mod tests {
         assert!(p.iter().any(|x| x.body.contains("listenport=2222")));
         let m = wsl_setup_snippets(WslNetworkRoute::MirroredNetworking, KEY.into(), 22).unwrap();
         assert!(m.iter().any(|x| x.body.contains("networkingMode=mirrored")));
+    }
+
+    #[test]
+    fn windows_snippets_hold_the_key_once_and_reject_bad_keys() {
+        let s = windows_setup_snippets(KEY.into()).unwrap();
+        let all: String = s.iter().map(|x| x.body.clone()).collect();
+        assert_eq!(all.matches(KEY).count(), 1);
+        assert!(all.contains("administrators_authorized_keys"));
+        assert!(all.contains("DefaultShell"));
+        assert!(windows_setup_snippets("ssh-ed25519 AAAA'; calc; '".into()).is_err());
     }
 
     #[test]

@@ -9,11 +9,12 @@
 
 use std::path::PathBuf;
 
-const TRIPLES: [&str; 4] = [
+const TRIPLES: [&str; 5] = [
     "aarch64-apple-darwin",
     "x86_64-apple-darwin",
     "x86_64-unknown-linux-musl",
     "aarch64-unknown-linux-musl",
+    "x86_64-pc-windows-gnu",
 ];
 
 fn main() {

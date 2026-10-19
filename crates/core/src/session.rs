@@ -520,6 +520,51 @@ pub async fn detect_host_target_once(
     })?
 }
 
+/// Puts the Windows helper (which IS the multiplexer on a native Windows host) in place if the
+/// verified build is not there yet. One short connection; the install is a few hundred small
+/// commands, so it runs once per app version and host.
+#[uniffi::export(async_runtime = "tokio")]
+pub async fn ensure_windows_helper_once(config: RemoteServerConfig) -> Result<(), SshCoreError> {
+    let handle = RUNTIME.spawn(async move {
+        let target = crate::hosttarget::HostTarget::WindowsX86_64;
+        let sha = crate::usage::bundled_host_helper_sha256_for(target.clone()).ok_or(
+            SshCoreError::InvalidInput {
+                reason: "This build of the app has no Windows helper".to_string(),
+            },
+        )?;
+        let check = crate::windows_install::build_check_command(&sha)?;
+        let present = execute_remote_command_internal(&config, &check)
+            .await
+            .ok()
+            .and_then(|o| crate::windows_install::parse_certutil_hash(&o));
+        if present.as_deref() == Some(sha.as_str()) {
+            return Ok(());
+        }
+        let bytes = crate::usage::bundled_helper_for(&target).unwrap_or_default();
+        let mut last = String::new();
+        for cmd in crate::windows_install::build_install_commands(bytes, &sha)? {
+            last = execute_remote_command_internal(&config, &cmd).await?;
+        }
+        if crate::windows_install::parse_certutil_hash(&last).as_deref() == Some(sha.as_str()) {
+            Ok(())
+        } else {
+            // A wrong file must not stay under the name the app starts.
+            let _ = execute_remote_command_internal(
+                &config,
+                &format!("del {}", crate::windows_install::helper_path(&sha)),
+            )
+            .await;
+            Err(SshCoreError::IoError {
+                reason: "The Windows helper did not install (is cmd.exe the SSH shell? See the Windows setup)"
+                    .to_string(),
+            })
+        }
+    });
+    handle.await.map_err(|e| SshCoreError::ConnectionError {
+        reason: format!("Task join error: {e}"),
+    })?
+}
+
 /// Sessions on a host, for the kind of multiplexer it runs (`HostTarget::multiplexer`).
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn list_remote_sessions(

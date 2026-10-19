@@ -101,6 +101,16 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
                 HostTargetCache.set(target, forKey: hostKey)
                 multiplexer = hostTargetMultiplexer(target: target)
             }
+            // On native Windows the helper IS the multiplexer: put the verified build in place first.
+            if let target, hostTargetMultiplexer(target: target) == .windowsMux {
+                do {
+                    try await ensureWindowsHelperOnce(config: probe)
+                } catch {
+                    self.state = .failed(reason: "Could not install the Windows helper: \(error.localizedDescription)")
+                    self.errorMessage = error.localizedDescription
+                    return
+                }
+            }
             self.state = .disconnected
             connect(host: host, port: port, username: username, privateKeyPEM: privateKeyPEM,
                     multiplexer: multiplexer)

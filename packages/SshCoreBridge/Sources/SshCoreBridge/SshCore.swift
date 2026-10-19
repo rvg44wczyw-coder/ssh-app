@@ -13353,6 +13353,25 @@ public func detectHostTargetOnce(config: RemoteServerConfig)async throws  -> Hos
             errorHandler: FfiConverterTypeSshCoreError_lift
         )
 }
+/**
+ * Puts the Windows helper (which IS the multiplexer on a native Windows host) in place if the
+ * verified build is not there yet. One short connection; the install is a few hundred small
+ * commands, so it runs once per app version and host.
+ */
+public func ensureWindowsHelperOnce(config: RemoteServerConfig)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_func_ensure_windows_helper_once(FfiConverterTypeRemoteServerConfig_lower(config)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_void,
+            completeFunc: ffi_ssh_core_rust_future_complete_void,
+            freeFunc: ffi_ssh_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
 public func executeRemoteCommand(config: RemoteServerConfig, command: String)async throws  -> String  {
     return
         try  await uniffiRustCallAsync(
@@ -13608,6 +13627,18 @@ public func bundledHostHelperSizeFor(target: HostTarget) -> UInt64  {
 })
 }
 /**
+ * Setup text for a Windows PC used directly (no WSL2): OpenSSH Server with `cmd.exe` as the SSH
+ * shell, the app's key in the right file for the account type, Tailscale.
+ */
+public func windowsSetupSnippets(publicKey: String)throws  -> [WslSnippet]  {
+    return try  FfiConverterSequenceTypeWslSnippet.lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_windows_setup_snippets(
+        FfiConverterString.lower(publicKey),uniffiCallStatus
+    )
+})
+}
+/**
  * Setup text for the chosen route. `public_key` is the app's key (one `ssh-ed25519` line);
  * `ssh_port` is the port the phone will connect to (22 unless the Windows side already uses it).
  */
@@ -13847,6 +13878,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_func_detect_host_target_once() != 32496) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_func_ensure_windows_helper_once() != 31120) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_func_execute_remote_command() != 30132) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -13905,6 +13939,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_bundled_host_helper_size_for() != 50266) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_windows_setup_snippets() != 26455) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_wsl_setup_snippets() != 13857) {

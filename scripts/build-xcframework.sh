@@ -28,6 +28,19 @@ for triple in x86_64-apple-darwin x86_64-unknown-linux-musl aarch64-unknown-linu
     fi
 done
 
+# Native Windows helper (feature 34): the ConPTY multiplexer binary, stored under the helper's name.
+win="x86_64-pc-windows-gnu"
+dest="${ROOT_DIR}/crates/core/embedded/ssh-app-host-${win}"
+rm -f "${dest}"
+if command -v cargo-zigbuild >/dev/null 2>&1 && command -v zig >/dev/null 2>&1 \
+    && rustup target list --installed 2>/dev/null | grep -qx "${win}" \
+    && cargo zigbuild -q -p ssh-app-host-win --release --locked --target "${win}" 2>/dev/null; then
+    cp "${ROOT_DIR}/target/${win}/release/ssh-app-host-win.exe" "${dest}"
+    echo "    helper for ${win}: $(wc -c < "${dest}") bytes"
+else
+    echo "    helper for ${win}: skipped"
+fi
+
 echo "=== 1. Building cdylib for UniFFI bindgen ==="
 cargo build -p ssh-core --lib
 

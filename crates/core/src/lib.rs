@@ -37,6 +37,7 @@ pub mod tmux;
 pub mod transcript;
 pub(crate) mod transport;
 pub mod usage;
+pub mod windows_install;
 pub mod wsl;
 
 pub use agents::{

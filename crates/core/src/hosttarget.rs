@@ -29,8 +29,8 @@ impl HostTarget {
             HostTarget::DarwinX86_64 => Some("x86_64-apple-darwin"),
             HostTarget::LinuxX86_64 | HostTarget::WslX86_64 => Some("x86_64-unknown-linux-musl"),
             HostTarget::LinuxAarch64 | HostTarget::WslAarch64 => Some("aarch64-unknown-linux-musl"),
-            HostTarget::WindowsX86_64 => Some("x86_64-pc-windows-gnu"),
-            HostTarget::WindowsAarch64 => Some("aarch64-pc-windows-gnullvm"),
+            // Windows on ARM runs the x86_64 build under emulation (Windows 11).
+            HostTarget::WindowsX86_64 | HostTarget::WindowsAarch64 => Some("x86_64-pc-windows-gnu"),
             HostTarget::Unsupported { .. } => None,
         }
     }
