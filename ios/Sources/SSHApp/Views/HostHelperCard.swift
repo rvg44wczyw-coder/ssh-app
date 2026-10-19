@@ -48,6 +48,7 @@ struct HostHelperCard: View {
             }
             if isReady, viewModel.sessionHandle != nil, viewModel.state == .connected {
                 agentSection
+                PushSection(viewModel: viewModel)
             }
             if let error { Text(error).font(.caption).foregroundColor(.red) }
             if busy {
@@ -221,5 +222,80 @@ struct WslSetupView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }
+    }
+}
+
+
+/// Push from this host (feature 35): the phone's token, the relay and a test.
+private struct PushSection: View {
+    @ObservedObject var viewModel: TerminalSessionViewModel
+    @ObservedObject private var push = PushManager.shared
+    @State private var url = PushManager.shared.relayURL
+    @State private var secret = PushManager.shared.relaySecret
+    @State private var status: HostPushStatus?
+    @State private var message: String?
+    @State private var busy = false
+
+    var body: some View {
+        Divider()
+        Text("Push").font(.subheadline.bold())
+        Text("A notification when an agent needs approval, finishes or waits while the app is closed. It never contains commands, paths or names: only a fixed sentence. Sent through your relay (scripts/apns-worker) and only while the host agent runs.")
+            .font(.caption2).foregroundColor(.secondary)
+        if push.token == nil {
+            Button("Allow notifications") { Task { await push.enable() } }.buttonStyle(.bordered)
+        } else {
+            Text("Notifications allowed · \(PushManager.apsEnvironment)").font(.caption).foregroundColor(.green)
+        }
+        TextField("Relay address (https://…/push)", text: $url)
+            .textInputAutocapitalization(.never).autocorrectionDisabled()
+            .font(.system(size: 12, design: .monospaced))
+            .onChange(of: url) { _, v in push.relayURL = v }
+        SecureField("Relay secret", text: $secret)
+            .textInputAutocapitalization(.never).autocorrectionDisabled()
+            .font(.system(size: 12, design: .monospaced))
+            .onChange(of: secret) { _, v in push.relaySecret = v }
+        if let status {
+            Text(status.registered ? "Registered on this host (\(status.env), …\(status.tokenTail))" : "Not registered on this host")
+                .font(.caption)
+        }
+        if let message { Text(message).font(.caption).foregroundColor(.orange) }
+        if busy {
+            ProgressView()
+        } else {
+            HStack {
+                Button("Register this host") { Task { await register() } }
+                    .disabled(push.token == nil || url.isEmpty || secret.isEmpty)
+                Button("Test") { Task { await run { try await $0.hostPushTest(expectedSha256: $1) } } }
+                    .disabled(status?.registered != true)
+                Button("Remove", role: .destructive) { Task { await run { try await $0.hostPushUnregister(expectedSha256: $1) } } }
+                    .disabled(status?.registered != true)
+            }
+            .buttonStyle(.bordered)
+        }
+        if let e = push.lastError { Text(e).font(.caption2).foregroundColor(.red) }
+        Color.clear.frame(height: 0).task { await refresh() }
+    }
+
+    private func refresh() async {
+        guard let handle = viewModel.sessionHandle, let pin = await viewModel.helperPin() else { return }
+        status = try? await handle.hostPushStatus(expectedSha256: pin)
+    }
+
+    private func register() async {
+        guard let token = push.token else { return }
+        await run { try await $0.hostPushRegister(expectedSha256: $1, token: token, env: PushManager.apsEnvironment, relayUrl: url, relaySecret: secret) }
+    }
+
+    private func run(_ call: (SshSessionHandle, String) async throws -> HostPushResult) async {
+        guard let handle = viewModel.sessionHandle, let pin = await viewModel.helperPin() else { return }
+        busy = true
+        defer { busy = false }
+        do {
+            let r = try await call(handle, pin)
+            message = r.ok ? nil : r.message
+        } catch {
+            message = error.localizedDescription
+        }
+        await refresh()
     }
 }

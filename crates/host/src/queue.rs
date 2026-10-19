@@ -59,6 +59,7 @@ pub fn now() -> i64 {
         .map_or(0, |d| d.as_secs() as i64)
 }
 
+#[derive(Clone)]
 pub struct Paths {
     pub home: PathBuf,
     pub run: PathBuf,

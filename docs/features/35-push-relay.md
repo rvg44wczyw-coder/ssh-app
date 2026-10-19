@@ -2,7 +2,7 @@
 
 - **Slug**: `push-relay`
 - **Parents**: `16-host-service-analysis.md` §3 "Push path", §11 decisions 1–2; `26-host-agent.md` §2.4 (EventSink).
-- **Status**: spec. Needs the owner's Apple `.p8` key (have it), a Cloudflare account (logged in with wrangler), Key ID, Team ID.
+- **Status**: T1-T3 implemented (Worker deployed, host `push-*` commands and `PushSink`, core `host_push_*`, app card); T4 (device) pending. Needed the owner's Apple `.p8` key (have it), a Cloudflare account (logged in with wrangler), Key ID, Team ID.
 
 ## 1. Goal
 
@@ -102,3 +102,10 @@ Each phase follows the dev-chain with a hacker pass.
 Worker `ssh-app-apns-bridge` is live on the owner's Cloudflare account (workers.dev, preview URLs off), secrets `APPLE_P8_PRIVATE_KEY` and `RELAY_SECRET` set with `wrangler secret put` (the relay secret is kept in `~/.private_keys/ssh_app_relay_secret`, 0600). Checked with curl: no/bad secret 401, GET 405, bad token/category 400, a fake token against production APNs 410 (`BadDeviceToken` = key and JWT accepted). **Sandbox answers 403 `BadEnvironmentKeyInToken`: the key `QPHGNXBX8Y` was created for Production only.** Xcode development installs (`make iphone-full`) register sandbox tokens, so a key with "Sandbox & Production" is needed for them (or TestFlight/App Store builds, which use production).
 
 Update: the owner created key `R2LYYFG7JF` (APNs, Sandbox & Production) and it replaced the Production-only key in the Worker; a fake token now gets 410 from both endpoints. Team ID and bundle id are unchanged.
+
+## 7. T2/T3 implementation notes (2026-10-19)
+
+- Host: `crates/host/src/push.rs`; commands `push-register` (JSON on stdin), `push-unregister`, `push-status`, `push-test`; `hello` caps gained `push`; the agent now runs with `PushSink`. 7 unit tests; a real send through `curl` to the deployed Worker was checked with a fake token (410 removes the registration).
+- Core: `crates/core/src/push.rs` and `host_push_register/status/unregister/test` on the session handle; the registration travels as one shell-quoted argument (the exec channel has no stdin; see the hacker note), 3 unit tests and a loopback test.
+- App: `PushManager` (permission, token, relay address in preferences, secret in the Keychain, environment read from the embedded provisioning profile) and a Push section in the host card; entitlement `aps-environment` added. Not yet run on a device; Xcode must have the Push Notifications capability on the App ID (the owner enabled it).
+- Findings: `docs/security-findings/2026-10-19-push-relay-t1-t3.md`.

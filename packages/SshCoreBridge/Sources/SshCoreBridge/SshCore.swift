@@ -1485,6 +1485,24 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func hostHelperStatus(expectedSha256: String) async throws  -> HostHelperStatus
     
     /**
+     * Registers this phone for push on the host (feature 35): the helper stores the token and the
+     * relay's address and secret privately, the host agent sends the notifications.
+     */
+    func hostPushRegister(expectedSha256: String, token: String, env: String, relayUrl: String, relaySecret: String) async throws  -> HostPushResult
+    
+    /**
+     * `None` when the helper is not usable.
+     */
+    func hostPushStatus(expectedSha256: String) async throws  -> HostPushStatus?
+    
+    /**
+     * Asks the host to send one test notification through the relay.
+     */
+    func hostPushTest(expectedSha256: String) async throws  -> HostPushResult
+    
+    func hostPushUnregister(expectedSha256: String) async throws  -> HostPushResult
+    
+    /**
      * Reads what is in effect for this session: its folder (tmux pane), the profile's rules and the
      * folder's `.claude/settings.json` / `settings.local.json` (read-only), plus suggestions.
      * Only Claude Code has readable rule files; other agents get an empty report.
@@ -2347,6 +2365,80 @@ open func hostHelperStatus(expectedSha256: String)async throws  -> HostHelperSta
             completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
             freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
             liftFunc: FfiConverterTypeHostHelperStatus_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Registers this phone for push on the host (feature 35): the helper stores the token and the
+     * relay's address and secret privately, the host agent sends the notifications.
+     */
+open func hostPushRegister(expectedSha256: String, token: String, env: String, relayUrl: String, relaySecret: String)async throws  -> HostPushResult  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_host_push_register(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(expectedSha256),FfiConverterString.lower(token),FfiConverterString.lower(env),FfiConverterString.lower(relayUrl),FfiConverterString.lower(relaySecret)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeHostPushResult_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * `None` when the helper is not usable.
+     */
+open func hostPushStatus(expectedSha256: String)async throws  -> HostPushStatus?  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_host_push_status(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(expectedSha256)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterOptionTypeHostPushStatus.lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Asks the host to send one test notification through the relay.
+     */
+open func hostPushTest(expectedSha256: String)async throws  -> HostPushResult  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_host_push_test(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(expectedSha256)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeHostPushResult_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+open func hostPushUnregister(expectedSha256: String)async throws  -> HostPushResult  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_host_push_unregister(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(expectedSha256)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeHostPushResult_lift,
             errorHandler: FfiConverterTypeSshCoreError_lift
         )
 }
@@ -6135,6 +6227,128 @@ public func FfiConverterTypeHostGuardPreset_lift(_ buf: RustBuffer) throws -> Ho
 #endif
 public func FfiConverterTypeHostGuardPreset_lower(_ value: HostGuardPreset) -> RustBuffer {
     return FfiConverterTypeHostGuardPreset.lower(value)
+}
+
+
+public struct HostPushResult: Equatable, Hashable {
+    public var ok: Bool
+    /**
+     * A short reason, empty when `ok`.
+     */
+    public var message: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(ok: Bool, 
+        /**
+         * A short reason, empty when `ok`.
+         */message: String) {
+        self.ok = ok
+        self.message = message
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension HostPushResult: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHostPushResult: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HostPushResult {
+        return
+            try HostPushResult(
+                ok: FfiConverterBool.read(from: &buf), 
+                message: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: HostPushResult, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.ok, into: &buf)
+        FfiConverterString.write(value.message, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHostPushResult_lift(_ buf: RustBuffer) throws -> HostPushResult {
+    return try FfiConverterTypeHostPushResult.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHostPushResult_lower(_ value: HostPushResult) -> RustBuffer {
+    return FfiConverterTypeHostPushResult.lower(value)
+}
+
+
+public struct HostPushStatus: Equatable, Hashable {
+    public var registered: Bool
+    public var env: String
+    public var relay: String
+    public var tokenTail: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(registered: Bool, env: String, relay: String, tokenTail: String) {
+        self.registered = registered
+        self.env = env
+        self.relay = relay
+        self.tokenTail = tokenTail
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension HostPushStatus: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHostPushStatus: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HostPushStatus {
+        return
+            try HostPushStatus(
+                registered: FfiConverterBool.read(from: &buf), 
+                env: FfiConverterString.read(from: &buf), 
+                relay: FfiConverterString.read(from: &buf), 
+                tokenTail: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: HostPushStatus, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.registered, into: &buf)
+        FfiConverterString.write(value.env, into: &buf)
+        FfiConverterString.write(value.relay, into: &buf)
+        FfiConverterString.write(value.tokenTail, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHostPushStatus_lift(_ buf: RustBuffer) throws -> HostPushStatus {
+    return try FfiConverterTypeHostPushStatus.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHostPushStatus_lower(_ value: HostPushStatus) -> RustBuffer {
+    return FfiConverterTypeHostPushStatus.lower(value)
 }
 
 
@@ -11793,6 +12007,30 @@ fileprivate struct FfiConverterOptionTypeHostAgentState: FfiConverterRustBuffer 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeHostPushStatus: FfiConverterRustBuffer {
+    typealias SwiftType = HostPushStatus?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeHostPushStatus.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeHostPushStatus.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeOllamaLoad: FfiConverterRustBuffer {
     typealias SwiftType = OllamaLoad?
 
@@ -14330,6 +14568,18 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_host_helper_status() != 63277) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_host_push_register() != 15903) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_host_push_status() != 34799) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_host_push_test() != 31690) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_host_push_unregister() != 59540) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_inspect_session_permissions() != 39150) {

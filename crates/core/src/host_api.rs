@@ -975,6 +975,56 @@ impl SshSessionHandle {
         Ok(crate::usage::parse_agent_state(&out))
     }
 
+    /// Registers this phone for push on the host (feature 35): the helper stores the token and the
+    /// relay's address and secret privately, the host agent sends the notifications.
+    pub async fn host_push_register(
+        &self,
+        expected_sha256: String,
+        token: String,
+        env: String,
+        relay_url: String,
+        relay_secret: String,
+    ) -> Result<crate::push::HostPushResult, SshCoreError> {
+        let cmd = crate::push::build_register_command(
+            &expected_sha256,
+            &token,
+            &env,
+            &relay_url,
+            &relay_secret,
+        )?;
+        let out = self.execute_command_on_active_session(cmd).await?;
+        Ok(crate::push::parse_result(&out))
+    }
+
+    /// `None` when the helper is not usable.
+    pub async fn host_push_status(
+        &self,
+        expected_sha256: String,
+    ) -> Result<Option<crate::push::HostPushStatus>, SshCoreError> {
+        let cmd = crate::push::build_push_command(&expected_sha256, "push-status")?;
+        let out = self.execute_command_on_active_session(cmd).await?;
+        Ok(crate::push::parse_status(&out))
+    }
+
+    pub async fn host_push_unregister(
+        &self,
+        expected_sha256: String,
+    ) -> Result<crate::push::HostPushResult, SshCoreError> {
+        let cmd = crate::push::build_push_command(&expected_sha256, "push-unregister")?;
+        let out = self.execute_command_on_active_session(cmd).await?;
+        Ok(crate::push::parse_result(&out))
+    }
+
+    /// Asks the host to send one test notification through the relay.
+    pub async fn host_push_test(
+        &self,
+        expected_sha256: String,
+    ) -> Result<crate::push::HostPushResult, SshCoreError> {
+        let cmd = crate::push::build_push_command(&expected_sha256, "push-test")?;
+        let out = self.execute_command_on_active_session(cmd).await?;
+        Ok(crate::push::parse_result(&out))
+    }
+
     /// Models the agent can be switched to, from the pinned helper on the host (`claude`,
     /// `antigravity` or `ollama`). Empty when the helper is not installed or knows none; for
     /// Claude the built-in aliases are returned then.

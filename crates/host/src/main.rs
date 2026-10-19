@@ -5,7 +5,10 @@
 
 use serde_json::json;
 use ssh_app_host::queue::{install_signal_handlers, Paths};
-use ssh_app_host::{agent, ctl, files, hook, models, procs, rpc, statusline, telemetry, usage};
+use ssh_app_host::{
+    agent, ctl, files, hook, models, procs, push, rpc, statusline, telemetry, usage,
+};
+use std::sync::Arc;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -16,7 +19,7 @@ fn main() {
         Some("hello") => {
             println!(
                 "{}",
-                json!({"v": 1, "name": "ssh-app-host", "version": VERSION, "caps": ["usage", "hook", "agent", "models", "telemetry", "fs", "read", "kill"]})
+                json!({"v": 1, "name": "ssh-app-host", "version": VERSION, "caps": ["usage", "hook", "agent", "push", "models", "telemetry", "fs", "read", "kill"]})
             );
             0
         }
@@ -73,7 +76,22 @@ fn main() {
             hook::run(&Paths::from_env(), &args[1..])
         }),
         Some("statusline") => guarded(|| statusline::run(&Paths::from_env(), &args[1..])),
-        Some("agent") => agent::run(Paths::from_env(), rpc::parse_lease(&args[1..]), &agent::NoopSink),
+        Some("agent") => {
+            let paths = Paths::from_env();
+            let sink = push::PushSink::new(Paths::from_env(), Arc::new(push::CurlSender));
+            agent::run(paths, rpc::parse_lease(&args[1..]), &sink)
+        }
+        Some(cmd @ ("push-register" | "push-unregister" | "push-status" | "push-test")) => {
+            let paths = Paths::from_env();
+            let reply = match cmd {
+                "push-register" => push::register(&paths, &mut std::io::stdin()),
+                "push-unregister" => push::unregister(&paths),
+                "push-status" => push::status(&paths),
+                _ => push::test(&paths, &push::CurlSender),
+            };
+            println!("{reply}");
+            i32::from(reply["ok"] != true)
+        }
         Some("rpc") => rpc::run(&Paths::from_env(), rpc::parse_lease(&args[1..])),
         Some("ctl") => {
             let reply = std::panic::catch_unwind(|| ctl::run(&Paths::from_env(), &args[1..]))

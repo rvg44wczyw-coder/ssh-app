@@ -30,6 +30,7 @@ pub mod multiplexer;
 pub mod pane_context;
 pub mod permissions;
 pub mod port_forward;
+pub mod push;
 pub mod remote_fs;
 pub mod session;
 pub mod snippets;

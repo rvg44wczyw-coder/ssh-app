@@ -1924,6 +1924,37 @@ fn usage_report_finds_models_in_tmux_sessions_and_reads_transcripts() {
             )
             .await
             .unwrap();
+        // 3b''. Push registration (feature 35) is stored by the pinned helper, privately, and the
+        // status never shows the secret. Nothing is sent: the test makes no network call.
+        let token = "ab".repeat(32);
+        let secret = "fedcba9876543210".repeat(4);
+        let url = "https://relay.example.workers.dev/push".to_string();
+        assert!(!handle.host_push_status(pin.clone()).await.unwrap().unwrap().registered);
+        let r = handle
+            .host_push_register(pin.clone(), token.clone(), "sandbox".into(), url.clone(), secret.clone())
+            .await
+            .unwrap();
+        assert!(r.ok, "{r:?}");
+        let st = handle.host_push_status(pin.clone()).await.unwrap().unwrap();
+        assert!(st.registered && st.env == "sandbox" && st.token_tail == "ababab", "{st:?}");
+        assert_eq!(st.relay, "relay.example.workers.dev");
+        let file = server.home.join(".ssh-app/push.json");
+        assert_eq!(
+            std::fs::metadata(&file).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        let wrong = handle
+            .host_push_register("0".repeat(64), token.clone(), "sandbox".into(), url.clone(), secret.clone())
+            .await
+            .unwrap();
+        assert!(!wrong.ok, "a different pin is refused on the host");
+        assert!(handle
+            .host_push_register(pin.clone(), token.clone(), "sandbox".into(), "http://x.y/push".into(), secret.clone())
+            .await
+            .is_err());
+        assert!(handle.host_push_unregister(pin.clone()).await.unwrap().ok);
+        assert!(!file.exists());
+        assert!(!handle.host_push_status(pin.clone()).await.unwrap().unwrap().registered);
         // 3b'. Model choices for the quick-command menus come from the pinned helper.
         let claude_models = handle
             .fetch_agent_models("claude".into(), pin.clone())
