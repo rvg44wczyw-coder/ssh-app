@@ -5,7 +5,7 @@
 
 use serde_json::json;
 use ssh_app_host::queue::{install_signal_handlers, Paths};
-use ssh_app_host::{agent, ctl, hook, models, rpc, statusline, telemetry, usage};
+use ssh_app_host::{agent, ctl, files, hook, models, rpc, statusline, telemetry, usage};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -16,7 +16,7 @@ fn main() {
         Some("hello") => {
             println!(
                 "{}",
-                json!({"v": 1, "name": "ssh-app-host", "version": VERSION, "caps": ["usage", "hook", "agent", "models", "telemetry"]})
+                json!({"v": 1, "name": "ssh-app-host", "version": VERSION, "caps": ["usage", "hook", "agent", "models", "telemetry", "fs"]})
             );
             0
         }
@@ -42,6 +42,11 @@ fn main() {
                 }
                 Err(e) => fail(&e),
             }
+        }
+        Some("ls") => {
+            let reply = ls_reply(&args[1..]);
+            println!("{reply}");
+            i32::from(reply["ok"] != true)
         }
         Some("telemetry") => {
             println!("{}", telemetry::snapshot());
@@ -69,6 +74,28 @@ fn main() {
         _ => fail("usage: ssh-app-host hello | usage [CONFIG_DIR...] | hook AGENT EVENT | rpc [--lease SECS] | agent | ctl SUB | statusline [PREV_HEX]"),
     };
     std::process::exit(code);
+}
+
+/// `ls (--path P | --home | --pane SESSION) [--hidden] [--max N]`.
+fn ls_reply(args: &[String]) -> serde_json::Value {
+    let (mut target, mut hidden, mut max) = (None, false, files::MAX_ENTRIES);
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--path" => target = it.next().map(|p| files::Target::Path(p.clone())),
+            "--pane" => target = it.next().map(|p| files::Target::Pane(p.clone())),
+            "--home" => target = Some(files::Target::Home),
+            "--hidden" => hidden = true,
+            "--max" => max = it.next().and_then(|n| n.parse().ok()).unwrap_or(max),
+            _ => {
+                return json!({"ok": false, "error": "usage: ls (--path P | --home | --pane S) [--hidden] [--max N]"})
+            }
+        }
+    }
+    match target {
+        Some(t) => files::list(&t, hidden, max),
+        None => json!({"ok": false, "error": "ls needs --path, --home or --pane"}),
+    }
 }
 
 /// Any unexpected error means "no opinion" (exit 0, nothing printed), never a crash message.

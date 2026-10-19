@@ -215,12 +215,34 @@ impl SshSessionHandle {
     }
 
     /// Lists entries in a remote directory (or active tmux pane working directory if `path` is `None`).
+    /// With the app's pin the pinned host helper lists it (typed, policy checked on the host); an
+    /// absent, older or replaced helper falls back to the `ls -la` script.
     pub async fn list_remote_directory(
         &self,
         path: Option<String>,
         include_hidden: bool,
+        helper_sha256: Option<String>,
     ) -> Result<crate::file_browser::RemoteDirectoryListing, SshCoreError> {
         let session_name = read_ok(&self.config).session_name.clone();
+        if let Some(pin) = &helper_sha256 {
+            crate::usage::validate_sha256(pin)?;
+            let cmd = crate::file_browser::build_helper_ls_command(
+                pin,
+                path.as_deref(),
+                &session_name,
+                include_hidden,
+            )?;
+            let out = self.execute_command_on_active_session(cmd).await?;
+            match crate::file_browser::parse_helper_listing(&out, include_hidden) {
+                Some(Ok(listing)) => {
+                    // Belt and braces: the app's own validator agrees with the helper's policy.
+                    crate::file_browser::validate_remote_dir_path(&listing.current_path)?;
+                    return Ok(listing);
+                }
+                Some(Err(reason)) => return Err(SshCoreError::InvalidInput { reason }),
+                None => {}
+            }
+        }
         let cmd =
             crate::file_browser::build_list_directory_command(path.as_deref(), &session_name)?;
         let raw_output = self.execute_command_on_active_session(cmd).await?;

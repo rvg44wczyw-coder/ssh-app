@@ -226,7 +226,7 @@ fn exec_based_methods_against_loopback_sshd() {
 
         // --- directory listing ---
         let listing = handle
-            .list_remote_directory(Some(work_s.clone()), false)
+            .list_remote_directory(Some(work_s.clone()), false, None)
             .await
             .expect("list");
         assert_eq!(listing.current_path, work_s);
@@ -234,7 +234,7 @@ fn exec_based_methods_against_loopback_sshd() {
         assert!(names.contains(&"hello.txt") && names.contains(&"sub"));
         assert!(!names.contains(&".hidden"), "hidden files must be filtered");
         let with_hidden = handle
-            .list_remote_directory(Some(work_s.clone()), true)
+            .list_remote_directory(Some(work_s.clone()), true, None)
             .await
             .expect("list hidden");
         assert!(with_hidden.entries.iter().any(|e| e.name == ".hidden"));
@@ -242,12 +242,12 @@ fn exec_based_methods_against_loopback_sshd() {
         // A symlinked directory pointing into .ssh must be refused after resolution.
         let via_link = format!("{work_s}/innocent");
         assert!(handle
-            .list_remote_directory(Some(via_link), true)
+            .list_remote_directory(Some(via_link), true, None)
             .await
             .is_err());
         // Direct access to a blocked directory is refused before any command runs.
         assert!(handle
-            .list_remote_directory(Some(format!("{}/home/.ssh", root.display())), true)
+            .list_remote_directory(Some(format!("{}/home/.ssh", root.display())), true, None)
             .await
             .is_err());
 
@@ -1807,6 +1807,45 @@ fn usage_report_finds_models_in_tmux_sessions_and_reads_transcripts() {
             .unwrap();
         assert_eq!(wrong.cpu_cores, shell.cpu_cores);
         assert!(handle.fetch_host_telemetry(Some("zz".into())).await.is_err());
+
+        // 3a'. The listing through the pinned helper equals the shell listing, shows odd names
+        // correctly and refuses the same places; a wrong pin falls back to the shell.
+        let fs_dir = root.join("fsdir");
+        std::fs::create_dir_all(fs_dir.join("d")).unwrap();
+        std::fs::write(fs_dir.join("a -> b"), "x").unwrap();
+        std::fs::write(fs_dir.join("  lead"), "x").unwrap();
+        std::fs::write(fs_dir.join(".env"), "S=1").unwrap();
+        std::fs::write(fs_dir.join("note.txt"), "hello").unwrap();
+        std::os::unix::fs::symlink(fs_dir.join("note.txt"), fs_dir.join("lnk")).unwrap();
+        let fs_s = fs_dir.to_str().unwrap().to_string();
+        let sh = handle.list_remote_directory(Some(fs_s.clone()), true, None).await.unwrap();
+        let ty = handle
+            .list_remote_directory(Some(fs_s.clone()), true, Some(pin.clone()))
+            .await
+            .unwrap();
+        assert_eq!(ty.current_path, sh.current_path);
+        // (The shell listing mangles the odd names - that is what the helper fixes - so they are
+        // compared separately below.)
+        let key = |l: &ssh_core::RemoteDirectoryListing| {
+            l.entries.iter().filter(|e| e.name != "a -> b" && e.name.trim() != "lead")
+                .map(|e| (e.name.clone(), e.kind, e.size_bytes)).collect::<Vec<_>>()
+        };
+        assert_eq!(key(&ty), key(&sh));
+        let names: Vec<&str> = ty.entries.iter().map(|e| e.name.as_str()).collect();
+        assert!(names.contains(&"a -> b") && names.contains(&"  lead"), "{names:?}");
+        assert!(ty.entries.iter().find(|e| e.name == ".env").unwrap().is_restricted);
+        assert!(!ty.entries.iter().find(|e| e.name == "note.txt").unwrap().is_restricted);
+        assert!(handle
+            .list_remote_directory(Some(format!("{}/.ssh", server.home.display())), true, Some(pin.clone()))
+            .await
+            .is_err());
+        let wrong = handle
+            .list_remote_directory(Some(fs_s.clone()), false, Some("0".repeat(64)))
+            .await
+            .unwrap();
+        assert!(wrong.entries.iter().any(|e| e.name == "note.txt"));
+        let home_ls = handle.list_remote_directory(Some("~".into()), false, Some(pin.clone())).await.unwrap();
+        assert_eq!(home_ls.current_path, server.home.canonicalize().unwrap().to_str().unwrap());
 
         // 3b. The host agent starts through `rpc`, answers, and is stopped again by the test.
         let st = handle

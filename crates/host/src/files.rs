@@ -1,0 +1,375 @@
+//! `ssh-app-host ls`: a directory listing as typed JSON, with the path policy applied host-side
+//! (feature 32, phase T2).
+//!
+//! The names are the file system's own bytes (no `ls -la` column parsing), so a name with spaces,
+//! ` -> ` or leading blanks is unambiguous. The listed folder is canonicalised first and the policy
+//! (credential folders, key and token files) is applied to that real path and, for symlinks, to
+//! the target as well. Entries the policy would refuse to open are returned with
+//! `restricted: true`.
+
+use crate::proc::run_with_input;
+use serde_json::{json, Value};
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::time::Duration;
+
+/// Entries returned at most; the folder is read up to ten times this before the rest is ignored.
+pub const MAX_ENTRIES: usize = 2000;
+const READ_LIMIT: usize = MAX_ENTRIES * 10;
+
+const BLOCKED_DIRS: [&str; 7] = [
+    "/.ssh",
+    "/.aws",
+    "/.gnupg",
+    "/.kube",
+    "/library/keychains",
+    "/etc/shadow",
+    "/etc/master.passwd",
+];
+
+const BLOCKED_FILES: [&str; 14] = [
+    "id_ed25519",
+    "id_rsa",
+    "id_ecdsa",
+    "id_dsa",
+    ".netrc",
+    ".npmrc",
+    ".pgpass",
+    ".pypirc",
+    ".git-credentials",
+    "credentials",
+    ".zsh_history",
+    ".bash_history",
+    "shadow",
+    "master.passwd",
+];
+
+/// Same rules as `validate_remote_dir_path` in the core (a shared table tests both).
+pub fn dir_policy(path: &str) -> Result<(), String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err("Directory path cannot be empty".into());
+    }
+    if trimmed.contains(['\0', '\n', '\r']) {
+        return Err("Path contains forbidden control characters".into());
+    }
+    let lowered = trimmed.to_ascii_lowercase();
+    for blocked in BLOCKED_DIRS {
+        if lowered.ends_with(blocked) || lowered.contains(&format!("{blocked}/")) {
+            return Err(format!(
+                "Access to sensitive directory '{blocked}' is restricted"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Same rules as `validate_remote_file_read_path` in the core.
+pub fn file_policy(path: &str) -> Result<(), String> {
+    dir_policy(path)?;
+    let lowered = path.trim().to_ascii_lowercase();
+    let filename = lowered.rsplit('/').next().unwrap_or(&lowered);
+    if BLOCKED_FILES.contains(&filename)
+        || filename.starts_with(".env")
+        || filename.ends_with(".pem")
+        || filename.ends_with(".key")
+    {
+        return Err(format!(
+            "Reading sensitive credential file '{filename}' is restricted"
+        ));
+    }
+    Ok(())
+}
+
+pub enum Target {
+    Path(String),
+    Home,
+    Pane(String),
+}
+
+fn home() -> PathBuf {
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/"))
+}
+
+fn valid_session_name(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= 64
+        && s.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
+}
+
+fn pane_path(session: &str) -> Option<PathBuf> {
+    let mut cmd = Command::new("tmux");
+    cmd.args([
+        "display-message",
+        "-p",
+        "-t",
+        session,
+        "#{pane_current_path}",
+    ]);
+    let (code, out) = run_with_input(cmd, b"", Duration::from_secs(3))?;
+    let text = String::from_utf8_lossy(&out);
+    (code == Some(0))
+        .then(|| PathBuf::from(text.trim()))
+        .filter(|p| !p.as_os_str().is_empty())
+}
+
+fn mode_string(kind: char, mode: u32) -> String {
+    let mut s = String::from(kind);
+    for shift in [6, 3, 0] {
+        let bits = (mode >> shift) & 7;
+        s.push(if bits & 4 != 0 { 'r' } else { '-' });
+        s.push(if bits & 2 != 0 { 'w' } else { '-' });
+        s.push(if bits & 1 != 0 { 'x' } else { '-' });
+    }
+    s
+}
+
+fn entry(dir: &Path, name: &str, ft_meta: &std::fs::Metadata) -> Value {
+    let path = dir.join(name);
+    let ps = path.to_string_lossy().into_owned();
+    let ft = ft_meta.file_type();
+    let mode = ft_meta.permissions().mode() & 0o777;
+    let (kind, letter) = if ft.is_symlink() {
+        ("symlink", 'l')
+    } else if ft.is_dir() {
+        ("dir", 'd')
+    } else if ft.is_file() {
+        ("file", '-')
+    } else {
+        ("other", '?')
+    };
+    let mut restricted = if kind == "dir" {
+        dir_policy(&ps).is_err()
+    } else {
+        file_policy(&ps).is_err()
+    };
+    let mut v = json!({
+        "name": name, "kind": kind, "size": ft_meta.len(), "mode": mode,
+        "perms": mode_string(letter, mode), "hidden": name.starts_with('.'),
+        "mtime": ft_meta.modified().ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0, |d| d.as_secs()),
+    });
+    if kind == "symlink" {
+        let raw = std::fs::read_link(&path)
+            .ok()
+            .map(|t| t.to_string_lossy().into_owned());
+        v["link"] = json!(raw.map(|t| t.chars().filter(|c| !c.is_control()).collect::<String>()));
+        match std::fs::canonicalize(&path) {
+            Ok(real) => {
+                let rs = real.to_string_lossy().into_owned();
+                let target_is_dir = real.is_dir();
+                v["target_kind"] = json!(if target_is_dir { "dir" } else { "file" });
+                restricted |= if target_is_dir {
+                    dir_policy(&rs).is_err()
+                } else {
+                    file_policy(&rs).is_err()
+                };
+            }
+            Err(_) => v["target_kind"] = json!("broken"),
+        }
+    }
+    v["restricted"] = json!(restricted);
+    v
+}
+
+pub fn list(target: &Target, hidden: bool, max: usize) -> Value {
+    let max = max.clamp(1, MAX_ENTRIES);
+    let home = home();
+    let candidate = match target {
+        Target::Home => Some(home.clone()),
+        Target::Pane(s) if valid_session_name(s) => pane_path(s),
+        Target::Pane(_) => return json!({"ok": false, "error": "invalid session name"}),
+        Target::Path(p) => {
+            if let Err(e) = dir_policy(p) {
+                return json!({"ok": false, "error": e});
+            }
+            let p = Path::new(p.trim());
+            Some(if p.is_absolute() {
+                p.to_path_buf()
+            } else {
+                home.join(p)
+            })
+        }
+    };
+    // A folder that does not exist (or is not one) falls back to $HOME, as the shell version did.
+    let real = candidate
+        .filter(|c| c.is_dir())
+        .and_then(|c| std::fs::canonicalize(c).ok())
+        .or_else(|| std::fs::canonicalize(&home).ok());
+    let Some(real) = real else {
+        return json!({"ok": false, "error": "cannot read the folder"});
+    };
+    let real_s = real.to_string_lossy().into_owned();
+    if real_s.chars().any(char::is_control) {
+        return json!({"ok": false, "error": "path contains control characters"});
+    }
+    if let Err(e) = dir_policy(&real_s) {
+        return json!({"ok": false, "error": e});
+    }
+    let Ok(rd) = std::fs::read_dir(&real) else {
+        return json!({"ok": false, "error": "cannot read the folder"});
+    };
+    let mut entries: Vec<Value> = Vec::new();
+    let mut truncated = false;
+    for (i, item) in rd.flatten().enumerate() {
+        if i >= READ_LIMIT {
+            truncated = true;
+            break;
+        }
+        // Names that are not UTF-8 or carry control characters are never surfaced: inserted into the
+        // terminal they would inject keystrokes (and a lossy name would point to nothing).
+        let Some(name) = item.file_name().to_str().map(str::to_string) else {
+            continue;
+        };
+        if name.chars().any(char::is_control) || (!hidden && name.starts_with('.')) {
+            continue;
+        }
+        let Ok(meta) = std::fs::symlink_metadata(item.path()) else {
+            continue;
+        };
+        entries.push(entry(&real, &name, &meta));
+    }
+    entries.sort_by(|a, b| {
+        let dir = |v: &Value| v["kind"] == "dir";
+        dir(b).cmp(&dir(a)).then_with(|| {
+            a["name"]
+                .as_str()
+                .unwrap_or("")
+                .to_ascii_lowercase()
+                .cmp(&b["name"].as_str().unwrap_or("").to_ascii_lowercase())
+        })
+    });
+    if entries.len() > max {
+        entries.truncate(max);
+        truncated = true;
+    }
+    let parent = real.parent().map(|p| p.to_string_lossy().into_owned());
+    json!({"ok": true, "path": real_s, "parent": parent, "truncated": truncated, "entries": entries})
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn policy_matches_the_shared_table() {
+        let table = include_str!("../testdata/fs_policy_cases.tsv");
+        let mut n = 0;
+        for line in table
+            .lines()
+            .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
+        {
+            let f: Vec<&str> = line.split('\t').collect();
+            assert_eq!(dir_policy(f[0]).is_ok(), f[1] == "1", "dir {line}");
+            assert_eq!(file_policy(f[0]).is_ok(), f[2] == "1", "file {line}");
+            n += 1;
+        }
+        assert!(n > 30);
+        assert!(
+            dir_policy("").is_err() && dir_policy("/a\nb").is_err() && dir_policy("/a\0b").is_err()
+        );
+    }
+
+    #[test]
+    fn mode_strings() {
+        assert_eq!(mode_string('d', 0o755), "drwxr-xr-x");
+        assert_eq!(mode_string('-', 0o600), "-rw-------");
+    }
+
+    #[test]
+    fn lists_odd_names_symlinks_and_restricted_entries() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(tmp.path()).unwrap();
+        let w = root.join("w");
+        std::fs::create_dir_all(w.join("sub")).unwrap();
+        std::fs::create_dir_all(root.join(".ssh")).unwrap();
+        std::fs::write(w.join("a -> b"), "x").unwrap();
+        std::fs::write(w.join("  lead"), "x").unwrap();
+        std::fs::write(w.join(".env"), "SECRET=1").unwrap();
+        std::fs::write(w.join(".hidden"), "x").unwrap();
+        std::fs::write(w.join("bad\nname"), "x").unwrap();
+        std::fs::write(w.join("zz.txt"), "hello").unwrap();
+        std::os::unix::fs::symlink(root.join(".ssh"), w.join("innocent")).unwrap();
+        std::os::unix::fs::symlink(w.join("nowhere"), w.join("broken")).unwrap();
+        std::os::unix::fs::symlink(w.join("zz.txt"), w.join("fine")).unwrap();
+        let r = list(&Target::Path(w.to_string_lossy().into()), true, 100);
+        assert_eq!(r["ok"], true, "{r}");
+        let names: Vec<&str> = r["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(names[0], "sub", "directories first: {names:?}");
+        assert!(names.contains(&"a -> b") && names.contains(&"  lead"));
+        assert!(names.contains(&".hidden") && !names.iter().any(|n| n.contains('\n')));
+        let by = |n: &str| {
+            r["entries"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["name"] == n)
+                .unwrap()
+                .clone()
+        };
+        assert_eq!(by(".env")["restricted"], true);
+        assert_eq!(by("innocent")["restricted"], true, "link into .ssh");
+        assert_eq!(by("innocent")["target_kind"], "dir");
+        assert_eq!(by("broken")["target_kind"], "broken");
+        assert_eq!(by("fine")["restricted"], false);
+        assert_eq!(by("zz.txt")["size"], 5);
+        let shown = list(&Target::Path(w.to_string_lossy().into()), false, 100);
+        assert!(!shown["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["name"] == ".hidden"));
+        // The listed folder itself is refused when it is (or is reached through a link to) .ssh.
+        let via = list(
+            &Target::Path(w.join("innocent").to_string_lossy().into()),
+            true,
+            100,
+        );
+        assert_eq!(via["ok"], false, "{via}");
+        assert_eq!(
+            list(
+                &Target::Path(root.join(".ssh").to_string_lossy().into()),
+                true,
+                10
+            )["ok"],
+            false
+        );
+    }
+
+    #[test]
+    fn truncates_and_falls_back_to_home() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(tmp.path()).unwrap();
+        for i in 0..30 {
+            std::fs::write(root.join(format!("f{i:02}")), "").unwrap();
+        }
+        let r = list(&Target::Path(root.to_string_lossy().into()), false, 10);
+        assert_eq!(
+            (
+                r["entries"].as_array().unwrap().len(),
+                r["truncated"].clone()
+            ),
+            (10, json!(true))
+        );
+        let gone = list(
+            &Target::Path(root.join("missing").to_string_lossy().into()),
+            false,
+            10,
+        );
+        assert_eq!(gone["ok"], true);
+        assert_eq!(
+            gone["path"].as_str().map(PathBuf::from),
+            std::fs::canonicalize(home()).ok()
+        );
+        assert_eq!(list(&Target::Pane("a b".into()), false, 10)["ok"], false);
+    }
+}

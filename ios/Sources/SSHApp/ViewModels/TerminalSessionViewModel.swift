@@ -314,7 +314,7 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         fileBrowserError = nil
         Task {
             do {
-                let listing = try await handle.listRemoteDirectory(path: path, includeHidden: includeHidden)
+                let listing = try await handle.listRemoteDirectory(path: path, includeHidden: includeHidden, helperSha256: bundledHostHelperSha256())
                 self.fileListing = listing
                 // Git colours come second: the list is shown first and a slow or failing git never blocks it.
                 let status = try? await handle.fetchGitStatus(dir: listing.currentPath)

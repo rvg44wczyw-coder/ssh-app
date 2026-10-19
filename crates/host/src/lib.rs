@@ -2,6 +2,7 @@
 
 pub mod agent;
 pub mod ctl;
+pub mod files;
 pub mod guard;
 pub mod hook;
 pub mod models;

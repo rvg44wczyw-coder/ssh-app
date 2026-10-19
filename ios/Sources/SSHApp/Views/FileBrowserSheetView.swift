@@ -155,6 +155,9 @@ public struct FileBrowserSheetView: View {
                                 if let s = entry.kind == .directory ? folderState(entry.path) : fileStates[entry.path] {
                                     GitStateBadge(state: s, folder: entry.kind == .directory)
                                 }
+                                if entry.isRestricted {
+                                    Image(systemName: "lock.fill").font(.caption2).foregroundColor(.secondary)
+                                }
                                 if entry.kind == .file {
                                     Text(sizeText(entry.sizeBytes))
                                         .font(.caption2)
@@ -162,6 +165,8 @@ public struct FileBrowserSheetView: View {
                                 }
                             }
                         }
+                        .disabled(entry.isRestricted)
+                        .opacity(entry.isRestricted ? 0.5 : 1)
                         .contextMenu {
                             Button("Insert Path") { viewModel.insertRemotePath(entry.path) }
                         }

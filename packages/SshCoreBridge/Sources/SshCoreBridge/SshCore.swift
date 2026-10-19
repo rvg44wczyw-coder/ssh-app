@@ -1533,8 +1533,10 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     
     /**
      * Lists entries in a remote directory (or active tmux pane working directory if `path` is `None`).
+     * With the app's pin the pinned host helper lists it (typed, policy checked on the host); an
+     * absent, older or replaced helper falls back to the `ls -la` script.
      */
-    func listRemoteDirectory(path: String?, includeHidden: Bool) async throws  -> RemoteDirectoryListing
+    func listRemoteDirectory(path: String?, includeHidden: Bool, helperSha256: String?) async throws  -> RemoteDirectoryListing
     
     /**
      * Dry run: the hooks section a preset would produce (never other settings), without touching
@@ -2482,13 +2484,15 @@ open func listPendingApprovals()async throws  -> ApprovalList  {
     
     /**
      * Lists entries in a remote directory (or active tmux pane working directory if `path` is `None`).
+     * With the app's pin the pinned host helper lists it (typed, policy checked on the host); an
+     * absent, older or replaced helper falls back to the `ls -la` script.
      */
-open func listRemoteDirectory(path: String?, includeHidden: Bool)async throws  -> RemoteDirectoryListing  {
+open func listRemoteDirectory(path: String?, includeHidden: Bool, helperSha256: String?)async throws  -> RemoteDirectoryListing  {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_ssh_core_fn_method_sshsessionhandle_list_remote_directory(
-                        self.uniffiCloneHandle(),FfiConverterOptionString.lower(path),FfiConverterBool.lower(includeHidden)
+                        self.uniffiCloneHandle(),FfiConverterOptionString.lower(path),FfiConverterBool.lower(includeHidden),FfiConverterOptionString.lower(helperSha256)
                 )
             },
             pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
@@ -7064,16 +7068,26 @@ public struct RemoteFileEntry: Equatable, Hashable {
     public var sizeBytes: UInt64
     public var isHidden: Bool
     public var permissions: String
+    /**
+     * The host's path policy would refuse to open it (credential folders, key files, links into
+     * them); it is listed so the user sees it is there, but it cannot be entered or read.
+     */
+    public var isRestricted: Bool
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(name: String, path: String, kind: RemoteFileKind, sizeBytes: UInt64, isHidden: Bool, permissions: String) {
+    public init(name: String, path: String, kind: RemoteFileKind, sizeBytes: UInt64, isHidden: Bool, permissions: String, 
+        /**
+         * The host's path policy would refuse to open it (credential folders, key files, links into
+         * them); it is listed so the user sees it is there, but it cannot be entered or read.
+         */isRestricted: Bool) {
         self.name = name
         self.path = path
         self.kind = kind
         self.sizeBytes = sizeBytes
         self.isHidden = isHidden
         self.permissions = permissions
+        self.isRestricted = isRestricted
     }
 
     
@@ -7097,7 +7111,8 @@ public struct FfiConverterTypeRemoteFileEntry: FfiConverterRustBuffer {
                 kind: FfiConverterTypeRemoteFileKind.read(from: &buf), 
                 sizeBytes: FfiConverterUInt64.read(from: &buf), 
                 isHidden: FfiConverterBool.read(from: &buf), 
-                permissions: FfiConverterString.read(from: &buf)
+                permissions: FfiConverterString.read(from: &buf), 
+                isRestricted: FfiConverterBool.read(from: &buf)
         )
     }
 
@@ -7108,6 +7123,7 @@ public struct FfiConverterTypeRemoteFileEntry: FfiConverterRustBuffer {
         FfiConverterUInt64.write(value.sizeBytes, into: &buf)
         FfiConverterBool.write(value.isHidden, into: &buf)
         FfiConverterString.write(value.permissions, into: &buf)
+        FfiConverterBool.write(value.isRestricted, into: &buf)
     }
 }
 
@@ -13415,7 +13431,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_list_pending_approvals() != 16470) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_ssh_core_checksum_method_sshsessionhandle_list_remote_directory() != 41055) {
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_list_remote_directory() != 3661) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_preview_agent_hooks() != 58880) {

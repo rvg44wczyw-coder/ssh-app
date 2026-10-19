@@ -219,3 +219,47 @@ a loopback run that compares helper and shell answers on a folder with ordinary 
   (400 processes, 240-character names, control characters removed). No hacker pass needed for T1
   beyond this; T2 and T3 get one.
 - The user must press "Update on this host" once for the new helper to be picked up (digest pin).
+
+### T2 (2026-10-19): `ls` and the path policy — done in core and helper; not run on a device
+
+- Helper: `crates/host/src/files.rs`, subcommand `ls (--path P | --home | --pane S) [--hidden]
+  [--max N]`, cap `"fs"`. The folder is canonicalised, the policy runs on the real path, entries
+  come from `read_dir` + `symlink_metadata` (names are the file system's own, so `a -> b` and
+  leading blanks are exact), links are resolved and the policy is applied to the target;
+  `restricted` marks what cannot be opened. Names with control characters or non-UTF-8 are never
+  listed. 2000 entries at most, 20000 read at most. A missing folder falls back to `$HOME`
+  like the shell version.
+- Policy parity: `crates/host/testdata/fs_policy_cases.tsv` is one table read by both the helper
+  (`files::dir_policy` / `file_policy`) and the core validators; both must give the table's verdict.
+- Core: `list_remote_directory(path, include_hidden, helper_sha256)`; the path is the only user
+  text and travels as `$1`; a refusal stated by the helper is returned as an error (not retried
+  through the shell); anything else falls back to `ls -la`. New record field
+  `RemoteFileEntry.is_restricted`; the browser dims such rows, shows a lock and does not open them.
+  Names are shown through `display_safe`, the `path` stays exact.
+- Found by the loopback comparison: the shell listing turns `"  lead"` into `"lead"`; the helper
+  keeps it.
+- Tests: 4 helper unit tests (table, modes, odd names / links / restricted / hidden / refusal,
+  truncation and `$HOME` fallback), 4 core tests, loopback comparison with the shell listing and a
+  wrong pin. fmt, clippy and the whole workspace pass; the real tmux (pid 35350) was unchanged.
+- Still to do for this phase: hacker pass.
+
+## 11. Other host systems (owner request 2026-10-19)
+
+The owner now wants Windows and Linux hosts as well (decision 16 §11 said macOS only; superseded).
+Facts that shape the work:
+
+- **Linux**: tmux is native. The helper is POSIX Rust, so a `*-unknown-linux-musl` build is
+  straightforward; the places that assume macOS are `vm_stat` / `pmset` / `sysctl hw.*` in
+  `telemetry.rs`, `lsof` in the transcript detection script, `shasum` in the pin check, the
+  `~/Library` paths. `/proc` gives load, memory, battery (`/sys/class/power_supply`) and cwd.
+- **Windows**: tmux does not run natively on Windows. Realistic routes: (a) WSL2 with OpenSSH
+  inside it (everything works as on Linux, including tmux and the helper; the app connects to the
+  WSL sshd), (b) Windows' own OpenSSH server with PowerShell/cmd: no tmux, so no persistent
+  sessions unless a replacement is used (ConPTY-based multiplexers exist but are not tmux and
+  would need their own command layer). Route (a) is the proposal; (b) is a separate, larger
+  feature.
+- The helper embedded in the app is one arch today; it needs a per-OS/arch table (digest pin per
+  target) and `uname`-based selection at install time.
+
+This needs its own spec (proposed number 33) before any code: host OS detection, per-OS helper
+build and pin, the Linux telemetry/FS sources, the WSL2 route and what is explicitly unsupported.
