@@ -589,6 +589,27 @@ impl SshSessionHandle {
         Ok(crate::gitcommit::parse_git_commit_op_output(&out))
     }
 
+    /// Squash, drop, merge, rebase and stash operations (feature 28, G4).
+    pub async fn run_git_history_op(
+        &self,
+        session_name: String,
+        op: crate::githistory::GitHistoryOp,
+    ) -> Result<crate::gitops::GitOpResult, SshCoreError> {
+        let cmd = crate::githistory::build_git_history_op_command(&session_name, &op)?;
+        let out = self.execute_command_on_active_session(cmd).await?;
+        Ok(crate::githistory::parse_git_history_op_output(&out))
+    }
+
+    /// The stash list of the repository the tab is in.
+    pub async fn fetch_git_stashes(
+        &self,
+        session_name: String,
+    ) -> Result<crate::githistory::GitStashesResult, SshCoreError> {
+        let cmd = crate::githistory::build_git_stashes_command(&session_name)?;
+        let out = self.execute_command_on_active_session(cmd).await?;
+        Ok(crate::githistory::parse_git_stashes_output(&out))
+    }
+
     /// Whether the tab's pane runs an AI CLI or a plain shell (see `pane_context`). A host error
     /// is "unknown", which callers treat like a shell.
     pub async fn detect_pane_context(

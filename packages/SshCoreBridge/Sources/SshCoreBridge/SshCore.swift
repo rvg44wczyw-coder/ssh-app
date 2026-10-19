@@ -1581,6 +1581,11 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func runGitBranchOp(sessionName: String, op: GitBranchOp) async throws  -> GitOpResult
     
     /**
+     * Cherry-pick, revert, reset (soft / mixed) or reword the last commit (feature 28, G3).
+     */
+    func runGitCommitOp(sessionName: String, op: GitCommitOp) async throws  -> GitOpResult
+    
+    /**
      * Adds or removes a worktree (see `GitWorktreeOp`).
      */
     func runGitWorktreeOp(sessionName: String, op: GitWorktreeOp) async throws  -> GitOpResult
@@ -2618,6 +2623,25 @@ open func runGitBranchOp(sessionName: String, op: GitBranchOp)async throws  -> G
             rustFutureFunc: {
                 uniffi_ssh_core_fn_method_sshsessionhandle_run_git_branch_op(
                         self.uniffiCloneHandle(),FfiConverterString.lower(sessionName),FfiConverterTypeGitBranchOp_lower(op)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeGitOpResult_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Cherry-pick, revert, reset (soft / mixed) or reword the last commit (feature 28, G3).
+     */
+open func runGitCommitOp(sessionName: String, op: GitCommitOp)async throws  -> GitOpResult  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_run_git_commit_op(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(sessionName),FfiConverterTypeGitCommitOp_lower(op)
                 )
             },
             pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
@@ -8047,6 +8071,112 @@ public func FfiConverterTypeGitBranchOp_lower(_ value: GitBranchOp) -> RustBuffe
 
 
 
+public enum GitCommitOp: Equatable, Hashable {
+    
+    /**
+     * Applies the commits in the given order (oldest first) on top of HEAD.
+     */
+    case cherryPick(hashes: [String]
+    )
+    /**
+     * A new commit that undoes `hash` (not for merge commits).
+     */
+    case revert(hash: String
+    )
+    /**
+     * Moves the current branch to an earlier commit of its own history. No `--hard`: the app
+     * never throws away working files.
+     */
+    case reset(hash: String, mode: GitResetMode
+    )
+    /**
+     * Rewrites the message of the last commit; refused once that commit exists on a remote branch.
+     */
+    case amendMessage(message: String
+    )
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension GitCommitOp: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeGitCommitOp: FfiConverterRustBuffer {
+    typealias SwiftType = GitCommitOp
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> GitCommitOp {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .cherryPick(hashes: try FfiConverterSequenceString.read(from: &buf)
+        )
+        
+        case 2: return .revert(hash: try FfiConverterString.read(from: &buf)
+        )
+        
+        case 3: return .reset(hash: try FfiConverterString.read(from: &buf), mode: try FfiConverterTypeGitResetMode.read(from: &buf)
+        )
+        
+        case 4: return .amendMessage(message: try FfiConverterString.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: GitCommitOp, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case let .cherryPick(hashes):
+            writeInt(&buf, Int32(1))
+            FfiConverterSequenceString.write(hashes, into: &buf)
+            
+        
+        case let .revert(hash):
+            writeInt(&buf, Int32(2))
+            FfiConverterString.write(hash, into: &buf)
+            
+        
+        case let .reset(hash,mode):
+            writeInt(&buf, Int32(3))
+            FfiConverterString.write(hash, into: &buf)
+            FfiConverterTypeGitResetMode.write(mode, into: &buf)
+            
+        
+        case let .amendMessage(message):
+            writeInt(&buf, Int32(4))
+            FfiConverterString.write(message, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGitCommitOp_lift(_ buf: RustBuffer) throws -> GitCommitOp {
+    return try FfiConverterTypeGitCommitOp.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGitCommitOp_lower(_ value: GitCommitOp) -> RustBuffer {
+    return FfiConverterTypeGitCommitOp.lower(value)
+}
+
+
+
+
 public enum GitDiffStatus: Equatable, Hashable {
     
     /**
@@ -8237,6 +8367,78 @@ public func FfiConverterTypeGitFileState_lift(_ buf: RustBuffer) throws -> GitFi
 #endif
 public func FfiConverterTypeGitFileState_lower(_ value: GitFileState) -> RustBuffer {
     return FfiConverterTypeGitFileState.lower(value)
+}
+
+
+
+
+public enum GitResetMode: Equatable, Hashable {
+    
+    /**
+     * Moves the branch; index and files stay as they are (the undone commits show as staged).
+     */
+    case soft
+    /**
+     * Moves the branch and unstages; files stay as they are.
+     */
+    case mixed
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension GitResetMode: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeGitResetMode: FfiConverterRustBuffer {
+    typealias SwiftType = GitResetMode
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> GitResetMode {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .soft
+        
+        case 2: return .mixed
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: GitResetMode, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .soft:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .mixed:
+            writeInt(&buf, Int32(2))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGitResetMode_lift(_ buf: RustBuffer) throws -> GitResetMode {
+    return try FfiConverterTypeGitResetMode.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGitResetMode_lower(_ value: GitResetMode) -> RustBuffer {
+    return FfiConverterTypeGitResetMode.lower(value)
 }
 
 
@@ -12522,6 +12724,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_run_git_branch_op() != 61266) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_run_git_commit_op() != 35349) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_run_git_worktree_op() != 63823) {

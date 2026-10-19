@@ -14,6 +14,14 @@ public struct GitLogSheetView: View {
     @State private var selected: GitLogEntry? = nil
     @State private var showWorkingTree = false
     @State private var context: PaneContext? = nil
+    // Commit operations (feature 28, G3).
+    @State private var selecting = false
+    @State private var picked: Set<String> = []
+    @State private var pending: PendingCommitOp?
+    @State private var reword: GitLogEntry?
+    @State private var rewordText = ""
+    @State private var opMessage: String?
+    @State private var opFailed = false
 
     public init(viewModel: TerminalSessionViewModel) {
         self.viewModel = viewModel
@@ -35,7 +43,13 @@ public struct GitLogSheetView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
                 ToolbarItem(placement: .primaryAction) {
-                    Button(action: fetchLog) { Image(systemName: "arrow.clockwise") }.disabled(isLoading)
+                    HStack {
+                        Button(selecting ? "Cancel" : "Select") {
+                            selecting.toggle()
+                            picked = []
+                        }
+                        Button(action: fetchLog) { Image(systemName: "arrow.clockwise") }.disabled(isLoading)
+                    }
                 }
             }
             .sheet(item: $selected) { entry in
@@ -43,6 +57,23 @@ public struct GitLogSheetView: View {
             }
             .sheet(isPresented: $showWorkingTree) {
                 DiffViewerSheetView(viewModel: viewModel)
+            }
+            .safeAreaInset(edge: .bottom) { pickBar }
+            .confirmationDialog(
+                pending?.title ?? "", isPresented: Binding(get: { pending != nil }, set: { if !$0 { pending = nil } }),
+                titleVisibility: .visible, presenting: pending
+            ) { p in
+                Button(p.button, role: p.destructive ? .destructive : nil) { runOp(p.op) }
+                Button("Cancel", role: .cancel) {}
+            } message: { p in
+                Text(p.message)
+            }
+            .alert("Reword last commit", isPresented: Binding(get: { reword != nil }, set: { if !$0 { reword = nil } })) {
+                TextField("Message", text: $rewordText, axis: .vertical)
+                Button("Save") { runOp(.amendMessage(message: rewordText)) }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Only the message changes. Refused when the commit is already on a remote branch.")
             }
             .onAppear {
                 fetchLog()
@@ -113,12 +144,32 @@ public struct GitLogSheetView: View {
         } else if let r = result {
             List {
                 Section {
+                    if let opMessage {
+                        Text(opMessage).font(.system(size: 12, design: .monospaced))
+                            .foregroundColor(opFailed ? .red : .secondary)
+                    }
                     Button { showWorkingTree = true } label: {
                         Label("Uncommitted changes", systemImage: "pencil.and.list.clipboard")
                             .font(.system(size: 14, weight: .medium))
                     }
-                    ForEach(r.entries, id: \.hash) { e in
-                        Button { selected = e } label: { row(e) }.buttonStyle(.plain)
+                    ForEach(Array(r.entries.enumerated()), id: \.element.hash) { idx, e in
+                        Button {
+                            if selecting {
+                                if picked.contains(e.hash) { picked.remove(e.hash) } else { picked.insert(e.hash) }
+                            } else {
+                                selected = e
+                            }
+                        } label: {
+                            HStack(spacing: 8) {
+                                if selecting {
+                                    Image(systemName: picked.contains(e.hash) ? "checkmark.circle.fill" : "circle")
+                                        .foregroundColor(picked.contains(e.hash) ? .accentColor : .secondary)
+                                }
+                                row(e)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .contextMenu { commitMenu(e, isTip: idx == 0) }
                     }
                     if r.hasMore {
                         Button("Show more") {
@@ -134,6 +185,79 @@ public struct GitLogSheetView: View {
                 }
             }
             .listStyle(.plain)
+        }
+    }
+
+    @ViewBuilder
+    private func commitMenu(_ e: GitLogEntry, isTip: Bool) -> some View {
+        Button {
+            pending = PendingCommitOp(
+                title: "Revert \(e.shortHash)?", button: "Revert", destructive: false,
+                message: "Adds a new commit that undoes \"\(e.subject)\". Needs a clean tree; a conflict aborts it.",
+                op: .revert(hash: e.hash))
+        } label: { Label("Revert", systemImage: "arrow.uturn.backward") }
+        Button {
+            pending = PendingCommitOp(
+                title: "Cherry-pick \(e.shortHash)?", button: "Cherry-pick", destructive: false,
+                message: "Applies \"\(e.subject)\" on top of the current branch. A conflict aborts it and changes nothing.",
+                op: .cherryPick(hashes: [e.hash]))
+        } label: { Label("Cherry-pick here", systemImage: "arrow.down.to.line") }
+        if !isTip {
+            Button {
+                pending = PendingCommitOp(
+                    title: "Move the branch to \(e.shortHash)?", button: "Reset (keep changes staged)", destructive: true,
+                    message: "The newer commits leave the branch but their changes stay staged. The old tip is saved under refs/ssh-app/backup/.",
+                    op: .reset(hash: e.hash, mode: .soft))
+            } label: { Label("Reset to here (soft)", systemImage: "arrow.counterclockwise") }
+            Button {
+                pending = PendingCommitOp(
+                    title: "Move the branch to \(e.shortHash)?", button: "Reset (unstage)", destructive: true,
+                    message: "The newer commits leave the branch; their changes stay in your files, unstaged. The old tip is saved under refs/ssh-app/backup/.",
+                    op: .reset(hash: e.hash, mode: .mixed))
+            } label: { Label("Reset to here (mixed)", systemImage: "arrow.counterclockwise") }
+        } else {
+            Button {
+                rewordText = e.subject
+                reword = e
+            } label: { Label("Reword message", systemImage: "pencil") }
+        }
+        Button { UIPasteboard.general.string = e.hash } label: { Label("Copy hash", systemImage: "doc.on.doc") }
+    }
+
+    /// Bottom bar while selecting commits: cherry-pick them in history order (oldest first).
+    @ViewBuilder
+    private var pickBar: some View {
+        if selecting, !picked.isEmpty, let r = result {
+            let ordered = r.entries.filter { picked.contains($0.hash) }.reversed().map(\.hash)
+            Button {
+                pending = PendingCommitOp(
+                    title: "Cherry-pick \(ordered.count) commits?", button: "Cherry-pick \(ordered.count)", destructive: false,
+                    message: "Applies them on top of the current branch, oldest first. A conflict aborts everything and changes nothing.",
+                    op: .cherryPick(hashes: Array(ordered)))
+            } label: {
+                Text("Cherry-pick \(ordered.count)").frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .padding()
+            .background(.bar)
+        }
+    }
+
+    private func runOp(_ op: GitCommitOp) {
+        guard let handle = viewModel.sessionHandle else { return }
+        let name = viewModel.session.sessionName
+        Task {
+            do {
+                let r = try await handle.runGitCommitOp(sessionName: name, op: op)
+                await MainActor.run {
+                    opMessage = r.output.isEmpty ? (r.ok ? "Done" : "Failed (exit \(r.exitCode))") : r.output
+                    opFailed = !r.ok
+                    if r.ok { selecting = false; picked = [] }
+                    fetchLog()
+                }
+            } catch {
+                await MainActor.run { opMessage = error.localizedDescription; opFailed = true }
+            }
         }
     }
 
@@ -178,4 +302,14 @@ public struct GitLogSheetView: View {
 
 extension GitLogEntry: Identifiable {
     public var id: String { hash }
+}
+
+
+/// A commit operation waiting for the user's confirmation.
+struct PendingCommitOp {
+    let title: String
+    let button: String
+    let destructive: Bool
+    let message: String
+    let op: GitCommitOp
 }

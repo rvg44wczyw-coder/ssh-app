@@ -3196,3 +3196,248 @@ fn git_commit_operations_run_in_a_temporary_repo_on_loopback_sshd() {
     });
     handle.disconnect();
 }
+
+#[test]
+fn git_history_and_stash_operations_run_in_a_temporary_repo_on_loopback_sshd() {
+    use ssh_core::GitHistoryOp;
+    if !have("git") {
+        eprintln!("SKIP: git unavailable");
+        return;
+    }
+    let Some(server) = start_sshd() else {
+        eprintln!("SKIP: sshd/ssh-keygen/tmux unavailable");
+        return;
+    };
+    let tmp = tempfile::tempdir().unwrap();
+    let base = tmp.path().canonicalize().unwrap();
+    let repo = base.join("repo");
+    let remote = base.join("remote.git");
+    std::fs::create_dir_all(&repo).unwrap();
+    let git_in = |dir: &std::path::Path, args: &[&str]| {
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args([
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "commit.gpgsign=false",
+            ])
+            .args(args)
+            .env("HOME", &server.home)
+            .env_remove("TMUX")
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}: {out:?}");
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    };
+    let git = |args: &[&str]| git_in(&repo, args);
+    let commit_file = |name: &str, body: &str, msg: &str| {
+        std::fs::write(repo.join(name), body).unwrap();
+        git(&["add", "."]);
+        git(&["commit", "-q", "-m", msg]);
+        git(&["rev-parse", "HEAD"])
+    };
+    git(&["init", "-q", "-b", "main"]);
+    commit_file("base.txt", "base\n", "base");
+    git_in(&base, &["init", "-q", "--bare", remote.to_str().unwrap()]);
+    git(&["remote", "add", "origin", remote.to_str().unwrap()]);
+    commit_file("pre.txt", "pre\n", "pre");
+    git(&["push", "-q", "origin", "main"]);
+
+    let session = format!("gh{}", server.port);
+    let ok = server
+        .tmux()
+        .args([
+            "new-session",
+            "-d",
+            "-s",
+            &session,
+            "-c",
+            repo.to_str().unwrap(),
+            "sleep 600",
+        ])
+        .status()
+        .unwrap()
+        .success();
+    assert!(ok, "tmux new-session");
+    let handle = connect(&server);
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    rt.block_on(async {
+        let op = |op: GitHistoryOp| handle.run_git_history_op(session.clone(), op);
+
+        // Squash: three local commits become one; the pushed base is never touched.
+        commit_file("f1.txt", "1\n", "one");
+        commit_file("f2.txt", "2\n", "two");
+        let third = commit_file("f3.txt", "3\n", "three");
+        let r = op(GitHistoryOp::Squash {
+            count: 4,
+            message: "x".into(),
+        })
+        .await
+        .unwrap();
+        assert!(
+            !r.ok && r.output.contains("remote"),
+            "pushed base is refused: {r:?}"
+        );
+        let r = op(GitHistoryOp::Squash {
+            count: 3,
+            message: "feat: combined\n\nbody".into(),
+        })
+        .await
+        .unwrap();
+        assert!(r.ok, "{r:?}");
+        assert_eq!(git(&["log", "-1", "--format=%s"]), "feat: combined");
+        assert_eq!(git(&["rev-list", "--count", "HEAD"]), "3");
+        assert!(repo.join("f1.txt").exists() && repo.join("f3.txt").exists());
+        assert!(git(&["for-each-ref", "refs/ssh-app/backup"]).contains("-squash"));
+        assert!(
+            r.output.contains(&third) || r.output.contains("saved as"),
+            "{r:?}"
+        );
+
+        // Drop: remove a middle commit; a later commit that depends on it conflicts and is aborted.
+        let a = commit_file("d.txt", "a\n", "A adds d");
+        let b = commit_file("d.txt", "a\nb\n", "B edits d");
+        let c = commit_file("e.txt", "e\n", "C adds e");
+        let head = git(&["rev-parse", "HEAD"]);
+        let r = op(GitHistoryOp::Drop { hash: a.clone() }).await.unwrap();
+        assert!(!r.ok && r.output.contains("aborted"), "{r:?}");
+        assert_eq!(git(&["rev-parse", "HEAD"]), head);
+        assert_eq!(git(&["status", "--porcelain"]), "");
+        let r = op(GitHistoryOp::Drop { hash: c.clone() }).await.unwrap();
+        assert!(r.ok, "{r:?}");
+        assert!(!repo.join("e.txt").exists());
+        assert!(git(&["log", "--format=%H"]).contains(&b));
+        // Pushed history cannot be dropped.
+        let first_pushed = git(&["rev-parse", "origin/main"]);
+        let r = op(GitHistoryOp::Drop { hash: first_pushed }).await.unwrap();
+        assert!(!r.ok, "{r:?}");
+
+        // Merge: clean merge works, a conflicting one is aborted.
+        git(&["switch", "-q", "-c", "topic"]);
+        commit_file("topic.txt", "t\n", "topic work");
+        std::fs::write(repo.join("d.txt"), "topic side\n").unwrap();
+        git(&["commit", "-q", "-am", "topic edits d"]);
+        git(&["switch", "-q", "main"]);
+        commit_file("d.txt", "main side\n", "main edits d");
+        let before = git(&["rev-parse", "HEAD"]);
+        let r = op(GitHistoryOp::Merge {
+            branch: "topic".into(),
+        })
+        .await
+        .unwrap();
+        assert!(!r.ok && r.output.contains("aborted"), "{r:?}");
+        assert_eq!(git(&["rev-parse", "HEAD"]), before);
+        assert_eq!(git(&["status", "--porcelain"]), "");
+        git(&["switch", "-q", "-c", "clean-topic", "HEAD~1"]);
+        commit_file("clean.txt", "c\n", "clean work");
+        git(&["switch", "-q", "main"]);
+        let r = op(GitHistoryOp::Merge {
+            branch: "clean-topic".into(),
+        })
+        .await
+        .unwrap();
+        assert!(r.ok, "{r:?}");
+        assert!(repo.join("clean.txt").exists());
+
+        // Rebase: conflict aborted; clean rebase works; pushed commits refused.
+        git(&["switch", "-q", "topic"]);
+        let tip = git(&["rev-parse", "HEAD"]);
+        let r = op(GitHistoryOp::Rebase {
+            onto: "main".into(),
+        })
+        .await
+        .unwrap();
+        assert!(!r.ok && r.output.contains("aborted"), "{r:?}");
+        assert_eq!(git(&["rev-parse", "HEAD"]), tip);
+        git(&["switch", "-q", "main"]);
+        git(&["switch", "-q", "-c", "late", "HEAD~2"]);
+        commit_file("late.txt", "l\n", "late work");
+        let r = op(GitHistoryOp::Rebase {
+            onto: "main".into(),
+        })
+        .await
+        .unwrap();
+        assert!(r.ok, "{r:?}");
+        assert!(repo.join("clean.txt").exists() && repo.join("late.txt").exists());
+        git(&["switch", "-q", "main"]);
+        let r = op(GitHistoryOp::Rebase {
+            onto: "late".into(),
+        })
+        .await
+        .unwrap();
+        // main has unpushed commits only after the push base, so this one is refused or ok;
+        // what must hold is that nothing is left half-done.
+        assert_eq!(git(&["status", "--porcelain"]), "", "{r:?}");
+
+        // Stash: push, list, pop restores, drop removes; dirty tree blocks pop.
+        git(&["switch", "-q", "main"]);
+        std::fs::write(repo.join("base.txt"), "changed\n").unwrap();
+        let r = op(GitHistoryOp::StashPush {
+            message: "wip: base".into(),
+            include_untracked: false,
+        })
+        .await
+        .unwrap();
+        assert!(r.ok, "{r:?}");
+        assert_eq!(
+            std::fs::read_to_string(repo.join("base.txt")).unwrap(),
+            "base\n"
+        );
+        let list = handle.fetch_git_stashes(session.clone()).await.unwrap();
+        assert_eq!(list.stashes.len(), 1);
+        assert!(list.stashes[0].message.contains("wip: base"), "{list:?}");
+        std::fs::write(repo.join("base.txt"), "other\n").unwrap();
+        let r = op(GitHistoryOp::StashPop { index: 0 }).await.unwrap();
+        assert!(!r.ok && r.output.contains("uncommitted"), "{r:?}");
+        git(&["checkout", "-q", "--", "base.txt"]);
+        let r = op(GitHistoryOp::StashPop { index: 0 }).await.unwrap();
+        assert!(r.ok, "{r:?}");
+        assert_eq!(
+            std::fs::read_to_string(repo.join("base.txt")).unwrap(),
+            "changed\n"
+        );
+        assert!(handle
+            .fetch_git_stashes(session.clone())
+            .await
+            .unwrap()
+            .stashes
+            .is_empty());
+        git(&["checkout", "-q", "--", "base.txt"]);
+        std::fs::write(repo.join("untracked.txt"), "u\n").unwrap();
+        let r = op(GitHistoryOp::StashPush {
+            message: "with untracked".into(),
+            include_untracked: true,
+        })
+        .await
+        .unwrap();
+        assert!(r.ok && !repo.join("untracked.txt").exists(), "{r:?}");
+        let r = op(GitHistoryOp::StashDrop { index: 0 }).await.unwrap();
+        assert!(r.ok, "{r:?}");
+        assert!(git(&["for-each-ref", "refs/ssh-app/backup"]).contains("-stash"));
+        let r = op(GitHistoryOp::StashDrop { index: 7 }).await.unwrap();
+        assert!(!r.ok);
+
+        for bad in [
+            GitHistoryOp::Drop {
+                hash: "--root".into(),
+            },
+            GitHistoryOp::Merge {
+                branch: "a b".into(),
+            },
+            GitHistoryOp::Squash {
+                count: 1,
+                message: "x".into(),
+            },
+        ] {
+            assert!(op(bad).await.is_err());
+        }
+    });
+    handle.disconnect();
+}

@@ -12,6 +12,7 @@ pub mod file_browser;
 pub mod gitbranch;
 pub mod gitcommit;
 pub mod gitdiff;
+pub mod githistory;
 pub mod gitlog;
 pub mod gitops;
 pub mod gitstatus;
@@ -66,6 +67,7 @@ pub use file_browser::{
 pub use gitbranch::{GitBranch, GitBranchOp, GitBranchesResult};
 pub use gitcommit::{GitCommitOp, GitResetMode};
 pub use gitdiff::{GitDiffResult, GitDiffStatus};
+pub use githistory::{GitHistoryOp, GitStash, GitStashesResult};
 pub use gitlog::{GitLogEntry, GitLogResult};
 pub use gitops::GitOpResult;
 pub use gitstatus::{GitFileChange, GitFileState, GitStatusResult};
