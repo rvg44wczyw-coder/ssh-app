@@ -59,11 +59,11 @@ public struct MainTerminalView: View {
     /// The AI assistant is a screen of its own (pushed on the navigation stack), not a card over
     /// the terminal. One value carries both "open" and "through which session", so the screen can
     /// never appear without its session.
-    @State private var assistantRoute: AssistantRoute?
+    @State var assistantRoute: AssistantRoute?
     @State private var pendingLocal: PendingLocalLaunch?
     @StateObject private var approvals = ApprovalsCenter()
     /// Chat and command state of the AI assistant, one per server (outlives tabs and the screen).
-    @StateObject private var assistants = AssistantStore()
+    @StateObject var assistants = AssistantStore()
 
     @ObservedObject private var subscriptions = SubscriptionManager.shared
     @State private var showPaywall: Bool = false
@@ -433,7 +433,7 @@ public struct MainTerminalView: View {
 
     /// Runs a panel action. The popover is dismissed first; sheets are presented after it has
     /// finished closing (presenting while a popover is still dismissing is dropped by UIKit).
-    private func performAction(_ action: AppAction) {
+    func performAction(_ action: AppAction) {
         showActionPanel = false
         if action == .chatToggle {
             withAnimation(.easeInOut(duration: 0.2)) {
@@ -507,7 +507,7 @@ public struct MainTerminalView: View {
     }
 
     /// Opens a new tab, auto-starting the configured agent profile (plain shell if none/invalid).
-    private func addNewTab(serverId: UUID?) -> TabSession {
+    func addNewTab(serverId: UUID?) -> TabSession {
         if let profile = agentProfiles.autoStartProfile, case .success(let cmd) = profile.launchCommand(),
            !profile.isLocal || agentProfiles.isAcknowledged(profile.id) {
             return tabsManager.addAgentSession(profile: profile, command: cmd, serverId: serverId)
@@ -520,18 +520,18 @@ public struct MainTerminalView: View {
         (serversManager.profile(for: tabsManager.activeSession?.serverId) ?? serversManager.activeProfile)?.keyId
     }
 
-    private func openSession(_ id: UUID) {
+    func openSession(_ id: UUID) {
         tabsManager.selectedSessionId = id
         ensureSessionStarted(for: id)
     }
 
-    private func startNewSession(on serverId: UUID?) {
+    func startNewSession(on serverId: UUID?) {
         guard canOpenNewSession() else { return }
         let s = addNewTab(serverId: serverId)
         ensureSessionStarted(for: s.id)
     }
 
-    private func launchPreset(_ id: String) {
+    func launchPreset(_ id: String) {
         guard let profile = agentProfiles.profiles.first(where: { $0.id == id }),
               case .success(let cmd) = profile.launchCommand() else { return }
         startProfile(profile, command: cmd)
@@ -569,158 +569,6 @@ public struct MainTerminalView: View {
 
     /// Long press on the "all sessions" button: jump to another open session, look at the servers
     /// and their sessions, or start a new one (plain, from a preset, or with new settings).
-    @ViewBuilder
-    private var jumpMenu: some View {
-        let others = tabsManager.sessions.filter { $0.id != tabsManager.selectedSessionId }
-        if !others.isEmpty {
-            Section("Other sessions") {
-                ForEach(others) { session in
-                    Button { openSession(session.id) } label: {
-                        let profile = agentProfiles.profiles.first { $0.id == session.profileId }
-                        Label(session.title, systemImage: ProfileIcons.symbol(profile, tabType: session.agentType))
-                    }
-                }
-            }
-        }
-        let servers = serversManager.profiles
-        if !servers.isEmpty {
-            Section("Servers") {
-                ForEach(servers) { server in
-                    let onServer = tabsManager.sessions.filter {
-                        ($0.serverId ?? serversManager.activeProfileId) == server.id
-                    }
-                    Menu {
-                        ForEach(onServer) { session in
-                            Button { openSession(session.id) } label: {
-                                Label(session.title, systemImage: session.id == tabsManager.selectedSessionId ? "checkmark" : "terminal")
-                            }
-                        }
-                        Button { startNewSession(on: server.id) } label: {
-                            Label("New session here", systemImage: "plus")
-                        }
-                    } label: {
-                        Label(onServer.isEmpty ? server.name : "\(server.name) (\(onServer.count))", systemImage: "server.rack")
-                    }
-                }
-            }
-        }
-        Section("New session") {
-            Button { startNewSession(on: tabsManager.activeSession?.serverId ?? serversManager.activeProfileId) } label: {
-                Label("New terminal", systemImage: "plus")
-            }
-            if !agentProfiles.profiles.isEmpty {
-                Menu {
-                    ForEach(agentProfiles.profiles, id: \.id) { p in
-                        Button { launchPreset(p.id) } label: {
-                            Text(p.workingDir.isEmpty ? p.name : "\(p.name) — \(p.workingDir)")
-                        }
-                    }
-                } label: {
-                    Label("From a preset", systemImage: "play.rectangle.on.rectangle")
-                }
-            }
-            Button { performAction(.agentProfiles) } label: {
-                Label("With new settings…", systemImage: "slider.horizontal.3")
-            }
-            .disabled(tabsManager.activeViewModel?.state != .connected)
-        }
-    }
-
-    /// Every open session, so commands from the assistant can go to any of them.
-    private var assistantTargets: [AssistantTarget] {
-        tabsManager.sessions.compactMap { session in
-            guard let vm = tabsManager.viewModel(for: session.id) else { return nil }
-            let server = serversManager.profile(for: session.serverId) ?? serversManager.activeProfile
-            return AssistantTarget(id: session.id, title: session.title, serverName: server?.name ?? "", viewModel: vm)
-        }
-    }
-
-    private func openAssistant(through vm: TerminalSessionViewModel, server: ServerProfile) {
-        let assistant = assistants.session(for: server.id)
-        assistant.aiError = nil
-        assistantRoute = AssistantRoute(viewModel: vm, assistant: assistant, serverName: server.name)
-    }
-
-    private func sessions(on server: ServerProfile) -> [TabSession] {
-        tabsManager.sessions.filter {
-            (serversManager.profile(for: $0.serverId) ?? serversManager.activeProfile)?.id == server.id
-        }
-    }
-
-    /// AI assistant button on the sessions screen. The assistant talks to a server's model through
-    /// one of its sessions, so the menu asks only what is ambiguous: the server when there are
-    /// several, then the session when that server has more than one open.
-    @ViewBuilder
-    private var assistantButton: some View {
-        let servers = serversManager.profiles
-        let icon = Image(systemName: "wand.and.stars").font(.system(size: 17))
-        if servers.count >= 2 {
-            Menu {
-                Section("Model on server") {
-                    ForEach(servers) { server in assistantChoice(for: server) }
-                }
-            } label: { icon }
-            .accessibilityLabel("AI assistant")
-            .accessibilityHint("Choose the server whose model answers")
-        } else if let server = servers.first ?? serversManager.activeProfile, sessions(on: server).count > 1 {
-            Menu {
-                Section("Run commands in") { sessionButtons(on: server) }
-            } label: { icon }
-            .accessibilityLabel("AI assistant")
-            .accessibilityHint("Choose the session the assistant works through")
-        } else {
-            Button { openAssistant(on: servers.first ?? serversManager.activeProfile) } label: { icon }
-                .accessibilityLabel("AI assistant")
-        }
-    }
-
-    @ViewBuilder
-    private func assistantChoice(for server: ServerProfile) -> some View {
-        if sessions(on: server).count > 1 {
-            Menu {
-                sessionButtons(on: server)
-            } label: { Label(server.name, systemImage: "server.rack") }
-        } else {
-            Button { openAssistant(on: server) } label: { Label(server.name, systemImage: "server.rack") }
-        }
-    }
-
-    @ViewBuilder
-    private func sessionButtons(on server: ServerProfile) -> some View {
-        ForEach(sessions(on: server)) { session in
-            Button {
-                guard let vm = tabsManager.viewModel(for: session.id) else { return }
-                if tabsManager.sessionStates[session.id] != .connected { ensureSessionStarted(for: session.id) }
-                openAssistant(through: vm, server: server)
-            } label: { Text(session.title) }
-        }
-    }
-
-    /// The assistant reaches a server's model through a session on that server: a connected one
-    /// if there is any, else one that gets reconnected, else a new terminal is started there.
-    private func openAssistant(on server: ServerProfile?) {
-        guard let server else { return }
-        let onServer = sessions(on: server)
-        if let live = onServer.first(where: { tabsManager.sessionStates[$0.id] == .connected }),
-           let vm = tabsManager.viewModel(for: live.id) {
-            openAssistant(through: vm, server: server)
-            return
-        }
-        if let any = onServer.first, let vm = tabsManager.viewModel(for: any.id) {
-            ensureSessionStarted(for: any.id)
-            openAssistant(through: vm, server: server)
-            return
-        }
-        guard canOpenNewSession() else { return }
-        let session = addNewTab(serverId: server.id)
-        ensureSessionStarted(for: session.id)
-        if let vm = tabsManager.viewModel(for: session.id) {
-            openAssistant(through: vm, server: server)
-        }
-    }
-
-    /// A session-menu action. It belongs to the pressed tab or card, not necessarily the selected
-    /// one, so that session is opened first (leaving the main screen).
     private func runSessionAction(_ id: UUID, _ action: AppAction) {
         if id != tabsManager.selectedSessionId {
             tabsManager.selectedSessionId = id
@@ -848,191 +696,6 @@ public struct MainTerminalView: View {
             break
         @unknown default:
             break
-        }
-    }
-}
-
-struct ActiveTerminalSessionView: View {
-    @ObservedObject var viewModel: TerminalSessionViewModel
-    @Binding var isCtrlLocked: Bool
-    let scheme: TerminalScheme
-    let onRetry: () -> Void
-    let onOpenAiAssistant: () -> Void
-    let onOpenSnippets: () -> Void
-    /// The agent whose models the quick-command menus list, from the tab's agent kind.
-    @State private var detectedMenuAgent: String?
-
-    private var modelMenuAgent: String? {
-        switch viewModel.session.agentType {
-        case .claudeCode: return "claude"
-        case .antigravity: return "antigravity"
-        case .localLlm: return "ollama"
-        case .customShell: return detectedMenuAgent
-        }
-    }
-
-    /// Re-asks the host what runs in a plain session's pane (the user may start `claude` or `agy`
-    /// by hand), every 15 s while this screen is visible and connected. Typed sessions skip it.
-    private func watchPaneAgent() async {
-        guard viewModel.session.agentType == .customShell else { return }
-        while !Task.isCancelled {
-            if viewModel.state == .connected {
-                let name = await viewModel.currentPaneContext().agent
-                let mapped: String? = switch name {
-                case "claude": "claude"
-                case "agy", "antigravity": "antigravity"
-                case "ollama": "ollama"
-                default: nil
-                }
-                if mapped != detectedMenuAgent { detectedMenuAgent = mapped }
-            }
-            try? await Task.sleep(for: .seconds(15))
-        }
-    }
-
-    @AppStorage(AiAssistantVisibility.storageKey) private var aiVisibilityRaw: String = ""
-    @AppStorage("always_show_ai_assistant") private var legacyAlwaysShowAi: Bool = false
-
-    var body: some View {
-        VStack(spacing: 0) {
-            ZStack(alignment: .top) {
-                if viewModel.isChatMode {
-                    StructuredTranscriptView(viewModel: viewModel)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    #if canImport(UIKit)
-                    TerminalContainerView(
-                        viewModel: viewModel,
-                        isCtrlLocked: $isCtrlLocked,
-                        scheme: scheme
-                    )
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    #else
-                    Text("SwiftTerm rendering is native on iOS")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    #endif
-                }
-
-                // An agent runs here (also one started by hand in a plain tab): offer the feed.
-                if !viewModel.isChatMode, viewModel.state == .connected,
-                   let agent = modelMenuAgent, agent != "ollama" {
-                    VStack {
-                        HStack {
-                            Spacer()
-                            Button { viewModel.toggleChatMode() } label: {
-                                Label("Feed", systemImage: "text.bubble")
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 6)
-                                    .background(.regularMaterial, in: Capsule())
-                            }
-                            .padding(.trailing, 10)
-                            .padding(.top, 8)
-                            .accessibilityHint("Show this agent's conversation as a readable feed")
-                        }
-                        Spacer()
-                    }
-                }
-
-                // Top Connection Status Banner
-                switch viewModel.state {
-                case .connecting, .reconnecting:
-                    HStack(spacing: 8) {
-                        ProgressView()
-                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                            .scaleEffect(0.8)
-                        Text(viewModel.state == .reconnecting ? "Reconnecting to tmux..." : "Connecting to host...")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(.white)
-                    }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background(Color.appAccent.opacity(0.85))
-                    .cornerRadius(20)
-                    .padding(.top, 8)
-                    .shadow(radius: 4)
-
-                case .failed(let reason):
-                    HStack(spacing: 8) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundColor(.yellow)
-                        Text(reason)
-                            .font(.system(size: 12))
-                            .lineLimit(2)
-                            .foregroundColor(.white)
-                        Button(action: onRetry) {
-                            Text("Retry")
-                                .font(.system(size: 12, weight: .bold))
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(Color.white.opacity(0.25))
-                                .cornerRadius(6)
-                        }
-                    }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background(Color.red.opacity(0.9))
-                    .cornerRadius(12)
-                    .padding(.top, 8)
-                    .padding(.horizontal, 16)
-                    .shadow(radius: 4)
-
-                case .disconnected:
-                    HStack(spacing: 8) {
-                        Image(systemName: "bolt.slash.fill")
-                            .foregroundColor(.secondary)
-                        Text("Disconnected")
-                            .font(.system(size: 12))
-                            .foregroundColor(.white)
-                        Button(action: onRetry) {
-                            Text("Connect")
-                                .font(.system(size: 12, weight: .bold))
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(Color.appAccent)
-                                .cornerRadius(6)
-                        }
-                    }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 6)
-                    .background(Color(white: 0.15).opacity(0.9))
-                    .cornerRadius(20)
-                    .padding(.top, 8)
-
-                case .connected:
-                    EmptyView()
-                }
-            }
-
-            #if canImport(UIKit)
-            if !viewModel.isChatMode {
-                KeyboardAccessoryView(
-                    onSendBytes: { bytes in
-                        viewModel.sendInput(Data(bytes))
-                    },
-                    onAiAssistantTap: AiAssistantVisibility
-                        .resolved(raw: aiVisibilityRaw, legacyAlways: legacyAlwaysShowAi)
-                        .isVisible(connected: true) ? { onOpenAiAssistant() } : nil,
-                    onSnippetsTap: {
-                        onOpenSnippets()
-                    },
-                    menuAgent: modelMenuAgent,
-                    menuScope: viewModel.session.serverId?.uuidString ?? "",
-                    menuReady: viewModel.state == .connected && viewModel.sessionHandle != nil,
-                    onPaste: { viewModel.pasteHandler?() },
-                    loadModels: { agent in
-                        guard let handle = viewModel.sessionHandle, let pin = bundledHostHelperSha256(),
-                            viewModel.state == .connected
-                        else { return [] }
-                        let list = (try? await handle.fetchAgentModels(agent: agent, expectedSha256: pin)) ?? []
-                        return list.map { (id: $0.id, label: $0.label) }
-                    }
-                )
-                .task(id: viewModel.state == .connected) { await watchPaneAgent() }
-            }
-            #endif
         }
     }
 }
