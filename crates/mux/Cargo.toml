@@ -1,0 +1,10 @@
+[package]
+name = "ssh-app-mux"
+version = "0.1.0"
+edition = "2021"
+license = "BUSL-1.1"
+description = "Terminal multiplexer pieces for native Windows hosts (feature 34): VT screen model and wire framing"
+
+[lib]
+name = "ssh_app_mux"
+path = "src/lib.rs"
