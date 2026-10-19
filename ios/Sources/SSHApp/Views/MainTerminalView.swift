@@ -906,6 +906,27 @@ struct ActiveTerminalSessionView: View {
                     #endif
                 }
 
+                // An agent runs here (also one started by hand in a plain tab): offer the feed.
+                if !viewModel.isChatMode, viewModel.state == .connected,
+                   let agent = modelMenuAgent, agent != "ollama" {
+                    VStack {
+                        HStack {
+                            Spacer()
+                            Button { viewModel.toggleChatMode() } label: {
+                                Label("Feed", systemImage: "text.bubble")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                                    .background(.regularMaterial, in: Capsule())
+                            }
+                            .padding(.trailing, 10)
+                            .padding(.top, 8)
+                            .accessibilityHint("Show this agent's conversation as a readable feed")
+                        }
+                        Spacer()
+                    }
+                }
+
                 // Top Connection Status Banner
                 switch viewModel.state {
                 case .connecting, .reconnecting:

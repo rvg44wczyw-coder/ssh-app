@@ -15,6 +15,8 @@ struct FeedTextView: UIViewRepresentable {
     @Binding var atBottom: Bool
     /// Changes when the user asks to jump to the newest text.
     let scrollToken: Int
+    /// Changes when the user asks for the system find bar.
+    let findToken: Int
     let dark: Bool
     /// Bumped when syntax colours for code blocks arrived, so the text is rebuilt.
     let highlightVersion: Int
@@ -32,6 +34,7 @@ struct FeedTextView: UIViewRepresentable {
         tv.textContainer.lineFragmentPadding = 0
         tv.adjustsFontForContentSizeCategory = true
         tv.linkTextAttributes = [.foregroundColor: UIColor.secondaryLabel]
+        tv.isFindInteractionEnabled = true
         tv.delegate = context.coordinator
         return tv
     }
@@ -41,6 +44,10 @@ struct FeedTextView: UIViewRepresentable {
         c.parent = self
         let text = FeedAttributedBuilder.build(
             turns: turns, expandedThinking: expandedThinking, expandedTools: expandedTools, dark: dark)
+        if findToken != c.lastFind {
+            c.lastFind = findToken
+            tv.findInteraction?.presentFindNavigator(showingReplace: false)
+        }
         var jump = false
         if scrollToken != c.lastToken {
             c.lastToken = scrollToken
@@ -68,6 +75,7 @@ struct FeedTextView: UIViewRepresentable {
         var parent: FeedTextView
         var lastText = NSAttributedString()
         var lastToken = 0
+        var lastFind = 0
         init(_ parent: FeedTextView) { self.parent = parent }
 
         func isAtBottom(_ tv: UIScrollView) -> Bool {
@@ -272,7 +280,9 @@ enum FeedAttributedBuilder {
             head.addAttribute(.link, value: url, range: NSRange(location: 2, length: max(0, head.length - 3)))
         }
         out.append(head)
-        if open, let args = tc.fullArgumentsJson, !args.isEmpty {
+        if open, let diff = editDiff(tc) {
+            out.append(diff)
+        } else if open, let args = tc.fullArgumentsJson, !args.isEmpty {
             out.append(line(args + "\n", font: mono(size: 12), color: .secondaryLabel, indent: 28, first: 28, after: 2,
                             background: .secondarySystemFill))
         }
@@ -296,6 +306,40 @@ enum FeedAttributedBuilder {
             out.append(more)
         }
         out.append(NSAttributedString(string: "\n", attributes: [.font: mono(size: 4)]))
+    }
+
+    /// Edit / Write tool calls as a coloured diff: removed lines red, added lines green.
+    private static func editDiff(_ tc: TranscriptToolCall) -> NSAttributedString? {
+        guard let json = tc.fullArgumentsJson, let data = json.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+        var pairs: [(String, String)] = []
+        if let o = obj["old_string"] as? String, let n = obj["new_string"] as? String { pairs = [(o, n)] }
+        else if let edits = obj["edits"] as? [[String: Any]] {
+            pairs = edits.compactMap { e in
+                guard let o = e["old_string"] as? String, let n = e["new_string"] as? String else { return nil }
+                return (o, n)
+            }
+        } else if let c = obj["content"] as? String { pairs = [("", c)] }
+        guard !pairs.isEmpty else { return nil }
+        let out = NSMutableAttributedString()
+        if let file = (obj["file_path"] ?? obj["path"]) as? String {
+            out.append(line(file + "\n", font: mono(.bold, size: 12), color: .secondaryLabel, indent: 28, first: 28, after: 0))
+        }
+        var budget = 120
+        func add(_ text: String, sign: String, color: UIColor) {
+            for l in text.components(separatedBy: "\n") where budget > 0 {
+                budget -= 1
+                out.append(line(sign + " " + l + "\n", font: mono(size: 12), color: .label, indent: 42, first: 28, after: 0,
+                                background: color.withAlphaComponent(0.22)))
+            }
+        }
+        for (o, n) in pairs {
+            if !o.isEmpty { add(o, sign: "-", color: .systemRed) }
+            add(n, sign: "+", color: .systemGreen)
+        }
+        if budget == 0 { out.append(line("… (truncated)\n", font: mono(size: 12), color: .tertiaryLabel, indent: 28, first: 28, after: 0)) }
+        return out
     }
 
     // MARK: Prose (headings, lists, quotes, tables, rules, inline Markdown)

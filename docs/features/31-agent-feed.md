@@ -87,8 +87,9 @@ to the pane. Reload errors are shown once in the header, not replacing turns.
 
 ## 7. Later phases
 
-F2 diffs inside tool cards (reuse the diff viewer), F3 search in the feed, F4 detected agent
-from a plain session switches the tab to the feed offer, F5 pinch to change text size.
+Done 2026-10-19: F2 Edit / Write tool calls show a red/green diff when expanded, F3 search
+(system find bar from the magnifier in the header), F4 a "Feed" button over the terminal when an
+agent runs in the pane. Left: F5 pinch to change text size, syntax colours in diffs.
 
 ## 8. Review notes
 

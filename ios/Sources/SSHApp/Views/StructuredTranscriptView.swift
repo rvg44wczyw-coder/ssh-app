@@ -7,6 +7,7 @@ public struct StructuredTranscriptView: View {
     @State private var atBottom = true
     @State private var unseenNew = false
     @State private var scrollToken = 0
+    @State private var findToken = 0
     @State private var highlightVersion = 0
     @Environment(\.colorScheme) private var colorScheme
     @State private var editorExpanded = false
@@ -30,6 +31,10 @@ public struct StructuredTranscriptView: View {
                         .background(Color.appAccent.opacity(0.15), in: Capsule())
                 }
                 .accessibilityHint("Switch this tab back to the raw terminal")
+                Button { findToken += 1 } label: {
+                    Image(systemName: "magnifyingglass").font(.system(size: 13))
+                }
+                .accessibilityLabel("Find in feed")
                 Image(systemName: "doc.text.magnifyingglass")
                     .font(.system(size: 11))
                     .foregroundColor(.appAccent)
@@ -155,6 +160,7 @@ public struct StructuredTranscriptView: View {
                     },
                     atBottom: $atBottom,
                     scrollToken: scrollToken,
+                    findToken: findToken,
                     dark: colorScheme == .dark,
                     highlightVersion: highlightVersion
                 )
