@@ -18,7 +18,7 @@ Then git operations from the phone, in phases.
 | Phase | Content | State |
 |---|---|---|
 | G0 | `fetch_git_status` (core) + coloured file list + Project view with Files / Changes / Log tabs | in progress |
-| G1 | Branches: list local/remote, current, ahead/behind; switch; create a branch from a chosen commit or branch | in progress (4a) |
+| G1 | Branches: list local/remote, current, ahead/behind; switch; create a branch from a chosen commit or branch | done (core + sheet; device check pending) |
 | G2 | Worktrees: list, add (new branch from X in a new folder), remove; open a session in a worktree | todo |
 | G3 | Commit actions: cherry-pick (one or several commits), revert, reset (soft/mixed only), amend message | todo |
 | G4 | History rewriting: squash the last N commits (or a selected range), reword, drop; stash; merge/rebase of a branch with conflict reporting | todo |

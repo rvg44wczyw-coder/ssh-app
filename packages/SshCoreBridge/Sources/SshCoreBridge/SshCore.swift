@@ -519,6 +519,22 @@ fileprivate struct FfiConverterUInt32: FfiConverterPrimitive {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterInt32: FfiConverterPrimitive {
+    typealias FfiType = Int32
+    typealias SwiftType = Int32
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Int32 {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: Int32, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterUInt64: FfiConverterPrimitive {
     typealias FfiType = UInt64
     typealias SwiftType = UInt64
@@ -1385,6 +1401,11 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func fetchAgentModels(agent: String, expectedSha256: String) async throws  -> [AgentModelChoice]
     
     /**
+     * Branches of the repository the tab's pane is in (feature 28, G1).
+     */
+    func fetchGitBranches(sessionName: String) async throws  -> GitBranchesResult
+    
+    /**
      * Git diff (`HEAD`) of the repository the tmux session's pane is working in. The command runs
      * in the pane's directory: an exec channel starts in `$HOME`, where `git diff` just prints
      * its usage text.
@@ -1547,6 +1568,12 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
      * Reads and parses the latest transcript from the remote host.
      */
     func readRemoteTranscript(remotePath: String) async throws  -> [TranscriptTurn]
+    
+    /**
+     * Switches, creates or deletes a branch (see `GitBranchOp`). Invalid names are refused here
+     * as an error; git's own refusals come back in the result.
+     */
+    func runGitBranchOp(sessionName: String, op: GitBranchOp) async throws  -> GitOpResult
     
     /**
      * Signs and submits the user's decision for request `id`. The signature covers the host's
@@ -1959,6 +1986,25 @@ open func fetchAgentModels(agent: String, expectedSha256: String)async throws  -
             completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
             freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
             liftFunc: FfiConverterSequenceTypeAgentModelChoice.lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Branches of the repository the tab's pane is in (feature 28, G1).
+     */
+open func fetchGitBranches(sessionName: String)async throws  -> GitBranchesResult  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_fetch_git_branches(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(sessionName)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeGitBranchesResult_lift,
             errorHandler: FfiConverterTypeSshCoreError_lift
         )
 }
@@ -2529,6 +2575,26 @@ open func readRemoteTranscript(remotePath: String)async throws  -> [TranscriptTu
             completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
             freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
             liftFunc: FfiConverterSequenceTypeTranscriptTurn.lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Switches, creates or deletes a branch (see `GitBranchOp`). Invalid names are refused here
+     * as an error; git's own refusals come back in the result.
+     */
+open func runGitBranchOp(sessionName: String, op: GitBranchOp)async throws  -> GitOpResult  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_run_git_branch_op(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(sessionName),FfiConverterTypeGitBranchOp_lower(op)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeGitOpResult_lift,
             errorHandler: FfiConverterTypeSshCoreError_lift
         )
 }
@@ -4029,6 +4095,172 @@ public func FfiConverterTypeFuzzyMatchResult_lower(_ value: FuzzyMatchResult) ->
 }
 
 
+public struct GitBranch: Equatable, Hashable {
+    /**
+     * `main`, or `origin/main` for a remote branch.
+     */
+    public var name: String
+    public var isRemote: Bool
+    public var isCurrent: Bool
+    public var upstream: String?
+    public var ahead: UInt32
+    public var behind: UInt32
+    public var shortHash: String
+    public var subject: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * `main`, or `origin/main` for a remote branch.
+         */name: String, isRemote: Bool, isCurrent: Bool, upstream: String?, ahead: UInt32, behind: UInt32, shortHash: String, subject: String) {
+        self.name = name
+        self.isRemote = isRemote
+        self.isCurrent = isCurrent
+        self.upstream = upstream
+        self.ahead = ahead
+        self.behind = behind
+        self.shortHash = shortHash
+        self.subject = subject
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension GitBranch: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeGitBranch: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> GitBranch {
+        return
+            try GitBranch(
+                name: FfiConverterString.read(from: &buf), 
+                isRemote: FfiConverterBool.read(from: &buf), 
+                isCurrent: FfiConverterBool.read(from: &buf), 
+                upstream: FfiConverterOptionString.read(from: &buf), 
+                ahead: FfiConverterUInt32.read(from: &buf), 
+                behind: FfiConverterUInt32.read(from: &buf), 
+                shortHash: FfiConverterString.read(from: &buf), 
+                subject: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: GitBranch, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.name, into: &buf)
+        FfiConverterBool.write(value.isRemote, into: &buf)
+        FfiConverterBool.write(value.isCurrent, into: &buf)
+        FfiConverterOptionString.write(value.upstream, into: &buf)
+        FfiConverterUInt32.write(value.ahead, into: &buf)
+        FfiConverterUInt32.write(value.behind, into: &buf)
+        FfiConverterString.write(value.shortHash, into: &buf)
+        FfiConverterString.write(value.subject, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGitBranch_lift(_ buf: RustBuffer) throws -> GitBranch {
+    return try FfiConverterTypeGitBranch.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGitBranch_lower(_ value: GitBranch) -> RustBuffer {
+    return FfiConverterTypeGitBranch.lower(value)
+}
+
+
+public struct GitBranchesResult: Equatable, Hashable {
+    public var status: GitDiffStatus
+    public var repoRoot: String?
+    public var current: String?
+    /**
+     * HEAD points at a commit, not at a branch.
+     */
+    public var detached: Bool
+    /**
+     * Tracked files have uncommitted changes.
+     */
+    public var dirty: Bool
+    public var branches: [GitBranch]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(status: GitDiffStatus, repoRoot: String?, current: String?, 
+        /**
+         * HEAD points at a commit, not at a branch.
+         */detached: Bool, 
+        /**
+         * Tracked files have uncommitted changes.
+         */dirty: Bool, branches: [GitBranch]) {
+        self.status = status
+        self.repoRoot = repoRoot
+        self.current = current
+        self.detached = detached
+        self.dirty = dirty
+        self.branches = branches
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension GitBranchesResult: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeGitBranchesResult: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> GitBranchesResult {
+        return
+            try GitBranchesResult(
+                status: FfiConverterTypeGitDiffStatus.read(from: &buf), 
+                repoRoot: FfiConverterOptionString.read(from: &buf), 
+                current: FfiConverterOptionString.read(from: &buf), 
+                detached: FfiConverterBool.read(from: &buf), 
+                dirty: FfiConverterBool.read(from: &buf), 
+                branches: FfiConverterSequenceTypeGitBranch.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: GitBranchesResult, into buf: inout [UInt8]) {
+        FfiConverterTypeGitDiffStatus.write(value.status, into: &buf)
+        FfiConverterOptionString.write(value.repoRoot, into: &buf)
+        FfiConverterOptionString.write(value.current, into: &buf)
+        FfiConverterBool.write(value.detached, into: &buf)
+        FfiConverterBool.write(value.dirty, into: &buf)
+        FfiConverterSequenceTypeGitBranch.write(value.branches, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGitBranchesResult_lift(_ buf: RustBuffer) throws -> GitBranchesResult {
+    return try FfiConverterTypeGitBranchesResult.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGitBranchesResult_lower(_ value: GitBranchesResult) -> RustBuffer {
+    return FfiConverterTypeGitBranchesResult.lower(value)
+}
+
+
 public struct GitDiffResult: Equatable, Hashable {
     public var status: GitDiffStatus
     /**
@@ -4336,6 +4568,83 @@ public func FfiConverterTypeGitLogResult_lift(_ buf: RustBuffer) throws -> GitLo
 #endif
 public func FfiConverterTypeGitLogResult_lower(_ value: GitLogResult) -> RustBuffer {
     return FfiConverterTypeGitLogResult.lower(value)
+}
+
+
+/**
+ * Result of one git operation.
+ */
+public struct GitOpResult: Equatable, Hashable {
+    public var status: GitDiffStatus
+    /**
+     * Git finished with exit code 0.
+     */
+    public var ok: Bool
+    public var exitCode: Int32
+    /**
+     * What git printed (display-safe, capped), or the reason the app refused to run it.
+     */
+    public var output: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(status: GitDiffStatus, 
+        /**
+         * Git finished with exit code 0.
+         */ok: Bool, exitCode: Int32, 
+        /**
+         * What git printed (display-safe, capped), or the reason the app refused to run it.
+         */output: String) {
+        self.status = status
+        self.ok = ok
+        self.exitCode = exitCode
+        self.output = output
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension GitOpResult: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeGitOpResult: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> GitOpResult {
+        return
+            try GitOpResult(
+                status: FfiConverterTypeGitDiffStatus.read(from: &buf), 
+                ok: FfiConverterBool.read(from: &buf), 
+                exitCode: FfiConverterInt32.read(from: &buf), 
+                output: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: GitOpResult, into buf: inout [UInt8]) {
+        FfiConverterTypeGitDiffStatus.write(value.status, into: &buf)
+        FfiConverterBool.write(value.ok, into: &buf)
+        FfiConverterInt32.write(value.exitCode, into: &buf)
+        FfiConverterString.write(value.output, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGitOpResult_lift(_ buf: RustBuffer) throws -> GitOpResult {
+    return try FfiConverterTypeGitOpResult.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGitOpResult_lower(_ value: GitOpResult) -> RustBuffer {
+    return FfiConverterTypeGitOpResult.lower(value)
 }
 
 
@@ -7429,6 +7738,113 @@ public func FfiConverterTypeAiRiskLevel_lower(_ value: AiRiskLevel) -> RustBuffe
 
 
 
+public enum GitBranchOp: Equatable, Hashable {
+    
+    /**
+     * `git switch <name>` (a local branch).
+     */
+    case `switch`(name: String
+    )
+    /**
+     * `git switch --track <origin/name>`: a local branch that follows the remote one.
+     */
+    case switchTracking(name: String
+    )
+    /**
+     * New branch at `from` (current HEAD when none); `switch_to` also checks it out.
+     */
+    case create(name: String, from: String?, switchTo: Bool
+    )
+    /**
+     * `git branch -d` (merged only) or `-D`; the tip is saved under `refs/ssh-app/backup/` first.
+     */
+    case delete(name: String, force: Bool
+    )
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension GitBranchOp: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeGitBranchOp: FfiConverterRustBuffer {
+    typealias SwiftType = GitBranchOp
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> GitBranchOp {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .`switch`(name: try FfiConverterString.read(from: &buf)
+        )
+        
+        case 2: return .switchTracking(name: try FfiConverterString.read(from: &buf)
+        )
+        
+        case 3: return .create(name: try FfiConverterString.read(from: &buf), from: try FfiConverterOptionString.read(from: &buf), switchTo: try FfiConverterBool.read(from: &buf)
+        )
+        
+        case 4: return .delete(name: try FfiConverterString.read(from: &buf), force: try FfiConverterBool.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: GitBranchOp, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case let .`switch`(name):
+            writeInt(&buf, Int32(1))
+            FfiConverterString.write(name, into: &buf)
+            
+        
+        case let .switchTracking(name):
+            writeInt(&buf, Int32(2))
+            FfiConverterString.write(name, into: &buf)
+            
+        
+        case let .create(name,from,switchTo):
+            writeInt(&buf, Int32(3))
+            FfiConverterString.write(name, into: &buf)
+            FfiConverterOptionString.write(from, into: &buf)
+            FfiConverterBool.write(switchTo, into: &buf)
+            
+        
+        case let .delete(name,force):
+            writeInt(&buf, Int32(4))
+            FfiConverterString.write(name, into: &buf)
+            FfiConverterBool.write(force, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGitBranchOp_lift(_ buf: RustBuffer) throws -> GitBranchOp {
+    return try FfiConverterTypeGitBranchOp.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGitBranchOp_lower(_ value: GitBranchOp) -> RustBuffer {
+    return FfiConverterTypeGitBranchOp.lower(value)
+}
+
+
+
+
 public enum GitDiffStatus: Equatable, Hashable {
     
     /**
@@ -9822,6 +10238,31 @@ fileprivate struct FfiConverterSequenceTypeFuzzyMatchResult: FfiConverterRustBuf
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeGitBranch: FfiConverterRustBuffer {
+    typealias SwiftType = [GitBranch]
+
+    public static func write(_ value: [GitBranch], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeGitBranch.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [GitBranch] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [GitBranch]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeGitBranch.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeGitFileChange: FfiConverterRustBuffer {
     typealias SwiftType = [GitFileChange]
 
@@ -11678,6 +12119,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_fetch_agent_models() != 64116) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_fetch_git_branches() != 21280) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_fetch_git_diff() != 14960) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -11763,6 +12207,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_read_remote_transcript() != 17846) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_run_git_branch_op() != 61266) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_submit_approval_decision() != 15916) {

@@ -11,6 +11,7 @@ public struct FileBrowserSheetView: View {
     @State private var showPreview: Bool = false
     @State private var showDiff: Bool = false
     @State private var showLog: Bool = false
+    @State private var showBranches: Bool = false
 
     public init(viewModel: TerminalSessionViewModel, onClose: (() -> Void)? = nil) {
         self.viewModel = viewModel
@@ -79,10 +80,14 @@ public struct FileBrowserSheetView: View {
                 if let listing = viewModel.fileListing {
                     HStack(spacing: 8) {
                         if let branch = viewModel.gitStatus?.branch {
-                            Label(branch, systemImage: "arrow.triangle.branch")
-                                .font(.caption.bold())
-                                .foregroundColor(.secondary)
-                                .lineLimit(1)
+                            Button { showBranches = true } label: {
+                                Label(branch, systemImage: "arrow.triangle.branch")
+                                    .font(.caption.bold())
+                                    .foregroundColor(.accentColor)
+                                    .lineLimit(1)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityHint("Open the branch list")
                         }
                         Text(listing.currentPath)
                             .font(.system(size: 12, design: .monospaced))
@@ -213,6 +218,9 @@ public struct FileBrowserSheetView: View {
             }
             .sheet(isPresented: $showLog) {
                 GitLogSheetView(viewModel: viewModel)
+            }
+            .sheet(isPresented: $showBranches) {
+                GitBranchesSheetView(viewModel: viewModel) { load(viewModel.fileListing?.currentPath) }
             }
             .onAppear { if viewModel.fileListing == nil { load(nil) } }
         }

@@ -47,6 +47,7 @@
 		AA000025 /* StructuredTranscriptView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000025 /* StructuredTranscriptView.swift */; };
 		AA900112 /* FeedMarkdownView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB900112 /* FeedMarkdownView.swift */; };
 		AA900113 /* FeedTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB900113 /* FeedTextView.swift */; };
+		AA900115 /* GitBranchesSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB900115 /* GitBranchesSheetView.swift */; };
 		AA000026 /* SnippetsSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000026 /* SnippetsSheetView.swift */; };
 		AA000027 /* HostTelemetrySheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000027 /* HostTelemetrySheetView.swift */; };
 		AA000028 /* FileBrowserSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000028 /* FileBrowserSheetView.swift */; };
@@ -138,6 +139,7 @@
 		BB000025 /* StructuredTranscriptView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/StructuredTranscriptView.swift; sourceTree = "<group>"; };
 		BB900112 /* FeedMarkdownView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/FeedMarkdownView.swift; sourceTree = "<group>"; };
 		BB900113 /* FeedTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/FeedTextView.swift; sourceTree = "<group>"; };
+		BB900115 /* GitBranchesSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/GitBranchesSheetView.swift; sourceTree = "<group>"; };
 		BB000026 /* SnippetsSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/SnippetsSheetView.swift; sourceTree = "<group>"; };
 		BB000027 /* HostTelemetrySheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/HostTelemetrySheetView.swift; sourceTree = "<group>"; };
 		BB000028 /* FileBrowserSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/FileBrowserSheetView.swift; sourceTree = "<group>"; };
@@ -342,6 +344,7 @@
 				BB000025 /* StructuredTranscriptView.swift */,
 				BB900112 /* FeedMarkdownView.swift */,
 				BB900113 /* FeedTextView.swift */,
+				BB900115 /* GitBranchesSheetView.swift */,
 				BB000026 /* SnippetsSheetView.swift */,
 				BB900111 /* SyntaxSettingsView.swift */,
 				BB900110 /* HighlightedText.swift */,
@@ -568,6 +571,7 @@
 				AA000025 /* StructuredTranscriptView.swift in Sources */,
 				AA900112 /* FeedMarkdownView.swift in Sources */,
 				AA900113 /* FeedTextView.swift in Sources */,
+				AA900115 /* GitBranchesSheetView.swift in Sources */,
 				AA000026 /* SnippetsSheetView.swift in Sources */,
 				AA900111 /* SyntaxSettingsView.swift in Sources */,
 				AA900110 /* HighlightedText.swift in Sources */,
