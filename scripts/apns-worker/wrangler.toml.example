@@ -1,6 +1,7 @@
 name = "ssh-app-apns-bridge"
 main = "worker.ts"
 compatibility_date = "2024-04-01"
+preview_urls = false
 
 [vars]
 APPLE_KEY_ID = "YOUR_KEY_ID"

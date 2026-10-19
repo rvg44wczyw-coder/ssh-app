@@ -66,7 +66,8 @@ export default {
     if (res.status === 410) return json(410, { error: "unregistered" });
     const reason = ((await res.json().catch(() => ({}))) as { reason?: string }).reason ?? "";
     if (res.status === 400 && reason === "BadDeviceToken") return json(410, { error: "unregistered" });
-    return json(502, { error: "apns", status: res.status });
+    // Only a plain code like "InvalidProviderToken" is passed on.
+    return json(502, { error: "apns", status: res.status, reason: /^[A-Za-z]{1,40}$/.test(reason) ? reason : "" });
   },
 };
 

@@ -96,3 +96,7 @@ Each phase follows the dev-chain with a hacker pass.
 - Notification Service Extension that fetches the real text over SSH: not in v1 (30 s limit, key access from an extension, and the privacy point of this design).
 - Several relays or several phones per host: v1 registers one token per host.
 - Release `aps-environment` needs the production App Store/TestFlight signing; Debug installs use the sandbox endpoint.
+
+## 6. T1 deployed (2026-10-19)
+
+Worker `ssh-app-apns-bridge` is live on the owner's Cloudflare account (workers.dev, preview URLs off), secrets `APPLE_P8_PRIVATE_KEY` and `RELAY_SECRET` set with `wrangler secret put` (the relay secret is kept in `~/.private_keys/ssh_app_relay_secret`, 0600). Checked with curl: no/bad secret 401, GET 405, bad token/category 400, a fake token against production APNs 410 (`BadDeviceToken` = key and JWT accepted). **Sandbox answers 403 `BadEnvironmentKeyInToken`: the key `QPHGNXBX8Y` was created for Production only.** Xcode development installs (`make iphone-full`) register sandbox tokens, so a key with "Sandbox & Production" is needed for them (or TestFlight/App Store builds, which use production).
