@@ -138,7 +138,7 @@
 - [ ] **TODO after the cleanup (2026-10-18)**. Done: `MainTerminalView` sheets split, `agent_hooks` and `permissions` split, live agent events (`watch_host_agent`). Agent: tmux-detected sessions now produce live events while subscribed (`docs/features/27-agent-tmux-control.md`; a `tmux -C` client was rejected, see there). Left:
   - `MainTerminalView.swift` split further (2026-10-19): `ActiveTerminalSessionView.swift`, `MainTerminalAssistant.swift` (jump menu, assistant routing); 1038 → 701 lines. Lifecycle/approval polling still in the main file.
   - Remove the Python hook fallback, only after device runs of the helper path (the app must keep working on hosts without the helper).
-  - Port telemetry and the file browser to the helper (own spec).
+  - Port telemetry and the file browser to the helper: spec written (`docs/features/32-helper-telemetry-and-files.md`, phases T1–T4, shell paths stay as fallback); not implemented, waits for the owner's go-ahead.
   - P3 push: waits for the owner's Apple `.p8` key and Cloudflare account.
   - `x86_64-apple-darwin` helper build; Watch registration and Developer Mode; Files extension on a device; live hook checks of Qwen, Crush, OpenCode, Codex, Grok and `ollama launch`; Files extras (Face ID per server, favourites). Android stays excluded.
 - [x] Hooks hardening from `docs/features/15-hooks-capability-analysis.md` §5 items 1–5 were delivered with M21 (protect-agent-config template, command analysis on the approval card, custom-command lint, drift warning, host guard rules, session registry). Only §5 item 6 stays open: Codex and Grok are not installed on this machine, so their hooks cannot be run live.
