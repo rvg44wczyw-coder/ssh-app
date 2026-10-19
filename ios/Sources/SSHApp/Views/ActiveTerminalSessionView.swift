@@ -172,8 +172,8 @@ struct ActiveTerminalSessionView: View {
                     menuReady: viewModel.state == .connected && viewModel.sessionHandle != nil,
                     onPaste: { viewModel.pasteHandler?() },
                     loadModels: { agent in
-                        guard let handle = viewModel.sessionHandle, let pin = bundledHostHelperSha256(),
-                            viewModel.state == .connected
+                        guard let handle = viewModel.sessionHandle, viewModel.state == .connected,
+                            let pin = await viewModel.helperPin()
                         else { return [] }
                         let list = (try? await handle.fetchAgentModels(agent: agent, expectedSha256: pin)) ?? []
                         return list.map { (id: $0.id, label: $0.label) }

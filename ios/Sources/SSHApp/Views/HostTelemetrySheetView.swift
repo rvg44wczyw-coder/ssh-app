@@ -191,7 +191,7 @@ public struct HostTelemetrySheetView: View {
 
             Spacer()
 
-            if let batt = snap.batteryPercent {
+            if let batt = snap.batteryPercent, !(viewModel.hostTarget.map { hostTargetHidesBattery(target: $0) } ?? false) {
                 VStack(alignment: .trailing, spacing: 3) {
                     HStack(spacing: 4) {
                         Image(systemName: Self.batterySymbol(percent: Int(batt), charging: snap.isCharging == true))

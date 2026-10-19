@@ -26,7 +26,7 @@ final class SessionUsageMonitor: ObservableObject {
                                         privateKeyPem: key, pinnedHostKey: server.hostKeyFingerprint)
         Task {
             defer { loading = false }
-            guard let r = try? await fetchHostUsage(config: config, configDirs: configDirs, helperSha256: bundledHostHelperSha256()) else { return }
+            guard let r = try? await fetchHostUsage(config: config, configDirs: configDirs, helperSha256: HostTargetCache.pin(host: server.host, port: server.port, username: server.username)) else { return }
             report = r
             updated = Date()
             for s in r.sessions { lastKnown[s.session] = s }

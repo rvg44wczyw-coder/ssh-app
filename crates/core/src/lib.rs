@@ -36,6 +36,7 @@ pub mod tmux;
 pub mod transcript;
 pub(crate) mod transport;
 pub mod usage;
+pub mod wsl;
 
 pub use agents::{
     agent_config_dir_env, agent_hook_script, agent_hooks_config_path, agent_hooks_installed,

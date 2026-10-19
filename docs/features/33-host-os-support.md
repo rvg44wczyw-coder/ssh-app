@@ -240,3 +240,15 @@ relative to feature 32: T3 (`read`/`kill`) first, because H2 needs a stable help
 - Core transcript detection reads `/proc/<pid>/cwd` and `/proc/<pid>/fd` first, `lsof` as fallback.
 - Not tested: a full app-to-Linux-sshd session (the loopback suite runs against the Mac), x86_64 at run time.
 - Hacker pass: `docs/security-findings/2026-10-19-linux-helper-h2.md`.
+
+### H3/H4 implementation notes (2026-10-19)
+
+- Core: `wsl_setup_snippets(route, public_key, ssh_port)` (systemd in `/etc/wsl.conf`, sshd + tmux,
+  `authorized_keys` with the validated key, then Tailscale in the distro / mirrored `.wslconfig` +
+  firewall rule / `netsh portproxy`, and a check), `host_target_label`, `host_target_hides_battery`.
+- App: the terminal view model detects the system once per connection and derives the helper pin from
+  it (`helperPin()`); `HostTargetCache` serves views without a session. The host service card shows
+  the detected system, installs the matching build, shows the unsupported reason and a "WSL2 setup"
+  sheet (route picker, copy buttons); the battery tile is hidden under WSL2.
+- Simulator build only; not run on a device. WSL2 itself could not be tested here.
+- Hacker pass: `docs/security-findings/2026-10-19-wsl-snippets-h3-h4.md`.

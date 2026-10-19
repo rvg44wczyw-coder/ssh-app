@@ -55,7 +55,7 @@ public final class TmuxSessionManagerViewModel: ObservableObject {
         )
         Task {
             do {
-                let report = try await fetchHostUsage(config: config, configDirs: configDirs, helperSha256: bundledHostHelperSha256())
+                let report = try await fetchHostUsage(config: config, configDirs: configDirs, helperSha256: HostTargetCache.pin(host: server.host, port: server.port, username: server.username))
                 self.usageReport = report
                 self.usage = Dictionary(report.sessions.map { ($0.session, $0) }, uniquingKeysWith: { a, _ in a })
                 self.usageError = nil

@@ -13,14 +13,30 @@ struct HostHelperCard: View {
     @State private var agentChecked = false
     @State private var watch: HostAgentWatch?
 
-    private var pin: String? { bundledHostHelperSha256() }
+    @State private var pin: String?
+    @State private var showWslSetup = false
+
+    private var target: HostTarget? { viewModel.hostTarget }
+    private var isUnsupported: Bool { if case .unsupported? = target { return true }; return false }
+    private var isWsl: Bool {
+        switch target {
+        case .wslX8664?, .wslAarch64?: return true
+        default: return false
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Label("Host service", systemImage: "shippingbox").font(.headline)
+            if let target {
+                Text(hostTargetLabel(target: target)).font(.caption.bold())
+            }
             Text(summary).font(.caption).foregroundColor(.secondary)
-            if let pin {
-                Text("ssh-app-host · \(bundledHostHelperSize() / 1024) KB · sha256 \(pin.prefix(12))…")
+            if isWsl || isUnsupported {
+                Button("WSL2 setup for Windows") { showWslSetup = true }.buttonStyle(.bordered)
+            }
+            if let pin, !isUnsupported {
+                Text("ssh-app-host · \((target.map { bundledHostHelperSizeFor(target: $0) } ?? bundledHostHelperSize()) / 1024) KB · sha256 \(pin.prefix(12))…")
                     .font(.system(size: 10, design: .monospaced)).foregroundColor(.secondary)
                 Text("Installs to ~/.ssh-app/bin/ssh-app-host (mode 700). Nothing runs in the background until you check the agent below.")
                     .font(.caption2).foregroundColor(.secondary)
@@ -31,7 +47,7 @@ struct HostHelperCard: View {
             if let error { Text(error).font(.caption).foregroundColor(.red) }
             if busy {
                 ProgressView()
-            } else if pin != nil, viewModel.sessionHandle != nil, viewModel.state == .connected {
+            } else if pin != nil, !isUnsupported, viewModel.sessionHandle != nil, viewModel.state == .connected {
                 Button(installTitle) { Task { await install() } }
                     .buttonStyle(.bordered)
                     .disabled(isReady)
@@ -42,6 +58,7 @@ struct HostHelperCard: View {
         .background(RoundedRectangle(cornerRadius: 12).fill(Color.appSecondaryBackground))
         .task(id: viewModel.state == .connected) { await refresh() }
         .onDisappear { watch?.stop(); watch = nil }
+        .sheet(isPresented: $showWslSetup) { WslSetupView(publicKey: viewModel.publicKeyLine) }
     }
 
     @ViewBuilder
@@ -69,7 +86,7 @@ struct HostHelperCard: View {
     }
 
     private func checkAgent() async {
-        guard let pin, let handle = viewModel.sessionHandle else { return }
+        guard let handle = viewModel.sessionHandle, let pin = await viewModel.helperPin() else { return }
         agent = try? await handle.hostAgentState(expectedSha256: pin)
         agentChecked = true
         if agent != nil, watch == nil { await startWatch(handle, pin: pin) }
@@ -106,6 +123,7 @@ struct HostHelperCard: View {
     }
 
     private var summary: String {
+        if case .unsupported(let reason)? = target { return reason }
         guard pin != nil else { return "This build has no host helper embedded; usage uses the Python probe." }
         switch status {
         case nil: return viewModel.state == .connected ? "Checking…" : "Connect to a host to check it."
@@ -117,7 +135,9 @@ struct HostHelperCard: View {
     }
 
     private func refresh() async {
-        guard let pin, let handle = viewModel.sessionHandle, viewModel.state == .connected else { return }
+        guard let handle = viewModel.sessionHandle, viewModel.state == .connected else { return }
+        pin = await viewModel.helperPin()
+        guard let pin, !isUnsupported else { return }
         status = try? await handle.hostHelperStatus(expectedSha256: pin)
     }
 
@@ -127,10 +147,63 @@ struct HostHelperCard: View {
         error = nil
         defer { busy = false }
         do {
-            try await handle.installBundledHostHelper()
+            if let target {
+                try await handle.installBundledHostHelperFor(target: target)
+            } else {
+                try await handle.installBundledHostHelper()
+            }
         } catch {
             self.error = "Install failed: \(error.localizedDescription)"
         }
         await refresh()
+    }
+}
+
+/// Ready-to-copy commands that turn a Windows PC into a host through WSL2 (feature 33).
+struct WslSetupView: View {
+    let publicKey: String?
+    @State private var route: WslNetworkRoute = .tailscaleInDistro
+    @State private var port = "22"
+    @Environment(\.dismiss) private var dismiss
+
+    private var snippets: [WslSnippet] {
+        guard let publicKey, let p = UInt16(port) else { return [] }
+        return (try? wslSetupSnippets(route: route, publicKey: publicKey, sshPort: p)) ?? []
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    Text("tmux does not run natively on Windows. Use WSL2: sshd, tmux and the helper run inside a Linux distro on the PC. Do these steps once.")
+                        .font(.caption)
+                    Picker("Network", selection: $route) {
+                        Text("Tailscale in WSL").tag(WslNetworkRoute.tailscaleInDistro)
+                        Text("Mirrored networking").tag(WslNetworkRoute.mirroredNetworking)
+                        Text("Port forward").tag(WslNetworkRoute.portProxy)
+                    }
+                    if route != .tailscaleInDistro {
+                        HStack {
+                            Text("Windows port")
+                            TextField("22", text: $port).keyboardType(.numberPad).multilineTextAlignment(.trailing)
+                        }
+                    }
+                }
+                if snippets.isEmpty {
+                    Section { Text("This tab's public key is not available, or the port is not valid.").foregroundColor(.orange) }
+                }
+                ForEach(Array(snippets.enumerated()), id: \.offset) { index, snippet in
+                    Section("\(index + 1). \(snippet.title)") {
+                        Text(snippet.whereToRun).font(.caption).foregroundColor(.secondary)
+                        Text(snippet.body).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
+                        Text(snippet.note).font(.caption2).foregroundColor(.secondary)
+                        Button("Copy") { UIPasteboard.general.string = snippet.body }
+                    }
+                }
+            }
+            .navigationTitle("WSL2 setup")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+        }
     }
 }

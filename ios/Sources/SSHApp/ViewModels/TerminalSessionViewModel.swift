@@ -40,6 +40,12 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     @Published public var gitStatus: GitStatusResult? = nil
     @Published public var fileBrowserError: String? = nil
 
+    /// System of the host (macOS, Linux, Windows via WSL2), detected once per connection.
+    @Published public var hostTarget: HostTarget? = nil
+    /// Public half of this tab's key, for the WSL2 setup snippets (the private key is not kept).
+    public private(set) var publicKeyLine: String? = nil
+    private var hostKey: String = ""
+
     private var handle: SshSessionHandle?
     /// The live core session, for host-side management actions (e.g. agent hook install).
     public var sessionHandle: SshSessionHandle? { handle }
@@ -70,6 +76,9 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         }
 
         self.terminalDataBuffer = Data()
+        hostTarget = nil
+        hostKey = HostTargetCache.key(host: host, port: port, username: username)
+        publicKeyLine = try? derivePublicKey(privateKeyOpenssh: privateKeyPEM)
 
         let config = SessionConfig(
             host: host,
@@ -272,6 +281,17 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         }
     }
 
+    /// SHA-256 of the helper build that fits this host. Until the system is known (or when it cannot
+    /// be told) it is the Mac build's, which keeps the behaviour of a Mac host unchanged.
+    public func helperPin() async -> String? {
+        if hostTarget == nil, let handle, state == .connected {
+            hostTarget = try? await handle.detectHostTarget()
+            if let target = hostTarget { HostTargetCache.set(target, forKey: hostKey) }
+        }
+        guard let target = hostTarget else { return bundledHostHelperSha256() }
+        return bundledHostHelperSha256For(target: target)
+    }
+
     public func refreshHostTelemetry() {
         guard let handle = handle, state == .connected else {
             self.telemetryError = "Session is not connected"
@@ -281,7 +301,7 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         telemetryError = nil
         Task {
             do {
-                let snap = try await handle.fetchHostTelemetry(helperSha256: bundledHostHelperSha256())
+                let snap = try await handle.fetchHostTelemetry(helperSha256: await helperPin())
                 self.telemetrySnapshot = snap
                 self.telemetryUpdatedAt = Date()
                 self.isTelemetryLoading = false
@@ -296,7 +316,7 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         guard let handle = handle, state == .connected else { return }
         Task {
             do {
-                try await handle.killRemoteProcess(pid: pid, force: force, started: started, helperSha256: bundledHostHelperSha256())
+                try await handle.killRemoteProcess(pid: pid, force: force, started: started, helperSha256: await helperPin())
                 self.refreshHostTelemetry()
             } catch {
                 self.telemetryError = error.localizedDescription
@@ -314,7 +334,7 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         fileBrowserError = nil
         Task {
             do {
-                let listing = try await handle.listRemoteDirectory(path: path, includeHidden: includeHidden, helperSha256: bundledHostHelperSha256())
+                let listing = try await handle.listRemoteDirectory(path: path, includeHidden: includeHidden, helperSha256: await helperPin())
                 self.fileListing = listing
                 // Git colours come second: the list is shown first and a slow or failing git never blocks it.
                 let status = try? await handle.fetchGitStatus(dir: listing.currentPath)
@@ -335,7 +355,7 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         fileBrowserError = nil
         Task {
             do {
-                self.filePreview = try await handle.readRemoteFilePreview(path: path, maxBytes: 131_072, helperSha256: bundledHostHelperSha256())
+                self.filePreview = try await handle.readRemoteFilePreview(path: path, maxBytes: 131_072, helperSha256: await helperPin())
             } catch {
                 self.fileBrowserError = error.localizedDescription
             }

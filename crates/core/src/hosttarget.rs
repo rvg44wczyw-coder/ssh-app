@@ -29,6 +29,32 @@ impl HostTarget {
     }
 }
 
+impl HostTarget {
+    pub fn is_wsl(&self) -> bool {
+        matches!(self, HostTarget::WslX86_64 | HostTarget::WslAarch64)
+    }
+}
+
+/// Short text for the server screen: "macOS (Apple silicon)", "Windows (WSL2, x86_64)", ...
+#[uniffi::export]
+pub fn host_target_label(target: HostTarget) -> String {
+    match target {
+        HostTarget::DarwinArm64 => "macOS (Apple silicon)".into(),
+        HostTarget::DarwinX86_64 => "macOS (Intel)".into(),
+        HostTarget::LinuxX86_64 => "Linux (x86_64)".into(),
+        HostTarget::LinuxAarch64 => "Linux (aarch64)".into(),
+        HostTarget::WslX86_64 => "Windows (WSL2, x86_64)".into(),
+        HostTarget::WslAarch64 => "Windows (WSL2, aarch64)".into(),
+        HostTarget::Unsupported { reason } => reason,
+    }
+}
+
+/// Battery and power source describe a VM under WSL2, so the UI hides them.
+#[uniffi::export]
+pub fn host_target_hides_battery(target: HostTarget) -> bool {
+    target.is_wsl()
+}
+
 /// `uname -sm` first, then a marker line, then `/proc/version` (empty on macOS).
 /// The `TARGET ` prefix marks the answer: whatever a login profile prints before it is ignored.
 pub(crate) const HOST_TARGET_SCRIPT: &str = "printf 'TARGET '; uname -sm 2>&1 | head -n 1; echo ===PROC===; cat /proc/version 2>/dev/null | head -n 1";
@@ -237,6 +263,12 @@ mod tests {
             Some("x86_64-apple-darwin")
         );
         assert!(require_supported(&unsupported("nope")).is_err());
+        assert!(host_target_hides_battery(HostTarget::WslX86_64));
+        assert!(!host_target_hides_battery(HostTarget::LinuxX86_64));
+        assert_eq!(
+            host_target_label(HostTarget::WslAarch64),
+            "Windows (WSL2, aarch64)"
+        );
         assert_eq!(
             require_supported(&HostTarget::LinuxX86_64).unwrap(),
             "x86_64-unknown-linux-musl"

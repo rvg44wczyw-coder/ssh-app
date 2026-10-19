@@ -109,7 +109,7 @@ public struct AgentProfilesSheetView: View {
                     return try? await handle.checkAgentEnvironment(binary: binary)
                 } : nil, listDirectory: connected ? { path, hidden in
                     guard let handle = viewModel.sessionHandle else { throw SshCoreError.NotConnected }
-                    return try await handle.listRemoteDirectory(path: path, includeHidden: hidden, helperSha256: bundledHostHelperSha256())
+                    return try await handle.listRemoteDirectory(path: path, includeHidden: hidden, helperSha256: await viewModel.helperPin())
                 } : nil, listModels: connected ? {
                     guard let handle = viewModel.sessionHandle,
                           let status = try? await handle.checkHostOllama() else { return [] }

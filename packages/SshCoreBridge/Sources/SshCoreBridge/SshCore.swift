@@ -8203,6 +8203,74 @@ public func FfiConverterTypeUsageWindow_lower(_ value: UsageWindow) -> RustBuffe
 }
 
 
+public struct WslSnippet: Equatable, Hashable {
+    public var title: String
+    /**
+     * Where to run or save it, e.g. "Windows PowerShell" or "Inside the WSL distro".
+     */
+    public var whereToRun: String
+    public var body: String
+    public var note: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(title: String, 
+        /**
+         * Where to run or save it, e.g. "Windows PowerShell" or "Inside the WSL distro".
+         */whereToRun: String, body: String, note: String) {
+        self.title = title
+        self.whereToRun = whereToRun
+        self.body = body
+        self.note = note
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension WslSnippet: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeWslSnippet: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> WslSnippet {
+        return
+            try WslSnippet(
+                title: FfiConverterString.read(from: &buf), 
+                whereToRun: FfiConverterString.read(from: &buf), 
+                body: FfiConverterString.read(from: &buf), 
+                note: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: WslSnippet, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.title, into: &buf)
+        FfiConverterString.write(value.whereToRun, into: &buf)
+        FfiConverterString.write(value.body, into: &buf)
+        FfiConverterString.write(value.note, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWslSnippet_lift(_ buf: RustBuffer) throws -> WslSnippet {
+    return try FfiConverterTypeWslSnippet.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWslSnippet_lower(_ value: WslSnippet) -> RustBuffer {
+    return FfiConverterTypeWslSnippet.lower(value)
+}
+
+
 
 public enum AgentKind: Equatable, Hashable {
     
@@ -10615,6 +10683,88 @@ public func FfiConverterTypeTranscriptTurnType_lower(_ value: TranscriptTurnType
 
 
 
+public enum WslNetworkRoute: Equatable, Hashable {
+    
+    /**
+     * Tailscale installed inside the distro (recommended).
+     */
+    case tailscaleInDistro
+    /**
+     * Windows 11 22H2+ mirrored networking.
+     */
+    case mirroredNetworking
+    /**
+     * `netsh interface portproxy` (the WSL2 address changes on restart).
+     */
+    case portProxy
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension WslNetworkRoute: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeWslNetworkRoute: FfiConverterRustBuffer {
+    typealias SwiftType = WslNetworkRoute
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> WslNetworkRoute {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .tailscaleInDistro
+        
+        case 2: return .mirroredNetworking
+        
+        case 3: return .portProxy
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: WslNetworkRoute, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .tailscaleInDistro:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .mirroredNetworking:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .portProxy:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWslNetworkRoute_lift(_ buf: RustBuffer) throws -> WslNetworkRoute {
+    return try FfiConverterTypeWslNetworkRoute.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWslNetworkRoute_lower(_ value: WslNetworkRoute) -> RustBuffer {
+    return FfiConverterTypeWslNetworkRoute.lower(value)
+}
+
+
+
+
 
 /**
  * Receives the live state changes of `watch_host_agent`.
@@ -12217,6 +12367,31 @@ fileprivate struct FfiConverterSequenceTypeTranscriptTurn: FfiConverterRustBuffe
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeWslSnippet: FfiConverterRustBuffer {
+    typealias SwiftType = [WslSnippet]
+
+    public static func write(_ value: [WslSnippet], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeWslSnippet.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [WslSnippet] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [WslSnippet]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeWslSnippet.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeAgentKind: FfiConverterRustBuffer {
     typealias SwiftType = [AgentKind]
 
@@ -12901,6 +13076,28 @@ public func validateHostGuard(`guard`: HostGuard)throws  -> HostGuard  {
 })
 }
 /**
+ * Battery and power source describe a VM under WSL2, so the UI hides them.
+ */
+public func hostTargetHidesBattery(target: HostTarget) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_host_target_hides_battery(
+        FfiConverterTypeHostTarget_lower(target),uniffiCallStatus
+    )
+})
+}
+/**
+ * Short text for the server screen: "macOS (Apple silicon)", "Windows (WSL2, x86_64)", ...
+ */
+public func hostTargetLabel(target: HostTarget) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_host_target_label(
+        FfiConverterTypeHostTarget_lower(target),uniffiCallStatus
+    )
+})
+}
+/**
  * Decides the target from the probe's output (`HOST_TARGET_SCRIPT`).
  */
 public func parseHostTarget(probeOutput: String) -> HostTarget  {
@@ -13251,6 +13448,20 @@ public func bundledHostHelperSizeFor(target: HostTarget) -> UInt64  {
     )
 })
 }
+/**
+ * Setup text for the chosen route. `public_key` is the app's key (one `ssh-ed25519` line);
+ * `ssh_port` is the port the phone will connect to (22 unless the Windows side already uses it).
+ */
+public func wslSetupSnippets(route: WslNetworkRoute, publicKey: String, sshPort: UInt16)throws  -> [WslSnippet]  {
+    return try  FfiConverterSequenceTypeWslSnippet.lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_wsl_setup_snippets(
+        FfiConverterTypeWslNetworkRoute_lower(route),
+        FfiConverterString.lower(publicKey),
+        FfiConverterUInt16.lower(sshPort),uniffiCallStatus
+    )
+})
+}
 
 private enum InitializationResult {
     case ok
@@ -13432,6 +13643,12 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_func_validate_host_guard() != 42342) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_func_host_target_hides_battery() != 40965) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_host_target_label() != 34582) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_func_parse_host_target() != 43015) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -13517,6 +13734,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_bundled_host_helper_size_for() != 50266) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_wsl_setup_snippets() != 13857) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_hostagentwatch_stop() != 8202) {

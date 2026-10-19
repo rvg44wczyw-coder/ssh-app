@@ -16,6 +16,31 @@ public enum HostMonitorClient {
             privateKeyPem: privateKey,
             pinnedHostKey: server.hostKeyFingerprint
         )
-        return try await fetchHostTelemetryOnce(config: config, helperSha256: bundledHostHelperSha256())
+        return try await fetchHostTelemetryOnce(config: config, helperSha256: HostTargetCache.pin(host: server.host, port: server.port, username: server.username))
+    }
+}
+
+/// Which system each host runs, as seen by the last terminal session to it, so views without a live
+/// session (usage strip, host monitor) pin the right helper build. Unknown host: the Mac build.
+public final class HostTargetCache: @unchecked Sendable {
+    private static let shared = HostTargetCache()
+    private let lock = NSLock()
+    private var targets: [String: HostTarget] = [:]
+
+    public static func key(host: String, port: UInt16, username: String) -> String {
+        "\(username)@\(host):\(port)"
+    }
+
+    public static func set(_ target: HostTarget, forKey key: String) {
+        shared.lock.lock(); defer { shared.lock.unlock() }
+        shared.targets[key] = target
+    }
+
+    public static func pin(host: String, port: UInt16, username: String) -> String? {
+        shared.lock.lock(); defer { shared.lock.unlock() }
+        guard let target = shared.targets[key(host: host, port: port, username: username)] else {
+            return bundledHostHelperSha256()
+        }
+        return bundledHostHelperSha256For(target: target)
     }
 }
