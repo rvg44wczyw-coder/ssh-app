@@ -51,6 +51,7 @@
 		AA900116 /* GitWorktreesSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB900116 /* GitWorktreesSheetView.swift */; };
 		AA900117 /* GitStashesSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB900117 /* GitStashesSheetView.swift */; };
 		AA900118 /* GitChangesSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB900118 /* GitChangesSheetView.swift */; };
+		AA900119 /* DiffHighlighting.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB900119 /* DiffHighlighting.swift */; };
 		AA000026 /* SnippetsSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000026 /* SnippetsSheetView.swift */; };
 		AA000027 /* HostTelemetrySheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000027 /* HostTelemetrySheetView.swift */; };
 		AA000028 /* FileBrowserSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000028 /* FileBrowserSheetView.swift */; };
@@ -146,6 +147,7 @@
 		BB900116 /* GitWorktreesSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/GitWorktreesSheetView.swift; sourceTree = "<group>"; };
 		BB900117 /* GitStashesSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/GitStashesSheetView.swift; sourceTree = "<group>"; };
 		BB900118 /* GitChangesSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/GitChangesSheetView.swift; sourceTree = "<group>"; };
+		BB900119 /* DiffHighlighting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Syntax/DiffHighlighting.swift; sourceTree = "<group>"; };
 		BB000026 /* SnippetsSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/SnippetsSheetView.swift; sourceTree = "<group>"; };
 		BB000027 /* HostTelemetrySheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/HostTelemetrySheetView.swift; sourceTree = "<group>"; };
 		BB000028 /* FileBrowserSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/FileBrowserSheetView.swift; sourceTree = "<group>"; };
@@ -354,6 +356,7 @@
 				BB900116 /* GitWorktreesSheetView.swift */,
 				BB900117 /* GitStashesSheetView.swift */,
 				BB900118 /* GitChangesSheetView.swift */,
+				BB900119 /* DiffHighlighting.swift */,
 				BB000026 /* SnippetsSheetView.swift */,
 				BB900111 /* SyntaxSettingsView.swift */,
 				BB900110 /* HighlightedText.swift */,
@@ -584,6 +587,7 @@
 				AA900116 /* GitWorktreesSheetView.swift in Sources */,
 				AA900117 /* GitStashesSheetView.swift in Sources */,
 				AA900118 /* GitChangesSheetView.swift in Sources */,
+				AA900119 /* DiffHighlighting.swift in Sources */,
 				AA000026 /* SnippetsSheetView.swift in Sources */,
 				AA900111 /* SyntaxSettingsView.swift in Sources */,
 				AA900110 /* HighlightedText.swift in Sources */,

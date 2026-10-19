@@ -35,3 +35,7 @@ switched off (or replaced) in Settings → Appearance → Syntax highlighting.
 - Diff views and the AI transcript code blocks do not use it yet.
 - No on-device test of the highlighter (Swift tests only compile here); verified by building and
   by the live sample in the settings page.
+
+## Update 2026-10-19
+
+Syntax colours are now also used in diffs (`DiffHighlighter`: per file, the added+context lines and the removed+context lines are highlighted as two documents and mapped back to diff lines; always the dark theme because the diff sits on black) and in the agent feed's fenced code blocks (feature 31). Both honour the Settings switch and the size limit.

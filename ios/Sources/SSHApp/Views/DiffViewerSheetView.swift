@@ -15,6 +15,7 @@ public struct DiffViewerSheetView: View {
     @State private var result: GitDiffResult? = nil
     @State private var isLoading: Bool = true
     @State private var errorMessage: String? = nil
+    @State private var colours: [Int: AttributedString] = [:]
 
     public init(viewModel: TerminalSessionViewModel, commit: GitLogEntry? = nil) {
         self.viewModel = viewModel
@@ -71,8 +72,8 @@ public struct DiffViewerSheetView: View {
                     ScrollView([.horizontal, .vertical]) {
                         LazyVStack(alignment: .leading, spacing: 1) {
                             headerView
-                            ForEach(Array(diffText.components(separatedBy: "\n").enumerated()), id: \.offset) { _, line in
-                                diffLineView(line)
+                            ForEach(Array(diffText.components(separatedBy: "\n").enumerated()), id: \.offset) { i, line in
+                                diffLineView(line, code: colours[i])
                             }
                         }
                         .padding(8)
@@ -100,14 +101,23 @@ public struct DiffViewerSheetView: View {
             .onAppear {
                 fetchDiff()
             }
+            .task(id: diffText.count) {
+                // The diff sits on a black background in both appearances: dark theme always.
+                colours = await DiffHighlighter.highlight(diff: diffText, dark: true)
+            }
         }
     }
 
-    private func diffLineView(_ line: String) -> some View {
+    private func diffLineView(_ line: String, code: AttributedString?) -> some View {
         let (bgColor, fgColor) = lineColors(for: line)
-        return Text(line.isEmpty ? " " : line)
+        // With syntax colours the marker keeps the line's colour and the code is coloured by language.
+        let text: Text = {
+            guard let code, let marker = line.first else { return Text(line.isEmpty ? " " : line) }
+            return Text(String(marker)).foregroundColor(fgColor) + Text(code)
+        }()
+        return text
             .font(.system(size: 11, design: .monospaced))
-            .foregroundColor(fgColor)
+            .foregroundColor(code == nil ? fgColor : .white)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 4)
             .padding(.vertical, 1)
