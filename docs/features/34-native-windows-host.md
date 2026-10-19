@@ -131,3 +131,21 @@ Each phase follows the dev-chain with a hacker pass.
 4. Must `aarch64` Windows (Copilot+ PCs) be included in the first release [no, W1-W7 on x86_64 only].
 5. Is a Windows PC available to the owner for W7 [needed; without it the feature stays "implemented,
    unverified"].
+
+## 10. Implementation notes
+
+### W1 (2026-10-19): `Multiplexer` kind, pure mux parts — done, not run on Windows
+
+- `crates/core/src/multiplexer.rs`: `MultiplexerKind { Tmux, WindowsMux }` with `attach_or_create`,
+  `detach`, `kill`, `list_detailed`. Tmux delegates to the existing builders (a test compares the
+  strings); `WindowsMux` builds `.\.ssh-app\bin\ssh-app-host.exe mux ...`, a relative path from the
+  login directory, so cmd.exe and PowerShell need no expansion. Session name goes through
+  `validate_session_name`; command and start folder travel as hex of a JSON object (test with
+  quote, `&`, `|`, `%`, `^`, `$()` and backticks). `SessionConfig.multiplexer` (default Tmux)
+  selects it for the attach command; list/kill still use tmux until W3.
+- `crates/mux`: VT screen model (`screen.rs`) and frame codec (`frame.rs`), tested on macOS.
+- Changed after review of the design: the attach client runs inside the console that sshd's own
+  ConPTY gives the SSH channel, so resize arrives as a console-size change; the `Resize` frame
+  stays for the client-to-server hop only.
+- Test fix: the process list is chosen by name (`comm`), so the kill test now uses a symlink named
+  `claude-victim`; a copied system binary is killed by macOS (code signature).

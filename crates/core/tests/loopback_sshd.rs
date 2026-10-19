@@ -1886,14 +1886,14 @@ fn usage_report_finds_models_in_tmux_sessions_and_reads_transcripts() {
             .await
             .unwrap();
         assert_eq!(wrong.content, "hello");
-        // "claude" in the command line keeps it in the helper's list even on a busy machine (only the
-        // top processes by CPU are listed otherwise).
-        let mut victim = std::process::Command::new("sh")
-            .args(["-c", "sleep 120; :", "claude"])
-            .spawn()
-            .unwrap();
-        // Right after the fork the process still carries the parent's command line.
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        // The helper lists the top processes by CPU plus those whose name contains an agent name, so
+        // the victim is a link to `sleep` called `claude-victim` (on a busy machine a plain `sleep` is
+        // not in the list).
+        let bin_dir = tempfile::tempdir().unwrap();
+        let bin = bin_dir.path().join("claude-victim");
+        std::os::unix::fs::symlink("/bin/sleep", &bin).unwrap();
+        let mut victim = std::process::Command::new(&bin).arg("120").spawn().unwrap();
+        tokio::time::sleep(Duration::from_millis(300)).await;
         let snap = handle.fetch_host_telemetry(Some(pin.clone())).await.unwrap();
         let seen = snap.processes.iter().find(|p| p.pid == victim.id());
         let started = seen.and_then(|p| p.started_epoch);
