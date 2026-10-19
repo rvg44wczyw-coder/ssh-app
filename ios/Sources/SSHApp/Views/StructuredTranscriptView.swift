@@ -20,6 +20,14 @@ public struct StructuredTranscriptView: View {
         VStack(spacing: 0) {
             // Header Bar: Active path & Refresh action
             HStack(spacing: 8) {
+                Button { viewModel.toggleChatMode() } label: {
+                    Label("Terminal", systemImage: "terminal.fill")
+                        .font(.system(size: 11, weight: .semibold))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.appAccent.opacity(0.15), in: Capsule())
+                }
+                .accessibilityHint("Switch this tab back to the raw terminal")
                 Image(systemName: "doc.text.magnifyingglass")
                     .font(.system(size: 11))
                     .foregroundColor(.appAccent)
