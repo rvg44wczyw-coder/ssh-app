@@ -181,12 +181,12 @@ public struct StructuredTranscriptView: View {
                     Spacer()
                 }
                 HStack(alignment: .bottom, spacing: 8) {
-                    FeedEditor(
-                        text: $promptText,
-                        placeholder: "Message…",
-                        maxHeight: editorExpanded ? 360 : 140,
-                        focus: $inputFocused
-                    )
+                    TextField("Message…", text: $promptText, axis: .vertical)
+                        .lineLimit(1...(editorExpanded ? 16 : 6))
+                        .focused($inputFocused)
+                        .font(.system(size: 16))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 9)
                     .background(Color.appSecondaryBackground)
                     .cornerRadius(10)
                     .overlay(
