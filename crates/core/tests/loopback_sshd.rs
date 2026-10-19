@@ -174,6 +174,7 @@ fn connect(server: &Sshd) -> Arc<SshSessionHandle> {
         command: None,
         start_dir: None,
         pinned_host_key: None,
+        multiplexer: Default::default(),
     });
     handle.connect(Box::new(Noop)).expect("connect");
     let deadline = Instant::now() + Duration::from_secs(15);
@@ -1265,6 +1266,7 @@ fn host_key_is_pinned_and_a_changed_key_is_refused() {
         command: None,
         start_dir: None,
         pinned_host_key: Some("SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA".into()),
+        multiplexer: Default::default(),
     });
     h.connect(Box::new(Noop)).unwrap();
     let deadline = Instant::now() + Duration::from_secs(10);

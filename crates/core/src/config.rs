@@ -14,6 +14,8 @@ pub struct SessionConfig {
     /// Pinned host key fingerprint (`SHA256:...`). `None` accepts the first key seen (see
     /// `SshSessionHandle::host_key_fingerprint`); `Some` refuses any other key.
     pub pinned_host_key: Option<String>,
+    /// What keeps the session alive on the host: tmux, or the helper's `mux` on native Windows.
+    pub multiplexer: crate::multiplexer::MultiplexerKind,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]

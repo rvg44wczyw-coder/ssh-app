@@ -25,6 +25,7 @@ pub mod host_guard;
 pub(crate) mod hostprobe;
 pub mod hosttarget;
 pub mod keys;
+pub mod multiplexer;
 pub mod pane_context;
 pub mod permissions;
 pub mod port_forward;

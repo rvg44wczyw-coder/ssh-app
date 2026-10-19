@@ -90,7 +90,8 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
             initialRows: lastRows,
             command: session.command,
             startDir: startDir,
-            pinnedHostKey: pinnedHostKey
+            pinnedHostKey: pinnedHostKey,
+            multiplexer: .tmux
         )
 
         let sessionHandle = SshSessionHandle(config: config)

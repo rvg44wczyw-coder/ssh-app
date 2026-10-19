@@ -2,7 +2,7 @@ use crate::buffer::{OutputThrottler, DEFAULT_FLUSH_INTERVAL, DEFAULT_MAX_BATCH_S
 use crate::config::{RemoteServerConfig, SessionConfig, SessionState, TerminalSize};
 use crate::error::SshCoreError;
 use crate::port_forward::{PortForwardHandle, PortForwardInfo};
-use crate::tmux::{build_tmux_attach_or_create_command, TmuxSessionInfo};
+use crate::tmux::TmuxSessionInfo;
 use crate::transport::{
     collect_output, connect_authenticated, exec_collect, exec_start, ClientHandle, Endpoint,
     ExecOutput, DEFAULT_EXEC_TIMEOUT,
@@ -375,7 +375,7 @@ async fn run_ssh_connection(
         })?;
 
     // Dynamic login shell + tmux attach/create command.
-    let tmux_cmd = build_tmux_attach_or_create_command(
+    let tmux_cmd = config.multiplexer.attach_or_create(
         &config.session_name,
         config.command.as_deref(),
         config.start_dir.as_deref(),
@@ -587,6 +587,7 @@ mod tests {
             command: None,
             start_dir: None,
             pinned_host_key: None,
+            multiplexer: Default::default(),
         };
 
         let handle = SshSessionHandle::new(config);
@@ -607,6 +608,7 @@ mod tests {
             command: None,
             start_dir: None,
             pinned_host_key: None,
+            multiplexer: Default::default(),
         };
 
         let handle = SshSessionHandle::new(config);
@@ -627,6 +629,7 @@ mod tests {
             command: None,
             start_dir: None,
             pinned_host_key: None,
+            multiplexer: Default::default(),
         };
 
         let handle = SshSessionHandle::new(config);
@@ -647,6 +650,7 @@ mod tests {
             command: None,
             start_dir: None,
             pinned_host_key: None,
+            multiplexer: Default::default(),
         };
 
         let handle = SshSessionHandle::new(config);

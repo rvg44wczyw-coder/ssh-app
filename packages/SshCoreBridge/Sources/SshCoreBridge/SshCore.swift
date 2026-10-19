@@ -7468,6 +7468,10 @@ public struct SessionConfig: Equatable, Hashable {
      * `SshSessionHandle::host_key_fingerprint`); `Some` refuses any other key.
      */
     public var pinnedHostKey: String?
+    /**
+     * What keeps the session alive on the host: tmux, or the helper's `mux` on native Windows.
+     */
+    public var multiplexer: MultiplexerKind
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -7479,7 +7483,10 @@ public struct SessionConfig: Equatable, Hashable {
         /**
          * Pinned host key fingerprint (`SHA256:...`). `None` accepts the first key seen (see
          * `SshSessionHandle::host_key_fingerprint`); `Some` refuses any other key.
-         */pinnedHostKey: String?) {
+         */pinnedHostKey: String?, 
+        /**
+         * What keeps the session alive on the host: tmux, or the helper's `mux` on native Windows.
+         */multiplexer: MultiplexerKind) {
         self.host = host
         self.port = port
         self.username = username
@@ -7490,6 +7497,7 @@ public struct SessionConfig: Equatable, Hashable {
         self.command = command
         self.startDir = startDir
         self.pinnedHostKey = pinnedHostKey
+        self.multiplexer = multiplexer
     }
 
     
@@ -7517,7 +7525,8 @@ public struct FfiConverterTypeSessionConfig: FfiConverterRustBuffer {
                 initialRows: FfiConverterUInt16.read(from: &buf), 
                 command: FfiConverterOptionString.read(from: &buf), 
                 startDir: FfiConverterOptionString.read(from: &buf), 
-                pinnedHostKey: FfiConverterOptionString.read(from: &buf)
+                pinnedHostKey: FfiConverterOptionString.read(from: &buf), 
+                multiplexer: FfiConverterTypeMultiplexerKind.read(from: &buf)
         )
     }
 
@@ -7532,6 +7541,7 @@ public struct FfiConverterTypeSessionConfig: FfiConverterRustBuffer {
         FfiConverterOptionString.write(value.command, into: &buf)
         FfiConverterOptionString.write(value.startDir, into: &buf)
         FfiConverterOptionString.write(value.pinnedHostKey, into: &buf)
+        FfiConverterTypeMultiplexerKind.write(value.multiplexer, into: &buf)
     }
 }
 
@@ -9613,6 +9623,75 @@ public func FfiConverterTypeHostTarget_lift(_ buf: RustBuffer) throws -> HostTar
 #endif
 public func FfiConverterTypeHostTarget_lower(_ value: HostTarget) -> RustBuffer {
     return FfiConverterTypeHostTarget.lower(value)
+}
+
+
+
+
+public enum MultiplexerKind: Equatable, Hashable {
+    
+    case tmux
+    /**
+     * `ssh-app-host.exe mux` on a native Windows host.
+     */
+    case windowsMux
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension MultiplexerKind: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMultiplexerKind: FfiConverterRustBuffer {
+    typealias SwiftType = MultiplexerKind
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MultiplexerKind {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .tmux
+        
+        case 2: return .windowsMux
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: MultiplexerKind, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .tmux:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .windowsMux:
+            writeInt(&buf, Int32(2))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMultiplexerKind_lift(_ buf: RustBuffer) throws -> MultiplexerKind {
+    return try FfiConverterTypeMultiplexerKind.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMultiplexerKind_lower(_ value: MultiplexerKind) -> RustBuffer {
+    return FfiConverterTypeMultiplexerKind.lower(value)
 }
 
 
