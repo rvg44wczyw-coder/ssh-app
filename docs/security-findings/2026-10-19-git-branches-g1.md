@@ -22,3 +22,17 @@ real tmux pid and HOME unchanged afterwards.
 5. **Resource use (DoS)** — 300 branches, 100 KB list output, 20 KB op output, 20–25 s watchdog.
 
 Verdict: clean. Unverified on device: the sheet itself.
+
+## Addendum: worktrees (G2)
+
+- `Remove` takes an absolute path without `..`/control characters, and the host script removes it
+  only when git's own `worktree list --porcelain` lists exactly that path, it is not the main
+  worktree and not the one the tab is in. Verified live: the main worktree, an unrelated folder
+  and relative / `..` paths were refused; the unrelated folder still existed afterwards.
+- `Add` computes the destination on the host from the validated branch name (`/` becomes `-`) next
+  to the repository, and refuses an existing folder. Verified live (second add of the same name).
+- Without `force`, git refuses to remove a dirty worktree (verified); `force` needs a second
+  confirmation naming the folder.
+- A tab's start folder (new `TabSession.startDir`) goes through the existing `validate_start_dir`.
+
+Verdict: clean.

@@ -47,6 +47,8 @@ public struct TabSession: Identifiable, Equatable, Sendable, Codable {
     public var profileId: String?
     /// Colour scheme chosen for this one session (overrides the profile's and the agent's).
     public var schemeId: String?
+    /// Folder the tab's tmux session starts in (a git worktree); beats the global terminal folder.
+    public var startDir: String?
 
     public init(
         id: UUID = UUID(),
@@ -56,7 +58,8 @@ public struct TabSession: Identifiable, Equatable, Sendable, Codable {
         command: String? = nil,
         serverId: UUID? = nil,
         profileId: String? = nil,
-        schemeId: String? = nil
+        schemeId: String? = nil,
+        startDir: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -66,6 +69,7 @@ public struct TabSession: Identifiable, Equatable, Sendable, Codable {
         self.serverId = serverId
         self.profileId = profileId
         self.schemeId = schemeId
+        self.startDir = startDir
     }
 
     public static func defaultSessions() -> [TabSession] {

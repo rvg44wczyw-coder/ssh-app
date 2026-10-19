@@ -397,6 +397,13 @@ public struct MainTerminalView: View {
                 }
             }
             .animation(.easeOut(duration: 0.15), value: showServerPicker)
+            .onReceive(NotificationCenter.default.publisher(for: .openWorktreeTab)) { note in
+                guard let title = note.userInfo?["title"] as? String,
+                      let path = note.userInfo?["path"] as? String else { return }
+                let serverId = tabsManager.activeSession?.serverId
+                let tab = tabsManager.addWorktreeSession(title: title, path: path, serverId: serverId)
+                ensureSessionStarted(for: tab.id)
+            }
             .onAppear {
                 ensureSessionStarted(for: tabsManager.selectedSessionId)
                 checkStartupServersIfMultiple()

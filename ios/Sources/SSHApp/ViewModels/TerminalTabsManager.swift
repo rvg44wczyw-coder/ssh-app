@@ -167,6 +167,24 @@ public final class TerminalTabsManager: ObservableObject {
         return newSession
     }
 
+    /// A new tab whose tmux session starts in `path` (a git worktree); the core validates and
+    /// quotes the folder.
+    public func addWorktreeSession(title: String, path: String, serverId: UUID?) -> TabSession {
+        let count = nextSessionNumber()
+        let newSession = TabSession(
+            title: title,
+            agentType: .customShell,
+            sessionName: "wt-\(count)",
+            serverId: serverId,
+            startDir: path
+        )
+        sessions.append(newSession)
+        registerSession(newSession)
+        selectedSessionId = newSession.id
+        saveSessions()
+        return newSession
+    }
+
     /// Opens a new tab that auto-starts `profile` (compiled `command`) inside its own tmux session.
     public func addAgentSession(
         profile: SavedAgentProfile,

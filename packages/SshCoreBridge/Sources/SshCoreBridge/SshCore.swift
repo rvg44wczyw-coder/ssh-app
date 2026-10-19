@@ -1429,6 +1429,11 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func fetchGitStatus(dir: String) async throws  -> GitStatusResult
     
     /**
+     * Worktrees of the repository the tab's pane is in (feature 28, G2).
+     */
+    func fetchGitWorktrees(sessionName: String) async throws  -> GitWorktreesResult
+    
+    /**
      * Collects a snapshot of remote host telemetry (CPU load, RAM, Disk, Battery, and AI/dev processes).
      */
     func fetchHostTelemetry() async throws  -> HostTelemetrySnapshot
@@ -1574,6 +1579,11 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
      * as an error; git's own refusals come back in the result.
      */
     func runGitBranchOp(sessionName: String, op: GitBranchOp) async throws  -> GitOpResult
+    
+    /**
+     * Adds or removes a worktree (see `GitWorktreeOp`).
+     */
+    func runGitWorktreeOp(sessionName: String, op: GitWorktreeOp) async throws  -> GitOpResult
     
     /**
      * Signs and submits the user's decision for request `id`. The signature covers the host's
@@ -2089,6 +2099,25 @@ open func fetchGitStatus(dir: String)async throws  -> GitStatusResult  {
 }
     
     /**
+     * Worktrees of the repository the tab's pane is in (feature 28, G2).
+     */
+open func fetchGitWorktrees(sessionName: String)async throws  -> GitWorktreesResult  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_fetch_git_worktrees(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(sessionName)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeGitWorktreesResult_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
      * Collects a snapshot of remote host telemetry (CPU load, RAM, Disk, Battery, and AI/dev processes).
      */
 open func fetchHostTelemetry()async throws  -> HostTelemetrySnapshot  {
@@ -2589,6 +2618,25 @@ open func runGitBranchOp(sessionName: String, op: GitBranchOp)async throws  -> G
             rustFutureFunc: {
                 uniffi_ssh_core_fn_method_sshsessionhandle_run_git_branch_op(
                         self.uniffiCloneHandle(),FfiConverterString.lower(sessionName),FfiConverterTypeGitBranchOp_lower(op)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeGitOpResult_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Adds or removes a worktree (see `GitWorktreeOp`).
+     */
+open func runGitWorktreeOp(sessionName: String, op: GitWorktreeOp)async throws  -> GitOpResult  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_run_git_worktree_op(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(sessionName),FfiConverterTypeGitWorktreeOp_lower(op)
                 )
             },
             pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
@@ -4723,6 +4771,160 @@ public func FfiConverterTypeGitStatusResult_lift(_ buf: RustBuffer) throws -> Gi
 #endif
 public func FfiConverterTypeGitStatusResult_lower(_ value: GitStatusResult) -> RustBuffer {
     return FfiConverterTypeGitStatusResult.lower(value)
+}
+
+
+public struct GitWorktree: Equatable, Hashable {
+    public var path: String
+    public var branch: String?
+    public var headShort: String
+    /**
+     * The first entry: the repository's own working directory.
+     */
+    public var isMain: Bool
+    /**
+     * The worktree this tab's pane is in.
+     */
+    public var isCurrent: Bool
+    public var detached: Bool
+    public var locked: Bool
+    /**
+     * Its folder is gone; `git worktree prune` would clear the entry.
+     */
+    public var prunable: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(path: String, branch: String?, headShort: String, 
+        /**
+         * The first entry: the repository's own working directory.
+         */isMain: Bool, 
+        /**
+         * The worktree this tab's pane is in.
+         */isCurrent: Bool, detached: Bool, locked: Bool, 
+        /**
+         * Its folder is gone; `git worktree prune` would clear the entry.
+         */prunable: Bool) {
+        self.path = path
+        self.branch = branch
+        self.headShort = headShort
+        self.isMain = isMain
+        self.isCurrent = isCurrent
+        self.detached = detached
+        self.locked = locked
+        self.prunable = prunable
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension GitWorktree: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeGitWorktree: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> GitWorktree {
+        return
+            try GitWorktree(
+                path: FfiConverterString.read(from: &buf), 
+                branch: FfiConverterOptionString.read(from: &buf), 
+                headShort: FfiConverterString.read(from: &buf), 
+                isMain: FfiConverterBool.read(from: &buf), 
+                isCurrent: FfiConverterBool.read(from: &buf), 
+                detached: FfiConverterBool.read(from: &buf), 
+                locked: FfiConverterBool.read(from: &buf), 
+                prunable: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: GitWorktree, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.path, into: &buf)
+        FfiConverterOptionString.write(value.branch, into: &buf)
+        FfiConverterString.write(value.headShort, into: &buf)
+        FfiConverterBool.write(value.isMain, into: &buf)
+        FfiConverterBool.write(value.isCurrent, into: &buf)
+        FfiConverterBool.write(value.detached, into: &buf)
+        FfiConverterBool.write(value.locked, into: &buf)
+        FfiConverterBool.write(value.prunable, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGitWorktree_lift(_ buf: RustBuffer) throws -> GitWorktree {
+    return try FfiConverterTypeGitWorktree.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGitWorktree_lower(_ value: GitWorktree) -> RustBuffer {
+    return FfiConverterTypeGitWorktree.lower(value)
+}
+
+
+public struct GitWorktreesResult: Equatable, Hashable {
+    public var status: GitDiffStatus
+    public var repoRoot: String?
+    public var worktrees: [GitWorktree]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(status: GitDiffStatus, repoRoot: String?, worktrees: [GitWorktree]) {
+        self.status = status
+        self.repoRoot = repoRoot
+        self.worktrees = worktrees
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension GitWorktreesResult: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeGitWorktreesResult: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> GitWorktreesResult {
+        return
+            try GitWorktreesResult(
+                status: FfiConverterTypeGitDiffStatus.read(from: &buf), 
+                repoRoot: FfiConverterOptionString.read(from: &buf), 
+                worktrees: FfiConverterSequenceTypeGitWorktree.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: GitWorktreesResult, into buf: inout [UInt8]) {
+        FfiConverterTypeGitDiffStatus.write(value.status, into: &buf)
+        FfiConverterOptionString.write(value.repoRoot, into: &buf)
+        FfiConverterSequenceTypeGitWorktree.write(value.worktrees, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGitWorktreesResult_lift(_ buf: RustBuffer) throws -> GitWorktreesResult {
+    return try FfiConverterTypeGitWorktreesResult.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGitWorktreesResult_lower(_ value: GitWorktreesResult) -> RustBuffer {
+    return FfiConverterTypeGitWorktreesResult.lower(value)
 }
 
 
@@ -8040,6 +8242,88 @@ public func FfiConverterTypeGitFileState_lower(_ value: GitFileState) -> RustBuf
 
 
 
+public enum GitWorktreeOp: Equatable, Hashable {
+    
+    /**
+     * New folder `<repo>-<branch>` next to the repository. `new_branch` creates `branch` at
+     * `from` (current HEAD when none); otherwise `branch` must exist.
+     */
+    case add(branch: String, newBranch: Bool, from: String?
+    )
+    /**
+     * Removes a worktree listed by git (not the main one, not the current one).
+     */
+    case remove(path: String, force: Bool
+    )
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension GitWorktreeOp: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeGitWorktreeOp: FfiConverterRustBuffer {
+    typealias SwiftType = GitWorktreeOp
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> GitWorktreeOp {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .add(branch: try FfiConverterString.read(from: &buf), newBranch: try FfiConverterBool.read(from: &buf), from: try FfiConverterOptionString.read(from: &buf)
+        )
+        
+        case 2: return .remove(path: try FfiConverterString.read(from: &buf), force: try FfiConverterBool.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: GitWorktreeOp, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case let .add(branch,newBranch,from):
+            writeInt(&buf, Int32(1))
+            FfiConverterString.write(branch, into: &buf)
+            FfiConverterBool.write(newBranch, into: &buf)
+            FfiConverterOptionString.write(from, into: &buf)
+            
+        
+        case let .remove(path,force):
+            writeInt(&buf, Int32(2))
+            FfiConverterString.write(path, into: &buf)
+            FfiConverterBool.write(force, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGitWorktreeOp_lift(_ buf: RustBuffer) throws -> GitWorktreeOp {
+    return try FfiConverterTypeGitWorktreeOp.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGitWorktreeOp_lower(_ value: GitWorktreeOp) -> RustBuffer {
+    return FfiConverterTypeGitWorktreeOp.lower(value)
+}
+
+
+
+
 public enum HookPresetKind: Equatable, Hashable {
     
     /**
@@ -10313,6 +10597,31 @@ fileprivate struct FfiConverterSequenceTypeGitLogEntry: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeGitWorktree: FfiConverterRustBuffer {
+    typealias SwiftType = [GitWorktree]
+
+    public static func write(_ value: [GitWorktree], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeGitWorktree.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [GitWorktree] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [GitWorktree]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeGitWorktree.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeHookTemplate: FfiConverterRustBuffer {
     typealias SwiftType = [HookTemplate]
 
@@ -12134,6 +12443,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_fetch_git_status() != 20613) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_fetch_git_worktrees() != 36477) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_fetch_host_telemetry() != 38116) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -12210,6 +12522,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_run_git_branch_op() != 61266) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_run_git_worktree_op() != 63823) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_submit_approval_decision() != 15916) {

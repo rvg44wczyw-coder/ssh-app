@@ -57,6 +57,7 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
 
     /// Plain terminals start in the chosen terminal folder; agent tabs keep their profile's folder.
     private var startDir: String? {
+        if let own = session.startDir { return own }
         guard session.command == nil, session.profileId == nil else { return nil }
         return TerminalFolder.normalized(TerminalFolder.stored)
     }

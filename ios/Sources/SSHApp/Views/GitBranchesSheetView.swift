@@ -19,6 +19,7 @@ public struct GitBranchesSheetView: View {
     @State private var showCreate = false
     @State private var newName = ""
     @State private var createFrom: String?
+    @State private var showWorktrees = false
 
     public init(viewModel: TerminalSessionViewModel, onChanged: @escaping () -> Void = {}) {
         self.viewModel = viewModel
@@ -41,11 +42,15 @@ public struct GitBranchesSheetView: View {
                         HStack {
                             Button { createFrom = nil; newName = ""; showCreate = true } label: { Image(systemName: "plus") }
                                 .disabled(result?.status != .ok)
+                            Button { showWorktrees = true } label: { Image(systemName: "square.on.square") }
+                                .accessibilityLabel("Worktrees")
+                                .disabled(result?.status != .ok)
                             Button(action: load) { Image(systemName: "arrow.clockwise") }.disabled(isLoading)
                         }
                     }
                 }
                 .onAppear(perform: load)
+                .sheet(isPresented: $showWorktrees) { GitWorktreesSheetView(viewModel: viewModel) }
                 .alert("New branch", isPresented: $showCreate) {
                     TextField("feature/name", text: $newName)
                         .textInputAutocapitalization(.never)
