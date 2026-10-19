@@ -47,7 +47,7 @@ extension MainTerminalView {
             }
         case .diffViewer:
             if let activeVM = tabsManager.activeViewModel {
-                GitLogSheetView(viewModel: activeVM)
+                ProjectSheetView(viewModel: activeVM, tab: .log)
             }
         case .webPreview:
             if let activeVM = tabsManager.activeViewModel {

@@ -411,3 +411,35 @@ private struct CommitDialogs: ViewModifier {
             }
     }
 }
+
+enum ProjectTab: String, Identifiable {
+    case changes, log, branches
+    var id: String { rawValue }
+}
+
+/// One sheet for the git work of a tab: changes (stage, commit, push), log and branches, as tabs.
+public struct ProjectSheetView: View {
+    @ObservedObject var viewModel: TerminalSessionViewModel
+    @State private var tab: ProjectTab
+    let onChanged: () -> Void
+
+    init(viewModel: TerminalSessionViewModel, tab: ProjectTab, onChanged: @escaping () -> Void = {}) {
+        self.viewModel = viewModel
+        self._tab = State(initialValue: tab)
+        self.onChanged = onChanged
+    }
+
+    public var body: some View {
+        TabView(selection: $tab) {
+            GitChangesSheetView(viewModel: viewModel, onChanged: onChanged)
+                .tabItem { Label("Changes", systemImage: "square.and.arrow.up") }
+                .tag(ProjectTab.changes)
+            GitLogSheetView(viewModel: viewModel)
+                .tabItem { Label("Log", systemImage: "clock.arrow.circlepath") }
+                .tag(ProjectTab.log)
+            GitBranchesSheetView(viewModel: viewModel, onChanged: onChanged)
+                .tabItem { Label("Branches", systemImage: "arrow.triangle.branch") }
+                .tag(ProjectTab.branches)
+        }
+    }
+}

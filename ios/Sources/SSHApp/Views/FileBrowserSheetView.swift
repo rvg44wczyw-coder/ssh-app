@@ -10,9 +10,7 @@ public struct FileBrowserSheetView: View {
     @State private var searchText: String = ""
     @State private var showPreview: Bool = false
     @State private var showDiff: Bool = false
-    @State private var showLog: Bool = false
-    @State private var showBranches: Bool = false
-    @State private var showChanges: Bool = false
+    @State private var projectTab: ProjectTab?
 
     public init(viewModel: TerminalSessionViewModel, onClose: (() -> Void)? = nil) {
         self.viewModel = viewModel
@@ -81,7 +79,7 @@ public struct FileBrowserSheetView: View {
                 if let listing = viewModel.fileListing {
                     HStack(spacing: 8) {
                         if let branch = viewModel.gitStatus?.branch {
-                            Button { showBranches = true } label: {
+                            Button { projectTab = .branches } label: {
                                 Label(branch, systemImage: "arrow.triangle.branch")
                                     .font(.caption.bold())
                                     .foregroundColor(.accentColor)
@@ -195,9 +193,9 @@ public struct FileBrowserSheetView: View {
                     if let git = viewModel.gitStatus {
                         Menu {
                             Button { showDiff = true } label: { Label("Uncommitted changes (diff)", systemImage: "plusminus.circle") }
-                            Button { showChanges = true } label: { Label("Stage, commit, push", systemImage: "square.and.arrow.up") }
-                            Button { showLog = true } label: { Label("Log and commit actions", systemImage: "clock.arrow.circlepath") }
-                            Button { showBranches = true } label: { Label("Branches, worktrees, stashes", systemImage: "arrow.triangle.branch") }
+                            Button { projectTab = .changes } label: { Label("Stage, commit, push", systemImage: "square.and.arrow.up") }
+                            Button { projectTab = .log } label: { Label("Log and commit actions", systemImage: "clock.arrow.circlepath") }
+                            Button { projectTab = .branches } label: { Label("Branches, worktrees, stashes", systemImage: "arrow.triangle.branch") }
                         } label: {
                             Image(systemName: "arrow.triangle.branch")
                                 .overlay(alignment: .topTrailing) {
@@ -230,14 +228,8 @@ public struct FileBrowserSheetView: View {
             .sheet(isPresented: $showDiff) {
                 DiffViewerSheetView(viewModel: viewModel)
             }
-            .sheet(isPresented: $showLog) {
-                GitLogSheetView(viewModel: viewModel)
-            }
-            .sheet(isPresented: $showChanges) {
-                GitChangesSheetView(viewModel: viewModel) { load(viewModel.fileListing?.currentPath) }
-            }
-            .sheet(isPresented: $showBranches) {
-                GitBranchesSheetView(viewModel: viewModel) { load(viewModel.fileListing?.currentPath) }
+            .sheet(item: $projectTab) { tab in
+                ProjectSheetView(viewModel: viewModel, tab: tab) { load(viewModel.fileListing?.currentPath) }
             }
             .onAppear { if viewModel.fileListing == nil { load(nil) } }
         }
