@@ -80,7 +80,7 @@ public enum AppAction: String, CaseIterable, Identifiable, Sendable {
         case .chatToggle:
             return "Switch this tab between the raw terminal and a readable chat-style transcript of the agent session."
         case .tmuxSessions:
-            return "List, open and close the tmux sessions that keep running on the host."
+            return "List, open and close all tmux sessions that keep running on the host (the whole server, not just this tab)."
         case .aiAssistant:
             return "Describe what you want in words; the local Ollama model on the host turns it into a shell command you can review before running."
         case .snippets:
@@ -109,7 +109,7 @@ public enum AppAction: String, CaseIterable, Identifiable, Sendable {
     /// Belongs to the current session (its own toolbar button) rather than the quick menu.
     public var isSessionAction: Bool {
         switch self {
-        case .chatToggle, .tmuxSessions, .sessionPermissions, .agentProfiles, .diffViewer: return true
+        case .chatToggle, .sessionPermissions, .agentProfiles, .diffViewer: return true
         default: return false
         }
     }

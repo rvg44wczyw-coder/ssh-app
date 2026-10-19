@@ -57,22 +57,61 @@ public struct SessionTabsView: View {
         self.onSetScheme = onSetScheme
     }
 
-    @ViewBuilder
-    private func menuItems(for session: TabSession) -> some View {
-        SessionMenuItems(
-            session: session,
-            isConnected: sessionStates[session.id] == .connected,
-            isChatMode: isChatMode?(session) ?? false,
-            canClose: sessions.count > 1,
-            onAction: { onSessionAction?(session.id, $0) },
-            onScheme: onSetScheme.map { f in { f(session.id, $0) } },
-            onRename: {
-                tabToRename = session
-                renameText = session.title
-                showRenameAlert = true
-            },
-            onClose: { onClose(session.id) }
-        )
+    /// The tab's dropdown: the session actions as icon tiles (same look as the quick menu), then
+    /// Theme, Rename and Close.
+    private func sessionDropdown(for session: TabSession) -> some View {
+        VStack(spacing: 10) {
+            ActionPanelView(
+                scope: .session,
+                isChatMode: isChatMode?(session) ?? false,
+                keyVisible: false,
+                isConnected: sessionStates[session.id] == .connected,
+                onSelect: { action in
+                    tabForMenu = nil
+                    onSessionAction?(session.id, action)
+                }
+            )
+            Divider()
+            HStack(spacing: 10) {
+                if let onSetScheme {
+                    Menu {
+                        Button { onSetScheme(session.id, nil) } label: {
+                            Label("Automatic", systemImage: session.schemeId == nil ? "checkmark" : "wand.and.stars")
+                        }
+                        ForEach(TerminalScheme.all) { sch in
+                            Button { onSetScheme(session.id, sch.id) } label: {
+                                if session.schemeId == sch.id { Label(sch.name, systemImage: "checkmark") } else { Text(sch.name) }
+                            }
+                        }
+                    } label: { dropdownButton("Theme", "paintpalette", .primary) }
+                }
+                Button {
+                    tabForMenu = nil
+                    tabToRename = session
+                    renameText = session.title
+                    showRenameAlert = true
+                } label: { dropdownButton("Rename", "pencil", .primary) }
+                if sessions.count > 1 {
+                    Button(role: .destructive) {
+                        tabForMenu = nil
+                        onClose(session.id)
+                    } label: { dropdownButton("Close", "xmark.circle", .red) }
+                }
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 16)
+            .padding(.bottom, 12)
+        }
+    }
+
+    private func dropdownButton(_ title: String, _ icon: String, _ color: Color) -> some View {
+        VStack(spacing: 4) {
+            Image(systemName: icon).font(.system(size: 18))
+            Text(title).font(.caption2)
+        }
+        .foregroundColor(color)
+        .frame(maxWidth: .infinity, minHeight: 52)
+        .background(Color.appSecondaryBackground, in: RoundedRectangle(cornerRadius: 12))
     }
 
     private func icon(for session: TabSession) -> (symbol: String, color: Color?) {
@@ -152,7 +191,15 @@ public struct SessionTabsView: View {
                         )
                         .cornerRadius(6)
                     }
-                    .contextMenu { menuItems(for: session) }
+                    // Long press opens the same dropdown as a second tap on the selected tab.
+                    .simultaneousGesture(LongPressGesture(minimumDuration: 0.4).onEnded { _ in tabForMenu = session })
+                    .popover(isPresented: Binding(
+                        get: { tabForMenu?.id == session.id },
+                        set: { if !$0 { tabForMenu = nil } }
+                    ), arrowEdge: .top) {
+                        sessionDropdown(for: session)
+                            .presentationCompactAdaptation(.popover)
+                    }
                 }
 
                 addMenu
@@ -161,10 +208,6 @@ public struct SessionTabsView: View {
             .padding(.vertical, 2)
         }
         .background(Color.appBackground)
-        .confirmationDialog(tabForMenu?.title ?? "", isPresented: Binding(get: { tabForMenu != nil }, set: { if !$0 { tabForMenu = nil } }), titleVisibility: .visible) {
-            if let tab = tabForMenu { menuItems(for: tab) }
-            Button("Cancel", role: .cancel) {}
-        }
         .alert("Rename Tab", isPresented: $showRenameAlert) {
             TextField("Tab Name", text: $renameText)
             Button("Cancel", role: .cancel) {}
