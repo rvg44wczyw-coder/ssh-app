@@ -213,14 +213,15 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
 
         Task {
             do {
-                var path = self.activeTranscriptPath
-                if path == nil {
-                    path = try await handle.detectActiveTranscriptPath(baseDir: nil)
+                // This tab's own agent, found from its tmux session; never "the newest on the host".
+                let path = try await handle.detectSessionTranscriptPath(sessionName: session.sessionName)
+                if path != self.activeTranscriptPath {
                     self.activeTranscriptPath = path
+                    self.transcriptTurns = []
                 }
 
                 guard let validPath = path else {
-                    self.transcriptError = "No active agent transcript detected"
+                    self.transcriptError = "No agent (Claude Code or Antigravity) is running in this tab"
                     self.isTranscriptLoading = false
                     return
                 }
@@ -240,15 +241,18 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     /// A failure keeps what is on screen.
     public func reloadTranscriptQuietly() async {
         guard let handle = handle, state == .connected, !isTranscriptLoading else { return }
-        var path = activeTranscriptPath
-        if path == nil {
-            // Looking for a transcript runs a host command: not more often than every 20 s.
-            if let last = lastTranscriptDetect, Date().timeIntervalSince(last) < 20 { return }
+        // Which transcript belongs to this tab can change (the agent was quit or another one
+        // started), so ask the host again, but not more often than every 20 s.
+        if lastTranscriptDetect == nil || Date().timeIntervalSince(lastTranscriptDetect!) >= 20 {
             lastTranscriptDetect = Date()
-            path = try? await handle.detectActiveTranscriptPath(baseDir: nil)
-            activeTranscriptPath = path
+            // A failed lookup (outer nil) keeps what is shown; "no agent" (inner nil) clears it.
+            if let found = try? await handle.detectSessionTranscriptPath(sessionName: session.sessionName),
+               found != activeTranscriptPath {
+                activeTranscriptPath = found
+                transcriptTurns = []
+            }
         }
-        guard let path, let turns = try? await handle.readRemoteTranscript(remotePath: path) else { return }
+        guard let path = activeTranscriptPath, let turns = try? await handle.readRemoteTranscript(remotePath: path) else { return }
         if turns != transcriptTurns { transcriptTurns = turns }
         if transcriptError != nil, !turns.isEmpty { transcriptError = nil }
     }

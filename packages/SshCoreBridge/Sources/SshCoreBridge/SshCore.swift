@@ -1370,6 +1370,14 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func detectPaneContext(sessionName: String) async throws  -> PaneContext
     
     /**
+     * The transcript of the agent running in this tab's own tmux session: Claude Code by the
+     * folder the process runs in, Antigravity by the conversation folder it has open (newest
+     * one if none is open). `None` when no agent runs in the pane; it never falls back to "the
+     * newest transcript on the host", which belongs to some other tab.
+     */
+    func detectSessionTranscriptPath(sessionName: String) async throws  -> String?
+    
+    /**
      * Models the agent can be switched to, from the pinned helper on the host (`claude`,
      * `antigravity` or `ollama`). Empty when the helper is not installed or knows none; for
      * Claude the built-in aliases are returned then.
@@ -1908,6 +1916,28 @@ open func detectPaneContext(sessionName: String)async throws  -> PaneContext  {
             completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
             freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
             liftFunc: FfiConverterTypePaneContext_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * The transcript of the agent running in this tab's own tmux session: Claude Code by the
+     * folder the process runs in, Antigravity by the conversation folder it has open (newest
+     * one if none is open). `None` when no agent runs in the pane; it never falls back to "the
+     * newest transcript on the host", which belongs to some other tab.
+     */
+open func detectSessionTranscriptPath(sessionName: String)async throws  -> String?  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_detect_session_transcript_path(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(sessionName)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterOptionString.lift,
             errorHandler: FfiConverterTypeSshCoreError_lift
         )
 }
@@ -11640,6 +11670,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_detect_pane_context() != 3123) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_detect_session_transcript_path() != 20251) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_fetch_agent_models() != 64116) {

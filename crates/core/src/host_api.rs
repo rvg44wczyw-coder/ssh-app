@@ -128,6 +128,29 @@ impl SshSessionHandle {
         }
     }
 
+    /// The transcript of the agent running in this tab's own tmux session: Claude Code by the
+    /// folder the process runs in, Antigravity by the conversation folder it has open (newest
+    /// one if none is open). `None` when no agent runs in the pane; it never falls back to "the
+    /// newest transcript on the host", which belongs to some other tab.
+    pub async fn detect_session_transcript_path(
+        &self,
+        session_name: String,
+    ) -> Result<Option<String>, SshCoreError> {
+        crate::tmux::validate_session_name(&session_name)?;
+        let script = crate::hostprobe::login_sh_script(
+            SESSION_TRANSCRIPT_SCRIPT,
+            &[crate::tmux::shell_quote(session_name.trim())],
+            10,
+        );
+        let output = self.execute_command_on_active_session(script).await?;
+        let path = output.trim();
+        // The reader validates the path again before opening it.
+        if path.is_empty() || path.contains('\n') || path.chars().any(char::is_control) {
+            return Ok(None);
+        }
+        Ok(Some(path.to_string()))
+    }
+
     /// Reads recent commands from the remote host's shell history (`~/.zsh_history` / `~/.bash_history`)
     /// and scrubs sensitive credentials before returning.
     pub async fn fetch_remote_shell_history(
@@ -1018,6 +1041,40 @@ impl SshSessionHandle {
         }
     }
 }
+
+/// `$1` is a validated tmux session name. Prints one path or nothing.
+const SESSION_TRANSCRIPT_SCRIPT: &str = r#"PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"; export PATH
+pid=$(tmux display-message -p -t "=$1:" '#{pane_pid}' 2>/dev/null)
+case "$pid" in ""|*[!0-9]*) exit 0;; esac
+found=$(ps -Ao pid=,ppid=,args= 2>/dev/null | awk -v root="$pid" '
+  { id=$1; par=$2; $1=""; $2=""; sub(/^[ \t]+/, ""); pp[id]=par; cmd[id]=$0 }
+  END { for (p in pp) { q=p; d=0; while (q != "" && q != 0 && d < 40) { if (q == root) {
+      c=cmd[p]; n=split(c, w, " ")
+      for (i=1; i<=n && i<=4; i++) {
+        b=w[i]; sub(/.*\//, "", b); sub(/\.(js|mjs|py)$/, "", b); b=tolower(b)
+        if (i > 1 && w[1] !~ /(node|bun|deno|python[0-9.]*|sh|bash|zsh)$/) break
+        if (b == "claude") { print "claude " p; exit }
+        if (b == "agy" || b == "antigravity") { print "agy " p; exit }
+      }
+      if (c ~ /@anthropic-ai\/claude-code|\/claude-code\//) { print "claude " p; exit }
+      if (c ~ /\/antigravity\//) { print "agy " p; exit }
+      break } q=pp[q]; d++ } } }')
+kind=${found%% *}; apid=${found##* }
+case "$apid" in ""|*[!0-9]*) exit 0;; esac
+cwd=$(lsof -a -p "$apid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -n 1)
+case "$kind" in
+  claude)
+    [ -n "$cwd" ] || exit 0
+    slug=$(printf '%s' "$cwd" | sed 's/[^A-Za-z0-9]/-/g')
+    f=$(ls -t "$HOME/.claude/projects/$slug"/*.jsonl 2>/dev/null | head -n 1)
+    [ -f "$f" ] && echo "$f";;
+  agy)
+    d=$(lsof -p "$apid" -Fn 2>/dev/null | sed -n 's/^n//p' | grep -o "^.*/brain/[^/]*" | head -n 1)
+    [ -n "$d" ] || d=$(ls -td "$HOME/.gemini/antigravity-cli/brain"/* 2>/dev/null | head -n 1)
+    f="$d/.system_generated/logs/transcript.jsonl"
+    [ -n "$d" ] && [ -f "$f" ] && echo "$f";;
+esac
+exit 0"#;
 
 const TRANSCRIPT_DETECT_SCRIPT: &str = r#"TARGET_DIR="$1"
 if [ -d "$HOME/.gemini/antigravity-cli/brain" ]; then

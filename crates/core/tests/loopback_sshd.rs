@@ -1698,6 +1698,33 @@ fn usage_report_finds_models_in_tmux_sessions_and_reads_transcripts() {
         hex::encode(Sha256::digest(&helper_bytes))
     };
     let handle = connect(&server);
+    // A newer transcript of another project must not be taken for this tab's.
+    let other = server.home.join(".claude/projects/-tmp-elsewhere");
+    std::fs::create_dir_all(&other).unwrap();
+    std::fs::write(other.join("newer.jsonl"), "{}\n").unwrap();
+    rt.block_on(async {
+        let mine = handle
+            .detect_session_transcript_path(claude.clone())
+            .await
+            .unwrap();
+        assert_eq!(
+            mine.as_deref(),
+            Some(proj.join("s.jsonl").to_str().unwrap()),
+            "claude tab gets its own project's transcript"
+        );
+        assert_eq!(
+            handle
+                .detect_session_transcript_path(plain.clone())
+                .await
+                .unwrap(),
+            None,
+            "a plain shell has none"
+        );
+        assert!(handle
+            .detect_session_transcript_path("bad name;x".into())
+            .await
+            .is_err());
+    });
     rt.block_on(async {
         // Bad directories and a bad pin are refused before anything reaches the host.
         assert!(fetch_host_usage(cfg.clone(), vec!["a\nb".into()], None)
