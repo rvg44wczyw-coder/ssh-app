@@ -374,7 +374,7 @@ Section(
 ### 6.x One line instead of two (2026-10-20)
 The feed has one thin line at the top instead of the header and the usage strip under the tabs: git (branch, worktree, `+N` changes; tap = full names, long press = Branches / Worktrees / Changes) then the model, context and limits. Tap refreshes. Find and Refresh moved into the session menu (tiles `feedFind`, `feedRefresh`, shown only in the feed).
 
-The switch between the terminal and the feed ("Feed" on the terminal screen, "Terminal" in the feed) is one floating button in the same place on both screens: top right by default, drag it anywhere (centre kept as fractions in `mode_switch_x` / `mode_switch_y`), long press puts it back; Settings → Appearance → "Terminal / Feed switch" sets its opacity (`mode_switch_opacity`). The per-style header arrangements (centered title, studio chips) are gone; the styles now only change the text and the frames of the feed. Not run on a device.
+The switch between the terminal and the feed is a still icon (no floating, no drag, no setting): `terminal.fill` at the right end of the feed's status line, `text.bubble` in the top right corner of the terminal. The per-style header arrangements (centered title, studio chips) are gone; the styles now only change the text and the frames of the feed. Not run on a device.
 
 ### 6.y Review (rev, 2026-10-20)
 `ios-ui-dev` pass over the feed-style changes. Fixed: the assistant card's soft shadow filled the card twice (a translucent fill came out darker than the other looks); the fill is now drawn once. Checked and fine: the look is part of the layout cache key; the builder and layout statics (`presentation`, `scale`) are set and read on the main actor; no emoji left in the feed (text glyphs `[✓] [✕] [●]` only); long branch/worktree names are shortened with the full name on tap. Low, left as is: a request whose tab the host cannot name is shown on the only matching tab or the open one, and the card names the agent, tool and folder, so a wrong guess is visible. Device check of all three looks is still open.
@@ -387,9 +387,7 @@ The switch between the terminal and the feed ("Feed" on the terminal screen, "Te
   `Downloaded`, ...) are filtered; a run of progress lines becomes one line with the count. In the
   app a closed result shows 8 lines (was 4) and 600 characters per line (was 240); argument
   summaries and shell tree lines are about twice as long before they are clipped.
-- **The Terminal/Feed switch.** A tap switches. Moving needs a long press (0.45 s, haptic tick, the
-  button grows), then a drag; a drag never switches. Settings → Appearance has the opacity and
-  "Put it back in the top right corner" (the old long-press reset moved there).
+- **The Terminal/Feed switch (replaces the floating one).** Still icon, one tap: in the feed's status line (right end) and in the terminal's top right corner. The drag, the opacity and the "put it back" settings are removed. The status line keeps its full width (the branch name no longer shrinks to a letter, context shows tokens when there is room). A refresh icon sits in the same line, and a subagent counter when Claude has started any.
 - **The message waiting in the agent.** The text of the agent's input box (typed at the laptop or
   queued while the agent works) is no longer poured into the message field. It is offered above
   the field with an up arrow that blinks red for 4 seconds and then stops; a tap moves the text
