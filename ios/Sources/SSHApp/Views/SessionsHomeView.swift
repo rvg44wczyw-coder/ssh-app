@@ -18,6 +18,8 @@ struct SessionsHomeView: View {
     let onClose: (UUID) -> Void
     let isChatMode: (TabSession) -> Bool
     let attention: (TabSession) -> SessionAttention?
+    /// Symbol for what a waiting request is about (a command, an edit, a read ...).
+    var requestSymbol: (TabSession) -> String? = { _ in nil }
     let onRestart: (UUID) -> Void
     let onSessionAction: (UUID, AppAction) -> Void
     let onSetScheme: (UUID, String?) -> Void
@@ -75,7 +77,12 @@ struct SessionsHomeView: View {
                     ProfileIconView(ref: ic.symbol, size: 13).foregroundColor(ic.color ?? .appAccent)
                     Text(s.title).font(.subheadline.bold()).lineLimit(1).foregroundColor(.primary)
                     Spacer(minLength: 0)
-                    if let a = attention(s) { SessionAttentionBadge(attention: a, size: 13) }
+                    if let a = attention(s) {
+                        if a == .approval, let sym = requestSymbol(s) {
+                            Image(systemName: sym).font(.system(size: 12, weight: .semibold)).foregroundColor(.secondary)
+                        }
+                        SessionAttentionBadge(attention: a, size: 13)
+                    }
                     Circle().fill(stateColor(state)).frame(width: 8, height: 8)
                 }
                 Text([serverName(s), s.sessionName].compactMap { $0 }.joined(separator: " · "))

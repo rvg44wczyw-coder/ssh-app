@@ -23,7 +23,7 @@ This creates high mobile friction and mistakes.
 
 ### 1.2 In Scope
 1. **Container Telemetry & Status Card**:
-   - Integrated into the existing Host Telemetry sheet ([09-host-telemetry-and-process-monitor.md](file:///Users/ivs/rust/ssh-app/docs/features/09-host-telemetry-and-process-monitor.md)).
+   - Integrated into the existing Host Telemetry sheet (`docs/features/09-host-telemetry-and-process-monitor.md`).
    - Displays all containers on the host with status:
      - Running: Green dot (`●`)
      - Exited / Dead: Red dot (`●`)
@@ -33,15 +33,17 @@ This creates high mobile friction and mistakes.
    - `[ ↺ Restart ]`: Instant container restart via `docker restart <id>` with haptic feedback.
    - `[ ⎘ Logs ]`: Dedicated slide-over sheet showing the last 200 lines of logs (`docker logs --tail 200 <id>`) with Copy and Live Follow toggles.
    - `[ ▶ Start ]` / `[ ■ Stop ]`: Quick lifecycle toggles.
-3. **One-Tap In-Container Terminal Session (Killer Feature)**:
-   - `[ >_ Terminal ]` / `[ Exec Shell ]` button on the container card.
-   - Automatically registers and opens a new tab in `TerminalTabsManager`.
-   - Starts an isolated tmux session running:
-     ```bash
-     docker exec -it <sanitized_container_id_or_name> sh -c "command -v bash >/dev/null 2>&1 && exec bash || exec sh"
-     ```
-   - Automatically assigns tab title: `[docker] <container_name>` with icon `shippingbox.fill`.
-   - Full PTY resizing, interactive terminal input, and Zero Battery Drain lifecycle.
+3. **First-Class In-Container Session on the Main Screen (SessionsHomeView)**:
+   - When tapping `[ >_ Terminal ]` / `[ Exec Shell ]` on any container card:
+     - A new first-class `TabSession` is created with `agentType = .dockerContainer`.
+     - Automatically assigned title: `[docker] <container_name>` with icon `shippingbox.fill`.
+     - Remote command:
+       ```bash
+       docker exec -it <sanitized_container_id_or_name> sh -c "command -v bash >/dev/null 2>&1 && exec bash || exec sh"
+       ```
+     - Backed by an isolated remote tmux session: `docker-<container_slug>`.
+     - **Main Screen Appearance**: The session instantly appears on the app's **Main Screen (`SessionsHomeView`)** as a live card alongside Claude Code and Shell sessions, complete with real-time terminal output preview (e.g. `postgres=#` or `# /app`), active status badge, and server name.
+     - **Session Persistence & Zero Battery Drain**: When the app backgrounds, the TCP connection drops cleanly while tmux keeps the container shell alive on the host. Reopening the app from the Main Screen immediately reattaches to the container session.
 
 ### 1.3 Out of Scope
 - Full Docker Compose file editing or Docker build orchestration on the phone (focused on monitoring, restarts, logs, and interactive shell).
@@ -182,27 +184,47 @@ To minimize round-trips and keep CPU overhead near zero, the host query runs via
    fi
    ```
 
-### 3.2 In-Container Terminal Tab Spawn
+### 3.2 In-Container Terminal Tab Spawn & Tmux Resiliency
 When the user taps `[ >_ Terminal ]`:
-1. The container ID is validated via `validate_docker_container_identifier(container_id)`.
-2. Swift calls `tabsManager.addSession(...)`:
-   ```swift
-   let execCmd = "docker exec -it \(safeId) sh -c 'command -v bash >/dev/null 2>&1 && exec bash || exec sh'"
-   let session = tabsManager.addCustomSession(
-       title: "[docker] \(container.raw.name)",
-       command: execCmd,
-       serverId: serverId,
-       icon: "shippingbox.fill"
-   )
+1. The container ID is validated via `validate_docker_container_identifier(container_id)` and clamped to alphanumeric hex or sanitized slug.
+2. The tmux session name is slugified to prevent tmux delimiter collisions (`.` and `:` mapped to `-`):
+   ```rust
+   let session_name = format!("docker-{}", sanitize_tmux_session_name(&container.name));
    ```
-3. A remote tmux session is spawned with this command as the root process.
-4. If the container stops or exits, the pane terminates cleanly without hanging the app.
+3. The shell command is wrapped with a termination trap to prevent the tmux pane from abruptly disappearing if the container stops or exits:
+   ```bash
+   docker exec -it <safe_id> sh -c "command -v bash >/dev/null 2>&1 && exec bash || exec sh" || (printf '\r\n\033[33m[Container session ended (exit code %s)]\033[0m\r\nPress Enter to close.\r\n' "$?" && read -r)
+   ```
+4. Swift registers the new tab in `TerminalTabsManager` with `agentType = .dockerContainer`.
+5. The session appears immediately on the Main Screen (`SessionsHomeView`) as a live card with a preview.
+6. If the container stops or exits, the pane prints the exit code and waits for an Enter keypress before closing cleanly.
 
 ---
 
 ## 4. UI Layout & Wireframes (Strict No-Emoji Design System)
 
-### 4.1 Host Telemetry Section: Docker & Services
+### 4.1 Main Screen (`SessionsHomeView`): Container Session Card
+
+On the app's home dashboard, container sessions sit side-by-side with AI agent and host sessions:
+
+```text
+┌────────────────────────────────────────────────────────┐
+│ [Sessions]               macbook-pro             [ ⚙ ] │
+├────────────────────────────┬───────────────────────────┤
+│ [brain] Claude Code    ●   │ [shippingbox.fill] postgres ●
+│ macbook-pro · term-claude  │ macbook-pro · docker-pg   │
+│ ┌────────────────────────┐ │ ┌───────────────────────┐ │
+│ │ >_ cargo test --lib    │ │ │ psql (16.2)           │ │
+│ │ 214 passed             │ │ │ Type "help" for help. │ │
+│ │                        │ │ │ postgres=# \dt        │ │
+│ └────────────────────────┘ │ └───────────────────────┘ │
+├────────────────────────────┼───────────────────────────┤
+│ [terminal] Shell       ●   │ [ + New Session ]         │
+│ macbook-pro · term-1       │                           │
+└────────────────────────────┴───────────────────────────┘
+```
+
+### 4.2 Host Telemetry Section: Docker & Services
 
 ```text
 ┌────────────────────────────────────────────────────────┐

@@ -36,6 +36,23 @@ public enum SessionAttention: Int, Comparable {
 }
 
 /// The symbol itself, one look everywhere.
+/// A small symbol for what a request is about, from the agent's tool name (the card shows it
+/// beside the approval badge).
+public enum RequestKind {
+    public static func symbol(tool: String) -> String {
+        switch tool.lowercased() {
+        case "bash", "run_command", "shell", "run_shell_command", "bash_output": return "terminal"
+        case "edit", "write", "multiedit", "notebookedit", "write_to_file", "replace_file_content",
+             "multi_replace_file_content", "edit_file", "write_file", "replace", "patch", "apply_patch":
+            return "square.and.pencil"
+        case "read", "view_file", "read_file", "read_many_files", "view": return "doc.text"
+        case "webfetch", "websearch", "search_web", "read_url_content": return "globe"
+        case "grep", "glob", "grep_search", "find_by_name", "list_dir", "ls": return "magnifyingglass"
+        default: return "wrench.and.screwdriver"
+        }
+    }
+}
+
 public struct SessionAttentionBadge: View {
     let attention: SessionAttention
     var size: CGFloat = 12

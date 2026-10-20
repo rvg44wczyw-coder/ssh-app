@@ -723,6 +723,11 @@ def main():
 
     base = {"agent": agent, "event": event, "tool": tool, "command": summary, "cwd": cwd, "session": session}
 
+    # Antigravity has no SessionStart hook: whatever event comes first notes the tmux session, so
+    # the phone knows which tab a request or a notice is about.
+    if session and event not in ("SessionStart", "SessionEnd") and not os.path.exists(session_file(agent, session)):
+        register_session(agent, "", session, cwd)
+
     if event in ("SessionStart", "SessionEnd"):
         register_session(agent, event, session, cwd)
         text = guard_text((as_dict(load_guard().get("context"))).get("SessionStart"))
@@ -768,6 +773,12 @@ def main():
                 if out is not None:
                     sys.stdout.write(json.dumps(out))
                     return 0
+        # Antigravity's own allow list (permissions.allow in its settings): a plain command on it runs
+        # without asking in the terminal, so the phone is not asked either.
+        if (agent == "antigravity" and tool == "run_command"
+                and guard_match(guard_rules(guard, "ask"), tool, tool_input, cwd) is None
+                and agy_allows(summary)):
+            return 0
         approved = submit("approval", base, wait=True)
         if agent == "grok":
             # Grok can only block: deny is explicit, everything else (including a phone approval)
@@ -823,7 +834,12 @@ def main():
             sys.stdout.write(json.dumps({"decision": "block", "reason": message}))
             return 0
 
-    # Notification / Stop and other passive events: fire-and-forget.
+    # Notification / Stop and other passive events: fire-and-forget. An Antigravity stop whose
+    # transcript does not end with the model's own answer is a failure, not "finished".
+    if agent == "antigravity" and event == "Stop" and not agy_ended_with_answer(session):
+        submit("notify", dict(base, event="StopFailed"), wait=False)
+        sys.stdout.write(json.dumps({"decision": "stop"}))
+        return 0
     submit("notify", base, wait=False)
     if agent == "antigravity" and event == "Stop":
         sys.stdout.write(json.dumps({"decision": "stop"}))
@@ -833,6 +849,74 @@ def main():
 def reply(obj):
     sys.stdout.write(json.dumps(obj))
     return 0
+
+
+# ---------------------------------------------------------------------------------------------
+# Antigravity: its own allow list and the end of a conversation (ports of ssh-app-host's hook).
+# ---------------------------------------------------------------------------------------------
+def agy_allow_entries():
+    path = os.path.join(os.path.expanduser("~"), ".gemini", "antigravity-cli", "settings.json")
+    raw = read_small(path, 1 << 20)
+    try:
+        allow = json.loads(raw.decode("utf-8"))["permissions"]["allow"] if raw else []
+    except Exception:
+        return []
+    out = []
+    for e in allow if isinstance(allow, list) else []:
+        if isinstance(e, str) and e.startswith("command(") and e.endswith(")"):
+            out.append(e[len("command("):-1])
+    return out
+
+
+def agy_allows(command):
+    """A plain command (no chaining, pipes, substitution, redirection, nothing cut off) that equals an
+    allow entry or continues it after a space; an entry ending in `*` is a prefix."""
+    c = command.strip()
+    if not c or c.endswith("\u2026") or any(ch in c for ch in ";&|`$<>\n\r(){}"):
+        return False
+    for e in agy_allow_entries():
+        e = e.strip()
+        if not e:
+            continue
+        if e.endswith("*"):
+            prefix = e[:-1].strip()
+            if prefix and c.startswith(e[:-1].rstrip()):
+                return True
+        elif c == e or c.startswith(e + " "):
+            return True
+    return False
+
+
+def agy_ended_with_answer(session):
+    """Whether the conversation's transcript ends with the model's reply. Unreadable: assume yes."""
+    if not session or not re.match(r"^[A-Za-z0-9_-]+$", session):
+        return True
+    path = os.path.join(os.path.expanduser("~"), ".gemini", "antigravity-cli", "brain", session,
+                        ".system_generated", "logs", "transcript.jsonl")
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            window = 256 * 1024
+            f.seek(max(0, size - window))
+            text = f.read(window).decode("utf-8", "replace")
+    except OSError:
+        return True
+    last = None
+    for line in reversed(text.splitlines()):
+        t = line.strip()
+        if t.startswith("{") and t.endswith("}"):
+            last = t
+            break
+    if last is None:
+        return True
+    try:
+        v = json.loads(last)
+    except Exception:
+        return True
+    content = v.get("content")
+    return (v.get("type") == "PLANNER_RESPONSE" and v.get("status") == "DONE"
+            and isinstance(content, str) and content.strip() != "")
 
 
 def read_stdin_json():

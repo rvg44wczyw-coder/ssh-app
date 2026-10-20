@@ -106,7 +106,7 @@ public struct MainTerminalView: View {
         _ = attentionTick
         var found: [SessionAttention] = []
         if let a = hookAttention[tab.id] { found.append(a) }
-        if approvals.entries.contains(where: { $0.isApproval && approvals.tmuxName(for: $0) == tab.sessionName }) {
+        if approvals.entries.contains(where: { $0.isApproval && self.tab(for: $0)?.id == tab.id }) {
             found.append(.approval)
         }
         let viewing = !showHome && tab.id == tabsManager.selectedSessionId
@@ -220,9 +220,35 @@ public struct MainTerminalView: View {
 
     /// The tab an approval belongs to, once the host agent has told us which tmux session it runs in.
     private func tab(for approval: ApprovalEntry) -> TabSession? {
-        approvals.tmuxName(for: approval).flatMap { name in
-            tabsManager.sessions.first(where: { $0.sessionName == name })
+        if let name = approvals.tmuxName(for: approval),
+           let known = tabsManager.sessions.first(where: { $0.sessionName == name }) {
+            return known
         }
+        return guessedTab(for: approval)
+    }
+
+    /// The host could not say which tmux session asks (the hook that wrote the request did not
+    /// register the session): the only tab of that server that can run this agent, else the tab on
+    /// screen when it can.
+    private func guessedTab(for e: ApprovalEntry) -> TabSession? {
+        let kind: AgentType? = switch e.item.agent {
+        case "claude": .claudeCode
+        case "antigravity": .antigravity
+        default: nil
+        }
+        let candidates = tabsManager.sessions.filter { t in
+            let key = (serversManager.profile(for: t.serverId) ?? serversManager.activeProfile)?.id.uuidString ?? "default"
+            return key == e.serverKey && (kind == nil || t.agentType == kind || t.agentType == .customShell)
+        }
+        if candidates.count == 1 { return candidates.first }
+        if !showHome, let current = candidates.first(where: { $0.id == tabsManager.selectedSessionId }) { return current }
+        return nil
+    }
+
+    /// What the first request waiting on this tab is about, as a symbol for its card.
+    private func requestSymbol(for tab: TabSession) -> String? {
+        approvals.entries.first(where: { $0.isApproval && self.tab(for: $0)?.id == tab.id })
+            .map { RequestKind.symbol(tool: $0.item.tool) }
     }
 
     /// The Approve / Deny card sits on the screen of the session it is about, nowhere else (other
@@ -349,6 +375,7 @@ public struct MainTerminalView: View {
                     },
                     isChatMode: { tabsManager.viewModel(for: $0.id)?.isChatMode == true },
                     attention: { attention(for: $0) },
+                    requestSymbol: { requestSymbol(for: $0) },
                     onRestart: { restartTarget = $0 },
                     onSessionAction: { runSessionAction($0, $1) },
                     onSetScheme: { tabsManager.setSessionScheme(id: $0, schemeId: $1) },

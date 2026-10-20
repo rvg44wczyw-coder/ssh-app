@@ -79,13 +79,20 @@ fn chmod(p: &Path, mode: u32) {
 struct Host {
     dir: tempfile::TempDir,
     key: KeypairResult,
+    /// HOME of the script is the temporary folder (Antigravity's settings and transcripts live under
+    /// it); off, HOME stays the real one, which the `~/.ssh/**` guard rules expand against.
+    fake_home: bool,
 }
 
 impl Host {
     fn new() -> Host {
         let dir = tempfile::tempdir().unwrap();
         let key = generate_keypair().unwrap();
-        let h = Host { dir, key };
+        let h = Host {
+            dir,
+            key,
+            fake_home: false,
+        };
         chmod(h.home(), 0o700);
         for d in [h.run(), h.pending(), h.decisions()] {
             std::fs::create_dir_all(&d).unwrap();
@@ -119,6 +126,9 @@ impl Host {
     }
     fn cmd(&self, args: &[&str], timeout: u32) -> Command {
         let mut c = Command::new("python3");
+        if self.fake_home {
+            c.env("HOME", self.home());
+        }
         c.arg("-I")
             .arg(script())
             .args(args)
@@ -1272,6 +1282,71 @@ fn host_guard_file_must_be_ours_and_well_formed() {
         )
         .finish();
     assert_eq!(out, "");
+}
+
+#[test]
+fn an_agy_command_on_its_allow_list_skips_the_phone_and_other_commands_do_not() {
+    need_tools!();
+    let mut h = Host::new();
+    h.fake_home = true;
+    let dir = h.home().join(".gemini/antigravity-cli");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("settings.json"),
+        json!({"permissions": {"allow": ["command(ls)", "command(cargo test -p ssh-core)"]}})
+            .to_string(),
+    )
+    .unwrap();
+    let call = |command: &str| {
+        json!({"toolCall": {"name": "run_command", "args": {"CommandLine": command}},
+               "workspacePaths": ["/w"], "conversationId": "agy-allow"})
+        .to_string()
+    };
+    // On the list: no opinion, nothing queued.
+    let (out, _) = h
+        .spawn_hook("antigravity", "PreToolUse", &call("ls -la docs"), 1)
+        .finish();
+    assert_eq!(out, "");
+    assert!(std::fs::read_dir(h.pending()).unwrap().next().is_none());
+    // Chained after an allowed command: the phone is asked (no answer: back to the terminal).
+    let (out, _) = h
+        .spawn_hook("antigravity", "PreToolUse", &call("ls && rm -rf x"), 1)
+        .finish();
+    assert!(out.contains("\"ask\""), "{out}");
+}
+
+#[test]
+fn an_agy_stop_that_did_not_end_with_an_answer_is_a_failed_stop() {
+    need_tools!();
+    let mut h = Host::new();
+    h.fake_home = true;
+    let brain = h
+        .home()
+        .join(".gemini/antigravity-cli/brain/agy-stop/.system_generated/logs");
+    std::fs::create_dir_all(&brain).unwrap();
+    std::fs::write(
+        brain.join("transcript.jsonl"),
+        "{\"type\":\"PLANNER_RESPONSE\",\"status\":\"DONE\",\"content\":\"ok\"}\n{\"type\":\"GENERIC\",\"status\":\"DONE\",\"content\":\"Command exited with code 1.\"}\n",
+    )
+    .unwrap();
+    let payload = json!({"conversationId": "agy-stop", "workspacePaths": ["/w"]}).to_string();
+    let _ = h.spawn_hook("antigravity", "Stop", &payload, 1).finish();
+    let (item, _) = h.wait_item("notify");
+    assert_eq!(item["event"], "StopFailed");
+}
+
+#[test]
+fn the_first_event_of_any_kind_registers_the_session() {
+    need_tools!();
+    let h = Host::new();
+    // Antigravity has no SessionStart: a Stop (a notice, no waiting) is its first word.
+    let payload = json!({"conversationId": "agy-1", "workspacePaths": ["/work/proj"]}).to_string();
+    let _ = h.spawn_hook("antigravity", "Stop", &payload, 0).finish();
+    let l = h.ctl("sessions", "");
+    let items = l["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1, "{l}");
+    assert_eq!(items[0]["session"], "agy-1");
+    assert_eq!(items[0]["agent"], "antigravity");
 }
 
 #[test]
