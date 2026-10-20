@@ -4,6 +4,8 @@ import SwiftUI
 /// accessibility labels all read from this one list.
 public enum AppAction: String, CaseIterable, Identifiable, Sendable {
     case chatToggle
+    case feedFind
+    case feedRefresh
     case tmuxSessions
     case aiAssistant
     case snippets
@@ -23,6 +25,8 @@ public enum AppAction: String, CaseIterable, Identifiable, Sendable {
     public func title(isChatMode: Bool) -> String {
         switch self {
         case .chatToggle: return isChatMode ? "Terminal" : "Chat"
+        case .feedFind: return "Find in feed"
+        case .feedRefresh: return "Refresh feed"
         case .tmuxSessions: return "tmux sessions"
         case .aiAssistant: return "AI assistant"
         case .snippets: return "Snippets"
@@ -41,6 +45,8 @@ public enum AppAction: String, CaseIterable, Identifiable, Sendable {
     public func systemImage(isChatMode: Bool, keyVisible: Bool) -> String {
         switch self {
         case .chatToggle: return isChatMode ? "terminal.fill" : "bubble.left.and.bubble.right.fill"
+        case .feedFind: return "magnifyingglass"
+        case .feedRefresh: return "arrow.clockwise"
         case .tmuxSessions: return "rectangle.stack"
         case .aiAssistant: return "wand.and.stars"
         case .snippets: return "bolt.fill"
@@ -59,6 +65,8 @@ public enum AppAction: String, CaseIterable, Identifiable, Sendable {
     public var tint: Color {
         switch self {
         case .chatToggle: return .blue
+        case .feedFind: return .blue
+        case .feedRefresh: return .blue
         case .tmuxSessions: return .indigo
         case .aiAssistant: return .purple
         case .snippets: return .orange
@@ -79,6 +87,10 @@ public enum AppAction: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .chatToggle:
             return "Switch this tab between the raw terminal and a readable chat-style transcript of the agent session."
+        case .feedFind:
+            return "Search the text of the agent feed."
+        case .feedRefresh:
+            return "Read the agent's session file and the usage numbers again."
         case .tmuxSessions:
             return "List, open and close all tmux sessions that keep running on the host (the whole server, not just this tab)."
         case .aiAssistant:
@@ -109,7 +121,7 @@ public enum AppAction: String, CaseIterable, Identifiable, Sendable {
     /// Belongs to the current session (its own toolbar button) rather than the quick menu.
     public var isSessionAction: Bool {
         switch self {
-        case .chatToggle, .sessionPermissions, .agentProfiles, .diffViewer: return true
+        case .chatToggle, .feedFind, .feedRefresh, .sessionPermissions, .agentProfiles, .diffViewer: return true
         default: return false
         }
     }
@@ -117,7 +129,7 @@ public enum AppAction: String, CaseIterable, Identifiable, Sendable {
     /// Needs a live connection to the active host (shown disabled otherwise, never hidden).
     public var requiresConnection: Bool {
         switch self {
-        case .chatToggle, .aiAssistant, .snippets, .commands, .sessionPermissions, .agentProfiles, .fileBrowser, .telemetry, .webPreview, .diffViewer:
+        case .chatToggle, .feedFind, .feedRefresh, .aiAssistant, .snippets, .commands, .sessionPermissions, .agentProfiles, .fileBrowser, .telemetry, .webPreview, .diffViewer:
             return true
         case .tmuxSessions, .publicKey, .settings:
             return false
@@ -155,6 +167,9 @@ public enum AiAssistantVisibility: String, CaseIterable, Identifiable {
 extension AppAction {
     /// Settings is the way back to everything else, so it can never be hidden.
     public var canHide: Bool { self != .settings }
+
+    /// Tiles that only mean something while the tab shows the agent feed.
+    public var onlyInFeed: Bool { self == .feedFind || self == .feedRefresh }
 }
 
 /// Which quick-menu tiles the user hid, persisted as a comma-separated list of action ids

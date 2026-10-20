@@ -8,6 +8,9 @@ struct ActiveTerminalSessionView: View {
     let onRetry: () -> Void
     let onOpenAiAssistant: () -> Void
     let onOpenSnippets: () -> Void
+    /// Shown in the feed's one line; `nil` when the usage strip is switched off.
+    var usage: SessionUsageMonitor? = nil
+    var onRefreshUsage: (() -> Void)? = nil
     /// The agent whose models the quick-command menus list, from the tab's agent kind.
     @State private var detectedMenuAgent: String?
 
@@ -42,11 +45,30 @@ struct ActiveTerminalSessionView: View {
     @AppStorage(AiAssistantVisibility.storageKey) private var aiVisibilityRaw: String = ""
     @AppStorage("always_show_ai_assistant") private var legacyAlwaysShowAi: Bool = false
 
+    private func modeSwitch(_ title: String, _ icon: String, hint: String) -> some View {
+        VStack {
+            HStack {
+                Spacer()
+                Button { viewModel.toggleChatMode() } label: {
+                    Label(title, systemImage: icon)
+                        .font(.system(size: 12, weight: .semibold))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(.regularMaterial, in: Capsule())
+                }
+                .padding(.trailing, 10)
+                .padding(.top, 8)
+                .accessibilityHint(hint)
+            }
+            Spacer()
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             ZStack(alignment: .top) {
                 if viewModel.isChatMode {
-                    StructuredTranscriptView(viewModel: viewModel)
+                    StructuredTranscriptView(viewModel: viewModel, usage: usage, onRefreshUsage: onRefreshUsage)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     #if canImport(UIKit)
@@ -62,25 +84,12 @@ struct ActiveTerminalSessionView: View {
                     #endif
                 }
 
-                // An agent runs here (also one started by hand in a plain tab): offer the feed.
-                if !viewModel.isChatMode, viewModel.state == .connected,
-                   let agent = modelMenuAgent, agent != "ollama" {
-                    VStack {
-                        HStack {
-                            Spacer()
-                            Button { viewModel.toggleChatMode() } label: {
-                                Label("Feed", systemImage: "text.bubble")
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 6)
-                                    .background(.regularMaterial, in: Capsule())
-                            }
-                            .padding(.trailing, 10)
-                            .padding(.top, 8)
-                            .accessibilityHint("Show this agent's conversation as a readable feed")
-                        }
-                        Spacer()
-                    }
+                // The switch between terminal and feed: one place on both screens. An agent runs here
+                // (also one started by hand in a plain tab): offer the feed.
+                if viewModel.isChatMode {
+                    modeSwitch("Terminal", "terminal.fill", hint: "Switch this tab back to the raw terminal")
+                } else if viewModel.state == .connected, let agent = modelMenuAgent, agent != "ollama" {
+                    modeSwitch("Feed", "text.bubble", hint: "Show this agent's conversation as a readable feed")
                 }
 
                 // Top Connection Status Banner

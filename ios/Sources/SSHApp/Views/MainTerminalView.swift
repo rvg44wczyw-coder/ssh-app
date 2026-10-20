@@ -405,7 +405,8 @@ public struct MainTerminalView: View {
 
                 Divider()
 
-                if usageStripEnabled {
+                // In the feed the usage numbers are part of the feed's own line.
+                if usageStripEnabled, tabsManager.activeViewModel?.isChatMode != true {
                     SessionUsageStrip(monitor: usageMonitor) { refreshUsage(force: true) }
                 }
 
@@ -425,7 +426,9 @@ public struct MainTerminalView: View {
                         },
                         onOpenSnippets: {
                             presentSheet(.snippets)
-                        }
+                        },
+                        usage: usageStripEnabled ? usageMonitor : nil,
+                        onRefreshUsage: { refreshUsage(force: true) }
                     )
                     .id(activeVM.session.id)
                 } else {
@@ -638,6 +641,15 @@ public struct MainTerminalView: View {
     /// finished closing (presenting while a popover is still dismissing is dropped by UIKit).
     func performAction(_ action: AppAction) {
         showActionPanel = false
+        if action == .feedFind {
+            tabsManager.activeViewModel?.feedFindRequests += 1
+            return
+        }
+        if action == .feedRefresh {
+            tabsManager.activeViewModel?.loadTranscript()
+            refreshUsage(force: true)
+            return
+        }
         if action == .chatToggle {
             withAnimation(.easeInOut(duration: 0.2)) {
                 tabsManager.activeViewModel?.toggleChatMode()
@@ -658,7 +670,7 @@ public struct MainTerminalView: View {
         case .diffViewer: sheet = .diffViewer
         case .settings: sheet = .settings
         case .publicKey: sheet = .publicKey
-        case .chatToggle: return
+        case .chatToggle, .feedFind, .feedRefresh: return
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             presentSheet(sheet)

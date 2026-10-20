@@ -38,11 +38,10 @@ final class SessionUsageMonitor: ObservableObject {
     }
 }
 
-/// One thin line under the tabs: model, context fill, 5-hour tokens and a "limit reached" notice.
-/// Tap to refresh.
-struct SessionUsageStrip: View {
+/// The numbers of the strip: model, context fill, plan limits, 5-hour tokens. Shared by the strip
+/// under the tabs and the one line of the agent feed.
+struct SessionUsageItems: View {
     @ObservedObject var monitor: SessionUsageMonitor
-    var onTap: () -> Void
 
     private func tokens(_ n: UInt64) -> String {
         n >= 1_000_000 ? String(format: "%.1fM", Double(n) / 1e6) : n >= 1_000 ? String(format: "%.0fk", Double(n) / 1e3) : "\(n)"
@@ -52,37 +51,52 @@ struct SessionUsageStrip: View {
         Date(timeIntervalSince1970: TimeInterval(epoch)).formatted(date: .omitted, time: .shortened)
     }
 
-    private var visible: Bool { monitor.usage?.agent != nil || monitor.usage?.limitNote != nil }
+    static func hasContent(_ monitor: SessionUsageMonitor) -> Bool {
+        monitor.usage?.agent != nil || monitor.usage?.limitNote != nil
+    }
 
     var body: some View {
-        if visible, let u = monitor.usage {
+        if let u = monitor.usage, Self.hasContent(monitor) {
+            if let note = u.limitNote {
+                Label {
+                    Text(u.limitResetEpoch.map { "Limit reached · resets \(clock($0))" } ?? (note.components(separatedBy: "|").first ?? note))
+                        .lineLimit(1)
+                } icon: { Image(systemName: "exclamationmark.triangle.fill") }
+                .foregroundColor(.red)
+            } else {
+                Text(u.model ?? u.agent ?? "").lineLimit(1).foregroundColor(.secondary)
+            }
+            if let used = u.contextUsed, let limit = u.contextLimit, limit > 0 {
+                let frac = min(1, Double(used) / Double(limit))
+                HStack(spacing: 4) {
+                    ProgressView(value: frac)
+                        .tint(frac < 0.7 ? .green : (frac < 0.9 ? .orange : .red))
+                        .frame(width: 54)
+                    Text("\(Int(frac * 100))% ctx").foregroundColor(frac < 0.9 ? .secondary : .red)
+                }
+            }
+            ForEach(u.limits, id: \.label) { l in
+                Text("\(l.label) \(l.percent)%")
+                    .foregroundColor(l.percent < 70 ? .secondary : (l.percent < 90 ? .orange : .red))
+            }
+            if u.limits.isEmpty, u.agent == "claude", let w = monitor.report?.fiveHour, w.messages > 0 {
+                Text("5h \(tokens(w.input + w.output + w.cacheWrite))").foregroundColor(.secondary)
+            }
+        }
+    }
+}
+
+/// One thin line under the tabs: model, context fill, 5-hour tokens and a "limit reached" notice.
+/// Tap to refresh.
+struct SessionUsageStrip: View {
+    @ObservedObject var monitor: SessionUsageMonitor
+    var onTap: () -> Void
+
+    var body: some View {
+        if SessionUsageItems.hasContent(monitor) {
             Button(action: onTap) {
                 HStack(spacing: 8) {
-                    if let note = u.limitNote {
-                        Label {
-                            Text(u.limitResetEpoch.map { "Limit reached · resets \(clock($0))" } ?? (note.components(separatedBy: "|").first ?? note))
-                                .lineLimit(1)
-                        } icon: { Image(systemName: "exclamationmark.triangle.fill") }
-                        .foregroundColor(.red)
-                    } else {
-                        Text(u.model ?? u.agent ?? "").lineLimit(1).foregroundColor(.secondary)
-                    }
-                    if let used = u.contextUsed, let limit = u.contextLimit, limit > 0 {
-                        let frac = min(1, Double(used) / Double(limit))
-                        HStack(spacing: 4) {
-                            ProgressView(value: frac)
-                                .tint(frac < 0.7 ? .green : (frac < 0.9 ? .orange : .red))
-                                .frame(width: 54)
-                            Text("\(Int(frac * 100))% ctx").foregroundColor(frac < 0.9 ? .secondary : .red)
-                        }
-                    }
-                    ForEach(u.limits, id: \.label) { l in
-                        Text("\(l.label) \(l.percent)%")
-                            .foregroundColor(l.percent < 70 ? .secondary : (l.percent < 90 ? .orange : .red))
-                    }
-                    if u.limits.isEmpty, u.agent == "claude", let w = monitor.report?.fiveHour, w.messages > 0 {
-                        Text("5h \(tokens(w.input + w.output + w.cacheWrite))").foregroundColor(.secondary)
-                    }
+                    SessionUsageItems(monitor: monitor)
                     Spacer(minLength: 0)
                     if monitor.loading { ProgressView().controlSize(.mini) }
                 }

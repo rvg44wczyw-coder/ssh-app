@@ -53,7 +53,7 @@ struct ActionPanelView: View {
                 }
             }
             LazyVGrid(columns: columns, spacing: 12) {
-                ForEach(QuickMenuPrefs.ordered(from: orderRaw).filter { $0.isSessionAction == (scope == .session) && shownWithoutHost($0) && (editing || !hidden.contains($0)) }) { action in
+                ForEach(QuickMenuPrefs.ordered(from: orderRaw).filter { $0.isSessionAction == (scope == .session) && shownWithoutHost($0) && (editing || !$0.onlyInFeed || isChatMode) && (editing || !hidden.contains($0)) }) { action in
                     tile(action)
                 }
             }

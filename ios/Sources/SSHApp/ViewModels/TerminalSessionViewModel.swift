@@ -14,6 +14,8 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
 
     // Structured Transcript / Dual-Mode State
     @Published public var isChatMode: Bool = false
+    /// Counted up by the session menu's "Find in feed"; the feed opens its search when it changes.
+    @Published public var feedFindRequests = 0
     private var watchedSum: String? = nil
     private var lastTranscriptDetect: Date?
     /// Set by the terminal view: pastes the clipboard honouring the program's bracketed-paste mode.

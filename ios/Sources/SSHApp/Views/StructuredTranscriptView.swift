@@ -37,92 +37,71 @@ public struct StructuredTranscriptView: View {
     @State private var syncTask: Task<Void, Never>?
     @State private var adopting = false
 
+    /// The usage numbers shown in the feed's line (`nil`: usage strip switched off).
+    var usage: SessionUsageMonitor?
+    var onRefreshUsage: (() -> Void)?
+    @AppStorage("feed_strip_bottom") private var stripAtBottom = false
+
     public init(viewModel: TerminalSessionViewModel) {
         self.viewModel = viewModel
     }
 
-    /// Agent and git context instead of a file path; the look decides the arrangement.
-    private var feedHeader: some View {
+    init(viewModel: TerminalSessionViewModel, usage: SessionUsageMonitor?, onRefreshUsage: (() -> Void)?) {
+        self.viewModel = viewModel
+        self.usage = usage
+        self.onRefreshUsage = onRefreshUsage
+    }
+
+    /// The one line of the feed: git (branch, worktree, changes), then the agent's model, context
+    /// and limits. Search and refresh are in the session menu; the switch back to the terminal
+    /// floats at the top right, where the terminal screen has its switch to the feed. The line can
+    /// be dragged (or moved from its long-press menu) between the top and the bottom of the feed.
+    private var feedStrip: some View {
         let git = viewModel.gitContext
-        let agent = viewModel.feedAgentName
-        return VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Button { viewModel.toggleChatMode() } label: {
-                    Label("Terminal", systemImage: "terminal.fill")
-                        .font(.system(size: 11, weight: .semibold))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Color.appAccent.opacity(0.15), in: Capsule())
-                }
-                .accessibilityHint("Switch this tab back to the raw terminal")
-                switch look {
-                case .terminal:
-                    Image(systemName: "circle.fill").font(.system(size: 6)).foregroundColor(.green)
-                    Text([agent, git.label(full: gitNamesFull)].compactMap { $0 }.joined(separator: " · "))
-                        .font(.system(size: 11, design: .monospaced))
-                        .lineLimit(gitNamesFull ? 3 : 1).truncationMode(.middle)
-                        .foregroundColor(.secondary)
-                        .onTapGesture { withAnimation { gitNamesFull.toggle() } }
-                case .assistant:
-                    VStack(spacing: 2) {
-                        Text(agent).font(.system(size: 14, weight: .medium))
-                        if let branch = gitNamesFull ? git.branch : git.shortBranch {
-                            HStack(spacing: 4) {
-                                Image(systemName: "arrow.triangle.branch")
-                                Text(branch).lineLimit(gitNamesFull ? 3 : 1)
-                                if git.isWorktree, let wt = gitNamesFull ? git.worktreeName : git.shortWorktree {
-                                    Image(systemName: "square.stack.3d.down.right")
-                                    Text(wt).lineLimit(gitNamesFull ? 3 : 1)
-                                }
-                            }
-                            .onTapGesture { withAnimation { gitNamesFull.toggle() } }
-                            .font(.system(size: 11.5))
-                            .padding(.horizontal, 8).padding(.vertical, 2)
-                            .background(Color.secondary.opacity(0.14), in: Capsule())
-                            .foregroundColor(.secondary)
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
-                case .studio:
-                    Text([agent, gitNamesFull ? git.repoName : git.shortRepo].compactMap { $0 }.joined(separator: " · "))
-                        .font(.system(size: 12, weight: .medium))
-                        .lineLimit(1)
-                }
-                if look != .assistant { Spacer() }
-                Button { findToken += 1 } label: {
-                    Image(systemName: "magnifyingglass").font(.system(size: 13))
-                }
-                .accessibilityLabel("Find in feed")
-                if viewModel.isTranscriptLoading {
-                    ProgressView().scaleEffect(0.7)
-                } else {
-                    Button { viewModel.loadTranscript() } label: {
-                        Image(systemName: "arrow.clockwise").font(.system(size: 12, weight: .semibold))
-                    }
-                    .accessibilityLabel("Refresh")
-                }
+        let showsUsage = usage.map { SessionUsageItems.hasContent($0) } ?? false
+        return HStack(spacing: 8) {
+            if !showsUsage {
+                Text(viewModel.feedAgentName).foregroundColor(.secondary)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            if look == .studio, git.isGit {
-                // The git strip: branch and worktree as labelled chips.
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        if let branch = gitNamesFull ? git.branch : git.shortBranch { studioChip("BRANCH", branch) }
-                        if git.isWorktree, let wt = gitNamesFull ? git.worktreeName : git.shortWorktree { studioChip("WORKTREE", wt) }
-                        if viewModel.gitDirtyCount > 0 {
-                            studioChip("UNCOMMITTED", "\(viewModel.gitDirtyCount)")
-                                .onTapGesture { gitSheet = .changes }
-                        }
+            if git.isGit, let branch = gitNamesFull ? git.branch : git.shortBranch {
+                HStack(spacing: 3) {
+                    Image(systemName: "arrow.triangle.branch")
+                    Text(branch).lineLimit(gitNamesFull ? 2 : 1).truncationMode(.middle)
+                    if git.isWorktree, let wt = gitNamesFull ? git.worktreeName : git.shortWorktree {
+                        Image(systemName: "square.stack.3d.down.right")
+                        Text(wt).lineLimit(gitNamesFull ? 2 : 1).truncationMode(.middle)
                     }
-                    .padding(.horizontal, 12)
-                    .onTapGesture { withAnimation { gitNamesFull.toggle() } }
+                    if viewModel.gitDirtyCount > 0 {
+                        Text("+\(viewModel.gitDirtyCount)").foregroundColor(.orange)
+                    }
                 }
-                .padding(.bottom, 6)
+                .foregroundColor(.secondary)
+                .onTapGesture { withAnimation { gitNamesFull.toggle() } }
             }
+            if let usage { SessionUsageItems(monitor: usage) }
+            Spacer(minLength: 0)
+            if usage?.loading == true || viewModel.isTranscriptLoading { ProgressView().controlSize(.mini) }
+            // Room for the switch floating over the right end when the line is at the top.
+            if !stripAtBottom { Color.clear.frame(width: 78, height: 1) }
         }
-        .background(Color.appSecondaryBackground)
+        .font(.system(size: 10, design: .monospaced))
+        .padding(.horizontal, 10)
+        .frame(minHeight: 22)
+        .frame(maxWidth: .infinity)
+        .background(.bar)
+        .contentShape(Rectangle())
+        .onTapGesture { onRefreshUsage?(); Task { await viewModel.loadGitContext() } }
+        .gesture(
+            DragGesture(minimumDistance: 24).onEnded { drag in
+                if drag.translation.height > 30 { withAnimation { stripAtBottom = true } }
+                if drag.translation.height < -30 { withAnimation { stripAtBottom = false } }
+            }
+        )
         .contextMenu {
+            Button { withAnimation { stripAtBottom.toggle() } } label: {
+                Label(stripAtBottom ? "Move to the top" : "Move to the bottom",
+                      systemImage: stripAtBottom ? "arrow.up.to.line" : "arrow.down.to.line")
+            }
             if git.isGit {
                 Button { gitSheet = .branches } label: { Label("Branches", systemImage: "arrow.triangle.branch") }
                 Button { gitSheet = .worktrees } label: { Label("Worktrees", systemImage: "square.stack.3d.down.right") }
@@ -137,15 +116,8 @@ public struct StructuredTranscriptView: View {
             }
         }
         .task { await viewModel.loadGitContext() }
-    }
-
-    private func studioChip(_ title: String, _ value: String) -> some View {
-        HStack(spacing: 4) {
-            Text(title).font(.system(size: 10.5, weight: .semibold, design: .monospaced)).foregroundColor(.secondary)
-            Text(value).font(.system(size: 11.5, weight: .medium, design: .monospaced)).lineLimit(gitNamesFull ? 3 : 1)
-        }
-        .padding(.horizontal, 8).padding(.vertical, 3)
-        .background(Color.appTertiaryBackground, in: RoundedRectangle(cornerRadius: 6))
+        .accessibilityElement(children: .combine)
+        .accessibilityHint("Tap to refresh, drag to move it to the top or the bottom")
     }
 
     public var body: some View {
@@ -154,9 +126,10 @@ public struct StructuredTranscriptView: View {
 
     private var layout: some View {
         VStack(spacing: 0) {
-            feedHeader
-
-            Divider()
+            if !stripAtBottom {
+                feedStrip
+                Divider()
+            }
 
             // Main Content Area
             if let error = viewModel.transcriptError, viewModel.transcriptTurns.isEmpty {
@@ -305,6 +278,11 @@ public struct StructuredTranscriptView: View {
                     .padding(.vertical, 4)
             }
 
+            if stripAtBottom {
+                Divider()
+                feedStrip
+            }
+
             Divider()
 
             // Bottom prompt: a multi-line editor with a few control keys above it.
@@ -411,6 +389,7 @@ public struct StructuredTranscriptView: View {
         } message: {
             Text("Permanent: ~/.ssh-app/inbox, stays until you delete it. Temporary: the host's temp folder, which the system empties.")
         }
+        .onChange(of: viewModel.feedFindRequests) { _, _ in findToken += 1 }
         .onAppear {
             if viewModel.transcriptTurns.isEmpty {
                 viewModel.loadTranscript()

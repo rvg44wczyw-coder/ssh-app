@@ -274,7 +274,7 @@ struct SessionMenuItems: View {
     @AppStorage(QuickMenuPrefs.storageKey) private var hiddenRaw: String = ""
 
     var body: some View {
-        ForEach(QuickMenuPrefs.ordered(from: orderRaw).filter { $0.isSessionAction && !QuickMenuPrefs.hidden(from: hiddenRaw).contains($0) }) { action in
+        ForEach(QuickMenuPrefs.ordered(from: orderRaw).filter { $0.isSessionAction && (!$0.onlyInFeed || isChatMode) && !QuickMenuPrefs.hidden(from: hiddenRaw).contains($0) }) { action in
             Button { onAction(action) } label: {
                 Label(action.title(isChatMode: isChatMode), systemImage: action.systemImage(isChatMode: isChatMode, keyVisible: false))
             }
