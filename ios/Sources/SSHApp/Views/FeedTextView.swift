@@ -269,7 +269,7 @@ enum FeedHighlightStore {
 @MainActor
 enum FeedAttributedBuilder {
     nonisolated private static let size: CGFloat = 13.5
-    private static let previewLines = 4
+    private static let previewLines = 8
 
     /// Text size factor set by the pinch gesture (1 = the designed sizes); applied to every size below.
     static var scale: CGFloat = 1
@@ -484,7 +484,7 @@ enum FeedAttributedBuilder {
             let row = NSMutableAttributedString()
             row.append(line(mark + " ", color: color))
             row.append(line(tc.toolName, font: mono(.semibold, size: 12.5)))
-            let summary = clip(tc.argumentsSummary.replacingOccurrences(of: "\n", with: " "), 60)
+            let summary = clip(tc.argumentsSummary.replacingOccurrences(of: "\n", with: " "), 120)
             if !summary.isEmpty { row.append(line(" " + summary, font: mono(size: 12.5), color: .secondaryLabel)) }
             row.append(line(open ? " ▾\n" : " ▸\n", color: .tertiaryLabel))
             row.addAttribute(.paragraphStyle, value: style(indent: 28, first: 0, after: 1), range: NSRange(location: 0, length: row.length))
@@ -571,8 +571,8 @@ enum FeedAttributedBuilder {
             let last = i == nodes.count - 1
             let branch = last ? "└─ " : "├─ "
             let trunk = last ? "   " : "│  "
-            emit((n.op.isEmpty ? "" : n.op + " ") + clip(n.text, open ? 2000 : 140), branch, trunk)
-            let kids = n.pipe.map { ("| " + clip($0, open ? 2000 : 120), UIColor.secondaryLabel) }
+            emit((n.op.isEmpty ? "" : n.op + " ") + clip(n.text, open ? 4000 : 300), branch, trunk)
+            let kids = n.pipe.map { ("| " + clip($0, open ? 4000 : 240), UIColor.secondaryLabel) }
             for (j, k) in kids.enumerated() {
                 let lastKid = j == kids.count - 1 && n.heredoc.isEmpty
                 emit(k.0, trunk + (lastKid ? "└─ " : "├─ "), trunk + "   ")
@@ -582,7 +582,7 @@ enum FeedAttributedBuilder {
                 let shownBody = open ? body : Array(body.prefix(3))
                 for (j, l) in shownBody.enumerated() {
                     let lastLine = j == shownBody.count - 1 && (open || body.count <= 3)
-                    emit(clip(l, open ? 2000 : 160), trunk + (lastLine ? "└─ " : "├─ "), trunk + "   ", color: .tertiaryLabel)
+                    emit(clip(l, open ? 4000 : 300), trunk + (lastLine ? "└─ " : "├─ "), trunk + "   ", color: .tertiaryLabel)
                 }
                 if !open, body.count > 3 {
                     emit("… +\(body.count - 3) lines", trunk + "└─ ", trunk + "   ", color: .tertiaryLabel)
@@ -616,7 +616,7 @@ enum FeedAttributedBuilder {
         if let steps {
             head.append(line("(\(ShellTree.stepCount(steps)) steps)", color: .secondaryLabel))
         } else {
-            head.append(line("(" + clip(tc.argumentsSummary, shell && !open ? 34 : 160) + ")", color: .secondaryLabel))
+            head.append(line("(" + clip(tc.argumentsSummary, shell && !open ? 90 : 400) + ")", color: .secondaryLabel))
         }
         if shell { head.append(line(open ? (full ? " ▾" : " ▸") : " ▸", color: .tertiaryLabel)) }
         head.append(line("\n"))
@@ -646,7 +646,7 @@ enum FeedAttributedBuilder {
         let all = shell ? full : open
         let shown = all ? lines : Array(lines.prefix(previewLines))
         for (i, l) in shown.enumerated() {
-            out.append(line((i == 0 ? "  ⎿  " : "     ") + clip(l, all ? 2000 : 240) + "\n", font: mono(size: 12.5), color: color,
+            out.append(line((i == 0 ? "  ⎿  " : "     ") + clip(l, all ? 4000 : 600) + "\n", font: mono(size: 12.5), color: color,
                             indent: 40, first: 0, after: 0))
         }
         if !all, lines.count > previewLines {

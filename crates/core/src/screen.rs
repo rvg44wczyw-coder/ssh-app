@@ -1040,26 +1040,83 @@ const FOLDABLE_TOOLS: [&str; 15] = [
     "NotebookRead",
 ];
 
-/// Fills a folded group with the calls the session file knows: what was searched / read, and a
-/// few lines of each result.
+/// Lines of a tool result worth showing, in order: blanks, the UI's own "… +N lines (ctrl+o to
+/// expand)" hints and runs of build progress ("Compiling x", "Downloaded y") are filtered out, not
+/// cut off; a run of progress lines becomes one line saying how many there were.
+fn readable_result_lines(result: &str) -> Vec<String> {
+    let progress = |l: &str| {
+        let t = l.trim_start();
+        [
+            "Compiling ",
+            "Downloaded ",
+            "Downloading ",
+            "Fresh ",
+            "Checking ",
+            "Blocking ",
+        ]
+        .iter()
+        .any(|p| t.starts_with(p))
+    };
+    let mut out: Vec<String> = Vec::new();
+    let mut run: Option<(String, usize)> = None;
+    let flush = |out: &mut Vec<String>, run: &mut Option<(String, usize)>| {
+        if let Some((first, n)) = run.take() {
+            out.push(if n > 1 {
+                format!("{} (+{} similar lines)", first.trim(), n - 1)
+            } else {
+                first
+            });
+        }
+    };
+    for l in result.lines() {
+        let t = l.trim();
+        if t.is_empty() || t.ends_with("(ctrl+o to expand)") || is_more_marker(t) {
+            continue;
+        }
+        if progress(l) {
+            match run.as_mut() {
+                Some((_, n)) => *n += 1,
+                None => run = Some((l.to_string(), 1)),
+            }
+            continue;
+        }
+        flush(&mut out, &mut run);
+        out.push(l.to_string());
+    }
+    flush(&mut out, &mut run);
+    out
+}
+
+/// "… +13 lines" (what the screen prints where it cut a result).
+fn is_more_marker(t: &str) -> bool {
+    t.strip_prefix("… +")
+        .and_then(|r| r.strip_suffix(" lines"))
+        .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+}
+
+/// Lines of one result kept in a folded group, and characters of one line.
+const GROUP_RESULT_LINES: usize = 40;
+const GROUP_LINE_CHARS: usize = 400;
+
+/// Fills a folded group with the calls the session file knows: what was searched / read, and the
+/// result of each, filtered for noise and shown at length (not just the first lines).
 fn describe_group(group: &mut TranscriptToolCall, calls: &[TranscriptToolCall]) {
     let mut lines: Vec<String> = Vec::new();
     for c in calls {
         lines.push(format!("{}({})", c.tool_name, c.arguments_summary));
         if let Some(r) = c.result.as_deref() {
-            let shown: Vec<&str> = r.lines().filter(|l| !l.trim().is_empty()).take(3).collect();
-            for l in &shown {
-                lines.push(format!("  {}", l.chars().take(200).collect::<String>()));
+            let all = readable_result_lines(r);
+            for l in all.iter().take(GROUP_RESULT_LINES) {
+                lines.push(format!("  {}", clip(l, GROUP_LINE_CHARS)));
             }
-            let total = r.lines().filter(|l| !l.trim().is_empty()).count();
-            if total > shown.len() {
-                lines.push(format!("  … +{} lines", total - shown.len()));
+            if all.len() > GROUP_RESULT_LINES {
+                lines.push(format!("  … +{} lines", all.len() - GROUP_RESULT_LINES));
             }
         }
     }
     group.arguments_summary = calls
         .iter()
-        .map(|c| c.arguments_summary.chars().take(40).collect::<String>())
+        .map(|c| clip(&c.arguments_summary, 80))
         .collect::<Vec<_>>()
         .join(", ");
     group.result = Some(lines.join("\n"));
@@ -1910,7 +1967,62 @@ Ready to submit your answers?
         assert_eq!(c.arguments_summary, "pattern: projects");
         let r = c.result.as_deref().unwrap();
         assert!(r.starts_with("Grep(pattern: projects)\n  a.rs:1"));
-        assert!(r.ends_with("… +1 lines"));
+        assert!(
+            r.ends_with("  d.rs:4"),
+            "the whole result is shown, not its first lines: {r}"
+        );
+    }
+
+    #[test]
+    fn results_are_filtered_for_noise_not_cut() {
+        let result = "\n  Compiling a v1\n  Compiling b v2\nCompiling c v3\nwarning: unused\n\n… +20 lines (ctrl+o to expand)\n… +5 lines\nerror: boom\n";
+        assert_eq!(
+            readable_result_lines(result),
+            [
+                "Compiling a v1 (+2 similar lines)".to_string(),
+                "warning: unused".into(),
+                "error: boom".into()
+            ]
+        );
+        assert_eq!(readable_result_lines("Compiling only"), ["Compiling only"]);
+        assert!(readable_result_lines("\n \n").is_empty());
+        // Ordinary lines that merely look similar stay.
+        assert_eq!(readable_result_lines("… +x lines"), ["… +x lines"]);
+    }
+
+    #[test]
+    fn a_long_result_in_a_folded_group_keeps_forty_lines_and_says_how_many_more() {
+        let mut g = TranscriptToolCall {
+            call_id: "g".into(),
+            tool_name: "Ran 2 commands".into(),
+            arguments_summary: String::new(),
+            full_arguments_json: None,
+            result: None,
+            is_error: false,
+            status: TranscriptStatus::Done,
+        };
+        let long = (1..=55)
+            .map(|n| format!("line {n}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let wide = "x".repeat(900);
+        let base = g.clone();
+        let call = |r: &str| TranscriptToolCall {
+            tool_name: "Bash".into(),
+            arguments_summary: "cmd".into(),
+            result: Some(r.into()),
+            ..base.clone()
+        };
+        let calls = [call(&long), call(&wide)];
+        describe_group(&mut g, &calls);
+        let r = g.result.unwrap();
+        assert!(r.contains("  line 40\n") && !r.contains("line 41"));
+        assert!(r.contains("  … +15 lines"));
+        assert!(
+            r.lines()
+                .any(|l| l.chars().count() == 2 + GROUP_LINE_CHARS + 1),
+            "a wide line is clipped at 400"
+        );
     }
 
     #[test]
