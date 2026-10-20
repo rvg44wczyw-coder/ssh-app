@@ -26,6 +26,14 @@
 | **M19: Terminal Input, Session Permissions & Appearance** | tmux mouse-wheel scroll and tap-as-click, keyboard quick commands, local Ollama chat, session permissions menu with suggestions and CLAUDE_CONFIG_DIR detection, permission mode per launch profile, accent colors (presets + custom), terminal color schemes (built-in + editor, per agent/profile), profile and app icons (see `docs/features/17-…`) | Completed (iOS + Rust; on-device checks pending, `rev`/`hacker` pending) | `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev` |
 | **M20: Payments (StoreKit 2)** | Pro subscription (weekly / monthly / yearly with trials) and lifetime purchase, free tier of 20 sessions and 3 servers, paywall with Restore Purchases, optional via the `PAYMENTS` build option (see `docs/features/18-payments.md`) | Code merged, **switched off** (no `PAYMENTS` flag; the app is free for now). To do before enabling: prices and App Store Connect setup, privacy/terms URLs, `rev`/`hacker` | `doc-dev`, `ios-ui-dev` |
 | **M21: Hook templates & host guard** | 33 hook templates, host-side deny/ask/allow rules, context and stop message, command analysis on the approval card, custom-command lint, drift warning, session registry (see `docs/features/19-hooks-templates-and-host-guard.md`) | Implemented (Rust + iOS; Codex/Grok and live-Claude checks pending; `rev` and `hacker` done: `docs/security-findings/2026-10-18-m19-m21-review.md`; earlier self-audit `2026-10-17-host-guard.md`) | `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `hacker` |
+| **M26: Multi-Agent Mesh Federation** | Multi-agent collaboration across arbitrary N sessions and cross-server mesh federation (`docs/features/37-multi-agent-trio-chat.md`) | Spec written | `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker` |
+| **M27: Multimodal Agent Uploads** | Camera/photo library screenshot pipeline, client EXIF-stripping, sandboxed `~/.ssh-app/run/uploads` transport, agent `@path` injection (`docs/features/38-multimodal-agent-uploads.md`) | Spec written | `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker` |
+| **M28: Live Activities & Dynamic Island** | ActivityKit monitoring for long-running agent tasks (tests/refactors), APNs push updates, Lock Screen Abort/View controls (`docs/features/39-live-activities-and-dynamic-island.md`) | Spec written | `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker` |
+| **M29: Agent Voice Prompt Dictation** | 100% on-device speech recognition, technical syntax normalizer (`auth.rs`, `--flags`, `camelCase`), zero audio leakage (`docs/features/40-agent-voice-dictation.md`) | Spec written | `doc-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker` |
+| **M30: Visual Artifacts & Diagrams** | Mermaid flowchart/sequence/state diagram renderer, sandboxed CSP WebView, SVG zoom/export, unified split diff viewer (`docs/features/41-agent-artifacts-and-visualizer.md`) | Spec written | `doc-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker` |
+| **M31: iPadOS Productivity & Keyboards** | NavigationSplitView 3-column layout, Stage Manager multi-window, UIKeyCommand hardware shortcuts (`Cmd+T`, `Ctrl+C`), external display mode (`docs/features/42-ipados-hardware-keyboard-and-stage-manager.md`) | Spec written | `doc-dev`, `ios-ui-dev`, `rev`, `hacker` |
+| **M32: Hardware Keys & iCloud Vault Sync** | FIDO2/YubiKey (`ed25519-sk`), OpenSSH private key import with zeroization, zero-knowledge iCloud Keychain host sync (`docs/features/43-hardware-keys-and-vault-sync.md`) | Spec written | `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker` |
+| **M33: Zero-Touch Host Onboarding** | 1-minute QR code or 1-line curl pairing, automatic helper deploy, atomic `authorized_keys` append, host doctor probe (`docs/features/44-zero-touch-host-onboarding.md`) | Spec written | `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker` |
 
 ---
 
@@ -205,6 +213,48 @@
 ### Feature 37 / M26: Multi-Agent Mesh & Cross-Server Room Federation (`docs/features/37-multi-agent-trio-chat.md`)
 - **Doc**: `docs/features/37-multi-agent-trio-chat.md`
 - **Scope**: Multi-agent collaboration across arbitrary N sessions on a server and cross-server mesh federation (bridging MacBook, Linux GPU servers, and cloud hosts). Phase 1: Dual-Session Bridge; Phase 2: Driver & Reviewer audit cards; Phase 3: MCP Peer consultation; Phase 4: Local N-session mesh room; Phase 5: Cross-server federation over client SSH channels with distributed write leases. Strict no-emoji design (SF Symbols and participant glyphs: User `❯`, Claude `●`, agy `○`, Ollama `⬡`, Shell `>_`).
+- **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
+- **Status**: Spec written (2026-10-20), implementation pending.
+
+### Feature 38 / M27: Multimodal Agent Uploads & Mobile Screenshot Pipeline (`docs/features/38-multimodal-agent-uploads.md`)
+- **Doc**: `docs/features/38-multimodal-agent-uploads.md`
+- **Scope**: Native photo library/camera/clipboard picker, client-side EXIF stripping & HEIC->PNG conversion, sandboxed upload into `~/.ssh-app/run/uploads/<sha256>.<ext>`, TTL prune daemon, agent `@path` injection (Claude Code / agy / Ollama).
+- **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
+- **Status**: Spec written (2026-10-20), implementation pending.
+
+### Feature 39 / M28: Live Activities & Dynamic Island for Long-Running Agent Tasks (`docs/features/39-live-activities-and-dynamic-island.md`)
+- **Doc**: `docs/features/39-live-activities-and-dynamic-island.md`
+- **Scope**: ActivityKit Dynamic Island (Compact, Minimal, Expanded) & Lock Screen live status, zero-battery APNs push relay updates, interactive Abort / Open Session actions, strictly SF Symbols without emojis.
+- **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
+- **Status**: Spec written (2026-10-20), implementation pending.
+
+### Feature 40 / M29: Voice Input & Technical Agent Prompt Dictation (`docs/features/40-agent-voice-dictation.md`)
+- **Doc**: `docs/features/40-agent-voice-dictation.md`
+- **Scope**: 100% on-device speech recognition via Apple Speech (`requiresOnDeviceRecognition`), technical syntax normalizer (`auth.rs`, `--flags`, `camelCase`), prompt action chips, zero audio leakage.
+- **Roles**: `doc-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
+- **Status**: Spec written (2026-10-20), implementation pending.
+
+### Feature 41 / M30: Agent Artifacts & Interactive Architecture Visualizer (`docs/features/41-agent-artifacts-and-visualizer.md`)
+- **Doc**: `docs/features/41-agent-artifacts-and-visualizer.md`
+- **Scope**: Automatic extraction of Mermaid diagrams and markdown reports from agent feed, hardened sandboxed WKWebView (CSP `default-src 'none'`), SVG pinch/zoom/pan, dark-mode matching, PNG/SVG export, unified diff viewer.
+- **Roles**: `doc-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
+- **Status**: Spec written (2026-10-20), implementation pending.
+
+### Feature 42 / M31: iPadOS Native Experience, External Hardware Keyboard & Multi-Window (`docs/features/42-ipados-hardware-keyboard-and-stage-manager.md`)
+- **Doc**: `docs/features/42-ipados-hardware-keyboard-and-stage-manager.md`
+- **Scope**: 3-column NavigationSplitView, Stage Manager concurrent sessions, full UIKeyCommand hardware keyboard shortcuts (`Cmd+T`, `Cmd+W`, `Ctrl+C`, `Cmd+1..9`), external monitor full-screen PTY projection, pointer hover effects.
+- **Roles**: `doc-dev`, `ios-ui-dev`, `rev`, `hacker`
+- **Status**: Spec written (2026-10-20), implementation pending.
+
+### Feature 43 / M32: Hardware Security Keys (FIDO2 / YubiKey), Key Import & iCloud Keychain Sync (`docs/features/43-hardware-keys-and-vault-sync.md`)
+- **Doc**: `docs/features/43-hardware-keys-and-vault-sync.md`
+- **Scope**: OpenSSH FIDO2 (`ed25519-sk`, `ecdsa-sk`) via NFC / USB-C YubiKey, OpenSSH private key import with Argon2 / zeroization, end-to-end encrypted iCloud Keychain sync of server profiles (zero-knowledge: private keys never leave local device).
+- **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
+- **Status**: Spec written (2026-10-20), implementation pending.
+
+### Feature 44 / M33: Zero-Touch Host Onboarding & Instant Pairing (`docs/features/44-zero-touch-host-onboarding.md`)
+- **Doc**: `docs/features/44-zero-touch-host-onboarding.md`
+- **Scope**: 1-minute onboarding via dynamic QR code or 1-line clipboard command (`ssh-app-host pair`), automatic SSH bootstrap with embedded helper binary deployment, atomic `authorized_keys` append, `ssh-app-host doctor --json` automated health probe.
 - **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
 - **Status**: Spec written (2026-10-20), implementation pending.
 

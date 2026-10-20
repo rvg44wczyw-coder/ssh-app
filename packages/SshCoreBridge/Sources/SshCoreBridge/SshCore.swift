@@ -14580,7 +14580,8 @@ public func parseTranscriptJsonl(rawJsonl: String)throws  -> [TranscriptTurn]  {
 })
 }
 /**
- * Strip ANSI escape codes from terminal / agent text.
+ * Strip ANSI escape codes from terminal / agent text, then every other control character except
+ * line breaks and tabs, and the bidi override / isolate characters that can reorder what is shown.
  */
 public func stripAnsiCodes(input: String) -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
@@ -14942,7 +14943,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_func_parse_transcript_jsonl() != 20299) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_ssh_core_checksum_func_strip_ansi_codes() != 48890) {
+    if (uniffi_ssh_core_checksum_func_strip_ansi_codes() != 9002) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_bundled_host_helper_sha256() != 54613) {
