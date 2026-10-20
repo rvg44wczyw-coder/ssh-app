@@ -195,3 +195,14 @@ sequenceDiagram
 - [Medium] An activity can only be started while the app is in the foreground, and the Lock Screen Stop button starts SSH from a background intent with seconds of runtime. Needs a device test; fall back to opening the app.
 - [Medium] Update budgets are limited; one push per 4 s will be throttled. Elapsed time is `Text(timerInterval:)`, never a push.
 - [Medium] The shared relay secret rule (35 section 5) applies here too.
+
+## Binding corrections after `rev` (2026-10-20)
+
+These replace conflicting text above.
+
+1. **Phase codes only in the push.** The payload carries `phase` (thinking / tool / approval / done) and a counter; the app maps codes to words. No tool names, commands or paths (feature 35 rule).
+2. **A new relay protocol, not a tweak.** Live Activities need topic `<bundle>.push-type.liveactivity`, `apns-push-type: liveactivity`, the per-activity push token (it rotates; the app re-registers it) and `content-state` instead of `alert`. The relay gets its own endpoint and tests; the same shared-secret rule as feature 35 section 5 applies.
+3. **No test progress.** "42/128" cannot be derived (hooks see commands, not output). The states are Thinking / Tool / Approval / Done.
+4. **The hook never waits for the network.** The helper sends the push detached (fork and exit) after writing the event.
+5. **Foreground start.** An activity starts only while the app is in the foreground; the Lock Screen Stop button runs a background intent with seconds of runtime, so it falls back to opening the app. Needs a device test before it is promised.
+6. **Budgets.** Updates are throttled; the helper sends at most one push per state change (never per 4 s), and elapsed time is `Text(timerInterval:)`, not a push.

@@ -161,3 +161,15 @@ flowchart TD
 - [Medium] OpenSSH keys use bcrypt-pbkdf, not Argon2; the Argon2 test cannot exist. High rounds take seconds on a phone.
 - [Medium] A Swift `String` passphrase cannot be zeroized; use `Data` and say what is out of reach.
 - [Low] `is_hardware_backed: Bool` is a typo for `bool`; vector clocks are overkill.
+
+## Binding corrections after `rev` (2026-10-20)
+
+These replace conflicting text above.
+
+1. **Hardware keys need a library and our own assembly.** iOS exposes no raw CTAP2 over NFC/USB-C and WebAuthn cannot use an `ssh:` relying party. The feature requires a named third-party library (for example YubiKit) and our own `sk-ssh-ed25519@openssh.com` signature assembly; both are listed as the first deliverable, and the feature stays "not ready" until a spike proves a signature accepted by a real `sshd`.
+2. **The signature shape is SSH, not WebAuthn.** An `sk-` signature is flags + counter + signature; there is no `clientDataJSON`. `complete_fido2_signature` is replaced by `complete_sk_signature(flags, counter, signature)`.
+3. **Secure Enclave keys are P-256**, a different key type with its own signing path in russh (`ecdsa-sha2-nistp256`). The spec names them as such, not as Ed25519.
+4. **"Add the iPad's key with one tap"** means writing the key into `authorized_keys` and `allowed_signers` of each host; it uses the `pair` path of feature 44 (password or pasted command) per host. It is not an agent approval card.
+5. **Syncing pinned host fingerprints through iCloud transfers trust.** Listed as an explicit decision with an off switch; default off.
+6. **Key files:** OpenSSH uses bcrypt-pbkdf, not Argon2; the Argon2 test is removed; a high rounds count takes seconds on a phone and the UI shows progress. A Swift `String` passphrase cannot be zeroized: use `Data` and state what stays out of reach (the text field's own buffer).
+7. `is_hardware_backed: bool`; vector clocks are dropped in favour of last-writer-wins with a timestamp.

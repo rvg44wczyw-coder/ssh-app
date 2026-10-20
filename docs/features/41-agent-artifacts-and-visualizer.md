@@ -140,3 +140,13 @@ img-src 'self' data:;
 - [High] `HtmlSnippet` with scripts contradicts "no XSS"; render without JavaScript or drop it.
 - [Medium] Mermaid must run with `securityLevel: 'strict'`; check that the pinned version works without `unsafe-eval` and supports `xychart-beta`.
 - [Medium] Saving to Photos needs the add-only usage string. The split diff duplicates the existing Git hunk viewer; reuse it.
+
+## Binding corrections after `rev` (2026-10-20)
+
+These replace conflicting text above.
+
+1. **Source is `transcript.jsonl` (Claude) only.** The screen feed has no code fences. agy is excluded until it has a structured source.
+2. **Mermaid is inlined into the page** (one local copy, pinned version, checked into the repo with its hash) because `loadHTMLString(baseURL: nil)` cannot load `'self'` scripts; alternative is a custom `WKURLSchemeHandler`. Run with `securityLevel: 'strict'` and verify the pinned build works without `unsafe-eval` and supports `xychart-beta` before choosing the version.
+3. **WebView lockdown without private keys:** `WKWebsiteDataStore.nonPersistent()`, navigation blocked in `WKNavigationDelegate` (only the initial load), JavaScript only for the pinned Mermaid page. `allowFileAccessFromFileURLs` is not used.
+4. **`HtmlSnippet` renders without JavaScript** (`WKWebpagePreferences.allowsContentJavaScript = false`) or is dropped; scripts from agent output never run.
+5. Saving to Photos needs `NSPhotoLibraryAddUsageDescription` (add-only). The split diff reuses the existing Git hunk viewer instead of a new one.

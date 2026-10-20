@@ -420,3 +420,15 @@ pub fn plan_mesh_dispatch(
 - [Medium] The `<agent-context>` wrapper does not stop prompt injection between agents. State that cross-agent text is untrusted input and every relayed turn is shown to the user before it is sent on.
 - [Medium] "85-90 % of NATs" and the Cloudflare plan limits are unsourced. Verify against the provider before relying on them.
 - [Medium] Phases 4-5 do not fit one milestone; ship phases 1-2 first.
+
+## Binding corrections after `rev` (2026-10-20)
+
+These replace conflicting text above.
+
+1. **Not phone-independent.** Every agent-to-agent round goes through the client (3.1); a backgrounded app closes its sockets, so rounds pause until the app is foreground again. "Phone Dependent: No" is true only for host-to-host file transfer. The text says so.
+2. **One transport, or none.** Direct host-to-host (STUN hole punching, mTLS in UDP) is dropped from the first releases: it needs QUIC or DTLS and the helper has no such stack. The SSH relay through the client is the transport for phases 1-2. If direct transfer returns later, it is a separate spec that names the library.
+3. **Listener binds the tailnet interface only**, never `0.0.0.0` on a laptop.
+4. **Write exclusion is enforced by a `PreToolUse` hook** that denies `Edit`/`Write` in a leased path without the lease, or reviewers run read-only. A lock file alone blocks nothing.
+5. **Cross-agent text is untrusted input.** The `<agent-context>` wrapper is a label, not a defence; every relayed turn is shown to the user and sent on only after approval (or an explicit per-mesh "auto-relay" switch that is off by default).
+6. **Unsourced numbers** (NAT share, Cloudflare limits) are removed until checked against the provider.
+7. **Scope:** ship phases 1-2 (two agents, relayed through the client, user in the loop). Phases 4-5 are separate milestones.
