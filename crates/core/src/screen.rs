@@ -1089,9 +1089,15 @@ fn readable_result_lines(result: &str) -> Vec<String> {
 
 /// "… +13 lines" (what the screen prints where it cut a result).
 fn is_more_marker(t: &str) -> bool {
-    t.strip_prefix("… +")
+    // Claude prints "… +13 lines", Antigravity prints "<output +73 lines>".
+    let count = t
+        .strip_prefix("… +")
         .and_then(|r| r.strip_suffix(" lines"))
-        .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+        .or_else(|| {
+            t.strip_prefix("<output +")
+                .and_then(|r| r.strip_suffix(" lines>"))
+        });
+    count.is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
 }
 
 /// Lines of one result kept in a folded group, and characters of one line.
@@ -1422,6 +1428,15 @@ pub fn merge_thinking(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_agent_placeholders_for_cut_output_are_not_content() {
+        assert!(is_more_marker("… +13 lines"));
+        assert!(is_more_marker("<output +73 lines>"));
+        assert!(!is_more_marker("<output +x lines>"));
+        assert!(!is_more_marker("<output + lines>"));
+        assert!(!is_more_marker("output +73 lines"));
+    }
+
     use super::*;
 
     fn turns(text: &str) -> ScreenFeed {
