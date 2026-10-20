@@ -115,12 +115,54 @@ fn summarize_arguments_full(args: &serde_json::Value) -> String {
             {
                 return url.to_string();
             }
+            // A subagent call (`Task` / `Agent`): its kind and short description, not the whole
+            // prompt it carries.
+            if let Some(desc) = map.get("description").and_then(|v| v.as_str()) {
+                if map.contains_key("prompt") || map.contains_key("subagent_type") {
+                    return match map.get("subagent_type").and_then(|v| v.as_str()) {
+                        Some(kind) => format!("{kind}: {desc}"),
+                        None => desc.to_string(),
+                    };
+                }
+            }
             // Fallback: compact JSON of first few keys
             serde_json::to_string(args).unwrap_or_else(|_| "{}".to_string())
         }
         serde_json::Value::String(s) => s.clone(),
         _ => serde_json::to_string(args).unwrap_or_else(|_| "{}".to_string()),
     }
+}
+
+/// Subagents (Claude's `Task` / `Agent` tool) the session has started. Claude hands searching to
+/// them often, so the feed shows how many are working now and how many ran in total.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, uniffi::Record)]
+pub struct SubagentStats {
+    pub running: u32,
+    pub total: u32,
+}
+
+fn is_subagent_call(tool_name: &str) -> bool {
+    matches!(tool_name, "Task" | "Agent")
+}
+
+/// Counts subagent calls in the turns; a call without a result yet is running.
+pub fn subagent_stats_of(turns: &[TranscriptTurn]) -> SubagentStats {
+    let mut stats = SubagentStats::default();
+    for call in turns.iter().flat_map(|t| &t.tool_calls) {
+        if is_subagent_call(&call.tool_name) {
+            stats.total += 1;
+            if call.status == TranscriptStatus::Running {
+                stats.running += 1;
+            }
+        }
+    }
+    stats
+}
+
+/// UniFFI form of [`subagent_stats_of`].
+#[uniffi::export]
+pub fn subagent_stats(turns: Vec<TranscriptTurn>) -> SubagentStats {
+    subagent_stats_of(&turns)
 }
 
 /// Validates whether a remote path is safe to read.
@@ -938,6 +980,59 @@ pub fn parse_transcript_jsonl(raw_jsonl: String) -> Result<Vec<TranscriptTurn>, 
 
 #[cfg(test)]
 mod tests {
+    fn task_call(id: &str, status: TranscriptStatus) -> TranscriptToolCall {
+        TranscriptToolCall {
+            call_id: id.into(),
+            tool_name: "Task".into(),
+            arguments_summary: String::new(),
+            full_arguments_json: None,
+            result: None,
+            is_error: false,
+            status,
+        }
+    }
+
+    #[test]
+    fn subagent_calls_are_counted_running_and_total() {
+        let turn = |calls| TranscriptTurn {
+            id: "t".into(),
+            step_index: 0,
+            turn_type: TranscriptTurnType::Assistant,
+            timestamp: None,
+            content: None,
+            thinking: None,
+            tool_calls: calls,
+            status: TranscriptStatus::Done,
+            label: None,
+        };
+        let mut bash = task_call("b", TranscriptStatus::Running);
+        bash.tool_name = "Bash".into();
+        let turns = vec![
+            turn(vec![task_call("1", TranscriptStatus::Done), bash]),
+            turn(vec![task_call("2", TranscriptStatus::Running)]),
+        ];
+        assert_eq!(
+            subagent_stats_of(&turns),
+            SubagentStats {
+                running: 1,
+                total: 2
+            }
+        );
+        assert_eq!(subagent_stats_of(&[]), SubagentStats::default());
+    }
+
+    #[test]
+    fn a_subagent_call_is_summarised_by_kind_and_description_not_by_its_prompt() {
+        let input = serde_json::json!({
+            "description": "Find the auth code",
+            "subagent_type": "Explore",
+            "prompt": "Search the whole repository for ... a very long brief"
+        });
+        assert_eq!(summarize_arguments(&input), "Explore: Find the auth code");
+        let no_kind = serde_json::json!({"description": "Look around", "prompt": "x"});
+        assert_eq!(summarize_arguments(&no_kind), "Look around");
+    }
+
     use super::*;
 
     #[test]

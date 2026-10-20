@@ -57,6 +57,12 @@ public struct StructuredTranscriptView: View {
         self.onRefreshUsage = onRefreshUsage
     }
 
+    /// Subagents (Claude's Task / Agent tool) started in this session: working now, and in total.
+    private var subagentCounts: (running: Int, total: Int) {
+        let calls = viewModel.transcriptTurns.flatMap(\.toolCalls).filter { $0.toolName == "Task" || $0.toolName == "Agent" }
+        return (calls.filter { $0.status == .running }.count, calls.count)
+    }
+
     /// The one line of the feed: git (branch, worktree, changes), then the agent's model, context
     /// and limits. Search and refresh are in the session menu; the switch back to the terminal
     /// floats over the right end (see `ActiveTerminalSessionView.modeSwitch`).
@@ -84,6 +90,16 @@ public struct StructuredTranscriptView: View {
                 .onTapGesture { withAnimation { gitNamesFull.toggle() } }
             }
             if let usage { SessionUsageItems(monitor: usage) }
+            let agents = subagentCounts
+            if agents.total > 0 {
+                HStack(spacing: 3) {
+                    Image(systemName: "person.2.fill")
+                    Text(agents.running > 0 ? "\(agents.running) agent\(agents.running == 1 ? "" : "s")" : "\(agents.total) ran")
+                }
+                .foregroundColor(agents.running > 0 ? .accentColor : .secondary)
+                .fixedSize()
+                .layoutPriority(2)
+            }
             Spacer(minLength: 0)
             Button {
                 onRefreshUsage?()

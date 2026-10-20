@@ -73,7 +73,13 @@ struct SessionUsageItems: View {
                     ProgressView(value: frac)
                         .tint(frac < 0.7 ? .green : (frac < 0.9 ? .orange : .red))
                         .frame(width: 54)
-                    Text("\(Int(frac * 100))% ctx").foregroundColor(frac < 0.9 ? .secondary : .red)
+                    // With room to spare the line also says how many tokens that is.
+                    ViewThatFits(in: .horizontal) {
+                        Text("\(Int(frac * 100))% ctx \(tokens(used))/\(tokens(limit))")
+                        Text("\(Int(frac * 100))% ctx")
+                    }
+                    .lineLimit(1)
+                    .foregroundColor(frac < 0.9 ? .secondary : .red)
                 }
                 // The numbers never give way to the names around them (the model name and the
                 // git branch are the ones that shrink): "NN% ctx" stays whole.
