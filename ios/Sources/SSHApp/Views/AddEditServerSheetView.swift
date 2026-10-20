@@ -267,7 +267,6 @@ struct PairHostSheet: View {
                         footer: Text("The password is sent once over the encrypted connection to this host and is not stored. Afterwards this phone signs in with its key.")
                     ) {
                         SecureField("Password of \(username)", text: $password)
-                            .textContentType(.password)
                         TextField("Name of this phone", text: $deviceName)
                             .autocorrectionDisabled()
                         Button("Trust this host and add my key") { Task { await pair() } }

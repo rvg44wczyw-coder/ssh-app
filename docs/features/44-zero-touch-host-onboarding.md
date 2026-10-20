@@ -4,7 +4,7 @@
 - **Target Release**: Milestone 33 (1-Minute Frictionless Onboarding)
 - **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
 - **Hacker Gate**: Yes (curl-to-sh script security, pinned SHA-256 binary validation, authorized_keys manipulation)
-- **Status**: Reviewed (`rev`, 2026-10-20): findings fixed in §6, which supersedes §1.2, §2, §3 and §4 where they differ. Implementation: `ssh-app-host pair` and `doctor` (helper) and the core side; the wizard follows after a device run.
+- **Status**: Implemented (2026-10-20): helper `pair` / `doctor`, core, bridge and app (simulator build and tests); not yet run on a phone. See section 7.
 
 ---
 
@@ -242,3 +242,25 @@ round trip, a source that fails is left out, `PATH` lookup without a shell, no f
 Core: parse of hostile or partial `doctor` replies, `pairing_paste_command` quoting (a key or name
 with quotes or `$()` is refused, not escaped), the pinned command shape. Loopback (private HOME, no
 real tmux): pair through the installed helper twice, the second adds nothing.
+
+---
+
+## 7. As built (2026-10-20)
+
+Differences from section 6.2, all deliberate:
+
+- `pair` prints `{"ok":true,"added":bool,"tightened":bool}` and no path. The backup is
+  `authorized_keys.ssh-app-bak`, made once.
+- `doctor` has no Ollama model list (the existing `models` subcommand has it) and returns
+  `~`-relative names only. Facts also include `helper_version`, `os`, `arch`.
+- Path A has two real steps in the app: (1) the pairing sheet in Add Server (read the host key,
+  show it, password once, key added, key pinned); (2) after the first connection, Host service
+  installs the helper and "Host check" runs `doctor`. It is not yet one continuous wizard.
+- Path B is "Copy the command to run on the host" in Add Server (`pairing_paste_command`).
+- The password login exists only for this step (`pair_with_password`); the app still signs in with
+  keys everywhere else.
+- `onboarding_findings` returns ids (`install-tmux`, `hooks-claude`, ...). The app shows them; the
+  buttons that act on them (install hooks, trust the approval key) are the existing cards.
+- Tests: helper `pair` 14, `doctor` 9, core `onboarding` 13, loopback sshd (helper pair twice,
+  doctor, wrong pin, password path with a wrong and the right host key), Swift `PairingTests` 3.
+- Audit: `docs/security-findings/2026-10-20-onboarding-pair-doctor.md`.
