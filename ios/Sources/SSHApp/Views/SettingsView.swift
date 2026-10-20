@@ -77,6 +77,8 @@ public struct SettingsView: View {
 
     @AppStorage(AppAccent.storageKey) private var accentRaw: String = AppAccent.blue.rawValue
     @AppStorage(ModeSwitchPrefs.opacityKey) private var modeSwitchOpacity = ModeSwitchPrefs.defaultOpacity
+    @AppStorage(ModeSwitchPrefs.xKey) private var modeSwitchX = ModeSwitchPrefs.defaultX
+    @AppStorage(ModeSwitchPrefs.yKey) private var modeSwitchY = ModeSwitchPrefs.defaultY
     @AppStorage(FeedPresentationStyle.storageKey) private var feedStyleRaw: String = FeedPresentationStyle.fallback.rawValue
     @AppStorage(TerminalFolder.storageKey) private var terminalFolder: String = TerminalFolder.fallback
     @State private var schemeRefresh = 0
@@ -127,12 +129,16 @@ public struct SettingsView: View {
             }
             Section(
                 header: Text("Terminal / Feed switch"),
-                footer: Text("The round button at the top right that switches a tab between the terminal and the agent feed. Drag it anywhere on the screen, long press to put it back. This sets how opaque it is.")
+                footer: Text("The round button at the top right that switches a tab between the terminal and the agent feed. A tap switches. Press and hold it, then drag, to move it anywhere on the screen; moving never switches. This sets how opaque it is.")
             ) {
                 HStack {
                     Image(systemName: "circle.lefthalf.filled").foregroundColor(.secondary)
                     Slider(value: $modeSwitchOpacity, in: 0...1, step: 0.05)
                     Text("\(Int(modeSwitchOpacity * 100))%").monospacedDigit().frame(width: 44, alignment: .trailing)
+                }
+                Button("Put it back in the top right corner") {
+                    modeSwitchX = ModeSwitchPrefs.defaultX
+                    modeSwitchY = ModeSwitchPrefs.defaultY
                 }
             }
             Section(header: Text("App icon"), footer: Text(iconError ?? "The icon on the home screen. iOS shows a confirmation when it changes. iOS only allows icons that ship inside the app, so your own picture can be used for tabs and profiles (Agent profiles → Icon), not for the home screen.")) {

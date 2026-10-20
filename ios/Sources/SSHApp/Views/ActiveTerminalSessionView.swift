@@ -49,43 +49,53 @@ struct ActiveTerminalSessionView: View {
     @AppStorage(ModeSwitchPrefs.yKey) private var switchY = ModeSwitchPrefs.defaultY
     @AppStorage(ModeSwitchPrefs.opacityKey) private var switchOpacity = ModeSwitchPrefs.defaultOpacity
     @State private var switchDrag: CGSize = .zero
+    @State private var switchLifted = false
 
     /// The switch between terminal and feed: the same button on both screens, in the same place.
-    /// Drag it anywhere, long press puts it back; its opacity is in Settings → Appearance.
+    /// A tap switches. A long press lifts it so it can be dragged; a drag never switches. Settings →
+    /// Appearance has its opacity and puts it back in the corner.
     private func modeSwitch(_ title: String, _ icon: String, hint: String) -> some View {
         GeometryReader { geo in
             let w = geo.size.width, h = geo.size.height
-            Button { viewModel.toggleChatMode() } label: {
-                Label(title, systemImage: icon)
-                    .font(.system(size: 12, weight: .semibold))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(Color.appSecondaryBackground.opacity(switchOpacity), in: Capsule())
-                    .overlay(Capsule().stroke(Color.secondary.opacity(0.25 * switchOpacity), lineWidth: 0.5))
-            }
-            .buttonStyle(.plain)
-            .fixedSize()
-            .position(
-                x: min(max(switchX * w + switchDrag.width, 40), max(40, w - 40)),
-                y: min(max(switchY * h + switchDrag.height, 16), max(16, h - 16))
-            )
-            .simultaneousGesture(
-                DragGesture(minimumDistance: 8)
-                    .onChanged { switchDrag = $0.translation }
-                    .onEnded { d in
-                        if w > 0, h > 0 {
-                            switchX = min(max(switchX + d.translation.width / w, 0.05), 0.95)
-                            switchY = min(max(switchY + d.translation.height / h, 0.01), 0.99)
+            Label(title, systemImage: icon)
+                .font(.system(size: 12, weight: .semibold))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(Color.appSecondaryBackground.opacity(switchOpacity), in: Capsule())
+                .overlay(Capsule().stroke(Color.secondary.opacity(switchLifted ? 0.8 : 0.25 * switchOpacity), lineWidth: switchLifted ? 1.5 : 0.5))
+                .scaleEffect(switchLifted ? 1.1 : 1)
+                .animation(.easeOut(duration: 0.12), value: switchLifted)
+                .contentShape(Capsule())
+                .fixedSize()
+                .position(
+                    x: min(max(switchX * w + switchDrag.width, 40), max(40, w - 40)),
+                    y: min(max(switchY * h + switchDrag.height, 16), max(16, h - 16))
+                )
+                .onTapGesture { viewModel.toggleChatMode() }
+                .gesture(
+                    LongPressGesture(minimumDuration: 0.45)
+                        .sequenced(before: DragGesture(minimumDistance: 0))
+                        .onChanged { value in
+                            guard case .second(true, let drag) = value else { return }
+                            if !switchLifted {
+                                switchLifted = true
+                                #if canImport(UIKit)
+                                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                #endif
+                            }
+                            switchDrag = drag?.translation ?? .zero
                         }
-                        switchDrag = .zero
-                    }
-            )
-            .contextMenu {
-                Button {
-                    withAnimation { switchX = ModeSwitchPrefs.defaultX; switchY = ModeSwitchPrefs.defaultY }
-                } label: { Label("Back to the top right", systemImage: "arrow.up.right.square") }
-            }
-            .accessibilityHint(hint)
+                        .onEnded { value in
+                            if case .second(true, let drag?) = value, w > 0, h > 0 {
+                                switchX = min(max(switchX + drag.translation.width / w, 0.05), 0.95)
+                                switchY = min(max(switchY + drag.translation.height / h, 0.01), 0.99)
+                            }
+                            switchDrag = .zero
+                            switchLifted = false
+                        }
+                )
+                .accessibilityAddTraits(.isButton)
+                .accessibilityHint(hint)
         }
     }
 
