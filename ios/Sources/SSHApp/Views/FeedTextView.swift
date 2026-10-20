@@ -1126,15 +1126,17 @@ final class FeedLayoutManager: NSLayoutManager {
             frame = frame.offsetBy(dx: origin.x, dy: origin.y)
             let path = UIBezierPath(roundedRect: frame, cornerRadius: radius)
             if look == .assistant, kind.first != "u", let ctx = UIGraphicsGetCurrentContext() {
-                // a soft lift under the cards
+                // a soft lift under the cards; this one fill is the card's fill (drawn twice, a
+                // translucent fill would come out darker)
                 ctx.saveGState()
                 ctx.setShadow(offset: CGSize(width: 0, height: 1), blur: 5, color: UIColor.black.withAlphaComponent(0.12).cgColor)
                 fill.setFill()
                 path.fill()
                 ctx.restoreGState()
+            } else {
+                fill.setFill()
+                path.fill()
             }
-            fill.setFill()
-            path.fill()
             if let stroke {
                 stroke.setStroke()
                 path.lineWidth = Self.presentation == .terminal ? 0.5 : 1
