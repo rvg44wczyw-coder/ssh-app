@@ -80,6 +80,7 @@ public struct StructuredTranscriptView: View {
                     }
                 }
                 .foregroundColor(.secondary)
+                .layoutPriority(0)
                 .onTapGesture { withAnimation { gitNamesFull.toggle() } }
             }
             if let usage { SessionUsageItems(monitor: usage) }

@@ -64,7 +64,8 @@ struct SessionUsageItems: View {
                 } icon: { Image(systemName: "exclamationmark.triangle.fill") }
                 .foregroundColor(.red)
             } else {
-                Text(u.model ?? u.agent ?? "").lineLimit(1).foregroundColor(.secondary)
+                Text(u.model ?? u.agent ?? "").lineLimit(1).truncationMode(.tail).foregroundColor(.secondary)
+                    .layoutPriority(1)
             }
             if let used = u.contextUsed, let limit = u.contextLimit, limit > 0 {
                 let frac = min(1, Double(used) / Double(limit))
@@ -74,13 +75,21 @@ struct SessionUsageItems: View {
                         .frame(width: 54)
                     Text("\(Int(frac * 100))% ctx").foregroundColor(frac < 0.9 ? .secondary : .red)
                 }
+                // The numbers never give way to the names around them (the model name and the
+                // git branch are the ones that shrink): "NN% ctx" stays whole.
+                .fixedSize()
+                .layoutPriority(2)
             }
             ForEach(u.limits, id: \.label) { l in
                 Text("\(l.label) \(l.percent)%")
                     .foregroundColor(l.percent < 70 ? .secondary : (l.percent < 90 ? .orange : .red))
+                    .fixedSize()
+                    .layoutPriority(2)
             }
             if u.limits.isEmpty, u.agent == "claude", let w = monitor.report?.fiveHour, w.messages > 0 {
                 Text("5h \(tokens(w.input + w.output + w.cacheWrite))").foregroundColor(.secondary)
+                    .fixedSize()
+                    .layoutPriority(2)
             }
         }
     }
