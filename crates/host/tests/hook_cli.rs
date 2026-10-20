@@ -66,3 +66,26 @@ fn unknown_agents_and_garbage_are_harmless() {
     let (out, code) = hook(h.path(), "claude", "Stop", b"\xff\xfe not json");
     assert_eq!((out.as_str(), code), ("", Some(0)));
 }
+
+#[test]
+fn any_first_event_registers_the_session_for_every_agent() {
+    // Antigravity has no SessionStart hook: its tmux name must be noted by whatever event comes first.
+    let cases = [
+        ("claude", r#"{"session_id":"s-claude","cwd":"/w"}"#),
+        ("codex", r#"{"session_id":"s-codex","cwd":"/w"}"#),
+        ("qwen", r#"{"session_id":"s-qwen","cwd":"/w"}"#),
+        ("crush", r#"{"session_id":"s-crush","cwd":"/w"}"#),
+        (
+            "antigravity",
+            r#"{"conversationId":"s-agy","workspacePaths":["/w"]}"#,
+        ),
+        ("opencode", r#"{"session":"s-oc","cwd":"/w"}"#),
+        ("grok", r#"{"sessionId":"s-grok","cwd":"/w"}"#),
+    ];
+    for (agent, payload) in cases {
+        let h = home();
+        hook(h.path(), agent, "Stop", payload.as_bytes());
+        let n = std::fs::read_dir(h.path().join("run/sessions")).map_or(0, |d| d.flatten().count());
+        assert_eq!(n, 1, "{agent} was not registered by its first event");
+    }
+}

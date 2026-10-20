@@ -7,7 +7,7 @@ use crate::guard::{
 };
 use crate::pyjson::{dumps, py_str};
 use crate::queue::{clean, submit, summarize, Base, Paths};
-use crate::sessions::register_session;
+use crate::sessions::{register_if_absent, register_session};
 use serde_json::{json, Value};
 use std::io::{Read, Write};
 
@@ -163,6 +163,9 @@ pub fn run(p: &Paths, args: &[String]) -> i32 {
         session: &call.session,
     };
 
+    if event != "SessionStart" && event != "SessionEnd" {
+        register_if_absent(p, agent, &call.session, &call.cwd);
+    }
     if event == "SessionStart" || event == "SessionEnd" {
         register_session(p, agent, event, &call.session, &call.cwd);
         if event == "SessionStart" {

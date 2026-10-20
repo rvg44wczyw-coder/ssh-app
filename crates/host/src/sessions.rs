@@ -30,6 +30,14 @@ fn tmux_session_name() -> String {
     }
 }
 
+/// Notes the session on any event when no SessionStart did (Antigravity has no such hook), so its
+/// tmux name is known by the time it finishes or asks for something.
+pub fn register_if_absent(p: &Paths, agent: &str, session: &str, cwd: &str) {
+    if !session.is_empty() && !session_file(p, agent, session).exists() {
+        register_session(p, agent, "", session, cwd);
+    }
+}
+
 pub fn register_session(p: &Paths, agent: &str, event: &str, session: &str, cwd: &str) {
     if session.is_empty() || !private_dir(&p.home) {
         return;

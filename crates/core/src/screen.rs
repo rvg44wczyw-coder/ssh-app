@@ -1589,8 +1589,7 @@ Ready to submit your answers?
         ];
         let merged = merge_thinking(screen.clone(), file);
         assert_eq!(merged.len(), screen.len() + 2);
-        let pos =
-            |pred: &dyn Fn(&TranscriptTurn) -> bool| merged.iter().position(pred).unwrap();
+        let pos = |pred: &dyn Fn(&TranscriptTurn) -> bool| merged.iter().position(pred).unwrap();
         let t1 = pos(&|t| t.thinking.as_deref() == Some("first thought"));
         let bash = pos(&|t| t.tool_calls.first().is_some_and(|c| c.tool_name == "Bash"));
         let t2 = pos(&|t| t.thinking.as_deref() == Some("second thought"));

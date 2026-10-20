@@ -122,7 +122,9 @@ pub fn diff(old: &StateMap, new: &StateMap) -> Vec<Event> {
             let tmux = v
                 .tmux
                 .as_str()
+                .filter(|t| !t.is_empty())
                 .or_else(|| old.get(k).and_then(|o| o.tmux.as_str()))
+                .filter(|t| !t.is_empty())
                 .map(String::from);
             out.push(Event {
                 agent: k.0.clone(),
