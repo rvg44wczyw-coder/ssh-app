@@ -7,6 +7,8 @@ export interface PushRequest {
   token: string;
   category: Category;
   env: ApnsEnv;
+  /** Opaque id of the tmux session (8 hex, an HMAC the phone can recompute); lets a tap open the right tab. */
+  sid?: string;
 }
 
 export const MAX_BODY_BYTES = 512;
@@ -38,21 +40,23 @@ export function parseRequest(raw: string): PushRequest | string {
   if (typeof category !== "string" || !CATEGORIES.includes(category as Category)) return "bad category";
   const env = o.env;
   if (env !== "production" && env !== "sandbox") return "bad env";
-  return { token: token.toLowerCase(), category: category as Category, env };
+  const sid = o.sid;
+  if (sid !== undefined && (typeof sid !== "string" || !/^[0-9a-f]{8}$/.test(sid))) return "bad sid";
+  return { token: token.toLowerCase(), category: category as Category, env, ...(sid ? { sid } : {}) };
 }
 
 export function apnsHost(env: ApnsEnv): string {
   return env === "sandbox" ? "api.sandbox.push.apple.com" : "api.push.apple.com";
 }
 
-export function payloadFor(category: Category): object {
+export function payloadFor(category: Category, sid?: string): object {
   const aps: Record<string, unknown> = {
     alert: { title: "SSH App", body: TEXT[category] },
     sound: "default",
     "thread-id": category,
   };
   if (category === "approval") aps["interruption-level"] = "time-sensitive";
-  return { aps, category };
+  return sid ? { aps, category, sid } : { aps, category };
 }
 
 export function headersFor(category: Category, bundleId: string, jwt: string, nowSec: number): Record<string, string> {

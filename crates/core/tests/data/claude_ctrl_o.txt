@@ -1,0 +1,73 @@
+⏺ Bash(python3 - <<'E'
+      p='crates/core/src/screen.rs'
+      s=open(p).read()
+      old="""    #[test]
+          fn no_prompt_without_a_hint_line() {"""
+      new='''    #[test]
+          fn folded_group_gets_its_calls_from_the_file() {
+              let mk = |content: Option<&str>, tool: Option<(&str, &str, Option<&str>)>| TranscriptTurn {
+                  id: "x".into(),
+                  step_index: 0,
+                  turn_type: TranscriptTurnType::Assistant,
+                  timestamp: None,
+                  content: content.map(String::from),
+                  thinking: None,
+                  tool_calls: tool
+                      .map(|(n, a, r)| TranscriptToolCall {
+                          call_id: "c".into(),
+                          tool_name: n.into(),
+                          arguments_summary: a.into(),
+                          full_arguments_json: None,
+                          result: r.map(String::from),
+                          is_error: false,
+                          status: TranscriptStatus::Done,
+                      })
+                      .into_iter()
+                      .collect(),
+                  status: TranscriptStatus::Done,
+                  label: None,
+              };
+              let screen = vec![
+                  mk(None, Some(("Searched for 1 pattern", "", None))),
+                  mk(Some("Нашёл причину: лента читала не тот файл."), None),
+              ];
+              let file = vec![
+                  mk(None, Some(("Grep", "pattern: projects", Some("a.rs:1\\nb.rs:2\\nc.rs:3\\nd.rs:4")))),
+                  mk(Some("Нашёл причину: лента читала не тот файл."), None),
+              ];
+              let out = merge_thinking(screen, file);
+              let c = &out[0].tool_calls[0];
+              assert_eq!(c.tool_name, "Searched for 1 pattern");
+              assert_eq!(c.arguments_summary, "pattern: projects");
+              let r = c.result.as_deref().unwrap();
+              assert!(r.starts_with("Grep(pattern: projects)\\n  a.rs:1"));
+              assert!(r.ends_with("… +1 lines"));
+          }
+
+          #[test]
+          fn no_prompt_without_a_hint_line() {'''
+      s=s.replace(old,new,1)
+      open(p,'w').write(s)
+      E
+      cargo fmt && cargo test -p ssh-core --lib screen 2>&1 | grep -E "test result|FAILED|panicked|error" -A5; cargo clippy -p
+      ssh-core -- -D warnings 2>&1 | tail -3)
+  ⎿  test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 255 filtered out; finished in 0.01s
+
+         Checking ssh-key v0.7.0-rc.11
+         Checking russh v0.63.3
+         Finished `dev` profile [unoptimized + debuginfo] target(s) in 9.06s
+  ⎿  (timeout 6m 40s)
+  ⎿  Allowed by auto mode classifier
+
+❯ нужно будет парсить и полный формат Ctrl+O                                                                                          
+
+⏺ Пересобираю ядро и устанавливаю на телефон — выяснил, что группы «Searched for N patterns» берут данные из файла сессии, а для
+  полного формата Ctrl+O нужен реальный снимок экрана. · summary
+
+⏺ Bash(make iphone-full > /private/tmp/claude-501/iphone19.log 2>&1; echo exit $?; grep -nE "BUILD (SUCCEEDED|FAILED)|error:|Launched"
+      /private/tmp/claude-501/iphone19.log | head -4)
+  ⎿  Waiting…
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Showing detailed transcript · ctrl+o to toggle · ctrl+e to show all                                                         verbose
+

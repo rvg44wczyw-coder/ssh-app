@@ -56,3 +56,13 @@ test("rate limit is 20 per token per hour", () => {
   assert.equal(rateSlot(T, 3600), rateSlot(T, 7199));
   assert.notEqual(rateSlot(T, 3599), rateSlot(T, 3600));
 });
+
+test("sid is optional, eight hex digits, and only that reaches the payload", () => {
+  const ok = parseRequest(JSON.stringify({ token: T, category: "finished", env: "sandbox", sid: "0a1b2c3d" })) as any;
+  assert.equal(ok.sid, "0a1b2c3d");
+  assert.deepEqual((payloadFor("finished", ok.sid) as any).sid, "0a1b2c3d");
+  assert.equal((payloadFor("finished") as any).sid, undefined);
+  for (const sid of ["0A1B2C3D", "short", "0a1b2c3d0", 5, "../../x"]) {
+    assert.equal(typeof parseRequest(JSON.stringify({ token: T, category: "finished", env: "sandbox", sid })), "string");
+  }
+});

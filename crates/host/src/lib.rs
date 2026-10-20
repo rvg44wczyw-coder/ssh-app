@@ -13,6 +13,7 @@ pub mod push;
 pub mod pyjson;
 pub mod queue;
 pub mod rpc;
+pub mod screenwatch;
 pub mod sessions;
 pub mod statusline;
 pub mod telemetry;

@@ -38,7 +38,8 @@ pub enum Outcome {
 }
 
 pub trait Sender: Send + Sync {
-    fn send(&self, reg: &Registration, category: &str) -> Outcome;
+    /// `sid`: opaque id of the tmux session (see `session_id`), so the phone can open that tab.
+    fn send(&self, reg: &Registration, category: &str, sid: Option<&str>) -> Outcome;
 }
 
 pub fn push_file(p: &Paths) -> PathBuf {
@@ -183,18 +184,47 @@ fn conf(v: &str) -> String {
     v.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
-fn request_body(reg: &Registration, category: &str) -> String {
-    json!({"token": reg.token, "category": category, "env": reg.env}).to_string()
+fn request_body(reg: &Registration, category: &str, sid: Option<&str>) -> String {
+    match sid {
+        Some(sid) => json!({"token": reg.token, "category": category, "env": reg.env, "sid": sid}),
+        None => json!({"token": reg.token, "category": category, "env": reg.env}),
+    }
+    .to_string()
 }
 
-fn curl_config(reg: &Registration, category: &str) -> String {
+fn hmac_sha256(key: &[u8], msg: &[u8]) -> [u8; 32] {
+    use sha2::{Digest, Sha256};
+    let mut k = [0u8; 64];
+    if key.len() > 64 {
+        k[..32].copy_from_slice(&Sha256::digest(key));
+    } else {
+        k[..key.len()].copy_from_slice(key);
+    }
+    let mut inner = Sha256::new();
+    inner.update(k.map(|b| b ^ 0x36));
+    inner.update(msg);
+    let mut outer = Sha256::new();
+    outer.update(k.map(|b| b ^ 0x5c));
+    outer.update(inner.finalize());
+    outer.finalize().into()
+}
+
+/// Opaque id of a tmux session for the push payload: the first 4 bytes (8 hex) of
+/// HMAC-SHA256(relay secret, "sid:" + session name). The phone computes the same from its own
+/// copy of the secret and its tab names; Apple and the relay see only 8 hex digits that say
+/// nothing about the name without the secret.
+pub fn session_id(secret: &str, tmux: &str) -> String {
+    hex::encode(&hmac_sha256(secret.as_bytes(), format!("sid:{tmux}").as_bytes())[..4])
+}
+
+fn curl_config(reg: &Registration, category: &str, sid: Option<&str>) -> String {
     format!(
         "url = \"{}\"\nrequest = \"POST\"\nheader = \"Authorization: Bearer {}\"\n\
          header = \"Content-Type: application/json\"\ndata = \"{}\"\nmax-time = 10\n\
          proto = \"=https\"\nsilent\noutput = \"/dev/null\"\nwrite-out = \"%{{http_code}}\"\n",
         conf(&reg.url),
         conf(&reg.secret),
-        conf(&request_body(reg, category))
+        conf(&request_body(reg, category, sid))
     )
 }
 
@@ -207,7 +237,7 @@ fn curl_path() -> Option<&'static str> {
 pub struct CurlSender;
 
 impl Sender for CurlSender {
-    fn send(&self, reg: &Registration, category: &str) -> Outcome {
+    fn send(&self, reg: &Registration, category: &str, sid: Option<&str>) -> Outcome {
         let Some(curl) = curl_path() else {
             return Outcome::Failed;
         };
@@ -221,7 +251,7 @@ impl Sender for CurlSender {
             return Outcome::Failed;
         };
         if let Some(mut stdin) = child.stdin.take() {
-            let _ = stdin.write_all(curl_config(reg, category).as_bytes());
+            let _ = stdin.write_all(curl_config(reg, category, sid).as_bytes());
         }
         let Ok(out) = child.wait_with_output() else {
             return Outcome::Failed;
@@ -239,7 +269,7 @@ pub fn test(p: &Paths, sender: &dyn Sender) -> Value {
     let Some(reg) = load(p) else {
         return json!({"ok": false, "error": "not registered"});
     };
-    match sender.send(&reg, "alert") {
+    match sender.send(&reg, "alert", None) {
         Outcome::Sent => json!({"ok": true}),
         Outcome::Unregistered => {
             let _ = unregister(p);
@@ -283,7 +313,8 @@ impl Inner {
             }
             last.insert(key, t);
         }
-        if self.sender.send(&reg, category) == Outcome::Unregistered {
+        let sid = ev.tmux.as_deref().map(|t| session_id(&reg.secret, t));
+        if self.sender.send(&reg, category, sid.as_deref()) == Outcome::Unregistered {
             let _ = unregister(&self.paths);
         }
         Some(category)
@@ -360,8 +391,11 @@ mod tests {
         answer: Mutex<Option<Outcome>>,
     }
     impl Sender for Recorder {
-        fn send(&self, _: &Registration, category: &str) -> Outcome {
-            self.sent.lock().unwrap().push(category.to_string());
+        fn send(&self, _: &Registration, category: &str, sid: Option<&str>) -> Outcome {
+            self.sent.lock().unwrap().push(format!(
+                "{category}{}",
+                sid.map(|s| format!("@{s}")).unwrap_or_default()
+            ));
             self.answer.lock().unwrap().unwrap_or(Outcome::Sent)
         }
     }
@@ -372,6 +406,7 @@ mod tests {
             session: session.into(),
             from: "running".into(),
             to: to.into(),
+            tmux: None,
         }
     }
 
@@ -490,15 +525,46 @@ mod tests {
     #[test]
     fn curl_config_has_the_fixed_body_and_escapes_quotes() {
         let reg = parse(&serde_json::from_str(&reg_json("https://a.b/push")).unwrap()).unwrap();
-        let c = curl_config(&reg, "approval");
+        let c = curl_config(&reg, "approval", None);
         assert!(c.contains(&format!("Authorization: Bearer {SECRET}")));
         assert!(c.contains("proto = \"=https\""));
         assert!(c.contains("\\\"category\\\":\\\"approval\\\""));
         assert_eq!(c.lines().filter(|l| l.starts_with("data")).count(), 1);
         // The only fields in the body are token, category and env.
-        let body: Value = serde_json::from_str(&request_body(&reg, "approval")).unwrap();
+        let body: Value = serde_json::from_str(&request_body(&reg, "approval", None)).unwrap();
         let mut keys: Vec<_> = body.as_object().unwrap().keys().cloned().collect();
         keys.sort();
         assert_eq!(keys, ["category", "env", "token"]);
+    }
+
+    #[test]
+    fn hmac_matches_the_rfc_4231_vector_and_the_sid_is_eight_hex() {
+        // RFC 4231 test case 2
+        let mac = hmac_sha256(b"Jefe", b"what do ya want for nothing?");
+        assert_eq!(
+            hex::encode(mac),
+            "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843"
+        );
+        let sid = session_id(SECRET, "agy-ssh-app-1");
+        assert_eq!(sid.len(), 8);
+        assert!(sid.chars().all(|c| c.is_ascii_hexdigit()));
+        assert_ne!(sid, session_id(SECRET, "agy-ssh-app-2"));
+        assert_ne!(sid, session_id("other-secret", "agy-ssh-app-1"));
+        assert!(!sid.contains("agy"));
+    }
+
+    #[test]
+    fn the_body_carries_sid_only_when_given() {
+        let reg = parse(&serde_json::from_str(&reg_json("https://a.b/push")).unwrap()).unwrap();
+        let with: Value =
+            serde_json::from_str(&request_body(&reg, "finished", Some("0a1b2c3d"))).unwrap();
+        let mut keys: Vec<&str> = with
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        keys.sort();
+        assert_eq!(keys, ["category", "env", "sid", "token"]);
     }
 }

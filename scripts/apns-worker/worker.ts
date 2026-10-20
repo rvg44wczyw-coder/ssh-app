@@ -59,7 +59,7 @@ export default {
     const res = await fetch(`https://${apnsHost(parsed.env)}/3/device/${parsed.token}`, {
       method: "POST",
       headers: headersFor(parsed.category, env.APPLE_BUNDLE_ID, jwt, nowSec),
-      body: JSON.stringify(payloadFor(parsed.category)),
+      body: JSON.stringify(payloadFor(parsed.category, parsed.sid)),
     });
     if (res.ok) return json(200, { ok: true });
     // Apple's reason is a short code ("BadDeviceToken"); no raw text is passed on.

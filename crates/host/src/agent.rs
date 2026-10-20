@@ -46,6 +46,8 @@ pub struct Event {
     pub session: String,
     pub from: String,
     pub to: String,
+    /// tmux session the agent runs in (for the push's opaque `sid`), when known.
+    pub tmux: Option<String>,
 }
 
 pub trait EventSink: Send + Sync {
@@ -116,11 +118,18 @@ pub fn diff(old: &StateMap, new: &StateMap) -> Vec<Event> {
     for (k, v) in new {
         let from = old.get(k).map_or("none", |o| o.state);
         if from != v.state {
+            // A finished agent's pending record has no tmux name: the earlier "running" entry does.
+            let tmux = v
+                .tmux
+                .as_str()
+                .or_else(|| old.get(k).and_then(|o| o.tmux.as_str()))
+                .map(String::from);
             out.push(Event {
                 agent: k.0.clone(),
                 session: k.1.clone(),
                 from: from.into(),
                 to: v.state.into(),
+                tmux,
             });
         }
     }
@@ -131,6 +140,7 @@ pub fn diff(old: &StateMap, new: &StateMap) -> Vec<Event> {
                 session: k.1.clone(),
                 from: o.state.into(),
                 to: "gone".into(),
+                tmux: o.tmux.as_str().map(String::from),
             });
         }
     }
@@ -311,6 +321,26 @@ fn merge_detected(map: &mut StateMap, shared: &Arc<Mutex<Shared>>) {
                     ts: Value::Null,
                 },
             );
+        }
+    }
+}
+
+/// Agents whose questions are read from the tmux screen (no hook reports them).
+const SCREEN_WATCHED: &str = "antigravity";
+const SCREEN_POLL: Duration = Duration::from_secs(5);
+
+/// A running agent that shows a menu on its screen is `waiting` (the push for a question).
+fn mark_questions(map: &mut StateMap) {
+    for ((agent, _), e) in map.iter_mut() {
+        if agent == SCREEN_WATCHED && e.state == "running" {
+            let asks = e
+                .tmux
+                .as_str()
+                .and_then(crate::screenwatch::capture)
+                .is_some_and(|s| crate::screenwatch::asks(&s));
+            if asks {
+                e.state = "waiting";
+            }
         }
     }
 }
@@ -520,6 +550,7 @@ pub fn run(p: Paths, lease_secs: i64, sink: &dyn EventSink) -> i32 {
     let observed = |shared: &Arc<Mutex<Shared>>| {
         let (mut map, pending) = compute_state(&paths);
         merge_detected(&mut map, shared);
+        mark_questions(&mut map);
         (map, pending)
     };
     let (mut last, _) = observed(&shared);
@@ -529,7 +560,11 @@ pub fn run(p: Paths, lease_secs: i64, sink: &dyn EventSink) -> i32 {
             break;
         }
         let watched = shared.lock().is_ok_and(|s| !s.subs.is_empty());
-        let tick = if watched { live_rescan } else { RESCAN };
+        let mut tick = if watched { live_rescan } else { RESCAN };
+        // an agent without hooks: its questions show only on the screen, so look at it often
+        if last.keys().any(|k| k.0 == SCREEN_WATCHED) {
+            tick = tick.min(SCREEN_POLL);
+        }
         let timeout = Duration::from_secs(remaining as u64).min(tick);
         match &watcher {
             Some(w) => w.wait(timeout),

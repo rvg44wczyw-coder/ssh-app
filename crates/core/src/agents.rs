@@ -498,9 +498,16 @@ pub fn build_agent_launch_command(profile: AgentLaunchProfile) -> Result<String,
     for a in permission_mode_args(&profile)?.iter().chain(&profile.args) {
         inner.push_str(&format!(" {}", shell_quote(a)));
     }
+    // Claude prints calls and results whole with --verbose; the feed reads them off the screen.
+    if profile.agent == AgentKind::ClaudeCode && !profile.args.iter().any(|a| a == "--verbose") {
+        inner.push_str(" '--verbose'");
+    }
     if profile.load_shell_rc {
+        // `+m` (no job control): an interactive shell that owns the terminal's foreground group
+        // leaves it behind when it exits, and the login shell below then dies on "error on TTY
+        // read" - the tab closed when the agent was quit.
         cmd.push_str(&format!(
-            "\"${{SHELL:-/bin/zsh}}\" -i -c {}",
+            "case \"${{SHELL##*/}}\" in zsh|bash) m=+m;; *) m=;; esac; \"${{SHELL:-/bin/zsh}}\" -i $m -c {}",
             shell_quote(&inner)
         ));
     } else {
@@ -675,7 +682,7 @@ mod tests {
         let c = build_agent_launch_command(p.clone()).unwrap();
         assert_eq!(
             c,
-            "env CLAUDE_CONFIG_DIR=\"$HOME\"'/.claude-personal' claude; exec \"${SHELL:-/bin/zsh}\" -l"
+            "env CLAUDE_CONFIG_DIR=\"$HOME\"'/.claude-personal' claude '--verbose'; exec \"${SHELL:-/bin/zsh}\" -l"
         );
         assert_eq!(profile_config_dir(p).as_deref(), Some("~/.claude-personal"));
     }
@@ -697,7 +704,7 @@ mod tests {
         p.git_branch = Some("feature/x-1".into());
         let c = build_agent_launch_command(p).unwrap();
         assert!(c.starts_with(
-            "cd -- \"$HOME\"'/app' && { git switch 'feature/x-1' || echo \"ssh-app: could not switch to branch \"'feature/x-1'; } && env claude"
+            "cd -- \"$HOME\"'/app' && { git switch 'feature/x-1' || echo \"ssh-app: could not switch to branch \"'feature/x-1'; } && env claude '--verbose'"
         ));
         for bad in ["-c", "a b", "x;rm", "a..b", "$(id)", "/x", "x/", "a.lock"] {
             let mut p = profile(AgentKind::ClaudeCode, "claude", &[]);
@@ -802,7 +809,10 @@ mod tests {
         p.args = vec!["it's".into()];
         p.load_shell_rc = true;
         let cmd = build_agent_launch_command(p).unwrap();
-        assert!(cmd.starts_with("\"${SHELL:-/bin/zsh}\" -i -c '"), "{cmd}");
+        assert!(
+            cmd.contains("\"${SHELL:-/bin/zsh}\" -i $m -c '") && cmd.contains("m=+m"),
+            "{cmd}"
+        );
         assert!(cmd.contains("env CLAUDE_CONFIG_DIR="));
         assert!(cmd.ends_with("; exec \"${SHELL:-/bin/zsh}\" -l"));
     }

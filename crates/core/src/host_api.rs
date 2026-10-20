@@ -8,6 +8,26 @@ use crate::transport::DEFAULT_EXEC_TIMEOUT;
 use std::sync::Arc;
 use std::time::Duration;
 
+/// The answer of `capture_session_screen`.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct ScreenCapture {
+    pub checksum: String,
+    /// `None`: the screen is the same as the one with the known checksum.
+    pub text: Option<String>,
+}
+
+const CAPTURE_SCREEN_SCRIPT: &str = r#"PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"; export PATH
+out=$(tmux capture-pane -p -J -S - -t "=$1:" 2>/dev/null) || exit 1
+sum=$(printf '%s' "$out" | cksum | cut -d' ' -f1)
+if [ "$sum" = "$2" ]; then echo "SAME $sum"; else echo "SUM $sum"; printf '%s\n' "$out"; fi
+exit 0"#;
+
+/// Restarts what runs in a tmux session's pane with a new command (`respawn-pane -k`): the session,
+/// its window and the attached clients stay, the old process is killed.
+const RESTART_PANE_SCRIPT: &str = r#"PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"; export PATH
+tmux respawn-pane -k -t "=$1:" "$2" 2>&1 || exit 1
+echo RESTARTED"#;
+
 /// Receives the live state changes of `watch_host_agent`.
 #[uniffi::export(callback_interface)]
 pub trait HostAgentListener: Send + Sync {
@@ -73,7 +93,7 @@ impl SshSessionHandle {
         let p = crate::tmux::shell_quote(&remote_path);
         let cmd = format!(
             "r=$(realpath -- {p} 2>/dev/null || readlink -f -- {p} 2>/dev/null) && [ -f \"$r\" ] && \
-             {{ printf 'TP_PATH=%s\\n' \"$r\"; tail -n 500 -- \"$r\"; }}"
+             {{ printf 'TP_PATH=%s\\n' \"$r\"; tail -n 500 -- \"$r\" | tail -c 4000000; }}"
         );
         let raw_output = self.execute_command_on_active_session(cmd).await?;
         let (first, rest) = raw_output
@@ -126,6 +146,51 @@ impl SshSessionHandle {
         } else {
             Ok(Some(trimmed.to_string()))
         }
+    }
+
+    /// The text of this tab's tmux pane with its whole history (`capture-pane -p -J -S -`), for the
+    /// feed built from the screen. `known_sum` is the checksum of the previous answer: when the
+    /// screen is unchanged the host answers `SAME` and nothing else crosses the network.
+    /// Returns `(checksum, Some(text))`, or `(checksum, None)` when unchanged.
+    pub async fn capture_session_screen(
+        &self,
+        session_name: String,
+        known_sum: Option<String>,
+    ) -> Result<ScreenCapture, SshCoreError> {
+        crate::tmux::validate_session_name(&session_name)?;
+        let known = known_sum.unwrap_or_default();
+        if !known.chars().all(|c| c.is_ascii_digit()) {
+            return Err(SshCoreError::InvalidInput {
+                reason: "Invalid checksum".to_string(),
+            });
+        }
+        let script = crate::hostprobe::login_sh_script(
+            CAPTURE_SCREEN_SCRIPT,
+            &[
+                crate::tmux::shell_quote(session_name.trim()),
+                crate::tmux::shell_quote(&known),
+            ],
+            10,
+        );
+        let output = self.execute_command_on_active_session(script).await?;
+        let (first, rest) = output.split_once('\n').unwrap_or((output.as_str(), ""));
+        if let Some(sum) = first.strip_prefix("SAME ") {
+            return Ok(ScreenCapture {
+                checksum: sum.trim().to_string(),
+                text: None,
+            });
+        }
+        let sum = first
+            .strip_prefix("SUM ")
+            .ok_or_else(|| SshCoreError::IoError {
+                reason: "The pane could not be read".to_string(),
+            })?;
+        // The pane is untrusted display data: bounded like a transcript.
+        let text: String = rest.chars().take(2_000_000).collect();
+        Ok(ScreenCapture {
+            checksum: sum.trim().to_string(),
+            text: Some(text),
+        })
     }
 
     /// The transcript of the agent running in this tab's own tmux session: Claude Code by the
@@ -1015,6 +1080,97 @@ impl SshSessionHandle {
         Ok(crate::push::parse_result(&out))
     }
 
+    /// Restarts the agent of a tab: the pane of the tmux session `session_name` is respawned with
+    /// `command` (a launch command from `build_agent_launch_command`), the old process killed. The
+    /// session stays, so the phone's attached terminal just shows the new start.
+    pub async fn restart_session_command(
+        &self,
+        session_name: String,
+        command: String,
+    ) -> Result<(), SshCoreError> {
+        crate::tmux::validate_session_name(&session_name)?;
+        if command.trim().is_empty() || command.len() > 8000 || command.contains('\0') {
+            return Err(SshCoreError::InvalidInput {
+                reason: "Invalid launch command".to_string(),
+            });
+        }
+        let script = crate::hostprobe::login_sh_script(
+            RESTART_PANE_SCRIPT,
+            &[
+                crate::tmux::shell_quote(session_name.trim()),
+                crate::tmux::shell_quote(&command),
+            ],
+            10,
+        );
+        let out = self.execute_command_on_active_session(script).await?;
+        if out.lines().any(|l| l.trim() == "RESTARTED") {
+            Ok(())
+        } else {
+            Err(SshCoreError::IoError {
+                reason: "tmux did not restart the session".to_string(),
+            })
+        }
+    }
+
+    /// Sends a file picked on the phone (photo, video, any file) to the host over a new channel
+    /// of this session: `permanent` keeps it in `~/.ssh-app/inbox/<id>-<name>`, otherwise it goes
+    /// to a private folder in the host's temp directory (`$TMPDIR` or `/tmp`, which the system
+    /// empties). Mode 0600, folder 0700. Returns the absolute path on the host, to put in a message to the agent.
+    /// The name is reduced to `[A-Za-z0-9._-]`; at most `ATTACHMENT_MAX_BYTES`.
+    pub async fn upload_attachment(
+        &self,
+        src_local_path: String,
+        file_name: String,
+        permanent: bool,
+    ) -> Result<String, SshCoreError> {
+        use tokio::io::AsyncReadExt;
+        let io = |e: std::io::Error| SshCoreError::IoError {
+            reason: e.to_string(),
+        };
+        let meta = tokio::fs::metadata(&src_local_path).await.map_err(io)?;
+        if !meta.is_file() {
+            return Err(SshCoreError::InvalidInput {
+                reason: "Not a regular file".to_string(),
+            });
+        }
+        if meta.len() > ATTACHMENT_MAX_BYTES {
+            return Err(SshCoreError::TooLarge {
+                limit: ATTACHMENT_MAX_BYTES,
+            });
+        }
+        let stored = format!(
+            "{:08x}-{}",
+            rand::random::<u32>(),
+            attachment_name(&file_name)
+        );
+        let channel = self
+            .exec_open(&attachment_command(&stored, permanent))
+            .await?;
+        let mut file = tokio::fs::File::open(&src_local_path).await.map_err(io)?;
+        let mut buf = vec![0u8; 32 * 1024];
+        loop {
+            let n = file.read(&mut buf).await.map_err(io)?;
+            if n == 0 {
+                break;
+            }
+            channel
+                .data(&buf[..n])
+                .await
+                .map_err(|e| SshCoreError::ChannelError {
+                    reason: format!("Could not send the file: {e}"),
+                })?;
+        }
+        let _ = channel.eof().await;
+        let out = crate::transport::collect_output(channel, Duration::from_secs(120)).await?;
+        let text = out.text();
+        match (out.exit_status, parse_attachment_path(&text)) {
+            (Some(0), Some(path)) => Ok(path),
+            _ => Err(SshCoreError::IoError {
+                reason: "The host did not store the file".to_string(),
+            }),
+        }
+    }
+
     /// Asks the host to send one test notification through the relay.
     pub async fn host_push_test(
         &self,
@@ -1361,7 +1517,15 @@ case "$kind" in
   claude)
     [ -n "$cwd" ] || exit 0
     slug=$(printf '%s' "$cwd" | sed 's/[^A-Za-z0-9]/-/g')
-    f=$(ls -t "$HOME/.claude/projects/$slug"/*.jsonl 2>/dev/null | head -n 1)
+    # Claude keeps its files under $CLAUDE_CONFIG_DIR (the agent's own, read from its environment)
+    # or ~/.claude; accounts set up as ~/.claude-<name> are looked at too. The newest file wins.
+    cdir=$(ps eww -p "$apid" 2>/dev/null | tr ' ' '\n' | sed -n 's/^CLAUDE_CONFIG_DIR=//p' | head -n 1)
+    f=""
+    for d in "$cdir" "$HOME/.claude" "$HOME"/.claude-*; do
+      [ -n "$d" ] || continue
+      c=$(ls -t "$d/projects/$slug"/*.jsonl 2>/dev/null | head -n 1)
+      [ -f "$c" ] && { [ -z "$f" ] || [ "$c" -nt "$f" ]; } && f=$c
+    done
     [ -f "$f" ] && echo "$f";;
   agy)
     d=$(ls -l "/proc/$apid/fd" 2>/dev/null | grep -o "/[^ ]*/brain/[^/]*" | head -n 1)
@@ -1467,9 +1631,180 @@ impl SshSessionHandle {
     }
 }
 
+/// Largest attachment the feed uploads (a phone video is the realistic upper end).
+const ATTACHMENT_MAX_BYTES: u64 = 200 * 1024 * 1024;
+
+/// A file name safe for the host's shell and file system: `[A-Za-z0-9._-]`, no leading dots,
+/// at most 80 characters (the extension is kept), never empty.
+pub(crate) fn attachment_name(name: &str) -> String {
+    let last = name.rsplit(['/', '\\']).next().unwrap_or(name);
+    let mut clean: String = last
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    clean = clean.trim_start_matches('.').to_string();
+    if clean.chars().count() > 80 {
+        let ext: String = match clean.rfind('.') {
+            Some(i) if clean.len() - i <= 12 => clean[i..].to_string(),
+            _ => String::new(),
+        };
+        let keep = 80 - ext.chars().count();
+        clean = clean.chars().take(keep).collect::<String>() + &ext;
+    }
+    if clean.is_empty() {
+        "file".to_string()
+    } else {
+        clean
+    }
+}
+
+/// The host side of an upload: the file arrives on stdin, is written next to its place and moved
+/// in, and the path is printed. The folder is `~/.ssh-app/inbox` (`permanent`) or
+/// `${TMPDIR:-/tmp}/ssh-app-<uid>` (temporary, left to the system to empty); it must be a real
+/// directory of the user's own, never a link or somebody else's. `stored` is already reduced to
+/// safe characters.
+pub(crate) fn attachment_command(stored: &str, permanent: bool) -> String {
+    let dir = if permanent {
+        "d=\"$HOME/.ssh-app/inbox\"".to_string()
+    } else {
+        "d=\"${TMPDIR:-/tmp}\"; d=\"${d%/}/ssh-app-$(id -u)\"".to_string()
+    };
+    format!(
+        "sh -c 'umask 077; {dir}; mkdir -p \"$d\" || exit 1; [ -d \"$d\" ] && [ ! -L \"$d\" ] && [ -O \"$d\" ] || exit 1; \
+         f=\"$d/{stored}\"; \
+         cat > \"$f.part\" || {{ rm -f \"$f.part\"; exit 1; }}; mv \"$f.part\" \"$f\" || exit 1; \
+         printf \"ATTACH_PATH=%s\\n\" \"$f\"'"
+    )
+}
+
+pub(crate) fn parse_attachment_path(out: &str) -> Option<String> {
+    out.lines()
+        .rev()
+        .find_map(|l| l.strip_prefix("ATTACH_PATH="))
+        .map(|p| p.trim().to_string())
+        .filter(|p| p.starts_with('/'))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn attachment_command_stores_the_stdin_bytes() {
+        use std::io::Write;
+        use std::os::unix::fs::PermissionsExt;
+        let home = std::env::temp_dir().join(format!("att-home-{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&home).unwrap();
+        let mut child = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(attachment_command("0a1b2c3d-photo.png", true))
+            .env("HOME", &home)
+            .env_remove("TMUX")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(b"\x89PNGdata")
+            .unwrap();
+        let out = child.wait_with_output().unwrap();
+        assert!(out.status.success());
+        let path = parse_attachment_path(&String::from_utf8_lossy(&out.stdout)).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"\x89PNGdata");
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+        assert!(!std::path::Path::new(&format!("{path}.part")).exists());
+        // temporary mode: private folder under TMPDIR, outside HOME, mode 0700
+        let tmp = home.join("tmp");
+        std::fs::create_dir_all(&tmp).unwrap();
+        let mut child = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(attachment_command("0a1b2c3e-new.png", false))
+            .env("HOME", &home)
+            .env("TMPDIR", format!("{}/", tmp.display()))
+            .env_remove("TMUX")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        child.stdin.take().unwrap().write_all(b"tmpdata").unwrap();
+        let out = child.wait_with_output().unwrap();
+        assert!(out.status.success());
+        let tpath = parse_attachment_path(&String::from_utf8_lossy(&out.stdout)).unwrap();
+        assert!(tpath.starts_with(tmp.to_str().unwrap()), "{tpath}");
+        assert_eq!(std::fs::read(&tpath).unwrap(), b"tmpdata");
+        let dir_mode = std::fs::metadata(std::path::Path::new(&tpath).parent().unwrap())
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(dir_mode, 0o700);
+        // a link in place of the folder is refused
+        let evil = home.join("evil");
+        std::fs::create_dir_all(&evil).unwrap();
+        let uid = String::from_utf8(
+            std::process::Command::new("id")
+                .arg("-u")
+                .output()
+                .unwrap()
+                .stdout,
+        )
+        .unwrap();
+        let link = tmp.join(format!("ssh-app-{}", uid.trim()));
+        std::fs::remove_dir_all(&link).unwrap();
+        std::os::unix::fs::symlink(&evil, &link).unwrap();
+        let refused = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(attachment_command("x-y.png", false))
+            .env("HOME", &home)
+            .env("TMPDIR", &tmp)
+            .env_remove("TMUX")
+            .stdin(std::process::Stdio::null())
+            .output()
+            .unwrap();
+        assert!(!refused.status.success());
+        assert_eq!(std::fs::read_dir(&evil).unwrap().count(), 0);
+        std::fs::remove_dir_all(&home).unwrap();
+    }
+
+    #[test]
+    fn attachment_names_are_safe() {
+        assert_eq!(attachment_name("IMG_0001.HEIC"), "IMG_0001.HEIC");
+        assert_eq!(attachment_name("../../etc/passwd"), "passwd");
+        assert_eq!(attachment_name("a b'c\"d;$(x).png"), "a_b_c_d___x_.png");
+        assert_eq!(attachment_name(".hidden"), "hidden");
+        assert_eq!(attachment_name("   "), "___");
+        assert_eq!(attachment_name(""), "file");
+        let long = format!("{}.mov", "x".repeat(200));
+        let n = attachment_name(&long);
+        assert_eq!(n.chars().count(), 80);
+        assert!(n.ends_with(".mov"));
+    }
+
+    #[test]
+    fn attachment_command_and_path_parsing() {
+        assert!(attachment_command("a-b.png", true).contains(".ssh-app/inbox"));
+        assert!(attachment_command("a-b.png", false).contains("ssh-app-$(id -u)"));
+        let c = attachment_command("0a1b2c3d-photo.png", true);
+        assert!(c.starts_with("sh -c '"));
+        assert!(c.contains("0a1b2c3d-photo.png"));
+        assert!(!c.contains("'0a1b"));
+        assert_eq!(
+            parse_attachment_path("noise\nATTACH_PATH=/Users/me/.ssh-app/inbox/x.png\n"),
+            Some("/Users/me/.ssh-app/inbox/x.png".to_string())
+        );
+        assert_eq!(parse_attachment_path("ATTACH_PATH=relative"), None);
+        assert_eq!(parse_attachment_path(""), None);
+    }
 
     #[test]
     fn config_write_refuses_when_the_file_changed_since_it_was_read() {
