@@ -215,43 +215,43 @@
 - **Doc**: `docs/features/37-multi-agent-trio-chat.md`
 - **Scope**: Multi-agent collaboration across arbitrary N sessions on a server and cross-server mesh federation (bridging MacBook, Linux GPU servers, and cloud hosts). Phase 1: Dual-Session Bridge; Phase 2: Driver & Reviewer audit cards; Phase 3: MCP Peer consultation; Phase 4: Local N-session mesh room; Phase 5: Cross-server federation over client SSH channels with distributed write leases. Strict no-emoji design (SF Symbols and participant glyphs: User `❯`, Claude `●`, agy `○`, Ollama `⬡`, Shell `>_`).
 - **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
-- **Status**: Spec written (2026-10-20), implementation pending.
+- **Status**: Spec reviewed and corrected (`rev`, 2026-10-20; binding corrections at the end of the spec), implementation pending.
 
 ### Feature 38 / M27: Multimodal Agent Uploads & Mobile Screenshot Pipeline (`docs/features/38-multimodal-agent-uploads.md`)
 - **Doc**: `docs/features/38-multimodal-agent-uploads.md`
 - **Scope**: Native photo library/camera/clipboard picker, client-side EXIF stripping & HEIC->PNG conversion, sandboxed upload into `~/.ssh-app/run/uploads/<sha256>.<ext>`, TTL prune daemon, agent `@path` injection (Claude Code / agy / Ollama).
 - **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
-- **Status**: Spec written (2026-10-20), implementation pending.
+- **Status**: Spec reviewed and corrected (`rev`, 2026-10-20; binding corrections at the end of the spec), implementation pending.
 
 ### Feature 39 / M28: Live Activities & Dynamic Island for Long-Running Agent Tasks (`docs/features/39-live-activities-and-dynamic-island.md`)
 - **Doc**: `docs/features/39-live-activities-and-dynamic-island.md`
 - **Scope**: ActivityKit Dynamic Island (Compact, Minimal, Expanded) & Lock Screen live status, zero-battery APNs push relay updates, interactive Abort / Open Session actions, strictly SF Symbols without emojis.
 - **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
-- **Status**: Spec written (2026-10-20), implementation pending.
+- **Status**: Spec reviewed and corrected (`rev`, 2026-10-20; binding corrections at the end of the spec), implementation pending.
 
 ### Feature 40 / M29: Voice Input & Technical Agent Prompt Dictation (`docs/features/40-agent-voice-dictation.md`)
 - **Doc**: `docs/features/40-agent-voice-dictation.md`
 - **Scope**: 100% on-device speech recognition via Apple Speech (`requiresOnDeviceRecognition`), technical syntax normalizer (`auth.rs`, `--flags`, `camelCase`), prompt action chips, zero audio leakage.
 - **Roles**: `doc-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
-- **Status**: Spec written (2026-10-20), implementation pending.
+- **Status**: Spec reviewed and corrected (`rev`, 2026-10-20; binding corrections at the end of the spec), implementation pending.
 
 ### Feature 41 / M30: Agent Artifacts & Interactive Architecture Visualizer (`docs/features/41-agent-artifacts-and-visualizer.md`)
 - **Doc**: `docs/features/41-agent-artifacts-and-visualizer.md`
 - **Scope**: Automatic extraction of Mermaid diagrams and markdown reports from agent feed, hardened sandboxed WKWebView (CSP `default-src 'none'`), SVG pinch/zoom/pan, dark-mode matching, PNG/SVG export, unified diff viewer.
 - **Roles**: `doc-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
-- **Status**: Spec written (2026-10-20), implementation pending.
+- **Status**: Spec reviewed and corrected (`rev`, 2026-10-20; binding corrections at the end of the spec), implementation pending.
 
 ### Feature 42 / M31: iPadOS Native Experience, External Hardware Keyboard & Multi-Window (`docs/features/42-ipados-hardware-keyboard-and-stage-manager.md`)
 - **Doc**: `docs/features/42-ipados-hardware-keyboard-and-stage-manager.md`
 - **Scope**: 3-column NavigationSplitView, Stage Manager concurrent sessions, full UIKeyCommand hardware keyboard shortcuts (`Cmd+T`, `Cmd+W`, `Ctrl+C`, `Cmd+1..9`), external monitor full-screen PTY projection, pointer hover effects.
 - **Roles**: `doc-dev`, `ios-ui-dev`, `rev`, `hacker`
-- **Status**: Spec written (2026-10-20), implementation pending.
+- **Status**: Spec reviewed and corrected (`rev`, 2026-10-20; binding corrections at the end of the spec), implementation pending.
 
 ### Feature 43 / M32: Hardware Security Keys (FIDO2 / YubiKey), Key Import & iCloud Keychain Sync (`docs/features/43-hardware-keys-and-vault-sync.md`)
 - **Doc**: `docs/features/43-hardware-keys-and-vault-sync.md`
 - **Scope**: OpenSSH FIDO2 (`ed25519-sk`, `ecdsa-sk`) via NFC / USB-C YubiKey, OpenSSH private key import with Argon2 / zeroization, end-to-end encrypted iCloud Keychain sync of server profiles (zero-knowledge: private keys never leave local device).
 - **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
-- **Status**: Spec written (2026-10-20), implementation pending.
+- **Status**: Spec reviewed and corrected (`rev`, 2026-10-20; binding corrections at the end of the spec), implementation pending.
 
 ### Feature 44 / M33: Zero-Touch Host Onboarding & Instant Pairing (`docs/features/44-zero-touch-host-onboarding.md`)
 - **Doc**: `docs/features/44-zero-touch-host-onboarding.md`
@@ -264,7 +264,7 @@
 - **Doc**: `docs/features/45-docker-container-manager-and-terminal.md`
 - **Scope**: Docker container list with green/red status indicators, memory & CPU statistics, 1-tap `[ ↺ Restart ]`, slide-over `[ ⎘ Logs ]` viewer, and 1-tap `[ >_ Terminal ]` opening an interactive shell tab directly inside the container via `docker exec -it`.
 - **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
-- **Status**: Spec written (2026-10-20), implementation pending.
+- **Status**: Spec reviewed and corrected (`rev`, 2026-10-20; binding corrections at the end of the spec), implementation pending.
 
 ## Plan limits (2026-10-18)
 - Claude: real 5h/7d percentages come only from the `statusLine` JSON (`rate_limits`). The hook script has a `claude statusline` mode (wrapper that records them under `~/.ssh-app/run/limits/<hash of CLAUDE_CONFIG_DIR>.json` and runs the user's previous status line); installed per profile from the Hooks screen ("Plan limits"), so the personal profile (`~/.claude-personal`) is covered by its own config dir. The usage probe shows them in the strip (`5h 42% 7d 18%`).

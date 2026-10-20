@@ -223,3 +223,13 @@ stateDiagram-v2
 - [Medium] "Cleanup daemon" contradicts the decision that no daemon runs without a phone session. Prune on connect.
 - [Medium] Ollama base64 upload needs a defined path from the phone to the host's Ollama (the app reaches it through SSH today); write it down.
 - [Medium] Everything depends on the helper; say what a host without it gets (nothing, with a clear message).
+
+## Binding corrections after `rev` (2026-10-20)
+
+These replace conflicting text above.
+
+1. **Supported agents first: Claude Code and Ollama.** How `agy` receives an image is undefined; it is added only after a live test shows a working mechanism.
+2. **Claude Code `@path` on an image is verified on a live session** before the feature is called working; until then the spec does not promise it.
+3. **No cleanup daemon.** Old uploads are pruned on connect (the helper removes files past their age limit when a phone session starts), consistent with "no daemon without a phone session".
+4. **Ollama path:** the phone sends the image to the host over the existing SSH channel (helper `upload`), and the host-side call to its local Ollama (`127.0.0.1:11434`) reads the file there. The phone never talks to Ollama directly.
+5. **Host without the helper** gets nothing: the attach button explains "install the host helper" instead of failing silently.

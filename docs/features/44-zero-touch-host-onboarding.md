@@ -8,6 +8,8 @@
 
 ---
 
+> **Reading note (2026-10-20):** sections 1-5 are the original design. Where they disagree with section 6.2 (the reviewed design) or section 7 (as built), sections 6 and 7 win. Known differences: no `curl | sh` bootstrap, no rendezvous, pairing goes through the helper `pair` over stdin, `doctor` returns facts only.
+
 ## 1. Problem Statement & Scope
 
 ### 1.1 The User Problem

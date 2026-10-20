@@ -104,3 +104,12 @@ In iPadOS Stage Manager, window boundaries can change dynamically when the user 
 - [High] Multiple scenes versus "`sceneDidEnterBackground` closes all sockets": one window going to the background would close the other's sessions. Close sockets only when no scene is active.
 - [Medium] Two windows attached to the same tmux session fight over its size; allow one window per session.
 - [Medium] External display is one line here but is a separate scene with its own lifecycle; specify or defer.
+
+## Binding corrections after `rev` (2026-10-20)
+
+These replace conflicting text above.
+
+1. **No `tmux resize-window -x -y`.** It pins the window size for every client, the Mac included. The SSH `window_change` on the channel is the only resize.
+2. **Scenes and sockets.** Sockets close only when no scene is active; one window going to the background does not close another window's sessions.
+3. **One window per tmux session.** Two windows attached to the same session would fight over its size, so the second opens the session read-only or is refused with a message.
+4. **External display** is a separate scene with its own lifecycle and is deferred out of the first release.
