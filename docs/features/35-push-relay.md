@@ -91,11 +91,21 @@ phone app: asks permission, gets the device token, registers it over SSH (push-r
 
 Each phase follows the dev-chain with a hacker pass.
 
+## 4.1 T4 progress (2026-10-19)
+
+- Test push (`category: alert`) reached the iPhone with the app closed, after "Remove" + relaunch + "Register this host" (same token tail, sandbox). Earlier tests, with the app in front or before the re-registration, showed nothing although the relay answered 200 every time (APNs accepted them); the cause was not pinned down.
+- Still to verify: an approval push from a real agy permission request with the app closed (host agent lease running, agy hooks installed), the 410 path, and `finished` / `waiting` categories.
+
+## 4.2 Tap opens the right tab (2026-10-20)
+
+The push carries an opaque `sid`: the first 8 hex digits of HMAC-SHA256(relay secret, "sid:" + tmux session name). The host takes the tmux name from its session registry (hook-registered or tmux-detected; a finished agent falls back to its earlier "running" entry), adds `sid` to the relay request, the Worker validates `^[0-9a-f]{8}$` and puts it in the payload next to `category`. The app computes the same value for each tab; a tap (`UNUserNotificationCenterDelegate.didReceive`) stores it in `PushManager.pendingSid` and the main screen selects the matching tab in feed mode. Apple and the relay see only 8 hex digits that mean nothing without the secret (a guessable tab name is not recoverable from them without it). No match (tab closed, no `sid`, e.g. a test push): the app just opens. Needs the new host helper on the Mac (Install in the host card) and the redeployed Worker (done 2026-10-20).
+
 ## 5. Open items
 
 - Notification Service Extension that fetches the real text over SSH: not in v1 (30 s limit, key access from an extension, and the privacy point of this design).
 - Several relays or several phones per host: v1 registers one token per host.
 - Release `aps-environment` needs the production App Store/TestFlight signing; Debug installs use the sandbox endpoint.
+- **TODO (blocker before the app goes to anyone but the owner): get rid of the shared relay secret.** Today one secret authorises pushes through the owner's Worker and is typed into every install (stored in the Keychain, sent to the host in `push.json`). A secret baked into a distributed binary is readable with `strings`, and anyone holding it can push to any token through this relay (rate limit only: 20/h per token). Replace it with per-install registration: the app proves itself to the Worker with Apple App Attest and gets its own key; the Worker stores `token -> key`. Until then: personal builds only, the secret stays out of git (`~/.private_keys/ssh_app_relay_secret`) and is injected at build time for the owner's own phone by `make relay-config` (runs before `ios-build`; writes the git-ignored `ios/Sources/SSHApp/Generated/LocalRelayConfig.swift`; the relay URL is an app default); never ship it in a TestFlight/App Store build. The relay URL is not secret and may be an app default.
 
 ## 6. T1 deployed (2026-10-19)
 
@@ -111,3 +121,12 @@ Update: the owner created key `R2LYYFG7JF` (APNs, Sandbox & Production) and it r
 - Findings: `docs/security-findings/2026-10-19-push-relay-t1-t3.md`.
 
 - Token changes: hosts the user registered once (kept in preferences) are re-registered automatically on connect when the stored token tail or environment differs from this install (`PushManager.syncIfRegistered`); hosts never registered are never sent the relay secret.
+
+### Questions of agents without hooks (Antigravity)
+
+The host agent reads the tmux pane (`tmux capture-pane -p -t =name:`) of each running `antigravity`
+session every 5 s while any exists and treats a numbered menu above a key-hint line ("Navigate",
+"enter to select") as `waiting` — the existing `waiting` push fires on the running→waiting edge.
+Code: `crates/host/src/screenwatch.rs`, `agent.rs::mark_questions`. Needs the helper reinstalled
+(Install in the host card). The agent only lives while a phone session exists (lease), so pushes
+for questions work while that lease is alive.
