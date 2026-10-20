@@ -17,6 +17,7 @@ struct HostHelperCard: View {
     @State private var showWslSetup = false
     /// The hook script on the host is somebody else's file: asked before it is replaced.
     @State private var askReplaceHook = false
+    @State private var hookState: HookScriptState?
 
     private var target: HostTarget? { viewModel.hostTarget }
     private var isUnsupported: Bool { if case .unsupported? = target { return true }; return false }
@@ -56,6 +57,11 @@ struct HostHelperCard: View {
                 Text("Installs to ~/.ssh-app/bin/ssh-app-host (mode 700). Nothing runs in the background until you check the agent below.")
                     .font(.caption2).foregroundColor(.secondary)
             }
+            if isReady, let hookState {
+                Label(hookStateText(hookState), systemImage: hookState == .rust ? "checkmark.seal" : "exclamationmark.triangle")
+                    .font(.caption2)
+                    .foregroundColor(hookState == .rust ? .secondary : .orange)
+            }
             if isReady, viewModel.sessionHandle != nil, viewModel.state == .connected {
                 agentSection
                 PushSection(viewModel: viewModel)
@@ -83,6 +89,15 @@ struct HostHelperCard: View {
         }
     }
 
+    private func hookStateText(_ state: HookScriptState) -> String {
+        switch state {
+        case .rust: return "Agent hooks run this helper (Rust)."
+        case .python: return "Agent hooks run the Python script: its pin is not this helper."
+        case .foreign: return "~/.ssh-app/bin/ssh-app-hook is not ssh-app's script."
+        case .notInstalled: return "Agent hooks are not installed on this host."
+        }
+    }
+
     /// The pin of the helper sits inside the hook script; with an old pin every hook falls back to
     /// the Python code. Our own script is refreshed silently, any other file only after a yes.
     private func refreshHookScript(overwriteForeign: Bool) async {
@@ -91,6 +106,7 @@ struct HostHelperCard: View {
             if try await handle.refreshHookScript(overwriteForeign: overwriteForeign) == .needsConfirmation {
                 askReplaceHook = true
             }
+            hookState = try? await handle.hookScriptState()
         } catch {
             self.error = "Could not update the hook script: \(error.localizedDescription)"
         }

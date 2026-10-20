@@ -1344,6 +1344,20 @@ impl SshSessionHandle {
         Ok(plan)
     }
 
+    /// Which code the hooks run on this host: the Rust helper (the script's pin is the helper this
+    /// build ships), the Python code, or a file that is not ssh-app's.
+    pub async fn hook_script_state(
+        &self,
+    ) -> Result<crate::agent_hooks::HookScriptState, SshCoreError> {
+        let path = crate::agents::remote_script_path(crate::agents::DEFAULT_HOOK_DIR);
+        let existing = self.read_remote_config(&path).await?;
+        let pin = crate::usage::bundled_host_helper_sha256();
+        Ok(crate::agent_hooks::classify_hook_script(
+            &existing,
+            pin.as_deref(),
+        ))
+    }
+
     /// Which kind of host this is (macOS / Linux / WSL2 and the CPU), from one short probe.
     pub async fn detect_host_target(&self) -> Result<crate::hosttarget::HostTarget, SshCoreError> {
         let out = self

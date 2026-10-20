@@ -1482,6 +1482,12 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func fetchRemoteShellHistory(limit: UInt32) async throws  -> [String]
     
     /**
+     * Which code the hooks run on this host: the Rust helper (the script's pin is the helper this
+     * build ships), the Python code, or a file that is not ssh-app's.
+     */
+    func hookScriptState() async throws  -> HookScriptState
+    
+    /**
      * State of the agent sessions from the host agent (started on demand, lease 12 h); `None`
      * when the pinned helper is not installed or the agent does not answer.
      */
@@ -2380,6 +2386,26 @@ open func fetchRemoteShellHistory(limit: UInt32)async throws  -> [String]  {
             completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
             freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
             liftFunc: FfiConverterSequenceString.lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Which code the hooks run on this host: the Rust helper (the script's pin is the helper this
+     * build ships), the Python code, or a file that is not ssh-app's.
+     */
+open func hookScriptState()async throws  -> HookScriptState  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_hook_script_state(
+                        self.uniffiCloneHandle()
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeHookScriptState_lift,
             errorHandler: FfiConverterTypeSshCoreError_lift
         )
 }
@@ -10434,6 +10460,98 @@ public func FfiConverterTypeHookScriptRefresh_lower(_ value: HookScriptRefresh) 
 
 
 /**
+ * Which code the agents' hooks run on a host.
+ */
+
+public enum HookScriptState: Equatable, Hashable {
+    
+    case notInstalled
+    /**
+     * ssh-app's script whose pin is the helper this build ships: hooks run the Rust helper.
+     */
+    case rust
+    /**
+     * ssh-app's script without or with another pin: hooks run the Python code.
+     */
+    case python
+    /**
+     * Not ssh-app's file.
+     */
+    case foreign
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension HookScriptState: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHookScriptState: FfiConverterRustBuffer {
+    typealias SwiftType = HookScriptState
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HookScriptState {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .notInstalled
+        
+        case 2: return .rust
+        
+        case 3: return .python
+        
+        case 4: return .foreign
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: HookScriptState, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .notInstalled:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .rust:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .python:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .foreign:
+            writeInt(&buf, Int32(4))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHookScriptState_lift(_ buf: RustBuffer) throws -> HookScriptState {
+    return try FfiConverterTypeHookScriptState.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHookScriptState_lower(_ value: HookScriptState) -> RustBuffer {
+    return FfiConverterTypeHookScriptState.lower(value)
+}
+
+
+
+/**
  * State of the typed helper on the host, judged against the digest the app pins.
  */
 
@@ -15229,6 +15347,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_fetch_remote_shell_history() != 12286) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_hook_script_state() != 3171) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_host_agent_state() != 3503) {

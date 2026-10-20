@@ -52,6 +52,30 @@ pub fn agent_hook_script() -> String {
     }
 }
 
+/// Which code the agents' hooks run on a host.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum HookScriptState {
+    NotInstalled,
+    /// ssh-app's script whose pin is the helper this build ships: hooks run the Rust helper.
+    Rust,
+    /// ssh-app's script without or with another pin: hooks run the Python code.
+    Python,
+    /// Not ssh-app's file.
+    Foreign,
+}
+
+pub(crate) fn classify_hook_script(existing: &str, pin: Option<&str>) -> HookScriptState {
+    if existing.trim().is_empty() {
+        HookScriptState::NotInstalled
+    } else if !is_our_hook_script(existing) {
+        HookScriptState::Foreign
+    } else if pin.is_some_and(|p| existing.contains(&format!("HELPER_SHA256 = \"{p}\""))) {
+        HookScriptState::Rust
+    } else {
+        HookScriptState::Python
+    }
+}
+
 /// What to do with the hook script already on a host after the helper changed (its pin is inside
 /// the script, so a stale pin silently sends every hook to the Python code).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
@@ -852,6 +876,38 @@ pub(crate) fn validate_custom_hook_for_tests(preset: &HookPreset) {
 #[cfg(test)]
 mod refresh_tests {
     use super::*;
+
+    #[test]
+    fn the_state_of_the_hook_script_names_the_code_that_runs() {
+        let pin = "ab".repeat(32);
+        // the script as shipped, with the pin slot filled with `p` (the shipped pin may be set)
+        let ours = |p: &str| {
+            let script = agent_hook_script();
+            let at = script.find("HELPER_SHA256 = \"").unwrap() + "HELPER_SHA256 = \"".len();
+            let end = at + script[at..].find('"').unwrap();
+            format!("{}{p}{}", &script[..at], &script[end..])
+        };
+        assert_eq!(
+            classify_hook_script("", Some(&pin)),
+            HookScriptState::NotInstalled
+        );
+        assert_eq!(
+            classify_hook_script("#!/bin/sh\n", Some(&pin)),
+            HookScriptState::Foreign
+        );
+        assert_eq!(
+            classify_hook_script(&ours(&pin), Some(&pin)),
+            HookScriptState::Rust
+        );
+        assert_eq!(
+            classify_hook_script(&ours(&"cd".repeat(32)), Some(&pin)),
+            HookScriptState::Python
+        );
+        assert_eq!(
+            classify_hook_script(&ours(&pin), None),
+            HookScriptState::Python
+        );
+    }
 
     #[test]
     fn only_our_own_script_is_refreshed_without_asking() {
