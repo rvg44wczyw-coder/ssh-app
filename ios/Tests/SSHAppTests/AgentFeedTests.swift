@@ -17,6 +17,35 @@ final class AgentFeedTests: XCTestCase {
         XCTAssertEqual(text.components(separatedBy: "\u{1b}[201~").count, 2)
     }
 
+    func testDraftAppendTypesOnlyTheNewEnd() {
+        XCTAssertEqual(DraftSync.bytes(from: "hel", to: "hello"), Array("lo".utf8))
+        XCTAssertEqual(DraftSync.bytes(from: "hello", to: "hello"), [])
+    }
+
+    func testDraftDeletionIsBackspaces() {
+        XCTAssertEqual(DraftSync.bytes(from: "hello", to: "he"), [0x7f, 0x7f, 0x7f])
+        XCTAssertEqual(DraftSync.bytes(from: "hello", to: ""), Array(repeating: 0x7f, count: 5))
+    }
+
+    func testDraftEditInTheMiddleRetypesFromThere() {
+        XCTAssertEqual(DraftSync.bytes(from: "hello", to: "heXlo"), [0x7f, 0x7f, 0x7f] + Array("Xlo".utf8))
+    }
+
+    func testDraftWithNewlineIsAPasteAndControlCharactersAreDropped() {
+        let b = DraftSync.bytes(from: "a", to: "a\nb\u{3}\u{1b}[A")
+        XCTAssertEqual(String(decoding: b ?? [], as: UTF8.self), "\u{1b}[200~\nb[A\u{1b}[201~")
+    }
+
+    func testUncertainDraftIsClearedGenerouslyAndRetyped() {
+        let b = DraftSync.bytes(from: "ab", to: "abc", uncertain: true) ?? []
+        XCTAssertEqual(b.prefix(24).filter { $0 == 0x7f }.count, 24)
+        XCTAssertEqual(Array(b.suffix(3)), Array("abc".utf8))
+    }
+
+    func testDraftTooLongToDeleteIsNotMirrored() {
+        XCTAssertNil(DraftSync.bytes(from: String(repeating: "x", count: 5000), to: ""))
+    }
+
     func testMarkdownSplitsFencedCode() {
         let segs = FeedMarkdown.segments("intro\n```swift\nlet a = 1\n```\nafter")
         XCTAssertEqual(segs, [.prose("intro"), .code(language: "swift", code: "let a = 1"), .prose("after")])

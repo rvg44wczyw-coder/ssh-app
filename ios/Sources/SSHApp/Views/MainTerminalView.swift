@@ -66,6 +66,7 @@ public struct MainTerminalView: View {
     @ObservedObject private var push = PushManager.shared
     @State private var deliveredNotices: Set<String> = []
     @State private var pushTapDeadline: Date?
+    @State private var announcedApprovals: Set<String> = []
     @State private var noticeFirstSeen: [String: Date] = [:]
     /// The tab whose agent the user is about to restart (asks new / continue first).
     @State private var restartTarget: UUID?
@@ -217,19 +218,51 @@ public struct MainTerminalView: View {
         if let vm = tabsManager.viewModel(for: id), !vm.isChatMode { vm.toggleChatMode() }
     }
 
+    /// The tab an approval belongs to, once the host agent has told us which tmux session it runs in.
+    private func tab(for approval: ApprovalEntry) -> TabSession? {
+        approvals.tmuxName(for: approval).flatMap { name in
+            tabsManager.sessions.first(where: { $0.sessionName == name })
+        }
+    }
+
+    /// The Approve / Deny card sits on the screen of the session it is about, nowhere else (other
+    /// screens get the status symbol and an in-app notification). A request whose session is not
+    /// known stays on the sessions screen so it can still be answered.
     @ViewBuilder
-    private var approvalViews: some View {
-                if let approval = approvals.current {
-                    ApprovalBannerView(
-                        entry: approval,
-                        queuedBehind: approvals.queuedBehindCurrent,
-                        isBusy: approvals.busyIds.contains(approval.id),
-                        errorMessage: approvals.errors[approval.id],
-                        onDecision: { approved in
-                            Task { await approvals.decide(approval, approved: approved) }
-                        }
-                    )
+    private func approvalViews(onHome: Bool) -> some View {
+        let mine: [ApprovalEntry] = approvals.entries.filter { e in
+            guard e.isApproval else { return false }
+            let owner = tab(for: e)
+            return onHome ? owner == nil : owner?.id == tabsManager.selectedSessionId
+        }
+        if let approval = mine.first {
+            ApprovalBannerView(
+                entry: approval,
+                queuedBehind: mine.count - 1,
+                isBusy: approvals.busyIds.contains(approval.id),
+                errorMessage: approvals.errors[approval.id],
+                onDecision: { approved in
+                    Task { await approvals.decide(approval, approved: approved) }
                 }
+            )
+        }
+    }
+
+    /// A new approval for a session you are not looking at: a notification inside the app with the
+    /// agent, the session and the server. It is a local one: nothing about it leaves the phone.
+    private func announceApprovals() {
+        for e in approvals.entries where e.isApproval && !announcedApprovals.contains(e.id) {
+            announcedApprovals.insert(e.id)
+            guard scenePhase == .active else { continue }   // closed or in the background: the relay's push
+            let owner = tab(for: e)
+            if let owner, !showHome, owner.id == tabsManager.selectedSessionId { continue }
+            let content = UNMutableNotificationContent()
+            content.title = "\(e.item.agent.capitalized) · \(owner?.title ?? "session")"
+            content.body = "\(e.serverName) · wants to use \(e.item.tool)"
+            content.sound = .default
+            if let owner { content.userInfo = ["tab": owner.id.uuidString] }
+            UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "approval-\(e.id)", content: content, trigger: nil))
+        }
     }
 
     private func refreshUsage(force: Bool = false) {
@@ -257,11 +290,30 @@ public struct MainTerminalView: View {
     }
 
     public var body: some View {
+        routing(mainStack)
+    }
+
+    /// Taps on pushes and in-app notifications, and notices, routed to their sessions.
+    private func routing<V: View>(_ content: V) -> some View {
+        content
+            .onAppear { openPushTarget() }
+            .onChange(of: push.pendingSid) { _, _ in openPushTarget() }
+            .onChange(of: tabsManager.sessions.count) { _, _ in openPushTarget() }
+            .onChange(of: approvals.tmuxNames) { _, _ in deliverNotices(); announceApprovals() }
+            .onChange(of: approvals.entries.map(\.id)) { _, _ in announceApprovals() }
+            .onChange(of: push.pendingTab) { _, id in
+                guard let id, tabsManager.sessions.contains(where: { $0.id == id }) else { return }
+                push.pendingTab = nil
+                openWaiting(id)
+            }
+    }
+
+    private var mainStack: some View {
         NavigationStack {
             Group {
             if showHome {
                 VStack(spacing: 0) {
-                approvalViews
+                approvalViews(onHome: true)
                 SessionsHomeView(
                     sessions: tabsManager.sessions,
                     states: tabsManager.sessionStates,
@@ -357,7 +409,7 @@ public struct MainTerminalView: View {
                     SessionUsageStrip(monitor: usageMonitor) { refreshUsage(force: true) }
                 }
 
-                approvalViews
+                approvalViews(onHome: false)
 
                 // Main Terminal Rendering Area
                 if let activeVM = tabsManager.activeViewModel {
@@ -560,10 +612,6 @@ public struct MainTerminalView: View {
             .onChange(of: showHome) { _, home in
                 if !home { hookAttention[tabsManager.selectedSessionId] = nil }
             }
-            .onAppear { openPushTarget() }
-            .onChange(of: push.pendingSid) { _, _ in openPushTarget() }
-            .onChange(of: tabsManager.sessions.count) { _, _ in openPushTarget() }
-            .onChange(of: approvals.tmuxNames) { _, _ in deliverNotices() }
             .onChange(of: tabsManager.sessions.count) { old, new in
                 // A session was just started (new tab, agent profile, tmux sheet): show it.
                 if new > old, showHome { showHome = false }

@@ -37,8 +37,12 @@ final class PushAppDelegate: NSObject, UIApplicationDelegate, UNUserNotification
 
     /// A tap on a push: the payload's `sid` says which tab (see `PushManager.sessionId`).
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
-        let sid = response.notification.request.content.userInfo["sid"] as? String
-        await MainActor.run { PushManager.shared.pendingSid = sid }
+        let info = response.notification.request.content.userInfo
+        let sid = info["sid"] as? String
+        let tab = (info["tab"] as? String).flatMap(UUID.init(uuidString:))
+        await MainActor.run {
+            if let tab { PushManager.shared.pendingTab = tab } else { PushManager.shared.pendingSid = sid }
+        }
     }
 
     /// With the app in front the relay's push is not shown (the app makes its own banner for the
@@ -71,6 +75,8 @@ final class PushManager: ObservableObject {
     @Published private(set) var lastError: String?
     /// The `sid` of a tapped push, until the main screen has opened that tab.
     @Published var pendingSid: String?
+    /// The tab named by a tapped in-app notification (a local one: it carries the tab itself).
+    @Published var pendingTab: UUID?
 
     /// Opaque id of a tmux session in the push payload: the first 4 bytes of HMAC-SHA256(relay
     /// secret, "sid:" + session name) in hex. The host computes the same (feature 35), so the

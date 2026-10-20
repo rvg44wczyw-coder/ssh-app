@@ -26,6 +26,14 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     @Published public var screenStatus: String? = nil
     /// A question the agent waits on (permission, choice), read from the screen; shown as a card.
     @Published public var screenPrompt: ScreenPrompt? = nil
+    /// What is typed in the agent's input box and not sent (read from the screen).
+    @Published public var screenDraft: String? = nil
+    /// What we believe the agent's box holds after our own typing (see `DraftSync`).
+    private var draftInBox = ""
+    private var draftUncertain = false
+    private var draftGuardUntil = Date.distantPast
+    /// The pane showed a known agent (not a shell) at the last look: only then is typing mirrored.
+    private var feedRecognized = false
     private var lastScreenSum: String?
     private var lastScreenTurnCount = 0
     private var thinkingTurns: [TranscriptTurn] = []
@@ -302,6 +310,34 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         }
     }
 
+    /// Types the difference between the agent's input box and `text`, so the draft is kept on the
+    /// host. `false`: not mirrored (no connection, not an agent, a question is up, too long).
+    public func syncDraft(_ text: String) async -> Bool {
+        guard handle != nil, state == .connected, feedRecognized, screenPrompt == nil,
+              let bytes = DraftSync.bytes(from: draftInBox, to: text, uncertain: draftUncertain) else { return false }
+        if !bytes.isEmpty { sendInput(Data(bytes)) }
+        draftInBox = DraftSync.sanitized(text)
+        draftUncertain = false
+        return true
+    }
+
+    /// The box was submitted: it is empty now.
+    public func draftWasSent() {
+        draftInBox = ""
+        draftUncertain = false
+        screenDraft = nil
+        draftGuardUntil = Date().addingTimeInterval(4)
+    }
+
+    /// The draft on the screen when we have typed nothing ourselves and the field is empty.
+    public func adoptableDraft(current: String) -> String? {
+        guard current.isEmpty, draftInBox.isEmpty, Date() >= draftGuardUntil,
+              let d = screenDraft, !d.isEmpty else { return nil }
+        draftInBox = d
+        draftUncertain = true
+        return d
+    }
+
     /// Looks at the pane only for a question the agent waits on (the banner's watcher, for tabs whose
     /// feed is not open). Its own checksum: it never disturbs the feed's reading.
     public func watchPromptOnce() async {
@@ -334,8 +370,10 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
             text = newer
         }
         let feed = parseScreenFeed(text: text)
+        feedRecognized = feed.dialect != "unknown"
         guard feed.dialect != "unknown" else { lastScreenSum = nil; return nil }
         lastScreenSum = cap.checksum
+        if screenDraft != feed.draft { screenDraft = feed.draft }
         if screenStatus != feed.status { screenStatus = feed.status }
         if screenPrompt != feed.prompt { screenPrompt = feed.prompt }
         var turns = feed.turns

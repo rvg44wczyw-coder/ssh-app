@@ -27,6 +27,8 @@ public struct StructuredTranscriptView: View {
     @State private var pendingPhotos: [PhotosPickerItem] = []
     @State private var pendingFiles: [URL] = []
     @State private var askKeep = false
+    @State private var syncTask: Task<Void, Never>?
+    @State private var adopting = false
 
     public init(viewModel: TerminalSessionViewModel) {
         self.viewModel = viewModel
@@ -323,7 +325,12 @@ public struct StructuredTranscriptView: View {
             if viewModel.transcriptTurns.isEmpty {
                 viewModel.loadTranscript()
             }
+            adoptScreenDraft()
         }
+        .onChange(of: promptText) { _, _ in
+            if adopting { adopting = false } else { scheduleDraftSync() }
+        }
+        .onChange(of: viewModel.screenDraft) { _, _ in adoptScreenDraft() }
         // Live tail: only while this view is on screen (the task ends with it).
         .task {
             // 3 s while the transcript moves; 5 s, then 10 s when it stands still (each poll is a
@@ -419,20 +426,89 @@ public struct StructuredTranscriptView: View {
 
     private func sendPrompt() {
         guard canSend else { return }
-        // The text and the Enter go as two writes: an agent's input box takes a burst of characters
-        // for a paste, and an Enter inside a paste is a new line, not "send".
-        let body = Array(FeedSubmit.bytes(for: promptText).dropLast())
-        viewModel.sendInput(Data(body))
+        let text = promptText
         promptText = ""
+        syncTask?.cancel()
         Task {
-            try? await Task.sleep(for: .milliseconds(120))
-            viewModel.sendInput(Data([0x0d]))
-        }
-        // The transcript catches up through the live tail.
-        Task {
+            // The box usually holds the text already (it is mirrored as you type): only Enter is
+            // missing. A burst of characters is a paste to the agent, so Enter goes separately.
+            if await viewModel.syncDraft(text.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                try? await Task.sleep(for: .milliseconds(120))
+                viewModel.sendInput(Data([0x0d]))
+                viewModel.draftWasSent()
+            } else {
+                // Not mirrored (a menu is up, too long): the old way, text and Enter.
+                viewModel.sendInput(Data(Array(FeedSubmit.bytes(for: text).dropLast())))
+                try? await Task.sleep(for: .milliseconds(120))
+                viewModel.sendInput(Data([0x0d]))
+                viewModel.draftWasSent()
+            }
+            // The transcript catches up through the live tail.
             try? await Task.sleep(for: .seconds(1))
-            await viewModel.reloadTranscriptQuietly()
+            _ = await viewModel.reloadTranscriptQuietly()
         }
+    }
+
+    /// Mirrors the message field into the agent's input box a moment after you stop typing.
+    private func scheduleDraftSync() {
+        syncTask?.cancel()
+        let text = promptText
+        syncTask = Task {
+            try? await Task.sleep(for: .milliseconds(450))
+            guard !Task.isCancelled else { return }
+            _ = await viewModel.syncDraft(text)
+        }
+    }
+
+    /// A draft that is already in the agent's box (typed before the app was closed, or at the
+    /// keyboard of the laptop) fills the message field, as long as you have not written anything else.
+    private func adoptScreenDraft() {
+        guard let adopted = viewModel.adoptableDraft(current: promptText) else { return }
+        adopting = true
+        promptText = adopted
+    }
+
+}
+
+/// Keeps the agent's input box equal to the text in the feed's message field, so a half-written
+/// prompt lives on the host (in the tmux pane) and survives a dropped connection or a reinstall.
+/// Only the difference is typed: the common start stays, the rest is deleted with Backspace and
+/// the new end typed. The cursor is taken to be at the end of the box.
+enum DraftSync {
+    /// Most Backspaces one edit may send (a longer draft is not worth a burst of keys).
+    static let maxDeletes = 4000
+
+    /// Bytes that turn `old` (what the box holds) into `new`. `uncertain`: `old` was read back from
+    /// the screen, where wrapped lines may have lost a space, so delete generously and retype all.
+    static func bytes(from old: String, to new: String, uncertain: Bool = false) -> [UInt8]? {
+        let clean = sanitized(new)
+        if clean == old, !uncertain { return [] }
+        let a = Array(old), b = Array(clean)
+        var common = 0
+        if !uncertain {
+            while common < a.count, common < b.count, a[common] == b[common] { common += 1 }
+        }
+        let deletes = uncertain ? a.count * 2 + 20 : a.count - common
+        if deletes > maxDeletes { return nil }
+        var out = [UInt8](repeating: 0x7f, count: deletes)
+        let tail = String(b[common...])
+        if tail.contains("\n") {
+            out += Array("\u{1b}[200~".utf8) + Array(tail.utf8) + Array("\u{1b}[201~".utf8)
+        } else {
+            out += Array(tail.utf8)
+        }
+        return out
+    }
+
+    /// What the box will show for `text`: no control characters (they would act as keys), no paste
+    /// markers (they could end the paste early), one kind of line break.
+    static func sanitized(_ text: String) -> String {
+        let t = text
+            .replacingOccurrences(of: "\u{1b}[201~", with: "")
+            .replacingOccurrences(of: "\u{1b}[200~", with: "")
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+        return String(t.unicodeScalars.filter { $0 == "\n" || ($0.value >= 0x20 && $0.value != 0x7f) })
     }
 }
 
