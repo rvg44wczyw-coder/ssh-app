@@ -50,13 +50,13 @@ public struct KeyboardAccessoryView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
                 if let onAiTap = onAiAssistantTap {
-                    AccessoryButton(label: "🪄") {
+                    AccessoryButton(label: "sf:wand.and.stars") {
                         triggerHaptic()
                         onAiTap()
                     }
                 }
                 if let onSnippets = onSnippetsTap {
-                    AccessoryButton(label: "⚡") {
+                    AccessoryButton(label: "sf:bolt") {
                         triggerHaptic()
                         onSnippets()
                     }
@@ -69,7 +69,7 @@ public struct KeyboardAccessoryView: View {
                     triggerHaptic()
                     onSendBytes([0x79, 0x0D])
                 }
-                AccessoryButton(label: "✗ n⏎") {
+                AccessoryButton(label: "✕ n⏎") {
                     triggerHaptic()
                     onSendBytes([0x6E, 0x0D])
                 }
@@ -90,7 +90,7 @@ public struct KeyboardAccessoryView: View {
                         if let menu = cmd.menu { choices(of: cmd, menu) }
                     })
                 }
-                AccessoryButton(label: "✎") {
+                AccessoryButton(label: "sf:pencil") {
                     triggerHaptic()
                     showEditor = true
                 }
@@ -177,7 +177,11 @@ struct AccessoryButton<MenuContent: View>: View {
     var body: some View {
         let button = Button(action: action) {
             HStack(spacing: 3) {
-                Text(label)
+                if label.hasPrefix("sf:") {
+                    Image(systemName: String(label.dropFirst(3)))
+                } else {
+                    Text(label)
+                }
                 if hasMenu {
                     Image(systemName: "chevron.up").font(.system(size: 7, weight: .bold)).foregroundColor(.secondary)
                 }

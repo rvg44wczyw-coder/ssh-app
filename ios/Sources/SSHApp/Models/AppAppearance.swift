@@ -478,3 +478,111 @@ extension UIColor {
     }
 }
 #endif
+
+
+/// How the agent feed looks (feature 36). Only the local rendering changes; nothing is sent to the host.
+public enum FeedPresentationStyle: String, CaseIterable, Identifiable {
+    /// SF Mono everywhere, dense, hairline frames.
+    case terminal
+    /// SF Pro prose, rounded bubbles and cards, relaxed spacing.
+    case assistant
+    /// SF Pro prose with structured frames, git context strip.
+    case studio
+
+    public static let storageKey = "feed_presentation_style"
+    public static let fallback: FeedPresentationStyle = .assistant
+
+    public var id: String { rawValue }
+
+    public static func resolved(_ raw: String) -> FeedPresentationStyle { FeedPresentationStyle(rawValue: raw) ?? fallback }
+
+    public var title: String {
+        switch self {
+        case .terminal: return "Pro Terminal"
+        case .assistant: return "Native Assistant"
+        case .studio: return "Dev Studio"
+        }
+    }
+
+    public var subtitle: String {
+        switch self {
+        case .terminal: return "Monospace CLI look, dense execution trees"
+        case .assistant: return "Readable typography, rounded bubbles and cards"
+        case .studio: return "Workstation look with git branch and worktree strip"
+        }
+    }
+
+    public var iconName: String {
+        switch self {
+        case .terminal: return "terminal.fill"
+        case .assistant: return "bubble.left.and.bubble.right.fill"
+        case .studio: return "macwindow"
+        }
+    }
+}
+
+/// Where the tab's agent works: repository, branch and worktree, for the feed header.
+public struct GitSessionContext: Equatable {
+    public var isGit: Bool
+    public var repoName: String?
+    public var branch: String?
+    public var worktreeName: String?
+    public var isWorktree: Bool
+    public var detached: Bool
+
+    public static let none = GitSessionContext(isGit: false, repoName: nil, branch: nil, worktreeName: nil,
+                                               isWorktree: false, detached: false)
+
+    /// From `fetchGitWorktrees`: the entry the pane is in names the branch and the worktree.
+    public init(_ r: GitWorktreesResult) {
+        guard r.status == .ok, let current = r.worktrees.first(where: { $0.isCurrent }) ?? r.worktrees.first else {
+            self = .none
+            return
+        }
+        isGit = true
+        repoName = r.repoRoot.map { ($0 as NSString).lastPathComponent }
+        detached = current.detached
+        branch = current.branch ?? (current.detached ? current.headShort : nil)
+        isWorktree = !current.isMain
+        worktreeName = current.isMain ? nil : (current.path as NSString).lastPathComponent
+    }
+
+    public init(isGit: Bool, repoName: String?, branch: String?, worktreeName: String?, isWorktree: Bool, detached: Bool) {
+        self.isGit = isGit
+        self.repoName = repoName
+        self.branch = branch
+        self.worktreeName = worktreeName
+        self.isWorktree = isWorktree
+        self.detached = detached
+    }
+
+    /// Longest names shown as they are; longer ones are shortened in the middle (tap shows them whole).
+    public static let branchLimit = 28
+    public static let worktreeLimit = 20
+    public static let repoLimit = 20
+
+    /// `feature/very-long-name-1234` -> `feature/very…ame-1234`: both ends stay, they carry the meaning.
+    public static func short(_ name: String, limit: Int) -> String {
+        let chars = Array(name)
+        guard limit >= 5, chars.count > limit else { return name }
+        let tail = (limit - 1) / 2
+        let head = limit - 1 - tail
+        return String(chars.prefix(head)) + "…" + String(chars.suffix(tail))
+    }
+
+    public var shortBranch: String? { branch.map { Self.short($0, limit: Self.branchLimit) } }
+    public var shortWorktree: String? { worktreeName.map { Self.short($0, limit: Self.worktreeLimit) } }
+    public var shortRepo: String? { repoName.map { Self.short($0, limit: Self.repoLimit) } }
+
+    /// One line for the header. `full`: the names as they are.
+    public func label(full: Bool) -> String? {
+        guard isGit else { return nil }
+        var parts: [String] = []
+        if let name = full ? repoName : shortRepo { parts.append(name) }
+        if let name = full ? branch : shortBranch { parts.append(detached ? "detached \(name)" : name) }
+        if isWorktree, let name = full ? worktreeName : shortWorktree { parts.append("wt \(name)") }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    public var displayLabel: String? { label(full: true) }
+}

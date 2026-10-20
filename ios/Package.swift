@@ -15,17 +15,20 @@ let package = Package(
     ],
     dependencies: [
         .package(name: "SshCoreBridge", path: "../packages/SshCoreBridge"),
-        .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", from: "1.0.7")
+        .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", from: "1.0.7"),
+        .package(url: "https://github.com/raspu/Highlightr.git", from: "2.3.0")
     ],
     targets: [
         .target(
             name: "SSHApp",
             dependencies: [
                 "SshCoreBridge",
-                .product(name: "SwiftTerm", package: "SwiftTerm")
+                .product(name: "SwiftTerm", package: "SwiftTerm"),
+                .product(name: "Highlightr", package: "Highlightr")
             ],
             path: "Sources",
-            sources: ["SSHApp", "Shared"]
+            sources: ["SSHApp", "Shared"],
+            swiftSettings: [.enableUpcomingFeature("BareSlashRegexLiterals")]
         ),
         .testTarget(
             name: "SSHAppTests",

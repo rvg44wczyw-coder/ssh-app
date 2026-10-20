@@ -28,6 +28,10 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     @Published public var screenPrompt: ScreenPrompt? = nil
     /// What is typed in the agent's input box and not sent (read from the screen).
     @Published public var screenDraft: String? = nil
+    /// Repository, branch and worktree of the tab's folder, for the feed header.
+    @Published public var gitContext: GitSessionContext = .none
+    /// Files with uncommitted changes in that repository (0 when clean or not a repository).
+    @Published public var gitDirtyCount = 0
     /// What we believe the agent's box holds after our own typing (see `DraftSync`).
     private var draftInBox = ""
     /// Set while `sendImmediately` runs: the mirroring of the field stays out of its way.
@@ -321,6 +325,30 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         draftInBox = DraftSync.sanitized(text)
         draftUncertain = false
         return true
+    }
+
+    /// Name of the agent in this tab for the feed header.
+    public var feedAgentName: String {
+        switch session.agentType {
+        case .claudeCode: return "Claude Code"
+        case .antigravity: return "Antigravity"
+        default: return session.title
+        }
+    }
+
+    /// Asks the host which repository, branch and worktree the tab is in (once per call; failures keep
+    /// what is shown).
+    public func loadGitContext() async {
+        guard let handle, state == .connected,
+              let result = try? await handle.fetchGitWorktrees(sessionName: session.sessionName) else { return }
+        let next = GitSessionContext(result)
+        if next != gitContext { gitContext = next }
+        if next.isGit, let changes = try? await handle.fetchGitChanges(sessionName: session.sessionName) {
+            let n = changes.status == .ok ? changes.entries.count : 0
+            if n != gitDirtyCount { gitDirtyCount = n }
+        } else if gitDirtyCount != 0 {
+            gitDirtyCount = 0
+        }
     }
 
     /// Interrupts the agent (one Esc, which both Claude Code and Antigravity take as "stop what you

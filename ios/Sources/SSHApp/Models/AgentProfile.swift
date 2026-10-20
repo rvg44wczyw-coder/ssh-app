@@ -274,7 +274,11 @@ public struct SavedAgentProfile: Identifiable, Codable, Equatable, Sendable {
 
     /// Compiled launch command, or the validation error from the core.
     public func launchCommand() -> Result<String, Error> {
-        Result { try buildAgentLaunchCommand(profile: coreProfile) }
+        // A bad model name must fail the launch, not fall back to the plain profile in `coreProfile`.
+        Result {
+            if isLocal { _ = try buildLocalAgentProfile(tool: localTool, model: localModel) }
+            return try buildAgentLaunchCommand(profile: coreProfile)
+        }
     }
 }
 

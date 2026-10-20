@@ -256,8 +256,9 @@ public struct WebPreviewSheetView: View {
                 LazyVStack(alignment: .leading, spacing: 4) {
                     ForEach(consoleLogs) { log in
                         HStack(alignment: .top, spacing: 6) {
-                            Text(log.level == "error" ? "🛑" : (log.level == "warn" ? "⚠️" : "💬"))
+                            Image(systemName: log.level == "error" ? "xmark.octagon.fill" : (log.level == "warn" ? "exclamationmark.triangle.fill" : "text.bubble"))
                                 .font(.system(size: 10))
+                                .foregroundColor(log.level == "error" ? .red : (log.level == "warn" ? .orange : .secondary))
                             Text(log.message)
                                 .font(.system(size: 11, design: .monospaced))
                                 .foregroundColor(log.level == "error" ? .red : .primary)

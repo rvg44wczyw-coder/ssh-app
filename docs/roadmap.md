@@ -196,6 +196,18 @@
 - **Stage 1 implemented**: OpenCode, Qwen Code, Crush (phone approvals), Cline, Aider, Goose, Ollama chat (launch only). Hook behaviour of the three approval-capable tools is from their docs and fake-driven tests, not run live.
 - **Stage 2 implemented** (assistant as a card per server, chat state in `AssistantStore`, in memory; see §7 of the spec). UI not run on a device.
 
+### Feature 36 / M25: Agent Feed Presentation Styles (`docs/features/36-agent-feed-styles.md`)
+- **Doc**: `docs/features/36-agent-feed-styles.md`
+- **Scope**: User-switchable feed styling in Settings (`Pro Terminal`, `Native Assistant`, `Dev Studio`), strict no-emoji policy (SF Symbols & clean typography only), adaptive attributed text layout in `FeedTextView`, and responsive prompt cards.
+- **Roles**: `doc-dev`, `ios-ui-dev`, `rev`
+- **Status**: Implemented in `ios/` (2026-10-20): three styles, git header with shortened long names, Dev Studio pipeline checklist, emoji audit; unit tests pass. Not yet checked on a device or reviewed by `rev`.
+
+### Feature 37 / M26: Multi-Agent Mesh & Cross-Server Room Federation (`docs/features/37-multi-agent-trio-chat.md`)
+- **Doc**: `docs/features/37-multi-agent-trio-chat.md`
+- **Scope**: Multi-agent collaboration across arbitrary N sessions on a server and cross-server mesh federation (bridging MacBook, Linux GPU servers, and cloud hosts). Phase 1: Dual-Session Bridge; Phase 2: Driver & Reviewer audit cards; Phase 3: MCP Peer consultation; Phase 4: Local N-session mesh room; Phase 5: Cross-server federation over client SSH channels with distributed write leases. Strict no-emoji design (SF Symbols and participant glyphs: User `❯`, Claude `●`, agy `○`, Ollama `⬡`, Shell `>_`).
+- **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
+- **Status**: Spec written (2026-10-20), implementation pending.
+
 ## Plan limits (2026-10-18)
 - Claude: real 5h/7d percentages come only from the `statusLine` JSON (`rate_limits`). The hook script has a `claude statusline` mode (wrapper that records them under `~/.ssh-app/run/limits/<hash of CLAUDE_CONFIG_DIR>.json` and runs the user's previous status line); installed per profile from the Hooks screen ("Plan limits"), so the personal profile (`~/.claude-personal`) is covered by its own config dir. The usage probe shows them in the strip (`5h 42% 7d 18%`).
 - Codex: read from its own session files (`token_count.rate_limits`). Format taken from memory/docs, not verified on a live Codex.

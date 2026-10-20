@@ -994,6 +994,61 @@ pub fn transcript_matches_screen(file: Vec<TranscriptTurn>, screen: String) -> b
         .any(|c| screen.contains(c.as_str()))
 }
 
+/// A message of several paragraphs is drawn by the agent as its first paragraph at the prompt and
+/// the rest as indented text after a blank line, which reads like a reply. The session file has the
+/// message whole: paragraphs on the screen that continue a user turn exactly as the file's message
+/// goes on are taken back into that user turn.
+fn absorb_user_paragraphs(
+    screen: Vec<TranscriptTurn>,
+    file: &[TranscriptTurn],
+) -> Vec<TranscriptTurn> {
+    let said: Vec<String> = file
+        .iter()
+        .filter(|t| t.turn_type == TranscriptTurnType::User)
+        .filter_map(|t| t.content.as_deref())
+        .map(squash)
+        .collect();
+    let plain_text = |t: &TranscriptTurn| {
+        t.turn_type == TranscriptTurnType::Assistant
+            && t.thinking.is_none()
+            && t.tool_calls.is_empty()
+            && t.content.as_deref().is_some_and(|c| !c.trim().is_empty())
+    };
+    let mut out: Vec<TranscriptTurn> = Vec::with_capacity(screen.len());
+    let mut i = 0;
+    while i < screen.len() {
+        let mut turn = screen[i].clone();
+        i += 1;
+        if turn.turn_type == TranscriptTurnType::User {
+            let head = squash(turn.content.as_deref().unwrap_or(""));
+            if !head.is_empty() {
+                if let Some(full) = said
+                    .iter()
+                    .rev()
+                    .find(|m| m.len() > head.len() && m.starts_with(&head))
+                {
+                    let mut rest = full[head.len()..].trim_start().to_string();
+                    let mut text = turn.content.clone().unwrap_or_default();
+                    while i < screen.len() && plain_text(&screen[i]) {
+                        let para = screen[i].content.clone().unwrap_or_default();
+                        let sq = squash(&para);
+                        if sq.is_empty() || !rest.starts_with(&sq) {
+                            break;
+                        }
+                        rest = rest[sq.len()..].trim_start().to_string();
+                        text.push_str("\n\n");
+                        text.push_str(para.trim());
+                        i += 1;
+                    }
+                    turn.content = Some(text);
+                }
+            }
+        }
+        out.push(turn);
+    }
+    out
+}
+
 /// Thinking whose turn is not found goes before the next one that is; thinking after the last
 /// match is dropped rather than put in a wrong place.
 #[uniffi::export]
@@ -1001,6 +1056,7 @@ pub fn merge_thinking(
     screen: Vec<TranscriptTurn>,
     file: Vec<TranscriptTurn>,
 ) -> Vec<TranscriptTurn> {
+    let screen = absorb_user_paragraphs(screen, &file);
     let mut before: Vec<Vec<String>> = vec![Vec::new(); screen.len() + 1];
     let mut pending: Vec<String> = Vec::new();
     let mut cursor = 0usize;
@@ -1453,6 +1509,35 @@ Ready to submit your answers?
             status: TranscriptStatus::Done,
             label: None,
         }
+    }
+
+    fn assistant_text(text: &str) -> TranscriptTurn {
+        TranscriptTurn {
+            turn_type: TranscriptTurnType::Assistant,
+            ..user(text)
+        }
+    }
+
+    #[test]
+    fn paragraphs_of_your_message_drawn_as_a_reply_go_back_into_it() {
+        let screen = vec![
+            user("напрямую через Tailscale сокет."),
+            assistant_text("Не подходит, ts тут чисто сети."),
+            assistant_text("A real reply."),
+        ];
+        let file = vec![user(
+            "напрямую через Tailscale сокет.\n\nНе подходит, ts тут чисто сети.",
+        )];
+        let merged = absorb_user_paragraphs(screen.clone(), &file);
+        assert_eq!(merged.len(), 2);
+        assert_eq!(
+            merged[0].content.as_deref(),
+            Some("напрямую через Tailscale сокет.\n\nНе подходит, ts тут чисто сети.")
+        );
+        assert_eq!(merged[1].content.as_deref(), Some("A real reply."));
+        // a reply that merely follows the message is left alone
+        let alone = absorb_user_paragraphs(screen, &[user("напрямую через Tailscale сокет.")]);
+        assert_eq!(alone.len(), 3);
     }
 
     #[test]

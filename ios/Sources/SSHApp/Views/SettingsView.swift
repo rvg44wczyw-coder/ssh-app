@@ -76,6 +76,7 @@ public struct SettingsView: View {
     @AppStorage("always_show_ai_assistant") private var legacyAlwaysShowAi: Bool = false
 
     @AppStorage(AppAccent.storageKey) private var accentRaw: String = AppAccent.blue.rawValue
+    @AppStorage(FeedPresentationStyle.storageKey) private var feedStyleRaw: String = FeedPresentationStyle.fallback.rawValue
     @AppStorage(TerminalFolder.storageKey) private var terminalFolder: String = TerminalFolder.fallback
     @State private var schemeRefresh = 0
     @AppStorage("usage_strip_enabled") private var usageStripEnabled: Bool = true
@@ -112,6 +113,17 @@ public struct SettingsView: View {
 
     private var appearancePage: some View {
         Form {
+            Section(
+                header: Text("Agent feed style"),
+                footer: Text(FeedPresentationStyle.resolved(feedStyleRaw).subtitle + ". Applies to the feed of Claude Code and Antigravity tabs at once.")
+            ) {
+                Picker("Style", selection: $feedStyleRaw) {
+                    ForEach(FeedPresentationStyle.allCases) { style in
+                        Label(style.title, systemImage: style.iconName).tag(style.rawValue)
+                    }
+                }
+                .pickerStyle(.navigationLink)
+            }
             Section(header: Text("App icon"), footer: Text(iconError ?? "The icon on the home screen. iOS shows a confirmation when it changes. iOS only allows icons that ship inside the app, so your own picture can be used for tabs and profiles (Agent profiles → Icon), not for the home screen.")) {
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: 12) {
                     ForEach(AppIconChoice.Design.allCases) { design in

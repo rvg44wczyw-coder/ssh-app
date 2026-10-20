@@ -50,7 +50,28 @@ fn load_pending(p: &Paths, name: &str, now: i64) -> Option<Value> {
     ] {
         o.get(k)?.as_str()?;
     }
-    (o["expires"].as_i64()? > now).then_some(req)
+    if o["expires"].as_i64()? <= now {
+        return None;
+    }
+    // An approval whose hook is gone (the agent was killed or restarted) asks about nothing.
+    if o["kind"] == "approval" {
+        if let Some(pid) = o.get("pid").and_then(Value::as_i64).filter(|p| *p > 1) {
+            if !process_alive(pid) {
+                unlink(&p.pending.join(name));
+                return None;
+            }
+        }
+    }
+    Some(req)
+}
+
+fn process_alive(pid: i64) -> bool {
+    let Ok(pid) = i32::try_from(pid) else {
+        return true;
+    };
+    // SAFETY: signal 0 only checks that the process exists.
+    let r = unsafe { libc::kill(pid, 0) };
+    r == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
 /// Every valid pending entry, oldest first (not truncated; the agent derives state from it).
@@ -199,4 +220,18 @@ fn decide(p: &Paths, rid: &str, body: &Value, req: Option<&Value>) -> Value {
         return error("could not write the decision");
     }
     json!({"ok": true})
+}
+
+#[cfg(test)]
+mod stale_tests {
+    use super::process_alive;
+
+    #[test]
+    fn a_finished_hook_is_not_alive_and_this_process_is() {
+        assert!(process_alive(i64::from(std::process::id())));
+        let mut child = std::process::Command::new("true").spawn().unwrap();
+        let pid = i64::from(child.id());
+        child.wait().unwrap();
+        assert!(!process_alive(pid));
+    }
 }

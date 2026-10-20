@@ -99,6 +99,9 @@ pub fn compute_state(p: &Paths) -> (StateMap, usize) {
             let state = match (kind, r["event"].as_str()) {
                 ("approval", _) => "approval",
                 (_, Some("Stop")) => "finished",
+                // The agent stopped without a closing answer (a failed step, a crash): it is not done,
+                // it needs you ("An agent is waiting for you"), not "finished".
+                (_, Some("StopFailed")) => "waiting",
                 _ => "waiting",
             };
             let e = map.entry(key).or_insert(Entry {

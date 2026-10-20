@@ -79,7 +79,7 @@ struct QuickCommandsEditorView: View {
                 } header: {
                     Text("Buttons above the keyboard")
                 } footer: {
-                    Text("The ⏎ switch sends Return after the command; “Ask before sending” shows a confirmation on tap. Press and hold a button to open its menu (the /model button lists the models of the tab's agent). Put {{clipboard}} in a command to paste the clipboard text there (the 📋 button is just that). Esc, Ctrl, Tab and arrows are on the system keyboard bar.")
+                    Text("The ⏎ switch sends Return after the command; “Ask before sending” shows a confirmation on tap. Press and hold a button to open its menu (the /model button lists the models of the tab's agent). Put {{clipboard}} in a command to paste the clipboard text there (a clipboard button is just that). Esc, Ctrl, Tab and arrows are on the system keyboard bar.")
                 }
                 Section {
                     Button("Reset to defaults", role: .destructive) { store.resetToDefaults() }

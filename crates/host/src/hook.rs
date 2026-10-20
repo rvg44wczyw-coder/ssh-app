@@ -123,6 +123,111 @@ fn parse_call(agent: &str, data: &Value) -> Option<Call> {
     })
 }
 
+/// Whether the conversation's transcript ends with the model's reply (a finished turn). A transcript
+/// that ends on a command result, an error or the user's own input means the agent stopped midway.
+/// Unreadable or missing: assume it finished (no false alarm).
+fn agy_ended_with_answer(session: &str) -> bool {
+    use std::io::{Read, Seek, SeekFrom};
+    if session.is_empty()
+        || !session
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        return true;
+    }
+    let Some(home) = std::env::var_os("HOME") else {
+        return true;
+    };
+    let path = std::path::Path::new(&home)
+        .join(".gemini/antigravity-cli/brain")
+        .join(session)
+        .join(".system_generated/logs/transcript.jsonl");
+    let Ok(mut f) = std::fs::File::open(&path) else {
+        return true;
+    };
+    let len = f.metadata().map_or(0, |m| m.len());
+    // The last step can be long; its type and status come first in the line, so a window is enough.
+    let window = 256 * 1024u64;
+    if f.seek(SeekFrom::Start(len.saturating_sub(window))).is_err() {
+        return true;
+    }
+    let mut raw = Vec::new();
+    if f.take(window).read_to_end(&mut raw).is_err() {
+        return true;
+    }
+    let text = String::from_utf8_lossy(&raw);
+    let Some(last) = text
+        .lines()
+        .rev()
+        .find(|l| l.trim_start().starts_with('{') && l.trim_end().ends_with('}'))
+    else {
+        return true;
+    };
+    last_step_is_answer(last)
+}
+
+/// `command(...)` entries of Antigravity's `permissions.allow`, read from its settings file.
+fn agy_allow_entries() -> Vec<String> {
+    let Some(home) = std::env::var_os("HOME") else {
+        return Vec::new();
+    };
+    let path = std::path::Path::new(&home).join(".gemini/antigravity-cli/settings.json");
+    let Some(raw) = crate::queue::read_small(&path, 1 << 20) else {
+        return Vec::new();
+    };
+    serde_json::from_slice::<Value>(&raw)
+        .ok()
+        .and_then(|v| v["permissions"]["allow"].as_array().cloned())
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|e| e.as_str())
+        .filter_map(|e| e.strip_prefix("command(")?.strip_suffix(')'))
+        .map(String::from)
+        .collect()
+}
+
+fn agy_allows(command: &str) -> bool {
+    command_allowed_by(command, &agy_allow_entries())
+}
+
+/// A plain command (no chaining, pipes, substitution or redirection, nothing cut off) that equals an
+/// allow entry or continues it after a space; an entry ending in `*` is a prefix. Anything compound
+/// goes to the phone, where its parts can be seen.
+fn command_allowed_by(command: &str, entries: &[String]) -> bool {
+    let c = command.trim();
+    if c.is_empty()
+        || c.ends_with('…')
+        || c.chars().any(|ch| {
+            matches!(
+                ch,
+                ';' | '&' | '|' | '`' | '$' | '<' | '>' | '\n' | '\r' | '(' | ')' | '{' | '}'
+            )
+        })
+    {
+        return false;
+    }
+    entries.iter().any(|e| {
+        let e = e.trim();
+        if e.is_empty() {
+            return false;
+        }
+        match e.strip_suffix('*') {
+            Some(prefix) => !prefix.trim().is_empty() && c.starts_with(prefix.trim_end()),
+            None => c == e || c.strip_prefix(e).is_some_and(|rest| rest.starts_with(' ')),
+        }
+    })
+}
+
+fn last_step_is_answer(line: &str) -> bool {
+    let Ok(v) = serde_json::from_str::<Value>(line) else {
+        return true;
+    };
+    let kind = v["type"].as_str().unwrap_or("");
+    let status = v["status"].as_str().unwrap_or("");
+    let content = v["content"].as_str().unwrap_or("");
+    kind == "PLANNER_RESPONSE" && status == "DONE" && !content.trim().is_empty()
+}
+
 fn context_reply(p: &Paths, event: &str, key: &str, agent: &str) {
     let guard = load_guard(p);
     let text = guard_text(guard.get("context").and_then(|c| c.get(key)));
@@ -192,7 +297,17 @@ pub fn run(p: &Paths, args: &[String]) -> i32 {
             return 0;
         }
     }
-    // Notification / Stop and other passive events: fire-and-forget.
+    // Notification / Stop and other passive events: fire-and-forget. An Antigravity stop whose
+    // transcript does not end with the model's own answer is reported as a failure, not as "finished".
+    if agent == "antigravity" && event == "Stop" && !agy_ended_with_answer(&call.session) {
+        let failed = Base {
+            event: "StopFailed",
+            ..base
+        };
+        submit(p, "notify", &failed, false);
+        emit(&json!({"decision": "stop"}));
+        return 0;
+    }
     submit(p, "notify", &base, false);
     if agent == "antigravity" && event == "Stop" {
         emit(&json!({"decision": "stop"}));
@@ -237,6 +352,16 @@ fn permission(p: &Paths, agent: &str, event: &str, call: &Call, base: &Base, too
             emit(&out);
             return;
         }
+    }
+    // Antigravity's own allow list (`permissions.allow` in its settings): a plain command on it runs
+    // without asking in the terminal, so the phone is not asked either. No answer from the hook
+    // leaves the decision to the agent's own flow.
+    if agent == "antigravity"
+        && call.tool == "run_command"
+        && guard_match(&ask, &call.tool, &call.input, &call.cwd).is_none()
+        && agy_allows(base.command)
+    {
+        return;
     }
     let approved = submit(p, "approval", base, true);
     match agent {
@@ -299,5 +424,55 @@ fn permission(p: &Paths, agent: &str, event: &str, call: &Call, base: &Base, too
                 json!({"decision": "deny", "reason": "Denied from ssh-app on your phone"})
             }
         }),
+    }
+}
+
+#[cfg(test)]
+mod stop_tests {
+    use super::{command_allowed_by, last_step_is_answer};
+
+    #[test]
+    fn only_a_finished_model_reply_counts_as_an_answer() {
+        assert!(last_step_is_answer(
+            r#"{"step_index":9,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","content":"Done."}"#
+        ));
+        // ends on a failed command (the case that sent a false "finished")
+        assert!(!last_step_is_answer(
+            r#"{"step_index":161,"source":"MODEL","type":"GENERIC","status":"DONE","content":"Command exited with code 1."}"#
+        ));
+        // a reply that is only thinking, an error status, the user's own input
+        assert!(!last_step_is_answer(
+            r#"{"type":"PLANNER_RESPONSE","status":"DONE","thinking":"x"}"#
+        ));
+        assert!(!last_step_is_answer(
+            r#"{"type":"PLANNER_RESPONSE","status":"ERROR","content":"x"}"#
+        ));
+        assert!(!last_step_is_answer(
+            r#"{"type":"USER_INPUT","status":"DONE","content":"hi"}"#
+        ));
+        // not JSON: no false alarm
+        assert!(last_step_is_answer("garbage"));
+    }
+
+    #[test]
+    fn a_plain_command_on_the_agy_allow_list_skips_the_phone() {
+        let allow = vec![
+            "grep".to_string(),
+            "cargo test -p ssh-core".to_string(),
+            "git status*".to_string(),
+        ];
+        assert!(command_allowed_by("grep -rn foo src", &allow));
+        assert!(command_allowed_by("cargo test -p ssh-core --lib", &allow));
+        assert!(command_allowed_by("git status -s", &allow));
+        // not on the list, or only sharing letters with an entry
+        assert!(!command_allowed_by("grepx foo", &allow));
+        assert!(!command_allowed_by("cargo build", &allow));
+        // compound, substituted, redirected or cut off: the phone sees it
+        assert!(!command_allowed_by("grep foo && rm -rf ~", &allow));
+        assert!(!command_allowed_by("grep $(whoami)", &allow));
+        assert!(!command_allowed_by("grep foo > out", &allow));
+        assert!(!command_allowed_by("grep foo | sh", &allow));
+        assert!(!command_allowed_by("grep a…", &allow));
+        assert!(!command_allowed_by("", &allow));
     }
 }

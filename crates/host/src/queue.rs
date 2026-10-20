@@ -299,6 +299,8 @@ fn make_request(kind: &str, base: &Base, now: i64) -> Value {
         NOTIFY_TTL
     };
     json!({
+        // `pid`: the hook process that waits for the answer; when it is gone the request is stale.
+        "pid": std::process::id(),
         "v": 1, "id": rand_hex(16), "kind": kind, "agent": agent,
         "event": clean(base.event, MAX_FIELD), "tool": tool, "command": command, "cwd": cwd,
         "session": clean(base.session, MAX_FIELD), "ts": now, "nonce": rand_hex(16),

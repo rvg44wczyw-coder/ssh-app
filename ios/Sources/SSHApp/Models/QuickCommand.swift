@@ -127,7 +127,7 @@ public final class QuickCommandStore: ObservableObject {
     /// Long press on `/model` lists the models of the agent in the tab.
     static let modelMenu = QuickCommandMenu(source: .agentModels, template: "/model {choice}")
 
-    /// The former stock button, kept to recognise (and remove) it; the placeholder itself still
+    /// The former stock button (its label is stored data, never drawn now), kept to recognise (and remove) it; the placeholder itself still
     /// works in custom commands.
     static let pasteButton = QuickCommand(label: "📋", text: QuickCommand.clipboardToken, run: false, confirm: false)
 

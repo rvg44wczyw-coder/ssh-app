@@ -23,6 +23,7 @@ struct FeedTextView: UIViewRepresentable {
     /// Text size factor (pinch to change); `onScale` reports the new one when the gesture ends.
     let textScale: CGFloat
     let onScale: (CGFloat) -> Void
+    var presentation: FeedPresentationStyle = .assistant
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -56,7 +57,7 @@ struct FeedTextView: UIViewRepresentable {
         c.parent = self
         let width = (tv.bounds.width > 0 ? tv.bounds.width : UIScreen.main.bounds.width).rounded()
         let key = Coordinator.Inputs(turns: turns, thinking: expandedThinking, tools: expandedTools,
-                                     dark: dark, highlight: highlightVersion, scale: textScale, width: width)
+                                     dark: dark, highlight: highlightVersion, scale: textScale, width: width, look: presentation)
         if findToken != c.lastFind {
             c.lastFind = findToken
             tv.findInteraction?.presentFindNavigator(showingReplace: false)
@@ -77,6 +78,8 @@ struct FeedTextView: UIViewRepresentable {
             return
         }
 
+        FeedAttributedBuilder.presentation = presentation
+        FeedLayoutManager.presentation = presentation
         FeedAttributedBuilder.scale = textScale
         FeedAttributedBuilder.width = width
         let text = FeedAttributedBuilder.build(
@@ -129,11 +132,12 @@ struct FeedTextView: UIViewRepresentable {
             let highlight: Int
             let scale: CGFloat
             let width: CGFloat
+            let look: FeedPresentationStyle
 
             /// Everything but the turns is the same: only new output differs.
             func sameLook(as o: Inputs) -> Bool {
                 thinking == o.thinking && tools == o.tools && dark == o.dark
-                    && highlight == o.highlight && scale == o.scale && width == o.width
+                    && highlight == o.highlight && scale == o.scale && width == o.width && look == o.look
             }
         }
         var shownInputs: Inputs?
@@ -270,6 +274,15 @@ enum FeedAttributedBuilder {
     /// Text size factor set by the pinch gesture (1 = the designed sizes); applied to every size below.
     static var scale: CGFloat = 1
 
+    /// The look (feature 36): set by the view before each build, like `scale`.
+    static var presentation: FeedPresentationStyle = .assistant
+
+    /// Font of prose (replies, your messages, headings): proportional in the assistant and studio looks.
+    private static func body(_ weight: UIFont.Weight = .regular, size: CGFloat = size) -> UIFont {
+        presentation == .terminal ? mono(weight, size: size)
+            : UIFont.systemFont(ofSize: (size + (presentation == .assistant ? 2 : 1)) * scale, weight: weight)
+    }
+
     /// Width of the text view; the user's messages take the right part of it, the agent's the whole line.
     static var width: CGFloat = 390
 
@@ -287,7 +300,7 @@ enum FeedAttributedBuilder {
     /// Air between blocks: enough for one folded service line ("Worked for 8s") to sit between two
     /// blocks without touching them; tool calls of one reply stand closer together (but a frame reaches
     /// 5 pt past its text on each side, so the gap between two frames must stay above 10 pt).
-    private static let blockGap: CGFloat = 14
+    private static var blockGap: CGFloat { presentation == .assistant ? 18 : (presentation == .terminal ? 12 : 14) }
     private static let toolGap: CGFloat = 9
     private static var blockCounter = 0
 
@@ -309,7 +322,7 @@ enum FeedAttributedBuilder {
 
     private static func style(indent: CGFloat = 0, first: CGFloat? = nil, after: CGFloat = 2) -> NSMutableParagraphStyle {
         let p = NSMutableParagraphStyle()
-        p.lineSpacing = 2
+        p.lineSpacing = presentation == .assistant ? 4 : (presentation == .studio ? 3 : 2)
         p.paragraphSpacing = after
         p.firstLineHeadIndent = (first ?? indent) + pad
         p.headIndent = indent + pad
@@ -349,7 +362,7 @@ enum FeedAttributedBuilder {
                 appendService(run, into: out, expandedTools)
             case .approvalRequest:
                 i += 1
-                out.append(line("⚠ Approval requested\n", font: mono(.bold), color: .systemOrange))
+                out.append(line("[!] Approval requested\n", font: mono(.bold), color: .systemOrange))
                 if let c = turn.content, !c.isEmpty { out.append(line(c + "\n", indent: 14, after: 8)) }
             case .assistant:
                 i += 1
@@ -445,6 +458,10 @@ enum FeedAttributedBuilder {
                 }
             }
         }
+        if presentation == .studio, turn.toolCalls.count >= 2 {
+            appendPipeline(turn.toolCalls, into: out, expandedTools, dark, nextIsTool: nextIsTool)
+            return
+        }
         for (k, tc) in turn.toolCalls.enumerated() {
             let last = k == turn.toolCalls.count - 1
             appendTool(tc, into: out, open: expandedTools.contains(tc.callId),
@@ -452,6 +469,33 @@ enum FeedAttributedBuilder {
                        tight: !last || nextIsTool)
         }
         if turn.content?.isEmpty ?? true { gap(out, 4) }
+    }
+
+    /// Dev Studio: the tool calls of one reply as a checklist, `[✓] Read(file)`; a line opens the
+    /// usual detail of its call under it.
+    private static func appendPipeline(_ calls: [TranscriptToolCall], into out: NSMutableAttributedString,
+                                       _ expandedTools: Set<String>, _ dark: Bool, nextIsTool: Bool) {
+        let from = out.length
+        out.append(line("PIPELINE (\(calls.count) steps)\n", font: mono(.semibold, size: 11.5), color: .secondaryLabel, after: 3))
+        for tc in calls {
+            let mark = tc.status == .error ? "[✕]" : (tc.status == .running ? "[●]" : "[✓]")
+            let color: UIColor = tc.status == .error ? .systemRed : (tc.status == .running ? .systemYellow : .systemGreen)
+            let open = expandedTools.contains(tc.callId)
+            let row = NSMutableAttributedString()
+            row.append(line(mark + " ", color: color))
+            row.append(line(tc.toolName, font: mono(.semibold, size: 12.5)))
+            let summary = clip(tc.argumentsSummary.replacingOccurrences(of: "\n", with: " "), 60)
+            if !summary.isEmpty { row.append(line(" " + summary, font: mono(size: 12.5), color: .secondaryLabel)) }
+            row.append(line(open ? " ▾\n" : " ▸\n", color: .tertiaryLabel))
+            row.addAttribute(.paragraphStyle, value: style(indent: 28, first: 0, after: 1), range: NSRange(location: 0, length: row.length))
+            if let url = FeedToggle.tool(tc.callId).url {
+                row.addAttribute(.link, value: url, range: NSRange(location: 0, length: max(0, row.length - 1)))
+            }
+            out.append(row)
+            if open { appendToolBody(tc, into: out, open: true, full: expandedTools.contains(tc.callId + "+"), dark: dark) }
+        }
+        block(out, from: from, kind: "t")
+        gap(out, nextIsTool ? toolGap : blockGap)
     }
 
     // MARK: User bubble and XML tags
@@ -469,7 +513,7 @@ enum FeedAttributedBuilder {
                 let p = style(indent: margin, first: margin, after: 2)
                 let from = out.length
                 out.append(NSAttributedString(string: body + "\n", attributes: [
-                    .font: mono(), .foregroundColor: UIColor.label, .paragraphStyle: p,
+                    .font: Self.body(), .foregroundColor: UIColor.label, .paragraphStyle: p,
                 ]))
                 block(out, from: from, kind: "u\(Int(margin))")
                 gap(out, blockGap + 2)
@@ -700,7 +744,7 @@ enum FeedAttributedBuilder {
             }
             if let h = trimmed.firstMatch(of: /^(#{1,6})\s+(.*)$/) {
                 let level = h.1.count
-                let f = mono(.bold, size: level <= 2 ? 15.5 : size)
+                let f = body(.bold, size: level <= 2 ? 15.5 : size)
                 let m = NSMutableAttributedString(attributedString: line(lead(), color: .label, after: 0))
                 m.append(inline(String(h.2), base: f, color: level <= 2 ? .label : .secondaryLabel,
                                 indent: 14, first: 0, after: 4))
@@ -811,7 +855,7 @@ enum FeedAttributedBuilder {
     /// Bold, italic, `code` and strike-through as UIKit attributes; links stay plain text.
     static func inline(_ markdown: String, base: UIFont? = nil, color: UIColor = .label,
                        indent: CGFloat = 0, first: CGFloat = 0, after: CGFloat = 2) -> NSAttributedString {
-        let baseFont = base ?? mono()
+        let baseFont = base ?? body()
         let attr = FeedMarkdown.inline(markdown)
         let out = NSMutableAttributedString()
         for run in attr.runs {
@@ -1029,6 +1073,8 @@ enum ShellTree {
 /// block's text with `FeedLayoutManager.key` = "<kind>:<n>"; one block is one frame.
 final class FeedLayoutManager: NSLayoutManager {
     static let key = NSAttributedString.Key("feedBlock")
+    /// The look the frames are drawn in (set by the view with the text).
+    static var presentation: FeedPresentationStyle = .assistant
 
     override func drawBackground(forGlyphRange glyphsToShow: NSRange, at origin: CGPoint) {
         super.drawBackground(forGlyphRange: glyphsToShow, at: origin)
@@ -1047,27 +1093,53 @@ final class FeedLayoutManager: NSLayoutManager {
             guard !rect.isNull else { continue }
             let width = container.size.width
             var frame = CGRect(x: 1, y: rect.minY - 5, width: width - 2, height: rect.height + 10)
-            let fill: UIColor, stroke: UIColor
+            var fill: UIColor, stroke: UIColor?
+            var radius: CGFloat = 10
+            let look = Self.presentation
             switch kind.first {
             case "u":
                 let margin = CGFloat(Int(kind.dropFirst()) ?? 0)
                 frame = CGRect(x: max(1, margin - 2), y: frame.minY, width: width - max(1, margin - 2) - 1, height: frame.height)
-                fill = UIColor.tintColor.withAlphaComponent(0.14)
-                stroke = UIColor.tintColor.withAlphaComponent(0.45)
+                fill = UIColor.tintColor.withAlphaComponent(look == .assistant ? 0.20 : 0.14)
+                stroke = look == .assistant ? nil : UIColor.tintColor.withAlphaComponent(0.45)
+                radius = look == .assistant ? 18 : (look == .terminal ? 6 : 10)
             case "t":
-                fill = UIColor.secondarySystemFill.withAlphaComponent(0.5)
-                stroke = UIColor.separator.withAlphaComponent(0.6)
+                fill = UIColor.secondarySystemFill.withAlphaComponent(look == .terminal ? 0.3 : 0.5)
+                stroke = look == .assistant ? nil : UIColor.separator.withAlphaComponent(look == .terminal ? 0.35 : 0.7)
+                radius = look == .assistant ? 12 : (look == .terminal ? 6 : 10)
             default:
-                fill = UIColor.secondarySystemBackground.withAlphaComponent(0.35)
-                stroke = UIColor.separator
+                switch look {
+                case .terminal:
+                    fill = UIColor.clear
+                    stroke = UIColor.separator.withAlphaComponent(0.35)
+                    radius = 6
+                case .assistant:
+                    fill = UIColor.secondarySystemBackground.withAlphaComponent(0.55)
+                    stroke = nil
+                    radius = 16
+                case .studio:
+                    fill = UIColor.secondarySystemBackground.withAlphaComponent(0.6)
+                    stroke = UIColor.separator
+                    radius = 10
+                }
             }
             frame = frame.offsetBy(dx: origin.x, dy: origin.y)
-            let path = UIBezierPath(roundedRect: frame, cornerRadius: 10)
+            let path = UIBezierPath(roundedRect: frame, cornerRadius: radius)
+            if look == .assistant, kind.first != "u", let ctx = UIGraphicsGetCurrentContext() {
+                // a soft lift under the cards
+                ctx.saveGState()
+                ctx.setShadow(offset: CGSize(width: 0, height: 1), blur: 5, color: UIColor.black.withAlphaComponent(0.12).cgColor)
+                fill.setFill()
+                path.fill()
+                ctx.restoreGState()
+            }
             fill.setFill()
             path.fill()
-            stroke.setStroke()
-            path.lineWidth = 1
-            path.stroke()
+            if let stroke {
+                stroke.setStroke()
+                path.lineWidth = Self.presentation == .terminal ? 0.5 : 1
+                path.stroke()
+            }
         }
     }
 }

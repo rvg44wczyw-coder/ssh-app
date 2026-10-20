@@ -17,6 +17,36 @@ final class AgentFeedTests: XCTestCase {
         XCTAssertEqual(text.components(separatedBy: "\u{1b}[201~").count, 2)
     }
 
+    func testPresentationStyleRoundTripAndFallback() {
+        for style in FeedPresentationStyle.allCases {
+            XCTAssertEqual(FeedPresentationStyle.resolved(style.rawValue), style)
+        }
+        XCTAssertEqual(FeedPresentationStyle.resolved("nonsense"), FeedPresentationStyle.fallback)
+        XCTAssertEqual(FeedPresentationStyle.resolved(""), .assistant)
+    }
+
+    func testGitContextLabel() {
+        let ctx = GitSessionContext(isGit: true, repoName: "ssh-app", branch: "main", worktreeName: "ios-tests",
+                                    isWorktree: true, detached: false)
+        XCTAssertEqual(ctx.displayLabel, "ssh-app · main · wt ios-tests")
+        XCTAssertNil(GitSessionContext.none.displayLabel)
+    }
+
+    func testLongGitNamesAreShortenedInTheMiddle() {
+        XCTAssertEqual(GitSessionContext.short("main", limit: 28), "main")
+        let long = "feature/very-long-branch-name-for-ticket-ABC-12345"
+        let short = GitSessionContext.short(long, limit: GitSessionContext.branchLimit)
+        XCTAssertEqual(short.count, GitSessionContext.branchLimit)
+        XCTAssertTrue(short.hasPrefix("feature/"))
+        XCTAssertTrue(short.hasSuffix("12345"))
+        XCTAssertTrue(short.contains("…"))
+        let ctx = GitSessionContext(isGit: true, repoName: "r", branch: long, worktreeName: nil, isWorktree: false, detached: false)
+        XCTAssertEqual(ctx.label(full: true), "r · " + long)
+        XCTAssertEqual(ctx.label(full: false), "r · " + short)
+        // emoji / multi-scalar names are cut on characters, not bytes
+        XCTAssertEqual(GitSessionContext.short(String(repeating: "é", count: 40), limit: 10).count, 10)
+    }
+
     func testDraftAppendTypesOnlyTheNewEnd() {
         XCTAssertEqual(DraftSync.bytes(from: "hel", to: "hello"), Array("lo".utf8))
         XCTAssertEqual(DraftSync.bytes(from: "hello", to: "hello"), [])

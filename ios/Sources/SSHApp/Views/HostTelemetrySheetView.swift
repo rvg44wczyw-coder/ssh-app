@@ -344,7 +344,7 @@ public struct HostTelemetrySheetView: View {
                             Text(String(format: "MEM %.1f%%", proc.memPercent))
                                 .font(.system(size: 10, design: .monospaced))
                                 .foregroundColor(.secondary)
-                            Text("⏱ \(proc.elapsed)")
+                            Label(proc.elapsed, systemImage: "clock")
                                 .font(.system(size: 10, design: .monospaced))
                                 .foregroundColor(.secondary)
                         }

@@ -6,6 +6,13 @@ import SshCoreBridge
 public struct StructuredTranscriptView: View {
     @ObservedObject var viewModel: TerminalSessionViewModel
     @State private var promptText: String = ""
+    @AppStorage(FeedPresentationStyle.storageKey) private var feedStyleRaw: String = FeedPresentationStyle.fallback.rawValue
+    /// Tap on the branch / worktree names: shortened names shown whole (and back).
+    @State private var gitNamesFull = false
+    /// Long press on the git names opens the matching git screen.
+    private enum GitSheet: String, Identifiable { case changes, branches, worktrees; var id: String { rawValue } }
+    @State private var gitSheet: GitSheet?
+    private var look: FeedPresentationStyle { FeedPresentationStyle.resolved(feedStyleRaw) }
     @State private var atBottom = true
     /// Pinch in the feed changes this (0.75-1.8); kept across launches.
     @AppStorage("feedTextScale") private var feedTextScale: Double = 1.0
@@ -34,9 +41,11 @@ public struct StructuredTranscriptView: View {
         self.viewModel = viewModel
     }
 
-    public var body: some View {
-        VStack(spacing: 0) {
-            // Header Bar: Active path & Refresh action
+    /// Agent and git context instead of a file path; the look decides the arrangement.
+    private var feedHeader: some View {
+        let git = viewModel.gitContext
+        let agent = viewModel.feedAgentName
+        return VStack(spacing: 0) {
             HStack(spacing: 8) {
                 Button { viewModel.toggleChatMode() } label: {
                     Label("Terminal", systemImage: "terminal.fill")
@@ -46,47 +55,106 @@ public struct StructuredTranscriptView: View {
                         .background(Color.appAccent.opacity(0.15), in: Capsule())
                 }
                 .accessibilityHint("Switch this tab back to the raw terminal")
+                switch look {
+                case .terminal:
+                    Image(systemName: "circle.fill").font(.system(size: 6)).foregroundColor(.green)
+                    Text([agent, git.label(full: gitNamesFull)].compactMap { $0 }.joined(separator: " · "))
+                        .font(.system(size: 11, design: .monospaced))
+                        .lineLimit(gitNamesFull ? 3 : 1).truncationMode(.middle)
+                        .foregroundColor(.secondary)
+                        .onTapGesture { withAnimation { gitNamesFull.toggle() } }
+                case .assistant:
+                    VStack(spacing: 2) {
+                        Text(agent).font(.system(size: 14, weight: .medium))
+                        if let branch = gitNamesFull ? git.branch : git.shortBranch {
+                            HStack(spacing: 4) {
+                                Image(systemName: "arrow.triangle.branch")
+                                Text(branch).lineLimit(gitNamesFull ? 3 : 1)
+                                if git.isWorktree, let wt = gitNamesFull ? git.worktreeName : git.shortWorktree {
+                                    Image(systemName: "square.stack.3d.down.right")
+                                    Text(wt).lineLimit(gitNamesFull ? 3 : 1)
+                                }
+                            }
+                            .onTapGesture { withAnimation { gitNamesFull.toggle() } }
+                            .font(.system(size: 11.5))
+                            .padding(.horizontal, 8).padding(.vertical, 2)
+                            .background(Color.secondary.opacity(0.14), in: Capsule())
+                            .foregroundColor(.secondary)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                case .studio:
+                    Text([agent, gitNamesFull ? git.repoName : git.shortRepo].compactMap { $0 }.joined(separator: " · "))
+                        .font(.system(size: 12, weight: .medium))
+                        .lineLimit(1)
+                }
+                if look != .assistant { Spacer() }
                 Button { findToken += 1 } label: {
                     Image(systemName: "magnifyingglass").font(.system(size: 13))
                 }
                 .accessibilityLabel("Find in feed")
-                Image(systemName: "doc.text.magnifyingglass")
-                    .font(.system(size: 11))
-                    .foregroundColor(.appAccent)
-
-                if let path = viewModel.activeTranscriptPath {
-                    Text(path)
-                        .font(.system(size: 10, design: .monospaced))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .foregroundColor(.secondary)
-                } else {
-                    Text("Auto-detecting transcript...")
-                        .font(.system(size: 10))
-                        .foregroundColor(.secondary)
-                }
-
-                Spacer()
-
                 if viewModel.isTranscriptLoading {
-                    ProgressView()
-                        .scaleEffect(0.7)
+                    ProgressView().scaleEffect(0.7)
                 } else {
-                    Button(action: {
-                        viewModel.loadTranscript()
-                    }) {
-                        HStack(spacing: 3) {
-                            Image(systemName: "arrow.clockwise")
-                            Text("Refresh")
-                        }
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundColor(.appAccent)
+                    Button { viewModel.loadTranscript() } label: {
+                        Image(systemName: "arrow.clockwise").font(.system(size: 12, weight: .semibold))
                     }
+                    .accessibilityLabel("Refresh")
                 }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
-            .background(Color.appSecondaryBackground)
+            if look == .studio, git.isGit {
+                // The git strip: branch and worktree as labelled chips.
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        if let branch = gitNamesFull ? git.branch : git.shortBranch { studioChip("BRANCH", branch) }
+                        if git.isWorktree, let wt = gitNamesFull ? git.worktreeName : git.shortWorktree { studioChip("WORKTREE", wt) }
+                        if viewModel.gitDirtyCount > 0 {
+                            studioChip("UNCOMMITTED", "\(viewModel.gitDirtyCount)")
+                                .onTapGesture { gitSheet = .changes }
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .onTapGesture { withAnimation { gitNamesFull.toggle() } }
+                }
+                .padding(.bottom, 6)
+            }
+        }
+        .background(Color.appSecondaryBackground)
+        .contextMenu {
+            if git.isGit {
+                Button { gitSheet = .branches } label: { Label("Branches", systemImage: "arrow.triangle.branch") }
+                Button { gitSheet = .worktrees } label: { Label("Worktrees", systemImage: "square.stack.3d.down.right") }
+                Button { gitSheet = .changes } label: { Label("Changes", systemImage: "square.and.arrow.up") }
+            }
+        }
+        .sheet(item: $gitSheet) { sheet in
+            switch sheet {
+            case .changes: ProjectSheetView(viewModel: viewModel, tab: .changes)
+            case .branches: ProjectSheetView(viewModel: viewModel, tab: .branches)
+            case .worktrees: GitWorktreesSheetView(viewModel: viewModel)
+            }
+        }
+        .task { await viewModel.loadGitContext() }
+    }
+
+    private func studioChip(_ title: String, _ value: String) -> some View {
+        HStack(spacing: 4) {
+            Text(title).font(.system(size: 10.5, weight: .semibold, design: .monospaced)).foregroundColor(.secondary)
+            Text(value).font(.system(size: 11.5, weight: .medium, design: .monospaced)).lineLimit(gitNamesFull ? 3 : 1)
+        }
+        .padding(.horizontal, 8).padding(.vertical, 3)
+        .background(Color.appTertiaryBackground, in: RoundedRectangle(cornerRadius: 6))
+    }
+
+    public var body: some View {
+        decorated(layout)
+    }
+
+    private var layout: some View {
+        VStack(spacing: 0) {
+            feedHeader
 
             Divider()
 
@@ -189,7 +257,8 @@ public struct StructuredTranscriptView: View {
                     dark: colorScheme == .dark,
                     highlightVersion: highlightVersion,
                     textScale: CGFloat(feedTextScale),
-                    onScale: { feedTextScale = Double($0) }
+                    onScale: { feedTextScale = Double($0) },
+                    presentation: look
                 )
                 .background(Color.appBackground)
                 .task(id: "\(viewModel.transcriptTurns.count)|\(viewModel.transcriptTurns.last?.content?.count ?? 0)|\(colorScheme == .dark)") {
@@ -318,6 +387,10 @@ public struct StructuredTranscriptView: View {
             .padding(.vertical, 8)
             .background(Color.appBackground)
         }
+    }
+
+    private func decorated<V: View>(_ content: V) -> some View {
+        content
         .photosPicker(isPresented: $showPhotoPicker, selection: $pickedPhotos, maxSelectionCount: 6,
                       matching: .any(of: [.images, .videos]))
         .onChange(of: pickedPhotos) { _, items in
