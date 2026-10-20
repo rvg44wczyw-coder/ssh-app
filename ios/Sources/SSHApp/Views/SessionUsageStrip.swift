@@ -5,6 +5,8 @@ import SshCoreBridge
 /// connection) so the main screen can show it. Only runs while the app is in the foreground.
 @MainActor
 final class SessionUsageMonitor: ObservableObject {
+    /// A monitor with nothing in it, for lines that have no usage numbers to show.
+    static let none = SessionUsageMonitor()
     @Published private(set) var usage: SessionUsage?
     @Published private(set) var report: HostUsageReport?
     @Published private(set) var loading = false
@@ -101,30 +103,113 @@ struct SessionUsageItems: View {
     }
 }
 
-/// One thin line under the tabs: model, context fill, 5-hour tokens and a "limit reached" notice.
-/// Tap to refresh.
-struct SessionUsageStrip: View {
-    @ObservedObject var monitor: SessionUsageMonitor
-    var onTap: () -> Void
+/// The one status line, the same above the terminal and above the feed: git (branch, worktree,
+/// changes), the agent's model, context and limits, the subagents, refresh, and the icon that
+/// switches the tab between terminal and feed. Tap refreshes; long press opens the git sheets.
+struct SessionStatusLine: View {
+    struct SwitchButton { let icon: String; let title: String; let hint: String }
+
+    @ObservedObject var viewModel: TerminalSessionViewModel
+    @ObservedObject var usage: SessionUsageMonitor
+    var onRefresh: (() -> Void)?
+    var switchButton: SwitchButton?
+    @State private var gitNamesFull = false
+    private enum GitSheet: String, Identifiable { case changes, branches, worktrees; var id: String { rawValue } }
+    @State private var gitSheet: GitSheet?
+
+    private var subagentCounts: (running: Int, total: Int) {
+        let calls = viewModel.transcriptTurns.flatMap(\.toolCalls).filter { $0.toolName == "Task" || $0.toolName == "Agent" }
+        return (calls.filter { $0.status == .running }.count, calls.count)
+    }
 
     var body: some View {
-        if SessionUsageItems.hasContent(monitor) {
-            Button(action: onTap) {
-                HStack(spacing: 8) {
-                    SessionUsageItems(monitor: monitor)
-                    Spacer(minLength: 0)
-                    if monitor.loading { ProgressView().controlSize(.mini) }
+        let git = viewModel.gitContext
+        let showsUsage = SessionUsageItems.hasContent(usage)
+        return HStack(spacing: 8) {
+            if !showsUsage {
+                Text(viewModel.feedAgentName).foregroundColor(.secondary)
+            }
+            if git.isGit, let branch = gitNamesFull ? git.branch : git.shortBranch {
+                HStack(spacing: 3) {
+                    Image(systemName: "arrow.triangle.branch")
+                    Text(branch).lineLimit(gitNamesFull ? 2 : 1).truncationMode(.middle)
+                        .fixedSize(horizontal: !gitNamesFull, vertical: false)
+                    if git.isWorktree, let wt = gitNamesFull ? git.worktreeName : git.shortWorktree {
+                        Image(systemName: "square.stack.3d.down.right")
+                        Text(wt).lineLimit(gitNamesFull ? 2 : 1).truncationMode(.middle)
+                            .fixedSize(horizontal: !gitNamesFull, vertical: false)
+                    }
+                    if viewModel.gitDirtyCount > 0 {
+                        Text("+\(viewModel.gitDirtyCount)").foregroundColor(.orange)
+                    }
                 }
-                .font(.system(size: 10, design: .monospaced))
-                .padding(.horizontal, 10)
-                .frame(height: 20)
-                .frame(maxWidth: .infinity)
-                .background(.bar)
+                .foregroundColor(.secondary)
+                // The branch keeps its width; the model name gives way first.
+                .layoutPriority(3)
+                .onTapGesture { withAnimation { gitNamesFull.toggle() } }
+            }
+            SessionUsageItems(monitor: usage)
+            let agents = subagentCounts
+            if agents.total > 0 {
+                HStack(spacing: 3) {
+                    Image(systemName: "person.2.fill")
+                    Text(agents.running > 0 ? "\(agents.running) agent\(agents.running == 1 ? "" : "s")" : "\(agents.total) ran")
+                }
+                .foregroundColor(agents.running > 0 ? .accentColor : .secondary)
+                .fixedSize()
+                .layoutPriority(2)
+            }
+            Spacer(minLength: 0)
+            Button {
+                onRefresh?()
+                Task { await viewModel.loadGitContext() }
+            } label: {
+                if usage.loading || viewModel.isTranscriptLoading {
+                    ProgressView().controlSize(.mini)
+                } else {
+                    Image(systemName: "arrow.clockwise")
+                }
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Model usage of this session")
-            .accessibilityHint("Double tap to refresh")
-            Divider()
+            .foregroundColor(.secondary)
+            .frame(minWidth: 24, minHeight: 22)
+            .accessibilityLabel("Refresh")
+            if let sw = switchButton {
+                Button { viewModel.toggleChatMode() } label: {
+                    Image(systemName: sw.icon)
+                        .font(.system(size: 12, weight: .semibold))
+                        .frame(width: 30, height: 22)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundColor(.accentColor)
+                .accessibilityLabel(sw.title)
+                .accessibilityHint(sw.hint)
+            }
         }
+        .font(.system(size: 10, design: .monospaced))
+        .padding(.horizontal, 10)
+        .frame(minHeight: 22)
+        .frame(maxWidth: .infinity)
+        .background(.bar)
+        .contentShape(Rectangle())
+        .onTapGesture { onRefresh?(); Task { await viewModel.loadGitContext() } }
+        .contextMenu {
+            if git.isGit {
+                Button { gitSheet = .branches } label: { Label("Branches", systemImage: "arrow.triangle.branch") }
+                Button { gitSheet = .worktrees } label: { Label("Worktrees", systemImage: "square.stack.3d.down.right") }
+                Button { gitSheet = .changes } label: { Label("Changes", systemImage: "square.and.arrow.up") }
+            }
+        }
+        .sheet(item: $gitSheet) { sheet in
+            switch sheet {
+            case .changes: ProjectSheetView(viewModel: viewModel, tab: .changes)
+            case .branches: ProjectSheetView(viewModel: viewModel, tab: .branches)
+            case .worktrees: GitWorktreesSheetView(viewModel: viewModel)
+            }
+        }
+        .task { await viewModel.loadGitContext() }
+        .accessibilityElement(children: .combine)
+        .accessibilityHint("Tap to refresh")
     }
 }

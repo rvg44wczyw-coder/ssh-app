@@ -432,11 +432,6 @@ public struct MainTerminalView: View {
 
                 Divider()
 
-                // In the feed the usage numbers are part of the feed's own line.
-                if usageStripEnabled, tabsManager.activeViewModel?.isChatMode != true {
-                    SessionUsageStrip(monitor: usageMonitor) { refreshUsage(force: true) }
-                }
-
                 approvalViews(onHome: false)
 
                 // Main Terminal Rendering Area

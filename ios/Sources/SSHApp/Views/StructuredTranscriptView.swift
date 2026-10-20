@@ -13,10 +13,7 @@ public struct StructuredTranscriptView: View {
     @State private var blinkTask: Task<Void, Never>?
     @AppStorage(FeedPresentationStyle.storageKey) private var feedStyleRaw: String = FeedPresentationStyle.fallback.rawValue
     /// Tap on the branch / worktree names: shortened names shown whole (and back).
-    @State private var gitNamesFull = false
     /// Long press on the git names opens the matching git screen.
-    private enum GitSheet: String, Identifiable { case changes, branches, worktrees; var id: String { rawValue } }
-    @State private var gitSheet: GitSheet?
     private var look: FeedPresentationStyle { FeedPresentationStyle.resolved(feedStyleRaw) }
     @State private var atBottom = true
     /// Pinch in the feed changes this (0.75-1.8); kept across launches.
@@ -57,103 +54,14 @@ public struct StructuredTranscriptView: View {
         self.onRefreshUsage = onRefreshUsage
     }
 
-    /// Subagents (Claude's Task / Agent tool) started in this session: working now, and in total.
-    private var subagentCounts: (running: Int, total: Int) {
-        let calls = viewModel.transcriptTurns.flatMap(\.toolCalls).filter { $0.toolName == "Task" || $0.toolName == "Agent" }
-        return (calls.filter { $0.status == .running }.count, calls.count)
-    }
-
-    /// The one line of the feed: git (branch, worktree, changes), then the agent's model, context
-    /// and limits. Search and refresh are in the session menu; the switch back to the terminal
-    /// floats over the right end (see `ActiveTerminalSessionView.modeSwitch`).
+    /// The one line above the feed: the same line as above the terminal.
     private var feedStrip: some View {
-        let git = viewModel.gitContext
-        let showsUsage = usage.map { SessionUsageItems.hasContent($0) } ?? false
-        return HStack(spacing: 8) {
-            if !showsUsage {
-                Text(viewModel.feedAgentName).foregroundColor(.secondary)
-            }
-            if git.isGit, let branch = gitNamesFull ? git.branch : git.shortBranch {
-                HStack(spacing: 3) {
-                    Image(systemName: "arrow.triangle.branch")
-                    Text(branch).lineLimit(gitNamesFull ? 2 : 1).truncationMode(.middle)
-                        .fixedSize(horizontal: !gitNamesFull, vertical: false)
-                    if git.isWorktree, let wt = gitNamesFull ? git.worktreeName : git.shortWorktree {
-                        Image(systemName: "square.stack.3d.down.right")
-                        Text(wt).lineLimit(gitNamesFull ? 2 : 1).truncationMode(.middle)
-                            .fixedSize(horizontal: !gitNamesFull, vertical: false)
-                    }
-                    if viewModel.gitDirtyCount > 0 {
-                        Text("+\(viewModel.gitDirtyCount)").foregroundColor(.orange)
-                    }
-                }
-                .foregroundColor(.secondary)
-                // The branch keeps its width; the model name gives way first.
-                .layoutPriority(3)
-                .onTapGesture { withAnimation { gitNamesFull.toggle() } }
-            }
-            if let usage { SessionUsageItems(monitor: usage) }
-            let agents = subagentCounts
-            if agents.total > 0 {
-                HStack(spacing: 3) {
-                    Image(systemName: "person.2.fill")
-                    Text(agents.running > 0 ? "\(agents.running) agent\(agents.running == 1 ? "" : "s")" : "\(agents.total) ran")
-                }
-                .foregroundColor(agents.running > 0 ? .accentColor : .secondary)
-                .fixedSize()
-                .layoutPriority(2)
-            }
-            Spacer(minLength: 0)
-            Button {
-                onRefreshUsage?()
-                Task { await viewModel.loadGitContext() }
-            } label: {
-                if usage?.loading == true || viewModel.isTranscriptLoading {
-                    ProgressView().controlSize(.mini)
-                } else {
-                    Image(systemName: "arrow.clockwise")
-                }
-            }
-            .buttonStyle(.plain)
-            .foregroundColor(.secondary)
-            .frame(minWidth: 24, minHeight: 22)
-            .accessibilityLabel("Refresh")
-            // The way back to the terminal: a still icon at the right end of this line.
-            Button { viewModel.toggleChatMode() } label: {
-                Image(systemName: "terminal.fill")
-                    .font(.system(size: 12, weight: .semibold))
-                    .frame(width: 30, height: 22)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .foregroundColor(.accentColor)
-            .accessibilityLabel("Terminal")
-            .accessibilityHint("Switch this tab back to the raw terminal")
-        }
-        .font(.system(size: 10, design: .monospaced))
-        .padding(.horizontal, 10)
-        .frame(minHeight: 22)
-        .frame(maxWidth: .infinity)
-        .background(.bar)
-        .contentShape(Rectangle())
-        .onTapGesture { onRefreshUsage?(); Task { await viewModel.loadGitContext() } }
-        .contextMenu {
-            if git.isGit {
-                Button { gitSheet = .branches } label: { Label("Branches", systemImage: "arrow.triangle.branch") }
-                Button { gitSheet = .worktrees } label: { Label("Worktrees", systemImage: "square.stack.3d.down.right") }
-                Button { gitSheet = .changes } label: { Label("Changes", systemImage: "square.and.arrow.up") }
-            }
-        }
-        .sheet(item: $gitSheet) { sheet in
-            switch sheet {
-            case .changes: ProjectSheetView(viewModel: viewModel, tab: .changes)
-            case .branches: ProjectSheetView(viewModel: viewModel, tab: .branches)
-            case .worktrees: GitWorktreesSheetView(viewModel: viewModel)
-            }
-        }
-        .task { await viewModel.loadGitContext() }
-        .accessibilityElement(children: .combine)
-        .accessibilityHint("Tap to refresh")
+        SessionStatusLine(
+            viewModel: viewModel,
+            usage: usage ?? SessionUsageMonitor.none,
+            onRefresh: onRefreshUsage,
+            switchButton: .init(icon: "terminal.fill", title: "Terminal", hint: "Switch this tab back to the raw terminal")
+        )
     }
 
     public var body: some View {

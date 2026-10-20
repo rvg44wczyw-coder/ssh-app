@@ -45,27 +45,20 @@ struct ActiveTerminalSessionView: View {
     @AppStorage(AiAssistantVisibility.storageKey) private var aiVisibilityRaw: String = ""
     @AppStorage("always_show_ai_assistant") private var legacyAlwaysShowAi: Bool = false
 
-    /// The switch from the terminal to the feed: a still icon in the top right corner of the
-    /// terminal. (In the feed the way back is an icon in the feed's own status line.)
-    private func modeSwitch(_ title: String, _ icon: String, hint: String) -> some View {
-        Button { viewModel.toggleChatMode() } label: {
-            Image(systemName: icon)
-                .font(.system(size: 13, weight: .semibold))
-                .frame(width: 34, height: 28)
-                .background(Color.appSecondaryBackground.opacity(0.92), in: Capsule())
-                .overlay(Capsule().stroke(Color.secondary.opacity(0.25), lineWidth: 0.5))
-                .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .padding(.top, 6)
-        .padding(.trailing, 8)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-        .accessibilityLabel(title)
-        .accessibilityHint(hint)
+    /// The icon in the status line that opens the feed: offered when an agent runs here (also one
+    /// started by hand in a plain tab).
+    private var feedSwitch: SessionStatusLine.SwitchButton? {
+        guard viewModel.state == .connected, let agent = modelMenuAgent, agent != "ollama" else { return nil }
+        return .init(icon: "text.bubble", title: "Feed", hint: "Show this agent's conversation as a readable feed")
     }
 
     var body: some View {
         VStack(spacing: 0) {
+            // The same status line as above the feed.
+            if !viewModel.isChatMode {
+                SessionStatusLine(viewModel: viewModel, usage: usage ?? SessionUsageMonitor.none,
+                                  onRefresh: onRefreshUsage, switchButton: feedSwitch)
+            }
             ZStack(alignment: .top) {
                 if viewModel.isChatMode {
                     StructuredTranscriptView(viewModel: viewModel, usage: usage, onRefreshUsage: onRefreshUsage)
@@ -82,12 +75,6 @@ struct ActiveTerminalSessionView: View {
                     Text("SwiftTerm rendering is native on iOS")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     #endif
-                }
-
-                // The switch between terminal and feed: one place on both screens. An agent runs here
-                // (also one started by hand in a plain tab): offer the feed.
-                if !viewModel.isChatMode, viewModel.state == .connected, let agent = modelMenuAgent, agent != "ollama" {
-                    modeSwitch("Feed", "text.bubble", hint: "Show this agent's conversation as a readable feed")
                 }
 
                 // Top Connection Status Banner
