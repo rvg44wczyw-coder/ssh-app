@@ -592,8 +592,9 @@ public enum ModeSwitchPrefs {
     public static let xKey = "mode_switch_x"
     public static let yKey = "mode_switch_y"
     public static let opacityKey = "mode_switch_opacity"
-    /// Centre as a fraction of the screen: top right.
+    /// Centre as a fraction of the screen. A negative `y` means "docked": an icon at the right end
+    /// of the top line (the feed's status line), the default; a drag stores a real position.
     public static let defaultX = 0.88
-    public static let defaultY = 0.045
+    public static let defaultY = -1.0
     public static let defaultOpacity = 0.92
 }

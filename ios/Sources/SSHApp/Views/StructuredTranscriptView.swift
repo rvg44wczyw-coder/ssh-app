@@ -118,7 +118,8 @@ public struct StructuredTranscriptView: View {
             .foregroundColor(.secondary)
             .frame(minWidth: 24, minHeight: 22)
             .accessibilityLabel("Refresh")
-            // No room is kept for the terminal switch: by default it floats just below this line.
+            // Room for the terminal switch, docked as an icon at the right end of this line.
+            Color.clear.frame(width: 36, height: 1)
         }
         .font(.system(size: 10, design: .monospaced))
         .padding(.horizontal, 10)

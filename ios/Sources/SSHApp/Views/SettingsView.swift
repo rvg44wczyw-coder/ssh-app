@@ -136,7 +136,7 @@ public struct SettingsView: View {
                     Slider(value: $modeSwitchOpacity, in: 0...1, step: 0.05)
                     Text("\(Int(modeSwitchOpacity * 100))%").monospacedDigit().frame(width: 44, alignment: .trailing)
                 }
-                Button("Put it back in the top right corner") {
+                Button("Dock it in the top line again") {
                     modeSwitchX = ModeSwitchPrefs.defaultX
                     modeSwitchY = ModeSwitchPrefs.defaultY
                 }

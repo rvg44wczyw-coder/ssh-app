@@ -57,10 +57,11 @@ struct ActiveTerminalSessionView: View {
     private func modeSwitch(_ title: String, _ icon: String, hint: String) -> some View {
         GeometryReader { geo in
             let w = geo.size.width, h = geo.size.height
-            Label(title, systemImage: icon)
+            let docked = switchY < 0 || switchY == 0.045   // 0.045: the former default, stored by "put it back"
+            Image(systemName: icon)
                 .font(.system(size: 12, weight: .semibold))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 4)
                 .background(Color.appSecondaryBackground.opacity(switchOpacity), in: Capsule())
                 .overlay(Capsule().stroke(Color.secondary.opacity(switchLifted ? 0.8 : 0.25 * switchOpacity), lineWidth: switchLifted ? 1.5 : 0.5))
                 .scaleEffect(switchLifted ? 1.1 : 1)
@@ -68,8 +69,8 @@ struct ActiveTerminalSessionView: View {
                 .contentShape(Capsule())
                 .fixedSize()
                 .position(
-                    x: min(max(switchX * w + switchDrag.width, 40), max(40, w - 40)),
-                    y: min(max(switchY * h + switchDrag.height, 16), max(16, h - 16))
+                    x: docked && switchDrag == .zero ? w - 24 : min(max((docked ? (w - 24) / w : switchX) * w + switchDrag.width, 24), max(24, w - 24)),
+                    y: docked && switchDrag == .zero ? 12 : min(max((docked ? 12 / h : switchY) * h + switchDrag.height, 12), max(12, h - 12))
                 )
                 .onTapGesture { viewModel.toggleChatMode() }
                 .gesture(
@@ -87,14 +88,17 @@ struct ActiveTerminalSessionView: View {
                         }
                         .onEnded { value in
                             if case .second(true, let drag?) = value, w > 0, h > 0 {
-                                switchX = min(max(switchX + drag.translation.width / w, 0.05), 0.95)
-                                switchY = min(max(switchY + drag.translation.height / h, 0.01), 0.99)
+                                let baseX = docked ? (w - 24) / w : switchX
+                                let baseY = docked ? 12 / h : switchY
+                                switchX = min(max(baseX + drag.translation.width / w, 0.05), 0.95)
+                                switchY = min(max(baseY + drag.translation.height / h, 0.01), 0.99)
                             }
                             switchDrag = .zero
                             switchLifted = false
                         }
                 )
                 .accessibilityAddTraits(.isButton)
+                .accessibilityLabel(title)
                 .accessibilityHint(hint)
         }
     }
