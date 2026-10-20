@@ -77,16 +77,19 @@ public struct StructuredTranscriptView: View {
                 HStack(spacing: 3) {
                     Image(systemName: "arrow.triangle.branch")
                     Text(branch).lineLimit(gitNamesFull ? 2 : 1).truncationMode(.middle)
+                        .fixedSize(horizontal: !gitNamesFull, vertical: false)
                     if git.isWorktree, let wt = gitNamesFull ? git.worktreeName : git.shortWorktree {
                         Image(systemName: "square.stack.3d.down.right")
                         Text(wt).lineLimit(gitNamesFull ? 2 : 1).truncationMode(.middle)
+                            .fixedSize(horizontal: !gitNamesFull, vertical: false)
                     }
                     if viewModel.gitDirtyCount > 0 {
                         Text("+\(viewModel.gitDirtyCount)").foregroundColor(.orange)
                     }
                 }
                 .foregroundColor(.secondary)
-                .layoutPriority(0)
+                // The branch keeps its width; the model name gives way first.
+                .layoutPriority(3)
                 .onTapGesture { withAnimation { gitNamesFull.toggle() } }
             }
             if let usage { SessionUsageItems(monitor: usage) }
@@ -115,8 +118,7 @@ public struct StructuredTranscriptView: View {
             .foregroundColor(.secondary)
             .frame(minWidth: 24, minHeight: 22)
             .accessibilityLabel("Refresh")
-            // Room for the terminal switch floating over the right end.
-            Color.clear.frame(width: 78, height: 1)
+            // No room is kept for the terminal switch: by default it floats just below this line.
         }
         .font(.system(size: 10, design: .monospaced))
         .padding(.horizontal, 10)
