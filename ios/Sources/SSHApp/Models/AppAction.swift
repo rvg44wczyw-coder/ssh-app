@@ -219,8 +219,8 @@ public enum MenuGridPrefs {
         accessibility ? 2 : min(max(chosen, columnRange.lowerBound), columnRange.upperBound)
     }
 
-    /// A tile's cell: the icon plus room for its label.
-    public static func cellWidth(iconSize: Double) -> CGFloat { CGFloat(max(iconSize + 22, 62)) }
+    /// A tile's cell: the icon plus room for the hide badge in edit mode (tiles have no label).
+    public static func cellWidth(iconSize: Double) -> CGFloat { CGFloat(iconSize + 14) }
 
     /// Width of a menu panel: columns of cells, the gaps, the padding.
     public static func panelWidth(columns: Int, iconSize: Double) -> CGFloat {

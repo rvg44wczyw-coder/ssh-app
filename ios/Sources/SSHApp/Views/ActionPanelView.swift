@@ -96,7 +96,7 @@ struct ActionPanelView: View {
         // While customizing every tile is a toggle, never an action.
         let isEnabled = editing ? action.canHide : enabled(action)
         let title = action.title(isChatMode: isChatMode)
-        VStack(spacing: 4) {
+        VStack(spacing: 0) {
             ZStack {
                 Circle().fill(action.tint.opacity(isEnabled ? 0.18 : 0.08))
                 Image(systemName: action.systemImage(isChatMode: isChatMode, keyVisible: keyVisible))
@@ -114,12 +114,8 @@ struct ActionPanelView: View {
                         .offset(x: 6, y: -4)
                 }
             }
-            Text(title)
-                .font(.caption2)
-                .multilineTextAlignment(.center)
-                .lineLimit(2)
-                .foregroundColor(isEnabled ? .primary : .secondary)
         }
+        // Icons only: press and hold says what a tile does (and VoiceOver reads its name).
         .frame(maxWidth: .infinity)
         .opacity(editing && isHidden ? 0.4 : 1)
         .contentShape(Rectangle())
