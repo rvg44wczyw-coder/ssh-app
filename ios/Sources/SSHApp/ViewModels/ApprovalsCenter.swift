@@ -33,6 +33,11 @@ public final class ApprovalsCenter: ObservableObject {
     /// Hosts without an approval queue (hooks not installed) are checked far less often.
     private let idleInterval: Duration = .seconds(10)
     private var queueSeen = false
+    /// Requests this phone has answered, for a short time. A poll that was already
+    /// in flight when the answer was sent still lists the request; without this it would flash
+    /// back for a moment. After 30 s a request the host still lists is shown again (it was not taken).
+    private var decided: [String: Date] = [:]
+    private let decidedGrace: TimeInterval = 30
 
     public init() {}
 
@@ -84,7 +89,10 @@ public final class ApprovalsCenter: ObservableObject {
                 let list: ApprovalList
                 if singleHost {
                     usedWait = true
+                    // Answered requests count as known, so the host's long poll does not return at once for them.
+                    let prefix = target.serverKey + "/"
                     let known = entries.filter { $0.serverKey == target.serverKey }.map { $0.item.id }
+                        + decided.keys.filter { $0.hasPrefix(prefix) }.map { String($0.dropFirst(prefix.count)) }
                     list = try await handle.waitPendingApprovals(knownIds: known)
                 } else {
                     list = try await handle.listPendingApprovals()
@@ -94,8 +102,10 @@ public final class ApprovalsCenter: ObservableObject {
                 if list.hostTimeSec > 0 { anyQueue = true }
                 let fetched = Date()
                 for item in list.items {
+                    let id = "\(target.serverKey)/\(item.id)"
+                    if let at = decided[id], Date().timeIntervalSince(at) < decidedGrace { continue }
                     merged.append(ApprovalEntry(
-                        id: "\(target.serverKey)/\(item.id)",
+                        id: id,
                         serverKey: target.serverKey,
                         serverName: target.serverName,
                         item: item,
@@ -110,6 +120,7 @@ public final class ApprovalsCenter: ObservableObject {
             }
         }
         if Task.isCancelled { return (usedWait, false) }
+        decided = decided.filter { Date().timeIntervalSince($0.value) < decidedGrace }
         queueSeen = anyQueue || seenKeys.isEmpty
         merged.sort { ($0.item.timestampSec, $0.id) < ($1.item.timestampSec, $1.id) }
         let newApprovals = merged.filter { $0.isApproval && !knownApprovalIds.contains($0.id) }
@@ -153,6 +164,7 @@ public final class ApprovalsCenter: ObservableObject {
         defer { busyIds.remove(entry.id) }
         do {
             try await handle.submitApprovalDecision(id: entry.item.id, approved: approved)
+            decided[entry.id] = Date()
             entries.removeAll { $0.id == entry.id }
             _ = await pollOnce()
         } catch {
