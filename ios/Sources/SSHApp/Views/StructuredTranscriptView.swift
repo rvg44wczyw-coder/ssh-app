@@ -85,7 +85,20 @@ public struct StructuredTranscriptView: View {
             }
             if let usage { SessionUsageItems(monitor: usage) }
             Spacer(minLength: 0)
-            if usage?.loading == true || viewModel.isTranscriptLoading { ProgressView().controlSize(.mini) }
+            Button {
+                onRefreshUsage?()
+                Task { await viewModel.loadGitContext() }
+            } label: {
+                if usage?.loading == true || viewModel.isTranscriptLoading {
+                    ProgressView().controlSize(.mini)
+                } else {
+                    Image(systemName: "arrow.clockwise")
+                }
+            }
+            .buttonStyle(.plain)
+            .foregroundColor(.secondary)
+            .frame(minWidth: 24, minHeight: 22)
+            .accessibilityLabel("Refresh")
             // Room for the terminal switch floating over the right end.
             Color.clear.frame(width: 78, height: 1)
         }
