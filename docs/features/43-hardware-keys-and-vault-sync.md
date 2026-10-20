@@ -4,7 +4,7 @@
 - **Target Release**: Milestone 32 (Enterprise Security & Cross-Device Key Management)
 - **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
 - **Hacker Gate**: Yes (cryptographic key import, FIDO2/WebAuthn assertions, iCloud sync encryption, Secure Enclave)
-- **Status**: Design Complete. Ready for `rev`.
+- **Status**: Not ready: FIDO2 and Secure Enclave plans are not feasible as written (`rev`, 2026-10-20; see the last section).
 
 ---
 
@@ -148,3 +148,16 @@ flowchart TD
 2. **Swift Platform Tests**:
    - CoreNFC YubiKey challenge-response flow mock.
    - CloudKit conflict resolution (last-write-wins with vector clocks for server metadata).
+
+---
+
+## Review (`rev`, 2026-10-20)
+
+- [High] iOS gives no raw CTAP2 over NFC/USB-C, and WebAuthn cannot use the `ssh:` relying party. A third-party library (for example YubiKit) and our own `sk-` signature assembly are needed; neither is in the spec.
+- [High] `complete_fido2_signature(auth_data, client_data_json, ...)` is the WebAuthn shape. An SSH `sk-` signature has no `clientDataJSON`; the format is flags + counter + signature.
+- [High] Secure Enclave keys are P-256 only, not Ed25519. That is a different key type with its own signing path in russh.
+- [High] Adding the iPad's key "with one tap" needs writing its key into `authorized_keys` and `allowed_signers` of every host. Define it; it is not the agent approval card.
+- [Medium] Syncing pinned host fingerprints through iCloud transfers trust; list it as a decision.
+- [Medium] OpenSSH keys use bcrypt-pbkdf, not Argon2; the Argon2 test cannot exist. High rounds take seconds on a phone.
+- [Medium] A Swift `String` passphrase cannot be zeroized; use `Data` and say what is out of reach.
+- [Low] `is_hardware_backed: Bool` is a typo for `bool`; vector clocks are overkill.

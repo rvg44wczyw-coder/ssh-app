@@ -4,7 +4,7 @@
 - **Target Release**: Milestone 27 (Multimodal Mobile Agent Control)
 - **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
 - **Hacker Gate**: Yes (file upload channels, path traversal, shell injection in agent prompts, image EXIF sanitization)
-- **Status**: Design Complete. Ready for `rev`.
+- **Status**: Reviewed: workable, fix before building (`rev`, 2026-10-20; see the last section).
 
 ---
 
@@ -213,3 +213,13 @@ stateDiagram-v2
    - Photo picker integration and thumbnail chip rendering.
    - Composer bar text formatting with image references.
    - Error handling upon network teardown.
+
+---
+
+## Review (`rev`, 2026-10-20)
+
+- [High] How `agy` receives an image is undefined ("flag or context"). Test it live; until then support Claude Code and Ollama only.
+- [High] Claude Code `@path` on an image file must be checked on a live session, not assumed.
+- [Medium] "Cleanup daemon" contradicts the decision that no daemon runs without a phone session. Prune on connect.
+- [Medium] Ollama base64 upload needs a defined path from the phone to the host's Ollama (the app reaches it through SSH today); write it down.
+- [Medium] Everything depends on the helper; say what a host without it gets (nothing, with a clear message).

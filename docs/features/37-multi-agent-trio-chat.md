@@ -4,7 +4,7 @@
 - **Target Release**: Milestone 26 (Collaborative Multi-Agent Intelligence)
 - **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
 - **Hacker Gate**: Yes (multi-session execution dispatch, cross-host message routing, distributed workspace locks)
-- **Status**: Draft Spec (2026-10-20). Follows `31-agent-feed.md`, `36-agent-feed-styles.md`, and `02-tmux-management-and-multi-server.md`.
+- **Status**: Not ready: sections 3.2-3.3 and the lock need a redesign (`rev`, 2026-10-20; see the last section).
 
 ---
 
@@ -408,3 +408,15 @@ pub fn plan_mesh_dispatch(
    - Messages passing from Host A to Host B are stripped of terminal control codes (`ESC[...]`) and formatted as sanitized markdown text wrapped in `<agent-context host="..." session="...">` containers to prevent prompt injection.
 4. **Zero Battery Drain**:
    - Backgrounding the iOS app tears down all SSH TCP channels to all servers. Long-running tasks on Host A and Host B continue unimpeded inside `tmux`. On foregrounding, the client reconnects and syncs timelines across all participating hosts.
+
+---
+
+## Review (`rev`, 2026-10-20)
+
+- [High] Section 3.3 says "Phone Dependent: No", but 3.1 routes every message through the client, and a backgrounded app closes its sockets. Only host-to-host data transfer is autonomous; agent-to-agent rounds are not. Say so.
+- [High] "mTLS 1.3 inside UDP" after STUN hole punching needs QUIC or DTLS, not TLS over TCP. The helper has no TLS stack. Choose one transport and a library, or drop direct host-to-host (the SSH relay through the client is enough for phases 1-5).
+- [High] The listener must not bind `0.0.0.0` on a laptop; bind the tailnet interface only.
+- [High] `.git/ssh-app-mesh.lock` blocks nothing: the agents' own `Edit` and `Write` do not read it. Enforcement is only a `PreToolUse` hook that denies writes without the lease, or read-only reviewers.
+- [Medium] The `<agent-context>` wrapper does not stop prompt injection between agents. State that cross-agent text is untrusted input and every relayed turn is shown to the user before it is sent on.
+- [Medium] "85-90 % of NATs" and the Cloudflare plan limits are unsourced. Verify against the provider before relying on them.
+- [Medium] Phases 4-5 do not fit one milestone; ship phases 1-2 first.

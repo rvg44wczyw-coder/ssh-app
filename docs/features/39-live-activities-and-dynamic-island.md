@@ -4,7 +4,7 @@
 - **Target Release**: Milestone 28 (Real-Time Ambient Agent Monitoring)
 - **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
 - **Hacker Gate**: Yes (ActivityKit push tokens, APNs relay payloads, remote control from lock screen)
-- **Status**: Design Complete. Ready for `rev`.
+- **Status**: Not ready: payload breaks the push rule, relay lacks Live Activity support (`rev`, 2026-10-20; see the last section).
 
 ---
 
@@ -183,3 +183,15 @@ sequenceDiagram
 2. **Swift Platform Tests**:
    - Widget preview tests for Compact, Minimal, and Expanded Dynamic Island views.
    - Deep-linking URL handler verification (`sshapp://session/<host>/<session-id>`).
+
+---
+
+## Review (`rev`, 2026-10-20)
+
+- [High] The payload carries tool names, commands and paths ("cargo test", "Edit in crates/core/auth.rs"). Push payloads carry no command, path or name text (feature 35). Send phase codes only; the app maps them to words.
+- [High] `scripts/apns-worker/relay.ts` sends `apns-push-type: alert` with fixed text. Live Activities need topic `<bundle>.push-type.liveactivity`, the per-activity token (it changes) and `content-state` instead of `alert`. This is a new relay protocol, not a tweak.
+- [High] Test progress ("42/128") cannot be derived: hooks see the command, not its output. Drop it; keep Thinking / Tool / Approval / Done.
+- [High] Hooks are synchronous. The helper must send the push detached; a hook must never wait for the network.
+- [Medium] An activity can only be started while the app is in the foreground, and the Lock Screen Stop button starts SSH from a background intent with seconds of runtime. Needs a device test; fall back to opening the app.
+- [Medium] Update budgets are limited; one push per 4 s will be throttled. Elapsed time is `Text(timerInterval:)`, never a push.
+- [Medium] The shared relay secret rule (35 section 5) applies here too.

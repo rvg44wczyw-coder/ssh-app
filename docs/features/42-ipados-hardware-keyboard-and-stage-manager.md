@@ -4,7 +4,7 @@
 - **Target Release**: Milestone 31 (iPadOS Desktop-Class Productivity)
 - **Roles**: `doc-dev`, `ios-ui-dev`, `rev`, `hacker`
 - **Hacker Gate**: No (UI/Windowing/Keyboard event dispatch; no network or crypto changes)
-- **Status**: Design Complete. Ready for `rev`.
+- **Status**: Reviewed: workable, three fixes (`rev`, 2026-10-20; see the last section).
 
 ---
 
@@ -95,3 +95,12 @@ In iPadOS Stage Manager, window boundaries can change dynamically when the user 
 2. **Key Command Tests**:
    - `UIKeyCommand` interception when physical keyboard is connected.
    - Ensuring `Cmd` modifiers do not leak unwanted characters into active shell panes.
+
+---
+
+## Review (`rev`, 2026-10-20)
+
+- [High] Do not call `tmux resize-window -x -y`: it pins the window size and breaks every other client, including the Mac. `window_change` on the SSH channel is enough.
+- [High] Multiple scenes versus "`sceneDidEnterBackground` closes all sockets": one window going to the background would close the other's sessions. Close sockets only when no scene is active.
+- [Medium] Two windows attached to the same tmux session fight over its size; allow one window per session.
+- [Medium] External display is one line here but is a separate scene with its own lifecycle; specify or defer.

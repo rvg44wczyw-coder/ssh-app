@@ -4,7 +4,7 @@
 - **Target Release**: Milestone 34 (Remote Container & Service Management)
 - **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
 - **Hacker Gate**: Yes (executing remote docker commands, container shell attach, container name sanitization)
-- **Status**: Design Complete. Ready for `rev`.
+- **Status**: Reviewed: fix status parsing, metrics and confirmations (`rev`, 2026-10-20; see the last section).
 
 ---
 
@@ -286,3 +286,14 @@ On the app's home dashboard, container sessions sit side-by-side with AI agent a
    - One-tap restart button triggering loading state and haptic feedback.
    - Logs viewer scrolling and clipboard copy action.
    - Spawning in-container terminal tab and verifying tab selection in `TerminalTabsManager`.
+
+---
+
+## Review (`rev`, 2026-10-20)
+
+- [High] `docker ps --format` has no memory or CPU. `docker stats --no-stream` does, takes 1-2 s, and must be a separate, optional call.
+- [High] `from_status_str` checks `starts_with("up")` first, so "Up 4 hours (Paused)" and "(unhealthy)" read as Running; "Created" is Unknown. Parse the state from the `State` field of the JSON, not from the status text.
+- [High] Restart and Stop need a confirmation (a production database).
+- [Medium] Names `a.b` and `a-b` give the same tmux session `docker-a-b`; add a short id suffix.
+- [Medium] The helper has no HTTP client for the socket; use `docker` itself first. On macOS with Docker Desktop the socket may be `~/.docker/run/docker.sock`.
+- [Medium] Say plainly that membership in the `docker` group is root on the host, and that a container shell does not pass through the hook guard.

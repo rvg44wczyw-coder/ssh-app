@@ -4,7 +4,7 @@
 - **Target Release**: Milestone 29 (Mobile Ergonomics & Natural Language Steering)
 - **Roles**: `doc-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
 - **Hacker Gate**: Yes (audio privacy, local on-device speech processing, microphone entitlement, prompt injection prevention)
-- **Status**: Design Complete. Ready for `rev`.
+- **Status**: Reviewed: fix the normalizer and the fallback (`rev`, 2026-10-20; see the last section).
 
 ---
 
@@ -125,3 +125,15 @@ pub fn sanitize_agent_voice_prompt(raw_transcript: String) -> String {
 2. **Swift UI Tests**:
    - Permission grant/denial flows for microphone and speech recognizer.
    - Composer insertion and undo/redo behavior.
+
+---
+
+## Review (`rev`, 2026-10-20)
+
+- [High] `"main dot py"` becomes `"main .py"`: the space before `dot` stays. The regex must consume it (`\s*\b(?:dot|point)\s+(ext)\b` replaced by `.ext`). The test `main dot py -> main.py` would fail as written.
+- [High] The fallback to ordinary keyboard dictation sends audio to Apple. That contradicts "no audio leaves the device"; if on-device recognition is unavailable, disable the microphone button.
+- [Medium] `camel case` and `snake case` are in scope but have no rule or test.
+- [Medium] `.expect("valid regex")` in non-test code; build the regexes in a way that cannot panic at runtime or cover them with a test.
+- [Medium] "dash a" also matches ordinary English; only convert after a command-like word or inside the composer's "code" mode.
+- [Medium] Russian speech with English terms is the real use case; the lexicon needs Russian forms ("точка эр эс") or the limitation must be stated. On-device recognition also has a per-request time limit.
+- [Low] The role list lacks `rust-core-dev`, although the code lives in `crates/core`.

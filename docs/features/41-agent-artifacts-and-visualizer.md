@@ -4,7 +4,7 @@
 - **Target Release**: Milestone 30 (Visual Artifact Inspection & Rich Rendering)
 - **Roles**: `doc-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
 - **Hacker Gate**: Yes (sandboxed WebView rendering, XSS prevention, Content Security Policy)
-- **Status**: Design Complete. Ready for `rev`.
+- **Status**: Not ready: extraction source and WebView loading are wrong (`rev`, 2026-10-20; see the last section).
 
 ---
 
@@ -129,3 +129,14 @@ img-src 'self' data:;
 2. **Swift UI Tests**:
    - WebView rendering verification with dark mode theme injection.
    - SVG export to UIImage and clipboard copy functionality.
+
+---
+
+## Review (`rev`, 2026-10-20)
+
+- [High] The feed parser reads the terminal screen, which has no code fences. Extraction works only from `transcript.jsonl` (Claude); say so and exclude agy.
+- [High] With `loadHTMLString(baseURL: nil)`, `script-src 'self'` cannot load `mermaid.min.js`. Inline it into the page (about 2.5 MB each time) or register a custom URL scheme handler.
+- [High] `allowFileAccessFromFileURLs` is a private key, not public API; do not rely on it. Block navigation in `WKNavigationDelegate` and use a non-persistent data store instead.
+- [High] `HtmlSnippet` with scripts contradicts "no XSS"; render without JavaScript or drop it.
+- [Medium] Mermaid must run with `securityLevel: 'strict'`; check that the pinned version works without `unsafe-eval` and supports `xychart-beta`.
+- [Medium] Saving to Photos needs the add-only usage string. The split diff duplicates the existing Git hunk viewer; reuse it.
