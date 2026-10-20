@@ -95,7 +95,7 @@ pub fn parse_screen_feed(text: String) -> ScreenFeed {
     let mut b = Builder::default();
     match dialect {
         Dialect::Claude => claude(&lines, &mut b),
-        Dialect::Agy => agy(&lines, &mut b),
+        Dialect::Agy => agy(&join_thought_wraps(&lines), &mut b),
         Dialect::Unknown => {
             let tail: Vec<&str> = lines.iter().map(String::as_str).collect();
             let keep = tail.len().saturating_sub(300);
@@ -797,6 +797,34 @@ fn tool_head(rest: &str) -> Option<(&str, &str)> {
 
 // MARK: Antigravity CLI
 
+/// An expanded thought block is wrapped by the agent itself, and the wrapped lines come back at
+/// column 0 (the first line of each paragraph is indented). Such a line belongs to the line above,
+/// up to the next marker (a call, a result, a prompt, a rule, a spinner).
+fn join_thought_wraps(lines: &[String]) -> Vec<String> {
+    let is_marker = |l: &str| {
+        l.starts_with(|c: char| "●○⎿>─⚠┃└▾▸".contains(c) || ('\u{2800}'..='\u{28ff}').contains(&c))
+    };
+    let mut out: Vec<String> = Vec::with_capacity(lines.len());
+    let mut in_thought = false;
+    for l in lines {
+        if is_thought_header(l) {
+            in_thought = true;
+        } else if l.is_empty() {
+            // blank lines stay: they separate paragraphs
+        } else if is_marker(l.trim_start()) && indent(l) < 2 {
+            in_thought = false;
+        } else if in_thought && indent(l) == 0 {
+            if let Some(prev) = out.last_mut().filter(|p| indent(p) >= 2) {
+                prev.push(' ');
+                prev.push_str(l.trim());
+                continue;
+            }
+        }
+        out.push(l.clone());
+    }
+    out
+}
+
 fn agy(lines: &[String], b: &mut Builder) {
     let mut other: Vec<String> = Vec::new();
     let mut i = 0;
@@ -855,6 +883,7 @@ fn agy(lines: &[String], b: &mut Builder) {
             while i < lines.len()
                 && !lines[i].is_empty()
                 && !lines[i].starts_with(|c: char| " ●○…>⚠─┃⎿".contains(c))
+                && !is_thought_header(&lines[i])
             {
                 full.push(' ');
                 full.push_str(lines[i].trim());
@@ -1084,6 +1113,22 @@ fn drop_expanded_thoughts(
                 let reply = t.content.as_deref().map(squash).filter(|c| !c.is_empty());
                 (k.chars().take(40).collect::<String>(), reply)
             })
+        })
+        .collect();
+    // A result note that swallowed the thought printed under it (the header line is missing):
+    // keep the first line, the rest is the file's thinking.
+    let screen: Vec<TranscriptTurn> = screen
+        .into_iter()
+        .map(|mut t| {
+            if t.turn_type == TranscriptTurnType::System && t.label.as_deref() == Some("Note") {
+                if let Some((head, rest)) = t.content.as_deref().and_then(|c| c.split_once('\n')) {
+                    let rest = squash(rest);
+                    if steps.iter().any(|(k, _)| rest.starts_with(k.as_str())) {
+                        t.content = Some(head.to_string());
+                    }
+                }
+            }
+            t
         })
         .collect();
     let mut out: Vec<TranscriptTurn> = Vec::with_capacity(screen.len());
@@ -1693,6 +1738,41 @@ Ready to submit your answers?
             .find(|t| t.label.as_deref() == Some("Note"))
             .expect("result");
         assert!(note.content.as_deref().unwrap_or("").contains("a.md"));
+    }
+
+    #[test]
+    fn a_thought_wrapped_back_to_column_zero_stays_one_paragraph() {
+        let screen = "> go\n\n● Edited 1 file (a.md) \n▾ Thought for 8s, 1.1k tokens\n  Begin documenting the existing codebase with detailed\nspecifics for someone unfamiliar.\n  \n  Next paragraph of the same thought.\n● Read(~/b.md)\n  ⎿  Read 54 lines\n\n────────────────────\n>\n────────────────────\n? for shortcuts                accept-edits · Gemini 3.8 Flash · medium\n";
+        let feed = parse_screen_feed(screen.to_string());
+        assert!(
+            feed.turns
+                .iter()
+                .all(|t| t.label.as_deref() != Some("Terminal output")),
+            "{:?}",
+            feed.turns
+                .iter()
+                .map(|t| t.label.clone())
+                .collect::<Vec<_>>()
+        );
+        let text = feed
+            .turns
+            .iter()
+            .find(|t| {
+                t.content
+                    .as_deref()
+                    .is_some_and(|c| c.starts_with("Begin documenting"))
+            })
+            .expect("the thought text");
+        assert!(text
+            .content
+            .as_deref()
+            .unwrap()
+            .contains("detailed specifics for someone"));
+        // the header after a folded group line is a marker of its own, not part of the group
+        assert!(feed.turns.iter().any(|t| t
+            .label
+            .as_deref()
+            .is_some_and(|l| l.starts_with("Thought for 8s"))));
     }
 
     #[test]
