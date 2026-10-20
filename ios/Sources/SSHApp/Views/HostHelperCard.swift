@@ -65,6 +65,7 @@ struct HostHelperCard: View {
             if isReady, viewModel.sessionHandle != nil, viewModel.state == .connected {
                 agentSection
                 PushSection(viewModel: viewModel)
+                HostCheckSection(viewModel: viewModel)
             }
             if let error { Text(error).font(.caption).foregroundColor(.red) }
             if busy {
@@ -347,5 +348,86 @@ private struct PushSection: View {
             message = error.localizedDescription
         }
         await refresh()
+    }
+}
+
+/// "Check this host" (feature 44): the helper's read-only `doctor` reports facts about the host and
+/// the core turns them into suggestions. Nothing is changed by looking.
+struct HostCheckSection: View {
+    @ObservedObject var viewModel: TerminalSessionViewModel
+    @State private var doctor: HostDoctor?
+    @State private var findings: [OnboardingFinding] = []
+    @State private var busy = false
+    @State private var failed = false
+
+    var body: some View {
+        Divider()
+        Text("Host check").font(.subheadline.bold())
+        Text("Looks at which tools and agents are on this host. It only reads; nothing is changed.")
+            .font(.caption2).foregroundColor(.secondary)
+        if let doctor {
+            Text(summary(doctor)).font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary)
+            if findings.isEmpty {
+                Label("Nothing to do", systemImage: "checkmark.circle").font(.caption).foregroundColor(.green)
+            }
+            ForEach(findings, id: \.id) { f in
+                VStack(alignment: .leading, spacing: 2) {
+                    Label(f.title, systemImage: symbol(f.level)).font(.caption.bold()).foregroundColor(color(f.level))
+                    Text(f.detail).font(.caption2).foregroundColor(.secondary)
+                }
+            }
+        } else if failed {
+            Text("The helper did not answer.").font(.caption).foregroundColor(.orange)
+        }
+        if busy {
+            ProgressView()
+        } else {
+            Button(doctor == nil ? "Check this host" : "Check again") { Task { await run() } }
+                .buttonStyle(.bordered)
+        }
+    }
+
+    private func summary(_ d: HostDoctor) -> String {
+        func tool(_ name: String, _ t: DoctorTool) -> String {
+            t.installed ? "\(name) \(t.version)".trimmingCharacters(in: .whitespaces) : "no \(name)"
+        }
+        var parts = [d.os + " " + d.arch, tool("tmux", d.tmux), tool("git", d.git), tool("python3", d.python3)]
+        parts.append(d.tailscale.installed ? "tailscale " + (d.tailscaleIp.isEmpty ? "on" : d.tailscaleIp) : "no tailscale")
+        if d.claudeFound { parts.append("claude") }
+        if d.antigravityFound { parts.append("agy") }
+        if d.ollamaInstalled { parts.append(d.ollamaRunning ? "ollama (running)" : "ollama (stopped)") }
+        return parts.joined(separator: " · ")
+    }
+
+    private func symbol(_ level: FindingLevel) -> String {
+        switch level {
+        case .needed: return "exclamationmark.triangle"
+        case .suggested: return "lightbulb"
+        case .info: return "info.circle"
+        }
+    }
+
+    private func color(_ level: FindingLevel) -> Color {
+        switch level {
+        case .needed: return .orange
+        case .suggested: return .accentColor
+        case .info: return .secondary
+        }
+    }
+
+    private func run() async {
+        guard let handle = viewModel.sessionHandle, let pin = await viewModel.helperPin() else { return }
+        busy = true; failed = false
+        defer { busy = false }
+        do {
+            if let d = try await handle.hostDoctor(expectedSha256: pin) {
+                doctor = d
+                findings = onboardingFindings(doctor: d)
+            } else {
+                failed = true
+            }
+        } catch {
+            failed = true
+        }
     }
 }

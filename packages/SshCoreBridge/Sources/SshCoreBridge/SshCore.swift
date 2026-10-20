@@ -1494,6 +1494,11 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func hostAgentState(expectedSha256: String) async throws  -> HostAgentState?
     
     /**
+     * Facts about the host from the pinned helper's `doctor`; `None` when the helper is not usable.
+     */
+    func hostDoctor(expectedSha256: String) async throws  -> HostDoctor?
+    
+    /**
      * Whether the typed host helper is installed and is exactly the build the app pins.
      */
     func hostHelperStatus(expectedSha256: String) async throws  -> HostHelperStatus
@@ -1595,6 +1600,13 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
      * absent, older or replaced helper falls back to the `ls -la` script.
      */
     func listRemoteDirectory(path: String?, includeHidden: Bool, helperSha256: String?) async throws  -> RemoteDirectoryListing
+    
+    /**
+     * Puts this phone's key on the host through the pinned helper (feature 44): the key and the
+     * device name travel on stdin, the helper appends to `authorized_keys` carefully and says
+     * whether anything changed.
+     */
+    func pairThisPhone(expectedSha256: String, deviceName: String) async throws  -> HostPairResult
     
     /**
      * Dry run: the hooks section a preset would produce (never other settings), without touching
@@ -2431,6 +2443,25 @@ open func hostAgentState(expectedSha256: String)async throws  -> HostAgentState?
 }
     
     /**
+     * Facts about the host from the pinned helper's `doctor`; `None` when the helper is not usable.
+     */
+open func hostDoctor(expectedSha256: String)async throws  -> HostDoctor?  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_host_doctor(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(expectedSha256)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterOptionTypeHostDoctor.lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
      * Whether the typed host helper is installed and is exactly the build the app pins.
      */
 open func hostHelperStatus(expectedSha256: String)async throws  -> HostHelperStatus  {
@@ -2781,6 +2812,27 @@ open func listRemoteDirectory(path: String?, includeHidden: Bool, helperSha256: 
             completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
             freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
             liftFunc: FfiConverterTypeRemoteDirectoryListing_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Puts this phone's key on the host through the pinned helper (feature 44): the key and the
+     * device name travel on stdin, the helper appends to `authorized_keys` carefully and says
+     * whether anything changed.
+     */
+open func pairThisPhone(expectedSha256: String, deviceName: String)async throws  -> HostPairResult  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_pair_this_phone(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(expectedSha256),FfiConverterString.lower(deviceName)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeHostPairResult_lift,
             errorHandler: FfiConverterTypeSshCoreError_lift
         )
 }
@@ -4506,6 +4558,66 @@ public func FfiConverterTypeCommandAnalysis_lower(_ value: CommandAnalysis) -> R
 }
 
 
+public struct DoctorTool: Equatable, Hashable {
+    public var installed: Bool
+    /**
+     * Empty when unknown.
+     */
+    public var version: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(installed: Bool, 
+        /**
+         * Empty when unknown.
+         */version: String) {
+        self.installed = installed
+        self.version = version
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension DoctorTool: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeDoctorTool: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> DoctorTool {
+        return
+            try DoctorTool(
+                installed: FfiConverterBool.read(from: &buf), 
+                version: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: DoctorTool, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.installed, into: &buf)
+        FfiConverterString.write(value.version, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDoctorTool_lift(_ buf: RustBuffer) throws -> DoctorTool {
+    return try FfiConverterTypeDoctorTool.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDoctorTool_lower(_ value: DoctorTool) -> RustBuffer {
+    return FfiConverterTypeDoctorTool.lower(value)
+}
+
+
 public struct EnvVar: Equatable, Hashable {
     public var key: String
     public var value: String
@@ -6208,6 +6320,129 @@ public func FfiConverterTypeHostAgentState_lower(_ value: HostAgentState) -> Rus
 }
 
 
+/**
+ * Facts about a host, as the helper's `doctor` reports them.
+ */
+public struct HostDoctor: Equatable, Hashable {
+    public var helperVersion: String
+    public var os: String
+    public var arch: String
+    public var tmux: DoctorTool
+    public var git: DoctorTool
+    public var python3: DoctorTool
+    public var tailscale: DoctorTool
+    /**
+     * The host's Tailscale IPv4, empty when unknown.
+     */
+    public var tailscaleIp: String
+    public var claudeFound: Bool
+    public var claudeSettingsExists: Bool
+    public var antigravityFound: Bool
+    public var antigravityHooksFileExists: Bool
+    public var ollamaInstalled: Bool
+    public var ollamaRunning: Bool
+    public var approvalKeyTrusted: Bool
+    public var hookScriptInstalled: Bool
+    public var helperDirPrivate: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(helperVersion: String, os: String, arch: String, tmux: DoctorTool, git: DoctorTool, python3: DoctorTool, tailscale: DoctorTool, 
+        /**
+         * The host's Tailscale IPv4, empty when unknown.
+         */tailscaleIp: String, claudeFound: Bool, claudeSettingsExists: Bool, antigravityFound: Bool, antigravityHooksFileExists: Bool, ollamaInstalled: Bool, ollamaRunning: Bool, approvalKeyTrusted: Bool, hookScriptInstalled: Bool, helperDirPrivate: Bool) {
+        self.helperVersion = helperVersion
+        self.os = os
+        self.arch = arch
+        self.tmux = tmux
+        self.git = git
+        self.python3 = python3
+        self.tailscale = tailscale
+        self.tailscaleIp = tailscaleIp
+        self.claudeFound = claudeFound
+        self.claudeSettingsExists = claudeSettingsExists
+        self.antigravityFound = antigravityFound
+        self.antigravityHooksFileExists = antigravityHooksFileExists
+        self.ollamaInstalled = ollamaInstalled
+        self.ollamaRunning = ollamaRunning
+        self.approvalKeyTrusted = approvalKeyTrusted
+        self.hookScriptInstalled = hookScriptInstalled
+        self.helperDirPrivate = helperDirPrivate
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension HostDoctor: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHostDoctor: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HostDoctor {
+        return
+            try HostDoctor(
+                helperVersion: FfiConverterString.read(from: &buf), 
+                os: FfiConverterString.read(from: &buf), 
+                arch: FfiConverterString.read(from: &buf), 
+                tmux: FfiConverterTypeDoctorTool.read(from: &buf), 
+                git: FfiConverterTypeDoctorTool.read(from: &buf), 
+                python3: FfiConverterTypeDoctorTool.read(from: &buf), 
+                tailscale: FfiConverterTypeDoctorTool.read(from: &buf), 
+                tailscaleIp: FfiConverterString.read(from: &buf), 
+                claudeFound: FfiConverterBool.read(from: &buf), 
+                claudeSettingsExists: FfiConverterBool.read(from: &buf), 
+                antigravityFound: FfiConverterBool.read(from: &buf), 
+                antigravityHooksFileExists: FfiConverterBool.read(from: &buf), 
+                ollamaInstalled: FfiConverterBool.read(from: &buf), 
+                ollamaRunning: FfiConverterBool.read(from: &buf), 
+                approvalKeyTrusted: FfiConverterBool.read(from: &buf), 
+                hookScriptInstalled: FfiConverterBool.read(from: &buf), 
+                helperDirPrivate: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: HostDoctor, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.helperVersion, into: &buf)
+        FfiConverterString.write(value.os, into: &buf)
+        FfiConverterString.write(value.arch, into: &buf)
+        FfiConverterTypeDoctorTool.write(value.tmux, into: &buf)
+        FfiConverterTypeDoctorTool.write(value.git, into: &buf)
+        FfiConverterTypeDoctorTool.write(value.python3, into: &buf)
+        FfiConverterTypeDoctorTool.write(value.tailscale, into: &buf)
+        FfiConverterString.write(value.tailscaleIp, into: &buf)
+        FfiConverterBool.write(value.claudeFound, into: &buf)
+        FfiConverterBool.write(value.claudeSettingsExists, into: &buf)
+        FfiConverterBool.write(value.antigravityFound, into: &buf)
+        FfiConverterBool.write(value.antigravityHooksFileExists, into: &buf)
+        FfiConverterBool.write(value.ollamaInstalled, into: &buf)
+        FfiConverterBool.write(value.ollamaRunning, into: &buf)
+        FfiConverterBool.write(value.approvalKeyTrusted, into: &buf)
+        FfiConverterBool.write(value.hookScriptInstalled, into: &buf)
+        FfiConverterBool.write(value.helperDirPrivate, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHostDoctor_lift(_ buf: RustBuffer) throws -> HostDoctor {
+    return try FfiConverterTypeHostDoctor.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHostDoctor_lower(_ value: HostDoctor) -> RustBuffer {
+    return FfiConverterTypeHostDoctor.lower(value)
+}
+
+
 public struct HostGuard: Equatable, Hashable {
     /**
      * Blocked on the host, without asking anyone.
@@ -6385,6 +6620,86 @@ public func FfiConverterTypeHostGuardPreset_lift(_ buf: RustBuffer) throws -> Ho
 #endif
 public func FfiConverterTypeHostGuardPreset_lower(_ value: HostGuardPreset) -> RustBuffer {
     return FfiConverterTypeHostGuardPreset.lower(value)
+}
+
+
+public struct HostPairResult: Equatable, Hashable {
+    public var ok: Bool
+    /**
+     * False when the key was already there.
+     */
+    public var added: Bool
+    /**
+     * The file's mode was too open and was set to `0600`.
+     */
+    public var tightened: Bool
+    /**
+     * A short reason, empty when `ok`.
+     */
+    public var message: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(ok: Bool, 
+        /**
+         * False when the key was already there.
+         */added: Bool, 
+        /**
+         * The file's mode was too open and was set to `0600`.
+         */tightened: Bool, 
+        /**
+         * A short reason, empty when `ok`.
+         */message: String) {
+        self.ok = ok
+        self.added = added
+        self.tightened = tightened
+        self.message = message
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension HostPairResult: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHostPairResult: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HostPairResult {
+        return
+            try HostPairResult(
+                ok: FfiConverterBool.read(from: &buf), 
+                added: FfiConverterBool.read(from: &buf), 
+                tightened: FfiConverterBool.read(from: &buf), 
+                message: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: HostPairResult, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.ok, into: &buf)
+        FfiConverterBool.write(value.added, into: &buf)
+        FfiConverterBool.write(value.tightened, into: &buf)
+        FfiConverterString.write(value.message, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHostPairResult_lift(_ buf: RustBuffer) throws -> HostPairResult {
+    return try FfiConverterTypeHostPairResult.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHostPairResult_lower(_ value: HostPairResult) -> RustBuffer {
+    return FfiConverterTypeHostPairResult.lower(value)
 }
 
 
@@ -7094,6 +7409,74 @@ public func FfiConverterTypeOllamaLoad_lift(_ buf: RustBuffer) throws -> OllamaL
 #endif
 public func FfiConverterTypeOllamaLoad_lower(_ value: OllamaLoad) -> RustBuffer {
     return FfiConverterTypeOllamaLoad.lower(value)
+}
+
+
+public struct OnboardingFinding: Equatable, Hashable {
+    /**
+     * Stable key for the app to attach an action to (`install-tmux`, `hooks-claude`, ...).
+     */
+    public var id: String
+    public var level: FindingLevel
+    public var title: String
+    public var detail: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Stable key for the app to attach an action to (`install-tmux`, `hooks-claude`, ...).
+         */id: String, level: FindingLevel, title: String, detail: String) {
+        self.id = id
+        self.level = level
+        self.title = title
+        self.detail = detail
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension OnboardingFinding: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeOnboardingFinding: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> OnboardingFinding {
+        return
+            try OnboardingFinding(
+                id: FfiConverterString.read(from: &buf), 
+                level: FfiConverterTypeFindingLevel.read(from: &buf), 
+                title: FfiConverterString.read(from: &buf), 
+                detail: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: OnboardingFinding, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterTypeFindingLevel.write(value.level, into: &buf)
+        FfiConverterString.write(value.title, into: &buf)
+        FfiConverterString.write(value.detail, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeOnboardingFinding_lift(_ buf: RustBuffer) throws -> OnboardingFinding {
+    return try FfiConverterTypeOnboardingFinding.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeOnboardingFinding_lower(_ value: OnboardingFinding) -> RustBuffer {
+    return FfiConverterTypeOnboardingFinding.lower(value)
 }
 
 
@@ -9418,6 +9801,88 @@ public func FfiConverterTypeAiRiskLevel_lower(_ value: AiRiskLevel) -> RustBuffe
 
 
 
+public enum FindingLevel: Equatable, Hashable {
+    
+    /**
+     * Something that blocks a feature.
+     */
+    case needed
+    /**
+     * Worth doing.
+     */
+    case suggested
+    /**
+     * Only a fact.
+     */
+    case info
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension FindingLevel: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFindingLevel: FfiConverterRustBuffer {
+    typealias SwiftType = FindingLevel
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FindingLevel {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .needed
+        
+        case 2: return .suggested
+        
+        case 3: return .info
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: FindingLevel, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .needed:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .suggested:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .info:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFindingLevel_lift(_ buf: RustBuffer) throws -> FindingLevel {
+    return try FfiConverterTypeFindingLevel.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFindingLevel_lower(_ value: FindingLevel) -> RustBuffer {
+    return FfiConverterTypeFindingLevel.lower(value)
+}
+
+
+
+
 public enum GitBranchOp: Equatable, Hashable {
     
     /**
@@ -10835,6 +11300,89 @@ public func FfiConverterTypeMultiplexerKind_lift(_ buf: RustBuffer) throws -> Mu
 #endif
 public func FfiConverterTypeMultiplexerKind_lower(_ value: MultiplexerKind) -> RustBuffer {
     return FfiConverterTypeMultiplexerKind.lower(value)
+}
+
+
+
+/**
+ * What the pasted or remotely run command reported.
+ */
+
+public enum PairingState: Equatable, Hashable {
+    
+    case added
+    case alreadyPresent
+    case refused
+    case failed
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension PairingState: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePairingState: FfiConverterRustBuffer {
+    typealias SwiftType = PairingState
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PairingState {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .added
+        
+        case 2: return .alreadyPresent
+        
+        case 3: return .refused
+        
+        case 4: return .failed
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: PairingState, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .added:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .alreadyPresent:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .refused:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .failed:
+            writeInt(&buf, Int32(4))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePairingState_lift(_ buf: RustBuffer) throws -> PairingState {
+    return try FfiConverterTypePairingState.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePairingState_lower(_ value: PairingState) -> RustBuffer {
+    return FfiConverterTypePairingState.lower(value)
 }
 
 
@@ -12691,6 +13239,30 @@ fileprivate struct FfiConverterOptionTypeHostAgentState: FfiConverterRustBuffer 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeHostDoctor: FfiConverterRustBuffer {
+    typealias SwiftType = HostDoctor?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeHostDoctor.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeHostDoctor.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeHostPushStatus: FfiConverterRustBuffer {
     typealias SwiftType = HostPushStatus?
 
@@ -13329,6 +13901,31 @@ fileprivate struct FfiConverterSequenceTypeLocalAgentTool: FfiConverterRustBuffe
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeLocalAgentTool.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeOnboardingFinding: FfiConverterRustBuffer {
+    typealias SwiftType = [OnboardingFinding]
+
+    public static func write(_ value: [OnboardingFinding], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeOnboardingFinding.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [OnboardingFinding] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [OnboardingFinding]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeOnboardingFinding.read(from: &buf))
         }
         return seq
     }
@@ -14447,6 +15044,62 @@ public func derivePublicKey(privateKeyOpenssh: String)throws  -> String  {
     )
 })
 }
+public func onboardingFindings(doctor: HostDoctor) -> [OnboardingFinding]  {
+    return try!  FfiConverterSequenceTypeOnboardingFinding.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_onboarding_findings(
+        FfiConverterTypeHostDoctor_lower(doctor),uniffiCallStatus
+    )
+})
+}
+/**
+ * Logs in once with a password, puts the phone's key on the host and forgets the password.
+ * `host_key` is the fingerprint the user confirmed (`probe_server_host_key`); another key aborts
+ * before the password is sent.
+ */
+public func pairWithPassword(host: String, port: UInt16, username: String, password: String, hostKey: String, publicKey: String, deviceName: String)async throws  -> PairingState  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_func_pair_with_password(FfiConverterString.lower(host),FfiConverterUInt16.lower(port),FfiConverterString.lower(username),FfiConverterString.lower(password),FfiConverterString.lower(hostKey),FfiConverterString.lower(publicKey),FfiConverterString.lower(deviceName)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypePairingState_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+/**
+ * The command to paste on the host (feature 44, path B), checked and ready.
+ */
+public func pairingPasteCommand(publicKey: String, deviceName: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_pairing_paste_command(
+        FfiConverterString.lower(publicKey),
+        FfiConverterString.lower(deviceName),uniffiCallStatus
+    )
+})
+}
+/**
+ * The host key a server presents, to show to the user before anything secret is sent.
+ */
+public func probeServerHostKey(host: String, port: UInt16)async throws  -> String  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_func_probe_server_host_key(FfiConverterString.lower(host),FfiConverterUInt16.lower(port)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterString.lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
 /**
  * What to type to run `command` as a **shell** command in this pane: with a leading `!` inside
  * an AI CLI, unchanged in a shell. Already prefixed commands are left alone.
@@ -15112,6 +15765,18 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_func_derive_public_key() != 26782) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_func_onboarding_findings() != 35201) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_pair_with_password() != 37664) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_pairing_paste_command() != 33702) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_probe_server_host_key() != 4324) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_func_shell_command_for_pane() != 50317) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -15355,6 +16020,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_host_agent_state() != 3503) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_host_doctor() != 58463) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_host_helper_status() != 63277) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -15407,6 +16075,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_list_remote_directory() != 3661) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_pair_this_phone() != 22000) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_preview_agent_hooks() != 58880) {
