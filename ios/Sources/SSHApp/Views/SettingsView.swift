@@ -76,6 +76,7 @@ public struct SettingsView: View {
     @AppStorage("always_show_ai_assistant") private var legacyAlwaysShowAi: Bool = false
 
     @AppStorage(AppAccent.storageKey) private var accentRaw: String = AppAccent.blue.rawValue
+    @AppStorage(FeedStripPrefs.opacityKey) private var feedStripOpacity = FeedStripPrefs.defaultOpacity
     @AppStorage(FeedPresentationStyle.storageKey) private var feedStyleRaw: String = FeedPresentationStyle.fallback.rawValue
     @AppStorage(TerminalFolder.storageKey) private var terminalFolder: String = TerminalFolder.fallback
     @State private var schemeRefresh = 0
@@ -123,6 +124,16 @@ public struct SettingsView: View {
                     }
                 }
                 .pickerStyle(.navigationLink)
+            }
+            Section(
+                header: Text("Feed status line"),
+                footer: Text("The line with git, model and context floats over the feed: drag it anywhere, long press for \"Back to the top\". This sets how opaque its background is.")
+            ) {
+                HStack {
+                    Image(systemName: "circle.lefthalf.filled").foregroundColor(.secondary)
+                    Slider(value: $feedStripOpacity, in: 0...1, step: 0.05)
+                    Text("\(Int(feedStripOpacity * 100))%").monospacedDigit().frame(width: 44, alignment: .trailing)
+                }
             }
             Section(header: Text("App icon"), footer: Text(iconError ?? "The icon on the home screen. iOS shows a confirmation when it changes. iOS only allows icons that ship inside the app, so your own picture can be used for tabs and profiles (Agent profiles → Icon), not for the home screen.")) {
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: 12) {
