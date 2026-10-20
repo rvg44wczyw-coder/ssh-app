@@ -4,7 +4,7 @@
 - **Target Release**: Milestone 26 (Collaborative Multi-Agent Intelligence)
 - **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
 - **Hacker Gate**: Yes (multi-session execution dispatch, cross-host message routing, distributed workspace locks)
-- **Status**: Not ready: sections 3.2-3.3 and the lock need a redesign (`rev`, 2026-10-20; see the last section).
+- **Status**: Reviewed and corrected (`rev`, 2026-10-20). Ship phases 1-2 first; phases 4-5 and the direct host-to-host plane are separate, later specs.
 
 ---
 
@@ -26,10 +26,11 @@ The developer needs a **unified collaboration room (Mesh Room)** where:
    - **Phase 1**: Dual-Session Bridge (Claude + agy manual relay on one host).
    - **Phase 2**: Driver & Reviewer (Lead developer + automated cross-auditor).
    - **Phase 3**: MCP Peer Bridge (On-demand consultation tool).
-   - **Phase 4**: Local N-Session Mesh Room (Arbitrary sessions on a single host with turn limits).
-   - **Phase 5**: Cross-Server Mesh Federation (Multi-host coordination via client-side relay).
-3. **Zero Battery Drain**: Room coordination operates over existing `SshSessionHandle` channels. Backgrounding closes client TCP sockets instantly. Background tmux sessions continue on their respective hosts.
-4. **Distributed Workspace Leases**: To eliminate filesystem corruption, write operations (`Edit`, `Write`, `git commit`) require an exclusive lease on the target repository folder.
+   - **Phase 4** (later milestone): Local N-Session Mesh Room (Arbitrary sessions on a single host with turn limits).
+   - **Phase 5** (later milestone): Cross-Server Mesh Federation (Multi-host coordination via client-side relay).
+   - Only phases 1-2 are in the first release; each later phase needs its own `rev`.
+3. **Zero Battery Drain (and what that means for rounds)**: every agent-to-agent round passes through the client, so rounds pause while the app is in the background and continue when it returns; only a host-to-host file transfer could be autonomous (see 3.2). Room coordination operates over existing `SshSessionHandle` channels. Backgrounding closes client TCP sockets instantly. Background tmux sessions continue on their respective hosts.
+4. **Workspace leases, enforced**: write operations (`Edit`, `Write`, `git commit`) require an exclusive lease on the repository. A lock file alone blocks nothing, because the agents' own tools do not read it; the lease is enforced by a `PreToolUse` hook that denies writes without it, and reviewers run read-only.
 
 ---
 
@@ -171,109 +172,15 @@ flowchart TD
 2. **Firewall Traversal**: Each host is already connected to the client over its own encrypted SSH tunnel (e.g. over Tailscale). The client simply pipes the output of Host A as formatted input into Host B.
 3. **Auditing & Inspection**: Every message traveling between Host A and Host B passes through the client's router, ensuring human visibility, rate limiting, and approval checks.
 
-### 3.2 Direct Host-to-Host Data Plane: mTLS 1.3 with Certificate Fingerprint Pinning
-Tailscale, VPNs, or direct public IP addresses only provide Layer 3/4 packet transport. They do not provide application-layer identity, capability tokens, or granular authorization. Relying on network-level reachability alone is insecure.
+### 3.2 Direct host-to-host plane: removed from this spec
 
-For high-bandwidth data transfers (large git diffs, build artifacts, test logs) between Host A and Host B, the mesh establishes a direct **Mutual TLS 1.3 (mTLS)** stream without relying on public Certificate Authorities (CA):
+The earlier design (mTLS inside UDP after STUN hole punching, a blind TCP relay on a VPS, a Cloudflare WebSocket relay) is **not part of this feature**. Reasons: mTLS over UDP after hole punching needs QUIC or DTLS (the helper has no such stack, and a TLS-over-TCP description does not fit UDP); a listener on `0.0.0.0` on a laptop is unacceptable (a listener binds the tailnet interface only, if it ever exists); the NAT percentage and the Cloudflare plan limits were not sourced and must be checked against the provider before being quoted; and phases 1-2 do not need it.
 
-```mermaid
-sequenceDiagram
-    participant A as Host A (Sender)
-    participant C as Client (ssh-app iOS / Rust Core)
-    participant B as Host B (Receiver)
+The transport for phases 1-5 is the SSH channel the client already has to each host: the client reads Host A's turn and writes it to Host B (3.1). If direct transfer of large artifacts is wanted later, it is a separate spec that names one transport and one library, binds the tailnet interface only, and states which parts work while the phone sleeps.
 
-    Note over A,C: Secure SSH Control Channel
-    Note over C,B: Secure SSH Control Channel
+### 3.3 Disconnected client
 
-    C->>A: Command: Prepare mTLS 1.3 Listener for Session
-    A->>A: Generate ephemeral Ed25519 keypair & self-signed X.509 cert
-    A->>A: Bind dynamic TCP listener (0.0.0.0:<port>)
-    A-->>C: Response: { port, fingerprint_sha256, lease_token }
-
-    C->>B: Command: Connect mTLS 1.3 to Host A (IP, port, expected_fingerprint, lease_token)
-    B->>B: Generate ephemeral client Ed25519 cert
-
-    Note over B,A: Direct TCP Socket over WAN, Tailscale, or LAN
-    B->>A: TLS 1.3 Handshake (Client Hello + Client Cert)
-    A->>B: TLS 1.3 Handshake (Server Hello + Server Cert)
-    B->>B: Verify Server Cert matches expected_fingerprint
-    A->>A: Verify Client Cert & validate lease_token
-    Note over B,A: Secure, Authenticated, Encrypted mTLS 1.3 Stream
-    A-->>B: Stream diffs / artifacts at line-rate
-    A->>A: Tear down listener on transfer completion or timeout (60s)
-```
-
-#### Cryptographic Invariants of the mTLS 1.3 Data Plane
-1. **Zero Trust in Network Layer**: Even if the connection passes through public internet, local untrusted Wi-Fi, or misconfigured VPN routes, traffic is encrypted with TLS 1.3 (AES-GCM / ChaCha20-Poly1305) with Perfect Forward Secrecy.
-2. **Out-of-Band Fingerprint Validation**: The SHA-256 fingerprint of the ephemeral certificate is transported via the pre-authenticated, SSHSIG-verified SSH control channel. Man-in-the-Middle (MITM) attacks are mathematically impossible without compromising the client's Keychain private key.
-3. **Short-Lived Leases**: Ephemeral listeners bind only for the duration of the transfer and terminate after 60 seconds of inactivity or upon transfer completion.
-4. **Fallback Mechanism**: If direct IP/TCP reachability between Host A and Host B is blocked by symmetric NAT or restrictive egress policies, the data stream transparently falls back to client-relayed SSH port forwarding (`channel_open_direct_tcpip`).
-
----
-
-### 3.3 Double-NAT & Disconnected Client Traversal: All Three Connectivity Strategies
-When Host A (MacBook on home Wi-Fi) and Host B (MacBook/PC in an office/cafe across town) are both behind private NATs with no public static IP, and the iPhone is asleep in a pocket, direct inbound TCP connections fail.
-
-The architecture implements **all three traversal strategies**, cascading from lowest latency to universal reach:
-
-```mermaid
-flowchart TD
-    Start["Попытка соединения Host A <--> Host B"] --> S1{"Стратегия 1: P2P STUN Hole Punching"}
-    S1 -- "Успех (Cone NAT)" --> P2P["Прямой P2P mTLS 1.3 туннель (Пинг мин, $0)"]
-    S1 -- "Отказ (Symmetric NAT)" --> S2{"В профилях есть VPS с белым IP?"}
-    S2 -- "Да (DigitalOcean и т.д.)" --> VPS["Стратегия 2: Blind TCP Relay через VPS (mTLS E2EE, $0 доп.)"]
-    S2 -- "Нет" --> CF["Стратегия 3: Cloudflare WebSocket Relay (mTLS E2EE, $0 / Free Tier)"]
-```
-
-#### Strategy 1: Direct P2P NAT Hole Punching (STUN/ICE UDP)
-* **Principle**: Neither host needs an open public port. Both hosts leverage public STUN infrastructure (`stun.cloudflare.com:3478`, `stun.l.google.com:19302`) to discover their public-facing reflexive IP:port mappings.
-* **Handshake Flow**:
-  1. During the 2-second room setup phase, the phone collects reflexive endpoints from Host A and Host B over their control SSH channels.
-  2. The phone delivers Host B's endpoint to Host A, and Host A's endpoint to Host B.
-  3. Host A and Host B simultaneously send UDP probe bursts to each other.
-  4. Both home/office NAT routers record outbound mappings, opening temporary firewall holes in both directions.
-  5. A bidirectional P2P UDP tunnel is established directly across the city.
-  6. **Security**: **mTLS 1.3** runs inside the UDP packets. Eavesdroppers, ISPs, or STUN servers see only encrypted ciphertext.
-* **Characteristics**: Maximum possible speed, minimum network latency, 0 servers required, $0 cost. Operates successfully in 85-90% of residential and mobile Wi-Fi setups.
-
-#### Strategy 2: Blind TCP Relay via VPS (e.g. DigitalOcean in Netherlands)
-* **Principle**: Utilizes any cloud virtual server with a public IP that already exists in the developer's `ServerProfilesManager`.
-* **Handshake Flow**:
-  1. The phone designates the user's configured VPS as the neutral rendezvous node.
-  2. Host A initiates an *outbound* TCP connection to `vps.public.ip:9443`.
-  3. Host B initiates an *outbound* TCP connection to `vps.public.ip:9443`.
-  4. Both NAT routers seamlessly allow these outbound connections.
-  5. The helper `ssh-app-host relay` on the VPS pairs the two incoming sockets and bridges them using the zero-copy Linux kernel `splice()` syscall.
-  6. **Zero-Knowledge End-to-End Encryption (E2EE)**: The mTLS 1.3 session is negotiated *directly between Host A and Host B* through the bridged pipe. The VPS has zero decryption keys, holds no state in RAM, and cannot inspect or forge message payloads.
-* **Characteristics**: 100% bypass of symmetric NAT, carrier-grade NAT (CGNAT), and enterprise firewalls. Runs autonomously for hours while the phone is locked.
-
-#### Strategy 3: Serverless WebSocket Relay via Cloudflare Workers (Zero VPS, $0 Cost)
-* **Principle**: When the user has no cloud VPS, the rendezvous bridge runs on the developer's existing Cloudflare account (co-located with the Push Relay from Feature 35) as a serverless WebSocket relay (`scripts/mesh-relay-worker`).
-* **Handshake Flow**:
-  1. Host A opens an outbound WebSocket connection: `wss://mesh-relay.<subdomain>.workers.dev/room/<id>?token=<ticket>&peer=A`.
-  2. Host B opens an outbound WebSocket connection: `wss://mesh-relay.<subdomain>.workers.dev/room/<id>?token=<ticket>&peer=B`.
-  3. The Cloudflare Worker accepts both connections, authenticates the capability tickets, and pairs them via standard `WebSocketPair` streaming.
-  4. Binary WebSocket frames carry the raw **mTLS 1.3** records end-to-end.
-  5. Every 30 seconds, the hosts exchange 2-byte WebSocket Ping/Pong frames to defeat Cloudflare's 100-second idle disconnect threshold.
-* **Economics & Official Pricing**:
-  * **Free Plan ($0.00 / month)**:
-    * 100,000 requests per day (handshake = 1 request; continuous in-socket messages do NOT consume request quota).
-    * Egress bandwidth: 100% free ($0 for all data transfer).
-    * CPU time: Up to 10ms per event (proxying binary buffers takes <0.05ms).
-    * Fits 100% of single-developer multi-laptop collaboration workflows at zero cost.
-  * **Paid Plan ($5.00 / month)**:
-    * Includes 10,000,000 requests/month + $0.30/million additional requests. Unlimited duration, zero bandwidth fees. Only needed if scaling to commercial multi-tenant SaaS.
-
-#### Summary Comparison of Traversal Strategies
-
-| Parameter | Strategy 1: P2P STUN | Strategy 2: VPS Blind Relay | Strategy 3: Cloudflare WS Relay |
-| :--- | :--- | :--- | :--- |
-| **Infrastructure Needed** | None ($0) | VPS with public IP | Free Cloudflare Account |
-| **Monthly Cost** | **$0.00** | VPS cost (e.g. $4-6/mo) | **$0.00 (Free Tier)** |
-| **NAT Penetration** | 85-90% (Cone NAT) | 100% (Any NAT/Firewall) | 100% (Any NAT/Firewall via 443) |
-| **Phone Dependent** | **No (100% autonomous)** | **No (100% autonomous)** | **No (100% autonomous)** |
-| **Encryption Level** | mTLS 1.3 E2EE | mTLS 1.3 E2EE (Zero Knowledge) | mTLS 1.3 E2EE (Zero Knowledge) |
-| **Transfer Latency** | Lowest (Direct line) | Route dependent (via VPS) | Low (Cloudflare global Edge CDN) |
+With the relay through the client, nothing agent-to-agent continues while the phone is asleep: a round that is waiting for the client waits. Work already running on a host inside `tmux` continues. Rooms therefore show "waiting for the phone" instead of pretending to be autonomous.
 
 ---
 
@@ -393,42 +300,24 @@ pub fn plan_mesh_dispatch(
 - Multi-host coordination in `TerminalSessionViewModel` / `MeshManager`.
 - Routes messages between Server A (`SshSessionHandle`) and Server B (`SshSessionHandle`).
 - Client-side relay: Server A writes text $\rightarrow$ Client receives turn $\rightarrow$ Client sends to Server B via PTY/stdin.
-- Distributed write lease: Only one session across all servers may hold the git write lock for a shared repository.
+- Distributed write lease: only one session across all servers may hold the write lease for a shared repository, enforced by the `PreToolUse` hook. Phase 5 is a separate milestone with its own spec and `rev`.
 
 ---
 
 ## 6. Security & Concurrency Considerations
 
 1. **Distributed Write Locks**:
-   - Before an agent on Host A executes an `Edit` or `Write` tool, it must claim the repository lock file (`.git/ssh-app-mesh.lock`). If Host B operates on a shared network mount (NFS/SSHFS), write attempts without the lease fail immediately.
+   - Before an agent executes `Edit` or `Write`, the `PreToolUse` hook checks the lease record (`.git/ssh-app-mesh.lock` is only the record) and denies the call without it; reviewers are started read-only. On a shared network mount the same hook runs on each host.
 2. **Circuit Breaker (Anti-Runaway Token Protection)**:
    - Maximum autonomous rounds = 3 (configurable up to 6).
    - If two agents exchange replies without human input for 3 cycles, the room pauses automatically with status `[PAUSE] Round Limit Reached. Human review required.`.
 3. **Cross-Host Sanitization**:
-   - Messages passing from Host A to Host B are stripped of terminal control codes (`ESC[...]`) and formatted as sanitized markdown text wrapped in `<agent-context host="..." session="...">` containers to prevent prompt injection.
+   - Messages passing from Host A to Host B are stripped of terminal control codes (`ESC[...]`) and wrapped in `<agent-context host="..." session="...">`. The wrapper is a label, not a defence: **cross-agent text is untrusted input**, and every relayed turn is shown to the user and sent on only after approval (an "auto-relay" switch per room exists and is off by default).
 4. **Zero Battery Drain**:
    - Backgrounding the iOS app tears down all SSH TCP channels to all servers. Long-running tasks on Host A and Host B continue unimpeded inside `tmux`. On foregrounding, the client reconnects and syncs timelines across all participating hosts.
 
 ---
 
-## Review (`rev`, 2026-10-20)
+## Review (`rev`, 2026-10-20) - applied
 
-- [High] Section 3.3 says "Phone Dependent: No", but 3.1 routes every message through the client, and a backgrounded app closes its sockets. Only host-to-host data transfer is autonomous; agent-to-agent rounds are not. Say so.
-- [High] "mTLS 1.3 inside UDP" after STUN hole punching needs QUIC or DTLS, not TLS over TCP. The helper has no TLS stack. Choose one transport and a library, or drop direct host-to-host (the SSH relay through the client is enough for phases 1-5).
-- [High] The listener must not bind `0.0.0.0` on a laptop; bind the tailnet interface only.
-- [High] `.git/ssh-app-mesh.lock` blocks nothing: the agents' own `Edit` and `Write` do not read it. Enforcement is only a `PreToolUse` hook that denies writes without the lease, or read-only reviewers.
-- [Medium] The `<agent-context>` wrapper does not stop prompt injection between agents. State that cross-agent text is untrusted input and every relayed turn is shown to the user before it is sent on.
-- [Medium] "85-90 % of NATs" and the Cloudflare plan limits are unsourced. Verify against the provider before relying on them.
-- [Medium] Phases 4-5 do not fit one milestone; ship phases 1-2 first.
-
-## Binding corrections after `rev` (2026-10-20)
-
-These replace conflicting text above.
-
-1. **Not phone-independent.** Every agent-to-agent round goes through the client (3.1); a backgrounded app closes its sockets, so rounds pause until the app is foreground again. "Phone Dependent: No" is true only for host-to-host file transfer. The text says so.
-2. **One transport, or none.** Direct host-to-host (STUN hole punching, mTLS in UDP) is dropped from the first releases: it needs QUIC or DTLS and the helper has no such stack. The SSH relay through the client is the transport for phases 1-2. If direct transfer returns later, it is a separate spec that names the library.
-3. **Listener binds the tailnet interface only**, never `0.0.0.0` on a laptop.
-4. **Write exclusion is enforced by a `PreToolUse` hook** that denies `Edit`/`Write` in a leased path without the lease, or reviewers run read-only. A lock file alone blocks nothing.
-5. **Cross-agent text is untrusted input.** The `<agent-context>` wrapper is a label, not a defence; every relayed turn is shown to the user and sent on only after approval (or an explicit per-mesh "auto-relay" switch that is off by default).
-6. **Unsourced numbers** (NAT share, Cloudflare limits) are removed until checked against the provider.
-7. **Scope:** ship phases 1-2 (two agents, relayed through the client, user in the loop). Phases 4-5 are separate milestones.
+Folded in above: rounds are not phone-independent; the direct plane and all NAT strategies are removed; no `0.0.0.0` listener; the lease is enforced by a hook; relayed text is untrusted and shown before it is sent; unsourced numbers dropped; scope is phases 1-2.

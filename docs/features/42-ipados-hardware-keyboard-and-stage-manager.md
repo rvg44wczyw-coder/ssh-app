@@ -4,7 +4,7 @@
 - **Target Release**: Milestone 31 (iPadOS Desktop-Class Productivity)
 - **Roles**: `doc-dev`, `ios-ui-dev`, `rev`, `hacker`
 - **Hacker Gate**: No (UI/Windowing/Keyboard event dispatch; no network or crypto changes)
-- **Status**: Reviewed: workable, three fixes (`rev`, 2026-10-20; see the last section).
+- **Status**: Reviewed and corrected (`rev`, 2026-10-20).
 
 ---
 
@@ -22,16 +22,16 @@ Currently:
 - Desktop-class iPadOS layout via SwiftUI `NavigationSplitView`:
   - 3-column / 2-column sidebar: Hosts & Sessions list | Active Terminal / Agent Feed | Project & Git Inspector.
 - Stage Manager & Multi-Window support (`WindowGroup` in SwiftUI):
-  - Running Session A (e.g. backend Claude Code) in Window 1 and Session B (e.g. frontend test runner) in Window 2 concurrently.
+  - Running Session A in Window 1 and Session B in Window 2 concurrently. **One window per tmux session**: two windows attached to the same session would fight over its size, so a second window on the same session opens it read-only or is refused with a message.
+  - Sockets close only when **no scene is active**; one window going to the background does not close the other window's sessions.
 - Hardware Keyboard Commands (`UIKeyCommand`):
   - Tab management: `Cmd+T` (new tab), `Cmd+W` (close), `Cmd+[` / `Cmd+]` (previous/next tab), `Cmd+1`...`Cmd+9`.
   - Terminal signal passthrough: `Ctrl+C` (`SIGINT`), `Ctrl+D` (`EOF`), `Ctrl+Z` (`SIGTSTP`), `Ctrl+L` (`Clear`).
   - View toggling: `Cmd+Shift+T` (Raw Terminal $\leftrightarrow$ Agent Feed), `Cmd+Shift+G` (Git Changes), `Cmd+Shift+F` (File Browser).
-- External Display Mode:
-  - When an external monitor is plugged in via USB-C, the app can project the full Raw Terminal to the external monitor with native resolution while keeping the Agent Feed and controls on the iPad.
 - Pointer hover effects and trackpad two-finger scrolling inside SwiftTerm and Agent Feed.
 
 ### 1.3 Out of Scope
+- External display mode: it is a separate scene with its own lifecycle and is deferred to its own spec.
 - Local compilation tools on the iPad (all build tasks run remotely via the SSH core).
 
 ---
@@ -82,7 +82,7 @@ In iPadOS Stage Manager, window boundaries can change dynamically when the user 
 2. New character columns and rows are calculated:
    $$\text{cols} = \lfloor \text{width} / \text{fontWidth} \rfloor, \quad \text{rows} = \lfloor \text{height} / \text{fontHeight} \rfloor$$
 3. Calls Rust Core `SshSessionHandle::resize_pty(session_name, cols, rows)`.
-4. Rust Core executes `tmux resize-window -t <name> -x <cols> -y <rows>` and sends SSH channel `window_change` packet.
+4. Rust Core sends the SSH channel `window_change` packet. It does **not** call `tmux resize-window -x -y`: that pins the window size for every client, the Mac included; tmux sizes the window from the attached clients.
 5. Remote applications receive `SIGWINCH` seamlessly without redrawing glitches.
 
 ---
@@ -95,21 +95,13 @@ In iPadOS Stage Manager, window boundaries can change dynamically when the user 
 2. **Key Command Tests**:
    - `UIKeyCommand` interception when physical keyboard is connected.
    - Ensuring `Cmd` modifiers do not leak unwanted characters into active shell panes.
+3. **Multi-window tests**:
+   - Backgrounding one scene keeps the other scene's socket open; backgrounding the last active scene closes all.
+   - A second window on an already open session is refused or read-only.
+   - No `resize-window` command is ever issued (a test on the command builder).
 
 ---
 
-## Review (`rev`, 2026-10-20)
+## Review (`rev`, 2026-10-20) - applied
 
-- [High] Do not call `tmux resize-window -x -y`: it pins the window size and breaks every other client, including the Mac. `window_change` on the SSH channel is enough.
-- [High] Multiple scenes versus "`sceneDidEnterBackground` closes all sockets": one window going to the background would close the other's sessions. Close sockets only when no scene is active.
-- [Medium] Two windows attached to the same tmux session fight over its size; allow one window per session.
-- [Medium] External display is one line here but is a separate scene with its own lifecycle; specify or defer.
-
-## Binding corrections after `rev` (2026-10-20)
-
-These replace conflicting text above.
-
-1. **No `tmux resize-window -x -y`.** It pins the window size for every client, the Mac included. The SSH `window_change` on the channel is the only resize.
-2. **Scenes and sockets.** Sockets close only when no scene is active; one window going to the background does not close another window's sessions.
-3. **One window per tmux session.** Two windows attached to the same session would fight over its size, so the second opens the session read-only or is refused with a message.
-4. **External display** is a separate scene with its own lifecycle and is deferred out of the first release.
+Folded in above: no `resize-window`; sockets close when no scene is active; one window per session; external display deferred.

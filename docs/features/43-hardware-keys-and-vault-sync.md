@@ -4,7 +4,7 @@
 - **Target Release**: Milestone 32 (Enterprise Security & Cross-Device Key Management)
 - **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
 - **Hacker Gate**: Yes (cryptographic key import, FIDO2/WebAuthn assertions, iCloud sync encryption, Secure Enclave)
-- **Status**: Not ready: FIDO2 and Secure Enclave plans are not feasible as written (`rev`, 2026-10-20; see the last section).
+- **Status**: Reviewed and corrected (`rev`, 2026-10-20). Key import and the sync are buildable now; hardware keys (FIDO2) stay "not ready" until the spike of section 2.3 shows a signature accepted by a real `sshd`.
 
 ---
 
@@ -16,13 +16,13 @@
 3. **Multi-Device Sync**: Developers using both an iPhone and an iPad currently have to re-enter host configurations, Tailscale IPs, port rules, and snippets separately on each device.
 
 ### 1.2 In Scope
-- Support for OpenSSH FIDO2 security keys (`sk-ssh-ed25519@openssh.com` and `sk-ecdsa-sha2-nistp256@openssh.com`) via NFC and USB-C hardware authenticators (YubiKey 5 Series).
+- Support for OpenSSH FIDO2 security keys (`sk-ssh-ed25519@openssh.com` and `sk-ecdsa-sha2-nistp256@openssh.com`) via NFC and USB-C authenticators (YubiKey 5 Series). iOS offers no raw CTAP2 over NFC/USB-C and WebAuthn cannot use an `ssh:` relying party, so this needs a named third-party library (for example YubiKit) and our own assembly of the `sk-` signature; that is the first deliverable (2.3).
 - Secure private key import:
   - Standard OpenSSH format (`-----BEGIN OPENSSH PRIVATE KEY-----`).
-  - Passphrase-encrypted keys decrypted locally in memory using `zeroize`-protected buffers.
-  - Apple Secure Enclave key generation option (`kSecAttrTokenIDSecureEnclave`).
+  - Passphrase-encrypted keys decrypted locally in memory. OpenSSH uses bcrypt-pbkdf (not Argon2); a high rounds count takes seconds on a phone, so the UI shows progress and a cancel button. The passphrase travels as `Data`, not `String` (a Swift `String` cannot be zeroized); what stays out of reach is the text field's own buffer, and the spec says so.
+  - Apple Secure Enclave key generation option (`kSecAttrTokenIDSecureEnclave`). **Secure Enclave keys are P-256 (`ecdsa-sha2-nistp256`), never Ed25519**: a separate key type with its own signing path in russh.
 - End-to-End Encrypted iCloud Keychain Vault Sync:
-  - Syncs server profiles, connection metadata, launch profiles, and snippets.
+  - Syncs server profiles, connection metadata, launch profiles, and snippets. Pinned host fingerprints sync **only** if the user turns that on (default off): syncing them transfers trust to the other device, which is an explicit decision.
   - **Zero-Knowledge Principle**: Private keys are **never** synced to iCloud. Private keys remain pinned to the local device's hardware Keychain (`kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`). Only public keys and host metadata are synced.
 
 ### 1.3 Out of Scope
@@ -59,7 +59,7 @@ pub struct KeyDescriptor {
     pub public_key_openssh: String,
     pub fingerprint_sha256: String,
     pub key_type: KeyType,
-    pub is_hardware_backed: Bool,
+    pub is_hardware_backed: bool,
 }
 
 pub fn parse_and_validate_openssh_private_key(
@@ -84,16 +84,21 @@ impl SshCoreVault {
         passphrase: Option<String>,
     ) -> Result<KeyDescriptor, SshCoreError>;
 
-    /// Handles a FIDO2 WebAuthn assertion received from iOS CoreNFC/AuthenticationServices.
-    pub fn complete_fido2_signature(
+    /// Assembles an SSH `sk-` signature from what the authenticator returned: flags, counter and
+    /// the raw signature (an SSH signature has no `clientDataJSON`; that is the WebAuthn shape).
+    pub fn complete_sk_signature(
         &self,
         session_challenge: Vec<u8>,
-        auth_data: Vec<u8>,
-        client_data_json: Vec<u8>,
+        flags: u8,
+        counter: u32,
         signature: Vec<u8>,
     ) -> Result<Vec<u8>, SshCoreError>;
 }
 ```
+
+### 2.3 Spike before any UI
+
+With the chosen library, sign one SSH challenge with a real YubiKey and have a real `sshd` accept it (loopback `sshd` on a private port, as in `crates/core/tests/loopback_sshd.rs`). Until that works, section 2.2's second method is a design, not a promise.
 
 ---
 
@@ -122,7 +127,7 @@ flowchart TD
 ```
 
 - Each device maintains its own distinct Ed25519 hardware key in its local Keychain.
-- When an iPhone connects to a host, it authorizes the host. If an iPad is added, the user can approve the iPad's public key with 1 tap from the iPhone approval card.
+- Adding the iPad to a host means writing the iPad's public key into that host's `authorized_keys` (and `allowed_signers`). It is done per host with the pairing path of feature 44 (a password once, or a pasted command), not with the agent approval card.
 - All server configurations (IP, port, username, launch profiles) sync instantaneously over Apple CloudKit.
 
 ---
@@ -133,8 +138,9 @@ flowchart TD
 | :--- | :--- |
 | **Private Key Exposure in iCloud** | Private keys are marked `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly` and are explicitly excluded from the CloudKit sync payload. Only metadata and public keys sync. |
 | **Passphrase Memory Leaks** | Rust Core wraps all imported key buffers in `ZeroizeOnDrop`. Memory is scrubbed with zeroes when parsed. |
-| **Brute Force on Imported Keys** | If an imported key is passphrase-protected, PBKDF2 / Argon2 / bcrypt key derivation is performed via standard `ssh-key` cryptographic routines with resource limits to prevent denial of service. |
-| **NFC Relay / Rogue FIDO2 Assertions** | FIDO2 user presence (`UP` flag) and user verification (`UV` flag) are strictly verified against the challenge bound to the specific SSH session handshake. |
+| **Brute Force on Imported Keys** | Key derivation is bcrypt-pbkdf via the `ssh-key` routines, with a ceiling on the rounds count accepted from a file so a hostile file cannot stall the phone. |
+| **iCloud trust transfer** | Fingerprint sync is off by default and says what it does; a changed fingerprint on the other device is shown as a change, never accepted silently. |
+| **NFC Relay / Rogue FIDO2 Assertions** | The `flags` byte (user presence, and user verification where the host requires it) and the counter are checked, and the signature is made over the SSH session data, so it cannot be replayed on another handshake. |
 
 ---
 
@@ -142,34 +148,17 @@ flowchart TD
 
 1. **Rust Core Tests**:
    - `test_import_valid_ed25519_unencrypted_key`.
-   - `test_import_passphrase_protected_key_with_argon2`.
+   - `test_import_passphrase_protected_key_with_bcrypt_pbkdf` (a rounds count above the ceiling is refused).
    - `test_reject_invalid_passphrase_with_typed_error`.
-   - `test_verify_fido2_signature_flags`.
+   - `test_sk_signature_has_flags_counter_and_signature_only`.
+   - `test_secure_enclave_key_is_p256`.
 2. **Swift Platform Tests**:
    - CoreNFC YubiKey challenge-response flow mock.
-   - CloudKit conflict resolution (last-write-wins with vector clocks for server metadata).
+   - CloudKit conflict resolution: last writer wins by timestamp for server metadata (vector clocks are not used).
+   - Passphrase is passed as `Data` and cleared after use.
 
 ---
 
-## Review (`rev`, 2026-10-20)
+## Review (`rev`, 2026-10-20) - applied
 
-- [High] iOS gives no raw CTAP2 over NFC/USB-C, and WebAuthn cannot use the `ssh:` relying party. A third-party library (for example YubiKit) and our own `sk-` signature assembly are needed; neither is in the spec.
-- [High] `complete_fido2_signature(auth_data, client_data_json, ...)` is the WebAuthn shape. An SSH `sk-` signature has no `clientDataJSON`; the format is flags + counter + signature.
-- [High] Secure Enclave keys are P-256 only, not Ed25519. That is a different key type with its own signing path in russh.
-- [High] Adding the iPad's key "with one tap" needs writing its key into `authorized_keys` and `allowed_signers` of every host. Define it; it is not the agent approval card.
-- [Medium] Syncing pinned host fingerprints through iCloud transfers trust; list it as a decision.
-- [Medium] OpenSSH keys use bcrypt-pbkdf, not Argon2; the Argon2 test cannot exist. High rounds take seconds on a phone.
-- [Medium] A Swift `String` passphrase cannot be zeroized; use `Data` and say what is out of reach.
-- [Low] `is_hardware_backed: Bool` is a typo for `bool`; vector clocks are overkill.
-
-## Binding corrections after `rev` (2026-10-20)
-
-These replace conflicting text above.
-
-1. **Hardware keys need a library and our own assembly.** iOS exposes no raw CTAP2 over NFC/USB-C and WebAuthn cannot use an `ssh:` relying party. The feature requires a named third-party library (for example YubiKit) and our own `sk-ssh-ed25519@openssh.com` signature assembly; both are listed as the first deliverable, and the feature stays "not ready" until a spike proves a signature accepted by a real `sshd`.
-2. **The signature shape is SSH, not WebAuthn.** An `sk-` signature is flags + counter + signature; there is no `clientDataJSON`. `complete_fido2_signature` is replaced by `complete_sk_signature(flags, counter, signature)`.
-3. **Secure Enclave keys are P-256**, a different key type with its own signing path in russh (`ecdsa-sha2-nistp256`). The spec names them as such, not as Ed25519.
-4. **"Add the iPad's key with one tap"** means writing the key into `authorized_keys` and `allowed_signers` of each host; it uses the `pair` path of feature 44 (password or pasted command) per host. It is not an agent approval card.
-5. **Syncing pinned host fingerprints through iCloud transfers trust.** Listed as an explicit decision with an off switch; default off.
-6. **Key files:** OpenSSH uses bcrypt-pbkdf, not Argon2; the Argon2 test is removed; a high rounds count takes seconds on a phone and the UI shows progress. A Swift `String` passphrase cannot be zeroized: use `Data` and state what stays out of reach (the text field's own buffer).
-7. `is_hardware_backed: bool`; vector clocks are dropped in favour of last-writer-wins with a timestamp.
+Folded in above: library and own `sk-` assembly (first deliverable, with a real-`sshd` spike); the SSH signature shape; Secure Enclave is P-256; the iPad key goes through pairing; fingerprint sync is a default-off decision; bcrypt-pbkdf instead of Argon2; passphrase as `Data` with the limit stated; `bool` typo; last-writer-wins instead of vector clocks.

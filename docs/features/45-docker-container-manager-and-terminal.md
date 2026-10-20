@@ -283,7 +283,7 @@ On the app's home dashboard, container sessions sit side-by-side with AI agent a
 | **Socket Hijacking / DoS** | Helper accesses `/var/run/docker.sock` strictly with timeout (max 5 s). If the user does not have permission to access the socket (not in `docker` group), a clean typed error `DockerPermissionDenied` is returned rather than hanging. |
 | **Docker group is root** | Membership in the `docker` group is root on the host. The app says so in the first-use sheet and never adds the user to the group. A shell inside a container does not pass through the hook guard (the guard watches the agent's tool calls, not a terminal tab). |
 | **Destructive actions** | Restart and Stop show a confirmation naming the container; there is no one-tap restart. |
-| **Output Flooding on Logs** | The logs command is strictly clamped with `--tail 200` and maximum output buffer of 2 MB, preventing iOS memory spikes. |
+| **Output Flooding on Logs** | The logs command is strictly clamped with `--tail 200` and maximum output buffer of 1 MB (excess cut with the line `[Log truncated at 1 MB limit]`), preventing iOS memory spikes. Log text and container names are scrubbed of control characters and ANSI/OSC sequences (`strip_ansi_codes`) before they are shown; the in-container terminal is SwiftTerm, which does not write the clipboard unprompted. |
 
 ---
 

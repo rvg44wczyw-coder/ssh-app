@@ -4,7 +4,7 @@
 - **Target Release**: Milestone 27 (Multimodal Mobile Agent Control)
 - **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
 - **Hacker Gate**: Yes (file upload channels, path traversal, shell injection in agent prompts, image EXIF sanitization)
-- **Status**: Reviewed: workable, fix before building (`rev`, 2026-10-20; see the last section).
+- **Status**: Reviewed and corrected (`rev`, 2026-10-20). First release: Claude Code and Ollama; agy after a live test.
 
 ---
 
@@ -24,11 +24,12 @@ This breaks the mobile-first paradigm of remote autonomous engineering.
 - Mobile photo library, camera, and system clipboard image acquisition in SwiftUI.
 - Client-side pre-flight processing: HEIC to PNG/JPEG conversion, image dimension clamping (max 2048x2048), metadata/EXIF stripping (GPS, device identifiers).
 - Upload transport over existing `SshSessionHandle` (SFTP or typed helper stdin pump) into a dedicated per-session sandboxed directory: `~/.ssh-app/run/uploads/<sha256>.<ext>`.
-- Automatic file retention & TTL cleanup daemon (files deleted after 24h or pane termination).
+- Retention: **no cleanup daemon** (nothing runs on the host without a phone session). The helper prunes files older than the TTL (default 24 h) and over the quota when a phone session connects, and removes stale `.tmp` files then.
 - Dynamic prompt injection:
-  - Claude Code: `@~/.ssh-app/run/uploads/<hash>.png`
-  - Antigravity (`agy`): Context injection or local file attachment flag
-  - Ollama multimodal (`llava`, `bakllava`, `minicpm-v`): Base64 image payload via `/api/generate`.
+  - Claude Code: `@~/.ssh-app/run/uploads/<hash>.png`. **Verified on a live session before the feature is called working**; until then this is a design.
+  - Antigravity (`agy`): not supported in the first release. How agy receives an image is undefined; it is added only after a live test shows a mechanism.
+  - Ollama multimodal (`llava`, `bakllava`, `minicpm-v`): the phone never talks to Ollama. The image is uploaded over SSH (helper `upload-image`), and a second helper call on the host reads the stored file, base64-encodes it and calls the host's own `127.0.0.1:11434/api/generate`; the answer comes back over the same channel.
+  - A host **without the helper** gets nothing: the attach button explains "install the host helper" instead of failing silently.
 - Visual preview chip inside the mobile Agent Feed composer bar with tap-to-remove.
 
 ### 1.3 Out of Scope
@@ -185,7 +186,7 @@ stateDiagram-v2
     PromptInjected --> Idle: Text & @path dispatched to tmux
 ```
 
-- **Zero Battery Drain**: If the app is backgrounded while an upload is in flight, the TCP socket tears down immediately. The unfinished `.tmp` file is purged by the host helper during cleanup.
+- **Zero Battery Drain**: If the app is backgrounded while an upload is in flight, the TCP socket tears down immediately. The unfinished `.tmp` file is purged by the helper on the next connect.
 - **Cache Hit**: If an image with the same SHA-256 already exists in `uploads/`, the helper returns the existing path immediately without re-transferring bytes.
 
 ---
@@ -197,7 +198,7 @@ stateDiagram-v2
 | **Path Traversal (`../..`)** | Helper rejects any `--hash` that is not exactly 64 lowercase hex characters `[0-9a-f]{64}`. Extension strictly whitelisted: `png`, `jpg`, `webp`. |
 | **Shell Command Injection via File Path** | Remote path is fully deterministic: `$HOME/.ssh-app/run/uploads/<64-hex>.<ext>`. No user-provided string is used in paths. |
 | **Sensitive EXIF Leakage (GPS, Serial)** | Swift client passes all images through `UIGraphicsImageRenderer` / `CoreGraphics` without preserving image metadata dictionaries before dispatch. |
-| **Disk Exhaustion DOS** | Hard limit of 10 MB per file, max 100 MB total directory quota. Oldest files pruned when quota is exceeded; 24-hour TTL default. |
+| **Disk Exhaustion DOS** | Hard limit of 10 MB per file, max 100 MB total directory quota. Oldest files pruned on connect when the quota is exceeded; 24-hour TTL default. |
 | **Symlink Attacks** | `uploads/` directory must be owned by the user with `0700` permissions. Symlinks are rejected via `O_NOFOLLOW` and `symlink_metadata`. |
 
 ---
@@ -209,6 +210,9 @@ stateDiagram-v2
    - `test_reject_path_traversal_in_hash`: rejects `../../etc/passwd`.
    - `test_upload_size_limit_exceeded`: rejects files > 10 MB.
    - `test_cache_hit_skip_reupload`: verifies identical hash returns immediately.
+   - `test_prune_on_connect_removes_old_and_tmp_files`.
+   - `test_missing_helper_gives_a_clear_message`.
+   - Live checks (not unit tests): Claude Code reads an `@path` image; the Ollama path answers for a `llava` model.
 2. **Swift UI Tests**:
    - Photo picker integration and thumbnail chip rendering.
    - Composer bar text formatting with image references.
@@ -216,20 +220,6 @@ stateDiagram-v2
 
 ---
 
-## Review (`rev`, 2026-10-20)
+## Review (`rev`, 2026-10-20) - applied
 
-- [High] How `agy` receives an image is undefined ("flag or context"). Test it live; until then support Claude Code and Ollama only.
-- [High] Claude Code `@path` on an image file must be checked on a live session, not assumed.
-- [Medium] "Cleanup daemon" contradicts the decision that no daemon runs without a phone session. Prune on connect.
-- [Medium] Ollama base64 upload needs a defined path from the phone to the host's Ollama (the app reaches it through SSH today); write it down.
-- [Medium] Everything depends on the helper; say what a host without it gets (nothing, with a clear message).
-
-## Binding corrections after `rev` (2026-10-20)
-
-These replace conflicting text above.
-
-1. **Supported agents first: Claude Code and Ollama.** How `agy` receives an image is undefined; it is added only after a live test shows a working mechanism.
-2. **Claude Code `@path` on an image is verified on a live session** before the feature is called working; until then the spec does not promise it.
-3. **No cleanup daemon.** Old uploads are pruned on connect (the helper removes files past their age limit when a phone session starts), consistent with "no daemon without a phone session".
-4. **Ollama path:** the phone sends the image to the host over the existing SSH channel (helper `upload`), and the host-side call to its local Ollama (`127.0.0.1:11434`) reads the file there. The phone never talks to Ollama directly.
-5. **Host without the helper** gets nothing: the attach button explains "install the host helper" instead of failing silently.
+Folded in above: Claude Code and Ollama first, agy after a live test; `@path` verified live; no cleanup daemon (prune on connect); the Ollama path written down; behaviour without the helper.

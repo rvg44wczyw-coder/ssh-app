@@ -20,10 +20,23 @@ public struct SSHMobileApp: App {
 /// Applies the chosen accent colour to the whole app (controls, links, selection).
 private struct RootView: View {
     @AppStorage(AppAccent.storageKey) private var accentRaw: String = AppAccent.blue.rawValue
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         MainTerminalView()
             .tint(AppAccent.color(for: accentRaw))
+            .overlay {
+                // iOS takes the App Switcher picture when the app stops being active; a covered
+                // screen means no agent output or key text is left in that picture (SEC-02).
+                if scenePhase != .active {
+                    ZStack {
+                        Rectangle().fill(Color(.systemBackground))
+                        Image(systemName: "lock.fill").font(.largeTitle).foregroundStyle(.secondary)
+                    }
+                    .ignoresSafeArea()
+                    .accessibilityHidden(true)
+                }
+            }
     }
 }
 

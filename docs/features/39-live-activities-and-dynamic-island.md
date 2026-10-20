@@ -4,7 +4,7 @@
 - **Target Release**: Milestone 28 (Real-Time Ambient Agent Monitoring)
 - **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
 - **Hacker Gate**: Yes (ActivityKit push tokens, APNs relay payloads, remote control from lock screen)
-- **Status**: Not ready: payload breaks the push rule, relay lacks Live Activity support (`rev`, 2026-10-20; see the last section).
+- **Status**: Reviewed and corrected (`rev`, 2026-10-20). Needs a new relay protocol and a device test before it is promised (section 4).
 
 ---
 
@@ -19,149 +19,100 @@ Currently, when a developer minimizes the app or locks their phone:
   2. Waiting for a static push notification when the agent completes or blocks.
 
 ### 1.2 In Scope
-- Apple **ActivityKit** Live Activity integration for iPhone (Lock Screen widget + Dynamic Island: Compact, Minimal, and Expanded views).
-- Strict adherence to the **No-Emoji Mandate**: exclusively SF Symbols (`cpu.fill`, `play.fill`, `stop.fill`, `checkmark`, `xmark`, `clock.arrow.circlepath`) and clean typography.
-- Event-driven push updates from the remote host via the existing Cloudflare Worker APNs push relay ([35-push-relay.md](file:///Users/ivs/rust/ssh-app/docs/features/35-push-relay.md)).
-- Dynamic states:
-  - `Thinking` (Agent reasoning, token count, elapsed time)
-  - `ToolExecuting` (Tool name: `Bash`, `Edit`, `Read`, `Grep`)
-  - `TestRunning` (Test progress counter: `42/128 passed`)
-  - `WaitingApproval` (Urgent pulse, countdown timer, tool target)
-  - `Completed` / `Failed`
-- Lock Screen action buttons:
-  - Interactive `Stop` button (sends `SIGINT` to the agent pane via a quick SSH command or background action).
-  - Tap deep-links into the specific active agent session tab.
+- Apple **ActivityKit** Live Activity for iPhone (Lock Screen + Dynamic Island: Compact, Minimal, Expanded).
+- **No-Emoji Mandate**: SF Symbols only.
+- Event-driven updates from the host through the push relay ([35-push-relay.md](35-push-relay.md)), with the **new Live Activity protocol** of section 4.
+- States (phase codes only): `Thinking`, `Tool` (a tool is running; its name is not sent), `Approval` (waiting for the user), `Done`, `Failed`. There is no test progress: hooks see the command, not its output, so "42/128" cannot be derived.
+- Lock Screen actions: `Stop` and a tap that opens the session. Stop starts SSH from a background intent with seconds of runtime, which is unproven; if it does not fit, the button opens the app instead (device test required, section 6).
 
 ### 1.3 Out of Scope
-- Direct continuous streaming of terminal output to the Dynamic Island (bandwidth and APNs rate limits make this impossible; state updates occur on phase transitions or at most every 5 seconds).
+- Streaming terminal output to the Island. At most one push per state change; elapsed time is drawn by the system from a start date (`Text(timerInterval:)`), never pushed.
 
 ---
 
 ## 2. Activity Attributes & State Models
 
-### 2.1 Swift ActivityKit Attributes (`ios/SSHAppWidgets/AgentLiveActivity.swift`)
+### 2.1 Swift ActivityKit attributes (`ios/SSHAppWidgets/AgentLiveActivity.swift`)
+
+The static attributes are set by the app when it starts the activity, locally, so they may hold the names the user already sees. Only `ContentState` travels in a push, and it holds codes and numbers.
 
 ```swift
-import ActivityKit
-import SwiftUI
-
 public struct AgentTaskActivityAttributes: ActivityAttributes {
     public struct ContentState: Codable, Hashable {
-        public var phase: AgentPhase
-        public var currentTool: String?
-        public var progressCurrent: Int?
-        public var progressTotal: Int?
-        public var durationSeconds: Int
-        public var isWaitingApproval: Bool
-        public var targetHost: String
-        public var agentGlyph: String // "●" for Claude, "○" for agy, "⬡" for Ollama
+        public var phase: AgentPhase          // code, mapped to words by the app
+        public var toolCalls: Int             // a counter, not names
+        public var startedAt: Date            // for Text(timerInterval:)
 
         public enum AgentPhase: String, Codable, Hashable {
-            case thinking = "THINKING"
-            case runningTool = "TOOL"
-            case runningTests = "TESTS"
-            case waitingApproval = "APPROVAL"
-            case completed = "COMPLETED"
-            case failed = "FAILED"
+            case thinking = "T", runningTool = "X", waitingApproval = "A", completed = "D", failed = "F"
         }
     }
 
-    public var sessionName: String
-    public var projectName: String
-    public var hostSlug: String
+    public var sessionName: String   // local, never pushed
+    public var projectName: String   // local, never pushed
+    public var hostSlug: String      // local, never pushed
+    public var agentGlyph: String    // "●" Claude, "○" agy, "⬡" Ollama
 }
 ```
 
-### 2.2 APNs Push Payload Format
-Pushes for ActivityKit updates use `apns-push-type: liveactivity` and target the activity's unique push token registered by the iOS app:
+### 2.2 Push payload
 
 ```json
-{
-  "aps": {
-    "timestamp": 1729432000,
-    "event": "update",
-    "content-state": {
-      "phase": "TESTS",
-      "currentTool": "cargo test",
-      "progressCurrent": 48,
-      "progressTotal": 120,
-      "durationSeconds": 134,
-      "isWaitingApproval": false,
-      "targetHost": "macbook-pro",
-      "agentGlyph": "●"
-    },
-    "alert": {
-      "title": "Tests Running (48/120)",
-      "body": "Claude Code is executing the test suite"
-    }
-  }
-}
+{ "aps": { "timestamp": 1729432000, "event": "update",
+           "content-state": { "phase": "X", "toolCalls": 12, "startedAt": 1729431866 } } }
 ```
+
+No `alert` text, no tool name, no command, no path (the push rule of feature 35). The relay adds `apns-push-type: liveactivity` and the topic `<bundle>.push-type.liveactivity`.
 
 ---
 
 ## 3. Dynamic Island & Lock Screen UI Layouts
 
-### 3.1 Dynamic Island Wireframes (No Emojis)
+Words come from the app's own mapping of the phase code ("Thinking", "Running a tool", "Waiting for you", "Done", "Failed"). The time is the system timer.
 
 ```text
-[Compact Leading]        [Compact Trailing]
-( ● Claude )            ( [■■■□] 48/120 )
+[Compact Leading]   [Compact Trailing]       [Minimal]
+( ● Claude )        ( 02:14 )                ( ● )
 
-[Minimal]
-( ● 48% )
-
-[Expanded View]
+[Expanded]
 ┌────────────────────────────────────────────────────────┐
 │  ● Claude Code · macbook-pro                 02:14     │
-│  Project: ssh-app / core                               │
+│  Project: ssh-app                                      │
 ├────────────────────────────────────────────────────────┤
-│  Tool: cargo test --lib                                │
-│  Progress: [====================>          ] 48/120    │
+│  Running a tool · 12 tool calls                        │
 ├────────────────────────────────────────────────────────┤
-│  [ ■ Stop Task ]                   [ ↗ Open Session ]  │
+│  [ ■ Stop ]                         [ ↗ Open Session ] │
 └────────────────────────────────────────────────────────┘
 ```
 
-### 3.2 Lock Screen Card Layout
-
-```text
-┌────────────────────────────────────────────────────────┐
-│ [server.rack] macbook-pro      ● Claude Code     03:22 │
-│ Refactoring authentication pipeline                    │
-├────────────────────────────────────────────────────────┤
-│ Status: Running tool `Edit` in `crates/core/auth.rs`   │
-│ Elapsed: 3m 22s  ·  12 tool calls                      │
-├────────────────────────────────────────────────────────┤
-│ [ ■ Abort ]                         [ ↗ View Session ] │
-└────────────────────────────────────────────────────────┘
-```
+Lock Screen: the same fields in a card (host, agent, timer, phase words, tool-call count, Stop, View Session).
 
 ---
 
-## 4. State Machines & Lifecycle
+## 4. State machine, relay protocol and lifecycle
 
 ```mermaid
 sequenceDiagram
-    participant Agent as Host Agent / Tmux
-    participant Helper as Host Helper (ssh-app-host)
-    participant Worker as Cloudflare APNs Worker
+    participant Agent as Host agent
+    participant Helper as Host helper
+    participant Worker as Push relay
     participant APNs as Apple APNs
     participant Phone as iPhone ActivityKit
 
-    Phone->>Phone: Start Live Activity upon session launch
-    Phone->>Helper: Register pushToken over SSH
-    Agent->>Helper: Phase transition (e.g. PreToolUse, Tests, Stop)
-    Helper->>Worker: POST /push-activity (Token, ContentState)
-    Worker->>APNs: HTTP/2 LiveActivity Alert
-    APNs->>Phone: Island & Lock Screen update without app wakeup
-    Agent->>Helper: Task Completed
-    Helper->>Worker: POST /push-activity (event: end)
-    Phone->>Phone: Activity dismisses after 15 min or user tap
+    Phone->>Phone: Start the activity (app in the foreground)
+    Phone->>Helper: Register the activity push token over SSH (it rotates: re-register)
+    Agent->>Helper: Hook event (PreToolUse, approval, Stop)
+    Helper->>Helper: Write the event, then send the push DETACHED
+    Helper->>Worker: POST /push-activity (token, content-state)
+    Worker->>APNs: liveactivity push
+    APNs->>Phone: Island and Lock Screen update
 ```
 
-- **Zero Battery Drain Guarantees**: The phone's app process remains completely suspended. The APNs push directly updates the system ActivityKit extension without spawning the main app runloop or opening network sockets.
-- **Rate-Limiting & Throttling**: The host helper coalesces state updates to a maximum of 1 APNs dispatch per 4 seconds, avoiding APNs 429 throttling and preserving host battery.
+- **New relay protocol, not a tweak.** Live Activities need topic `<bundle>.push-type.liveactivity`, `apns-push-type: liveactivity`, the per-activity token and `content-state` instead of `alert`. The relay gets its own endpoint and tests; the existing `alert` endpoint is untouched.
+- **The hook never waits for the network.** The helper forks the push and returns at once (hooks are synchronous).
+- **An activity can only be started while the app is in the foreground.**
+- **Budget.** Pushes are throttled by the system; the helper sends one push per state change, never on a timer, and merges changes closer than the configured minimum interval (feature 46: 4..60 s).
+- **Shared secret.** The relay secret rule of feature 35 section 5 applies: it is not baked into a distributed build; per-install App Attest replaces it before distribution.
 
 ---
 
@@ -169,40 +120,22 @@ sequenceDiagram
 
 | Threat | Mitigation |
 | :--- | :--- |
-| **Push Token Interception** | ActivityKit push tokens are ephemeral, tied exclusively to this device instance, and transmitted strictly over the encrypted SSH tunnel to the host helper. |
-| **Lock Screen Unauthorized Abort** | The Lock Screen `Abort` action sends a cryptographically signed instruction or requires Device Unlock (LocalAuthentication) if biometric lock is configured in Settings. |
-| **Worker Abuse** | The Cloudflare Worker validates `RELAY_SECRET` and checks that the payload adheres to the strict JSON schema with length <= 1024 bytes. |
+| **Push token interception** | The activity token is tied to this device and sent only over the SSH channel to the helper. |
+| **Lock Screen unauthorized Stop** | Stop requires device unlock (`authenticationPolicy`, feature 48 names the API); on failure it opens the app. |
+| **Worker abuse** | The relay validates its secret and a strict schema (phase from a fixed set, counter within range, body at most 256 bytes). |
+| **Leaking work to the lock screen** | The payload has codes and numbers only; names shown come from the local attributes the user already chose to show. A setting hides project and host names on the Lock Screen. |
 
 ---
 
 ## 6. Verification & Test Suite
 
-1. **Rust Core Tests**:
-   - `test_agent_phase_transition_detector`: parses agent stream markers into typed `AgentPhase`.
-   - `test_activity_payload_rate_limiter`: ensures helper limits dispatches to 1 per 4 seconds.
-2. **Swift Platform Tests**:
-   - Widget preview tests for Compact, Minimal, and Expanded Dynamic Island views.
-   - Deep-linking URL handler verification (`sshapp://session/<host>/<session-id>`).
+1. **Rust Core Tests**: `test_phase_from_hook_event`; `test_one_push_per_state_change_and_merge_within_the_minimum_interval`; `test_payload_has_no_text_fields` (schema allows only the fixed keys); `test_hook_returns_before_the_push_completes` (a stalled relay does not delay the hook).
+2. **Relay tests**: the new endpoint rejects an unknown phase, an oversized body and a wrong secret.
+3. **Swift Platform Tests**: previews for Compact, Minimal and Expanded; deep link `sshapp://session/<host>/<session-id>`.
+4. **Device tests (required before the feature is called working)**: activity start from the foreground, token rotation, update from a push while the app is suspended, and the Stop button from the Lock Screen.
 
 ---
 
-## Review (`rev`, 2026-10-20)
+## Review (`rev`, 2026-10-20) - applied
 
-- [High] The payload carries tool names, commands and paths ("cargo test", "Edit in crates/core/auth.rs"). Push payloads carry no command, path or name text (feature 35). Send phase codes only; the app maps them to words.
-- [High] `scripts/apns-worker/relay.ts` sends `apns-push-type: alert` with fixed text. Live Activities need topic `<bundle>.push-type.liveactivity`, the per-activity token (it changes) and `content-state` instead of `alert`. This is a new relay protocol, not a tweak.
-- [High] Test progress ("42/128") cannot be derived: hooks see the command, not its output. Drop it; keep Thinking / Tool / Approval / Done.
-- [High] Hooks are synchronous. The helper must send the push detached; a hook must never wait for the network.
-- [Medium] An activity can only be started while the app is in the foreground, and the Lock Screen Stop button starts SSH from a background intent with seconds of runtime. Needs a device test; fall back to opening the app.
-- [Medium] Update budgets are limited; one push per 4 s will be throttled. Elapsed time is `Text(timerInterval:)`, never a push.
-- [Medium] The shared relay secret rule (35 section 5) applies here too.
-
-## Binding corrections after `rev` (2026-10-20)
-
-These replace conflicting text above.
-
-1. **Phase codes only in the push.** The payload carries `phase` (thinking / tool / approval / done) and a counter; the app maps codes to words. No tool names, commands or paths (feature 35 rule).
-2. **A new relay protocol, not a tweak.** Live Activities need topic `<bundle>.push-type.liveactivity`, `apns-push-type: liveactivity`, the per-activity push token (it rotates; the app re-registers it) and `content-state` instead of `alert`. The relay gets its own endpoint and tests; the same shared-secret rule as feature 35 section 5 applies.
-3. **No test progress.** "42/128" cannot be derived (hooks see commands, not output). The states are Thinking / Tool / Approval / Done.
-4. **The hook never waits for the network.** The helper sends the push detached (fork and exit) after writing the event.
-5. **Foreground start.** An activity starts only while the app is in the foreground; the Lock Screen Stop button runs a background intent with seconds of runtime, so it falls back to opening the app. Needs a device test before it is promised.
-6. **Budgets.** Updates are throttled; the helper sends at most one push per state change (never per 4 s), and elapsed time is `Text(timerInterval:)`, not a push.
+Folded in above: phase codes only; a new relay protocol; no test progress; the hook sends detached; foreground start and the Stop fallback; throttling and system timer; shared-secret rule.

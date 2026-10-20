@@ -2,9 +2,9 @@
 
 - **Slug**: `agent-artifacts-and-visualizer`
 - **Target Release**: Milestone 30 (Visual Artifact Inspection & Rich Rendering)
-- **Roles**: `doc-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
+- **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
 - **Hacker Gate**: Yes (sandboxed WebView rendering, XSS prevention, Content Security Policy)
-- **Status**: Not ready: extraction source and WebView loading are wrong (`rev`, 2026-10-20; see the last section).
+- **Status**: Reviewed and corrected (`rev`, 2026-10-20). Source is Claude's session file only; agy is excluded until it has a structured source. Mermaid version is chosen after the checks of section 2.3.
 
 ---
 
@@ -19,16 +19,16 @@ Autonomous AI agents frequently generate rich artifacts beyond code snippets:
 Viewing raw Mermaid code or long unformatted markdown on an iPhone terminal is unreadable. Developers need a native, fast, pinch-to-zoom interactive viewer for diagrams and artifacts.
 
 ### 1.2 In Scope
-- Automatic artifact extraction from Agent Feed transcripts (````mermaid ... ```` blocks, standalone Markdown reports, HTML previews).
+- Artifact extraction from **`transcript.jsonl` (Claude Code) only**: the screen feed has no code fences, so the screen parser cannot produce artifacts, and agy is excluded. Kinds: ````mermaid ... ```` blocks, Markdown reports, HTML snippets (rendered without JavaScript, 2.2).
 - Sandboxed local renderer via hardened `WKWebView` with zero external network access:
-  - Local bundled Mermaid.js engine (pinned version, integrity checked).
+  - Local Mermaid.js, one pinned version checked into the repo with its SHA-256, inlined into the page (2.2).
   - SVG generation with native pinch-to-zoom and pan gestures.
   - Dark mode adaptive styling matching the app's selected theme (Oled Black, Solarized Dark, Nord, Cyberpunk).
 - One-tap actions:
-  - `[ arrow.down.doc ]` Export as PNG / SVG to Photos or Files.
+  - `[ arrow.down.doc ]` Export as PNG / SVG to Files, or to Photos (needs `NSPhotoLibraryAddUsageDescription`, add-only).
   - `[ doc.on.doc ]` Copy Mermaid source.
   - `[ arrow.up.left.and.arrow.down.right ]` Full-screen interactive viewer.
-- Side-by-side or unified split diff viewer for multi-file agent patches.
+- Diffs reuse the **existing Git hunk viewer**; this feature adds no second diff viewer.
 
 ### 1.3 Out of Scope
 - Rendering untrusted remote iframes or external web URLs (handled separately by the Web Preview feature [05-web-preview-and-port-forwarding.md](file:///Users/ivs/rust/ssh-app/docs/features/05-web-preview-and-port-forwarding.md)).
@@ -44,7 +44,6 @@ Viewing raw Mermaid code or long unformatted markdown on an iPhone terminal is u
 pub enum ArtifactType {
     MermaidDiagram { chart_type: String },
     MarkdownReport,
-    UnifiedDiff { files_affected: Vec<String> },
     HtmlSnippet,
 }
 
@@ -59,30 +58,34 @@ pub struct ExtractedArtifact {
 
 pub fn extract_artifacts_from_markdown(markdown: &str) -> Vec<ExtractedArtifact> {
     let mut artifacts = Vec::new();
+    // Input is text taken from transcript.jsonl assistant messages.
     // Parses ```mermaid code fences and extracts content
     // Generates deterministic UUID based on content SHA-256
     artifacts
 }
 ```
 
-### 2.2 Sandboxed WKWebView Security Configuration
-The renderer uses a strictly isolated `WKWebViewConfiguration`:
+### 2.2 Sandboxed WKWebView
+
 ```swift
 let config = WKWebViewConfiguration()
-let preferences = WKWebpagePreferences()
-preferences.allowsContentJavaScript = true
-config.defaultWebpagePreferences = preferences
-
-// Strict Content Security Policy injected via HTTP header or meta tag
-let csp = """
-default-src 'none';
-script-src 'self' 'unsafe-inline';
-style-src 'self' 'unsafe-inline';
-img-src 'self' data:;
-"""
+config.websiteDataStore = .nonPersistent()          // nothing is kept
+let prefs = WKWebpagePreferences()
+prefs.allowsContentJavaScript = true                // Mermaid page only; false for HtmlSnippet
+config.defaultWebpagePreferences = prefs
+// CSP in a <meta> of the generated page:
+//   default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:
 ```
 
-- **Network Isolation**: All external network requests are blocked (`default-src 'none'`). Mermaid.js is loaded exclusively from the app bundle (`Bundle.main.url(forResource: "mermaid.min", withExtension: "js")`).
+- **Mermaid is inlined into the page** (one local copy, about 2.5 MB each load; or a custom `WKURLSchemeHandler` serving the bundled file). With `loadHTMLString(baseURL: nil)` a `'self'` script source cannot load `mermaid.min.js`, so the CSP above allows inline script and nothing else, and the page has no network access.
+- **Navigation is blocked** in `WKNavigationDelegate` (only the initial load is allowed; link taps open nothing). `allowFileAccessFromFileURLs` is a private key and is not used.
+- **Mermaid runs with `securityLevel: 'strict'`.**
+- **`HtmlSnippet` renders with `allowsContentJavaScript = false`**; scripts from agent output never run.
+- **`ArtifactType` has no `files_affected` for diffs**: diffs are not artifacts of this feature.
+
+### 2.3 Checks before the version is chosen
+
+The pinned Mermaid build must (a) run under the CSP without `unsafe-eval`, (b) support `xychart-beta`, (c) be reproducible from the pinned hash. If a candidate needs `unsafe-eval`, it is rejected, not allowed.
 
 ---
 
@@ -115,8 +118,8 @@ img-src 'self' data:;
 
 | Threat | Mitigation |
 | :--- | :--- |
-| **XSS via Malicious Mermaid/Markdown** | Content Security Policy forbids `eval`, external scripts, web sockets, and fetch. Scripting is limited strictly to local Mermaid SVG layout calculation. |
-| **Local File Access / Path Traversal** | `WKPreferences` disables file system access (`allowFileAccessFromFileURLs = false`). Resources are loaded in-memory via `loadHTMLString(..., baseURL: nil)`. |
+| **XSS via Malicious Mermaid/Markdown** | CSP `default-src 'none'`, no `eval`, no network; Mermaid in `strict` mode; HTML snippets without JavaScript; non-persistent data store; navigation blocked. |
+| **Local File Access / Path Traversal** | The page is loaded from memory with `baseURL: nil`; no file URL is ever loaded; no private WebKit keys are used. |
 | **Memory DOS / Huge Diagram Freeze** | Mermaid diagrams exceeding 500 lines or 50 KB raw text are truncated or require user confirmation before rendering, preventing main thread freezes. |
 
 ---
@@ -126,27 +129,15 @@ img-src 'self' data:;
 1. **Rust Core Tests**:
    - `test_extract_mermaid_blocks`: validates detection of `flowchart`, `sequenceDiagram`, `stateDiagram-v2`.
    - `test_ignore_unclosed_code_blocks`: robust handling of partial streaming transcripts.
+   - `test_html_snippet_is_marked_script_free`; `test_text_without_fences_gives_no_artifacts` (the screen feed case).
 2. **Swift UI Tests**:
    - WebView rendering verification with dark mode theme injection.
    - SVG export to UIImage and clipboard copy functionality.
+   - Navigation delegate refuses a link tap; the page loads with no network.
+   - Pinned Mermaid hash matches the bundled file.
 
 ---
 
-## Review (`rev`, 2026-10-20)
+## Review (`rev`, 2026-10-20) - applied
 
-- [High] The feed parser reads the terminal screen, which has no code fences. Extraction works only from `transcript.jsonl` (Claude); say so and exclude agy.
-- [High] With `loadHTMLString(baseURL: nil)`, `script-src 'self'` cannot load `mermaid.min.js`. Inline it into the page (about 2.5 MB each time) or register a custom URL scheme handler.
-- [High] `allowFileAccessFromFileURLs` is a private key, not public API; do not rely on it. Block navigation in `WKNavigationDelegate` and use a non-persistent data store instead.
-- [High] `HtmlSnippet` with scripts contradicts "no XSS"; render without JavaScript or drop it.
-- [Medium] Mermaid must run with `securityLevel: 'strict'`; check that the pinned version works without `unsafe-eval` and supports `xychart-beta`.
-- [Medium] Saving to Photos needs the add-only usage string. The split diff duplicates the existing Git hunk viewer; reuse it.
-
-## Binding corrections after `rev` (2026-10-20)
-
-These replace conflicting text above.
-
-1. **Source is `transcript.jsonl` (Claude) only.** The screen feed has no code fences. agy is excluded until it has a structured source.
-2. **Mermaid is inlined into the page** (one local copy, pinned version, checked into the repo with its hash) because `loadHTMLString(baseURL: nil)` cannot load `'self'` scripts; alternative is a custom `WKURLSchemeHandler`. Run with `securityLevel: 'strict'` and verify the pinned build works without `unsafe-eval` and supports `xychart-beta` before choosing the version.
-3. **WebView lockdown without private keys:** `WKWebsiteDataStore.nonPersistent()`, navigation blocked in `WKNavigationDelegate` (only the initial load), JavaScript only for the pinned Mermaid page. `allowFileAccessFromFileURLs` is not used.
-4. **`HtmlSnippet` renders without JavaScript** (`WKWebpagePreferences.allowsContentJavaScript = false`) or is dropped; scripts from agent output never run.
-5. Saving to Photos needs `NSPhotoLibraryAddUsageDescription` (add-only). The split diff reuses the existing Git hunk viewer instead of a new one.
+Folded in above: transcript-only extraction and agy excluded; Mermaid inlined or served by a scheme handler; no private WebKit keys, navigation blocked, non-persistent store; HTML without JavaScript; `strict` level and version checks; Photos usage string; the existing hunk viewer is reused.
