@@ -118,8 +118,17 @@ public struct StructuredTranscriptView: View {
             .foregroundColor(.secondary)
             .frame(minWidth: 24, minHeight: 22)
             .accessibilityLabel("Refresh")
-            // Room for the terminal switch, docked as an icon at the right end of this line.
-            Color.clear.frame(width: 36, height: 1)
+            // The way back to the terminal: a still icon at the right end of this line.
+            Button { viewModel.toggleChatMode() } label: {
+                Image(systemName: "terminal.fill")
+                    .font(.system(size: 12, weight: .semibold))
+                    .frame(width: 30, height: 22)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundColor(.accentColor)
+            .accessibilityLabel("Terminal")
+            .accessibilityHint("Switch this tab back to the raw terminal")
         }
         .font(.system(size: 10, design: .monospaced))
         .padding(.horizontal, 10)

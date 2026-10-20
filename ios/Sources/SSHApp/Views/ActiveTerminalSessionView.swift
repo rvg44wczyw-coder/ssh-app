@@ -45,62 +45,23 @@ struct ActiveTerminalSessionView: View {
     @AppStorage(AiAssistantVisibility.storageKey) private var aiVisibilityRaw: String = ""
     @AppStorage("always_show_ai_assistant") private var legacyAlwaysShowAi: Bool = false
 
-    @AppStorage(ModeSwitchPrefs.xKey) private var switchX = ModeSwitchPrefs.defaultX
-    @AppStorage(ModeSwitchPrefs.yKey) private var switchY = ModeSwitchPrefs.defaultY
-    @AppStorage(ModeSwitchPrefs.opacityKey) private var switchOpacity = ModeSwitchPrefs.defaultOpacity
-    @State private var switchDrag: CGSize = .zero
-    @State private var switchLifted = false
-
-    /// The switch between terminal and feed: the same button on both screens, in the same place.
-    /// A tap switches. A long press lifts it so it can be dragged; a drag never switches. Settings →
-    /// Appearance has its opacity and puts it back in the corner.
+    /// The switch from the terminal to the feed: a still icon in the top right corner of the
+    /// terminal. (In the feed the way back is an icon in the feed's own status line.)
     private func modeSwitch(_ title: String, _ icon: String, hint: String) -> some View {
-        GeometryReader { geo in
-            let w = geo.size.width, h = geo.size.height
-            let docked = switchY < 0 || switchY == 0.045   // 0.045: the former default, stored by "put it back"
+        Button { viewModel.toggleChatMode() } label: {
             Image(systemName: icon)
-                .font(.system(size: 12, weight: .semibold))
-                .padding(.horizontal, 9)
-                .padding(.vertical, 4)
-                .background(Color.appSecondaryBackground.opacity(switchOpacity), in: Capsule())
-                .overlay(Capsule().stroke(Color.secondary.opacity(switchLifted ? 0.8 : 0.25 * switchOpacity), lineWidth: switchLifted ? 1.5 : 0.5))
-                .scaleEffect(switchLifted ? 1.1 : 1)
-                .animation(.easeOut(duration: 0.12), value: switchLifted)
+                .font(.system(size: 13, weight: .semibold))
+                .frame(width: 34, height: 28)
+                .background(Color.appSecondaryBackground.opacity(0.92), in: Capsule())
+                .overlay(Capsule().stroke(Color.secondary.opacity(0.25), lineWidth: 0.5))
                 .contentShape(Capsule())
-                .fixedSize()
-                .position(
-                    x: docked && switchDrag == .zero ? w - 24 : min(max((docked ? (w - 24) / w : switchX) * w + switchDrag.width, 24), max(24, w - 24)),
-                    y: docked && switchDrag == .zero ? 12 : min(max((docked ? 12 / h : switchY) * h + switchDrag.height, 12), max(12, h - 12))
-                )
-                .onTapGesture { viewModel.toggleChatMode() }
-                .gesture(
-                    LongPressGesture(minimumDuration: 0.45)
-                        .sequenced(before: DragGesture(minimumDistance: 0))
-                        .onChanged { value in
-                            guard case .second(true, let drag) = value else { return }
-                            if !switchLifted {
-                                switchLifted = true
-                                #if canImport(UIKit)
-                                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                                #endif
-                            }
-                            switchDrag = drag?.translation ?? .zero
-                        }
-                        .onEnded { value in
-                            if case .second(true, let drag?) = value, w > 0, h > 0 {
-                                let baseX = docked ? (w - 24) / w : switchX
-                                let baseY = docked ? 12 / h : switchY
-                                switchX = min(max(baseX + drag.translation.width / w, 0.05), 0.95)
-                                switchY = min(max(baseY + drag.translation.height / h, 0.01), 0.99)
-                            }
-                            switchDrag = .zero
-                            switchLifted = false
-                        }
-                )
-                .accessibilityAddTraits(.isButton)
-                .accessibilityLabel(title)
-                .accessibilityHint(hint)
         }
+        .buttonStyle(.plain)
+        .padding(.top, 6)
+        .padding(.trailing, 8)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+        .accessibilityLabel(title)
+        .accessibilityHint(hint)
     }
 
     var body: some View {
@@ -125,9 +86,7 @@ struct ActiveTerminalSessionView: View {
 
                 // The switch between terminal and feed: one place on both screens. An agent runs here
                 // (also one started by hand in a plain tab): offer the feed.
-                if viewModel.isChatMode {
-                    modeSwitch("Terminal", "terminal.fill", hint: "Switch this tab back to the raw terminal")
-                } else if viewModel.state == .connected, let agent = modelMenuAgent, agent != "ollama" {
+                if !viewModel.isChatMode, viewModel.state == .connected, let agent = modelMenuAgent, agent != "ollama" {
                     modeSwitch("Feed", "text.bubble", hint: "Show this agent's conversation as a readable feed")
                 }
 
