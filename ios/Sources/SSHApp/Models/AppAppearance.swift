@@ -587,13 +587,13 @@ public struct GitSessionContext: Equatable {
     public var displayLabel: String? { label(full: true) }
 }
 
-/// Where the feed's status line floats and how opaque it is (`@AppStorage`).
-public enum FeedStripPrefs {
-    public static let xKey = "feed_strip_x"
-    public static let yKey = "feed_strip_y"
-    public static let opacityKey = "feed_strip_opacity"
-    /// Top left of centre, clear of the terminal switch.
-    public static let defaultX = 0.4
-    public static let defaultY = 0.03
+/// Where the Terminal / Feed switch floats and how opaque it is (`@AppStorage`).
+public enum ModeSwitchPrefs {
+    public static let xKey = "mode_switch_x"
+    public static let yKey = "mode_switch_y"
+    public static let opacityKey = "mode_switch_opacity"
+    /// Centre as a fraction of the screen: top right.
+    public static let defaultX = 0.88
+    public static let defaultY = 0.045
     public static let defaultOpacity = 0.92
 }

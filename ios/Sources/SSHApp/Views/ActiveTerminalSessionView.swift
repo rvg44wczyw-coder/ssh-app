@@ -45,22 +45,47 @@ struct ActiveTerminalSessionView: View {
     @AppStorage(AiAssistantVisibility.storageKey) private var aiVisibilityRaw: String = ""
     @AppStorage("always_show_ai_assistant") private var legacyAlwaysShowAi: Bool = false
 
+    @AppStorage(ModeSwitchPrefs.xKey) private var switchX = ModeSwitchPrefs.defaultX
+    @AppStorage(ModeSwitchPrefs.yKey) private var switchY = ModeSwitchPrefs.defaultY
+    @AppStorage(ModeSwitchPrefs.opacityKey) private var switchOpacity = ModeSwitchPrefs.defaultOpacity
+    @State private var switchDrag: CGSize = .zero
+
+    /// The switch between terminal and feed: the same button on both screens, in the same place.
+    /// Drag it anywhere, long press puts it back; its opacity is in Settings → Appearance.
     private func modeSwitch(_ title: String, _ icon: String, hint: String) -> some View {
-        VStack {
-            HStack {
-                Spacer()
-                Button { viewModel.toggleChatMode() } label: {
-                    Label(title, systemImage: icon)
-                        .font(.system(size: 12, weight: .semibold))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(.regularMaterial, in: Capsule())
-                }
-                .padding(.trailing, 10)
-                .padding(.top, 8)
-                .accessibilityHint(hint)
+        GeometryReader { geo in
+            let w = geo.size.width, h = geo.size.height
+            Button { viewModel.toggleChatMode() } label: {
+                Label(title, systemImage: icon)
+                    .font(.system(size: 12, weight: .semibold))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Color.appSecondaryBackground.opacity(switchOpacity), in: Capsule())
+                    .overlay(Capsule().stroke(Color.secondary.opacity(0.25 * switchOpacity), lineWidth: 0.5))
             }
-            Spacer()
+            .buttonStyle(.plain)
+            .fixedSize()
+            .position(
+                x: min(max(switchX * w + switchDrag.width, 40), max(40, w - 40)),
+                y: min(max(switchY * h + switchDrag.height, 16), max(16, h - 16))
+            )
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 8)
+                    .onChanged { switchDrag = $0.translation }
+                    .onEnded { d in
+                        if w > 0, h > 0 {
+                            switchX = min(max(switchX + d.translation.width / w, 0.05), 0.95)
+                            switchY = min(max(switchY + d.translation.height / h, 0.01), 0.99)
+                        }
+                        switchDrag = .zero
+                    }
+            )
+            .contextMenu {
+                Button {
+                    withAnimation { switchX = ModeSwitchPrefs.defaultX; switchY = ModeSwitchPrefs.defaultY }
+                } label: { Label("Back to the top right", systemImage: "arrow.up.right.square") }
+            }
+            .accessibilityHint(hint)
         }
     }
 

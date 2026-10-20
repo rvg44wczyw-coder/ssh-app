@@ -34,6 +34,7 @@
 | **M31: iPadOS Productivity & Keyboards** | NavigationSplitView 3-column layout, Stage Manager multi-window, UIKeyCommand hardware shortcuts (`Cmd+T`, `Ctrl+C`), external display mode (`docs/features/42-ipados-hardware-keyboard-and-stage-manager.md`) | Spec written | `doc-dev`, `ios-ui-dev`, `rev`, `hacker` |
 | **M32: Hardware Keys & iCloud Vault Sync** | FIDO2/YubiKey (`ed25519-sk`), OpenSSH private key import with zeroization, zero-knowledge iCloud Keychain host sync (`docs/features/43-hardware-keys-and-vault-sync.md`) | Spec written | `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker` |
 | **M33: Zero-Touch Host Onboarding** | 1-minute QR code or 1-line curl pairing, automatic helper deploy, atomic `authorized_keys` append, host doctor probe (`docs/features/44-zero-touch-host-onboarding.md`) | Spec written | `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker` |
+| **M34: Docker Containers & In-Container Terminal** | Container monitoring (green/red status, RAM, CPU), 1-tap `[ ↺ Restart ]`, `[ ⎘ Logs ]`, and 1-tap `[ >_ Terminal ]` spawn directly into container shell (`docs/features/45-docker-container-manager-and-terminal.md`) | Spec written | `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker` |
 
 ---
 
@@ -255,6 +256,12 @@
 ### Feature 44 / M33: Zero-Touch Host Onboarding & Instant Pairing (`docs/features/44-zero-touch-host-onboarding.md`)
 - **Doc**: `docs/features/44-zero-touch-host-onboarding.md`
 - **Scope**: 1-minute onboarding via dynamic QR code or 1-line clipboard command (`ssh-app-host pair`), automatic SSH bootstrap with embedded helper binary deployment, atomic `authorized_keys` append, `ssh-app-host doctor --json` automated health probe.
+- **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
+- **Status**: Spec written (2026-10-20), implementation pending.
+
+### Feature 45 / M34: Docker Container Manager & In-Container Terminal Sessions (`docs/features/45-docker-container-manager-and-terminal.md`)
+- **Doc**: `docs/features/45-docker-container-manager-and-terminal.md`
+- **Scope**: Docker container list with green/red status indicators, memory & CPU statistics, 1-tap `[ ↺ Restart ]`, slide-over `[ ⎘ Logs ]` viewer, and 1-tap `[ >_ Terminal ]` opening an interactive shell tab directly inside the container via `docker exec -it`.
 - **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
 - **Status**: Spec written (2026-10-20), implementation pending.
 

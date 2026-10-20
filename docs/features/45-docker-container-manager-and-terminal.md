@@ -1,0 +1,266 @@
+# Feature 45: Docker Container Manager & In-Container Terminal Sessions
+
+- **Slug**: `docker-container-manager-and-terminal`
+- **Target Release**: Milestone 34 (Remote Container & Service Management)
+- **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
+- **Hacker Gate**: Yes (executing remote docker commands, container shell attach, container name sanitization)
+- **Status**: Design Complete. Ready for `rev`.
+
+---
+
+## 1. Problem Statement & Scope
+
+### 1.1 The User Problem
+Modern backend and AI development environments heavily rely on Docker containers running on the remote host (e.g. Postgres databases, Redis, Vector DBs like Qdrant/Chroma, local LLM inferencing engines via Ollama or vLLM, and agent sandboxes).
+Currently, if a database container crashes or a developer needs to inspect container logs while away from their laptop:
+1. They must open a raw terminal.
+2. Manually type `docker ps -a` on a virtual mobile keyboard.
+3. Copy a 12-character hexadecimal container ID.
+4. Type `docker restart <id>` or `docker logs -f <id>`.
+5. If they need to enter the container, they must type `docker exec -it <id> /bin/bash`.
+
+This creates high mobile friction and mistakes.
+
+### 1.2 In Scope
+1. **Container Telemetry & Status Card**:
+   - Integrated into the existing Host Telemetry sheet ([09-host-telemetry-and-process-monitor.md](file:///Users/ivs/rust/ssh-app/docs/features/09-host-telemetry-and-process-monitor.md)).
+   - Displays all containers on the host with status:
+     - Running: Green dot (`●`)
+     - Exited / Dead: Red dot (`●`)
+     - Restarting / Paused: Amber dot (`●`)
+   - Resource metrics per container: memory usage (`142 MB / 4 GB`) and CPU percentage.
+2. **One-Tap Actions on Each Container Card**:
+   - `[ ↺ Restart ]`: Instant container restart via `docker restart <id>` with haptic feedback.
+   - `[ ⎘ Logs ]`: Dedicated slide-over sheet showing the last 200 lines of logs (`docker logs --tail 200 <id>`) with Copy and Live Follow toggles.
+   - `[ ▶ Start ]` / `[ ■ Stop ]`: Quick lifecycle toggles.
+3. **One-Tap In-Container Terminal Session (Killer Feature)**:
+   - `[ >_ Terminal ]` / `[ Exec Shell ]` button on the container card.
+   - Automatically registers and opens a new tab in `TerminalTabsManager`.
+   - Starts an isolated tmux session running:
+     ```bash
+     docker exec -it <sanitized_container_id_or_name> sh -c "command -v bash >/dev/null 2>&1 && exec bash || exec sh"
+     ```
+   - Automatically assigns tab title: `[docker] <container_name>` with icon `shippingbox.fill`.
+   - Full PTY resizing, interactive terminal input, and Zero Battery Drain lifecycle.
+
+### 1.3 Out of Scope
+- Full Docker Compose file editing or Docker build orchestration on the phone (focused on monitoring, restarts, logs, and interactive shell).
+
+---
+
+## 2. Domain Models & Protocol Contracts
+
+### 2.1 Rust Core Domain Models (`crates/core/src/docker.rs`)
+
+```rust
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ContainerState {
+    Running,
+    Exited,
+    Paused,
+    Restarting,
+    Dead,
+    Unknown,
+}
+
+impl ContainerState {
+    pub fn from_status_str(status: &str) -> Self {
+        let lower = status.to_lowercase();
+        if lower.starts_with("up") || lower.contains("running") {
+            Self::Running
+        } else if lower.starts_with("exited") || lower.contains("stopped") {
+            Self::Exited
+        } else if lower.contains("paused") {
+            Self::Paused
+        } else if lower.contains("restarting") {
+            Self::Restarting
+        } else if lower.contains("dead") {
+            Self::Dead
+        } else {
+            Self::Unknown
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DockerContainerInfo {
+    pub id: String,                 // 12-char or 64-char container ID
+    pub name: String,               // Friendly container name (e.g. "postgres-db")
+    pub image: String,              // Image tag (e.g. "postgres:16-alpine")
+    pub state: ContainerState,
+    pub status_text: String,        // e.g. "Up 4 hours" or "Exited (1) 10m ago"
+    pub created_at: String,
+    pub ports: String,              // e.g. "0.0.0.0:5432->5432/tcp"
+    pub memory_usage_bytes: Option<u64>,
+    pub memory_limit_bytes: Option<u64>,
+    pub cpu_percentage: Option<f32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DockerContainersSnapshot {
+    pub docker_available: bool,
+    pub error_message: Option<String>,
+    pub containers: Vec<DockerContainerInfo>,
+}
+```
+
+### 2.2 UniFFI Interface
+
+```rust
+#[uniffi::export]
+impl SshSessionHandle {
+    /// Queries Docker containers on the remote host (via helper or docker CLI).
+    pub async fn fetch_docker_containers(&self) -> Result<DockerContainersSnapshot, SshCoreError>;
+
+    /// Restarts a specific Docker container by ID or name.
+    pub async fn restart_docker_container(&self, container_id: String) -> Result<bool, SshCoreError>;
+
+    /// Fetches the recent log tail of a specific container.
+    pub async fn fetch_docker_logs(&self, container_id: String, tail_lines: u32) -> Result<String, SshCoreError>;
+
+    /// Generates the verified shell command to exec into the container's interactive shell.
+    pub fn build_docker_exec_command(&self, container_id: String) -> Result<String, SshCoreError>;
+}
+```
+
+### 2.3 Swift Types & View Models (`ios/Sources/Models/DockerContainer.swift`)
+
+```swift
+import Foundation
+import SshCoreBridge
+
+public struct DisplayableContainer: Identifiable {
+    public var id: String { raw.id }
+    public let raw: DockerContainerInfo
+
+    public var isRunning: Bool { raw.state == .running }
+    public var stateGlyph: String {
+        switch raw.state {
+        case .running: return "●"
+        case .exited, .dead: return "●"
+        case .paused, .restarting: return "●"
+        case .unknown: return "○"
+        }
+    }
+    public var stateColor: Color {
+        switch raw.state {
+        case .running: return .green
+        case .exited, .dead: return .red
+        case .paused, .restarting: return .orange
+        case .unknown: return .secondary
+        }
+    }
+    public var memoryDisplay: String {
+        guard let usage = raw.memoryUsageBytes, let limit = raw.memoryLimitBytes, limit > 0 else {
+            return "RAM: --"
+        }
+        let uMb = usage / (1024 * 1024)
+        let lMb = limit / (1024 * 1024)
+        return "\(uMb) MB / \(lMb) MB"
+    }
+}
+```
+
+---
+
+## 3. Remote Protocols & Command Execution
+
+### 3.1 Host Probing Protocol
+To minimize round-trips and keep CPU overhead near zero, the host query runs via:
+1. **Helper Path (`ssh-app-host docker-list`)**:
+   - The compiled helper connects directly to `/var/run/docker.sock` over HTTP/Unix-domain socket.
+   - Fast, zero fork/exec overhead, parses JSON directly.
+2. **POSIX Shell Fallback**:
+   - If the helper is absent, executes a single-shot POSIX command:
+   ```bash
+   if command -v docker >/dev/null 2>&1; then
+     docker ps -a --format '{{json .}}'
+   else
+     echo "DOCKER_NOT_INSTALLED"
+   fi
+   ```
+
+### 3.2 In-Container Terminal Tab Spawn
+When the user taps `[ >_ Terminal ]`:
+1. The container ID is validated via `validate_docker_container_identifier(container_id)`.
+2. Swift calls `tabsManager.addSession(...)`:
+   ```swift
+   let execCmd = "docker exec -it \(safeId) sh -c 'command -v bash >/dev/null 2>&1 && exec bash || exec sh'"
+   let session = tabsManager.addCustomSession(
+       title: "[docker] \(container.raw.name)",
+       command: execCmd,
+       serverId: serverId,
+       icon: "shippingbox.fill"
+   )
+   ```
+3. A remote tmux session is spawned with this command as the root process.
+4. If the container stops or exits, the pane terminates cleanly without hanging the app.
+
+---
+
+## 4. UI Layout & Wireframes (Strict No-Emoji Design System)
+
+### 4.1 Host Telemetry Section: Docker & Services
+
+```text
+┌────────────────────────────────────────────────────────┐
+│ [shippingbox.fill] Docker Containers (3 Active)  [ ↺ ] │
+├────────────────────────────────────────────────────────┤
+│ ● postgres-16                           Up 4 hours     │
+│   Image: postgres:16-alpine             Port: 5432     │
+│   RAM: 148 MB / 4096 MB                 CPU: 0.8%      │
+│   [ ↺ Restart ]   [ ⎘ Logs ]   [ >_ Terminal ]         │
+├────────────────────────────────────────────────────────┤
+│ ● ollama-runner                         Up 12 hours    │
+│   Image: ollama/ollama:latest           Port: 11434    │
+│   RAM: 4.8 GB / 16 GB                   CPU: 12.4%     │
+│   [ ↺ Restart ]   [ ⎘ Logs ]   [ >_ Terminal ]         │
+├────────────────────────────────────────────────────────┤
+│ ● redis-cache                           Exited (0)     │
+│   Image: redis:7.2-alpine                              │
+│   [ ▶ Start ]     [ ⎘ Logs ]   [ >_ Terminal ]         │
+└────────────────────────────────────────────────────────┘
+```
+
+### 4.2 Container Logs Slide-Over Sheet
+
+```text
+┌────────────────────────────────────────────────────────┐
+│ [ < Close ]      Logs: postgres-16               [ ⎘ ] │
+│                  200 lines · Auto-scroll: ON           │
+├────────────────────────────────────────────────────────┤
+│ 2026-10-20 14:02:11 UTC [1] LOG: starting PostgreSQL   │
+│ 2026-10-20 14:02:11 UTC [1] LOG: database system ready │
+│ 2026-10-20 14:15:00 UTC [24] LOG: connection received │
+│                                                        │
+│                                                        │
+├────────────────────────────────────────────────────────┤
+│ [ doc.on.doc Copy All ]             [ ↺ Fetch Fresh ] │
+└────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 5. Security Considerations (Hacker Gate)
+
+| Threat Vector | Mitigation Strategy |
+| :--- | :--- |
+| **Container ID / Name Shell Injection** | Identifiers must match strict regex: `^[a-zA-Z0-9][a-zA-Z0-9_.-]{1,127}$`. Any string containing whitespace, semicolons, backticks, or pipes is rejected with `SshCoreError::InvalidIdentifier`. |
+| **Privilege Escalation via Docker Exec** | `docker exec` runs with the container's default user. The app does NOT inject `--privileged` or `--user root`. |
+| **Socket Hijacking / DoS** | Helper accesses `/var/run/docker.sock` strictly with timeout (max 5 s). If the user does not have permission to access the socket (not in `docker` group), a clean typed error `DockerPermissionDenied` is returned rather than hanging. |
+| **Output Flooding on Logs** | The logs command is strictly clamped with `--tail 200` and maximum output buffer of 2 MB, preventing iOS memory spikes. |
+
+---
+
+## 6. Verification & Test Suite
+
+1. **Rust Core Tests**:
+   - `test_validate_container_identifier`: accepts `web-app_1`, `postgres-db`, `e3b0c44298fc`; rejects `app; rm -rf /`, `app$(whoami)`.
+   - `test_parse_docker_ps_json_stream`: validates parsing of single and multiple container records.
+   - `test_build_docker_exec_command_format`: verifies properly escaped exec invocation.
+2. **Swift UI Tests**:
+   - One-tap restart button triggering loading state and haptic feedback.
+   - Logs viewer scrolling and clipboard copy action.
+   - Spawning in-container terminal tab and verifying tab selection in `TerminalTabsManager`.

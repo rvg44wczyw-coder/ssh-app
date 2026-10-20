@@ -40,12 +40,7 @@ public struct StructuredTranscriptView: View {
     /// The usage numbers shown in the feed's line (`nil`: usage strip switched off).
     var usage: SessionUsageMonitor?
     var onRefreshUsage: (() -> Void)?
-    /// Where the line is: the centre as a fraction of the screen. Opacity of its background is set
-    /// in Settings → Appearance.
-    @AppStorage(FeedStripPrefs.xKey) private var stripX = FeedStripPrefs.defaultX
-    @AppStorage(FeedStripPrefs.yKey) private var stripY = FeedStripPrefs.defaultY
-    @AppStorage(FeedStripPrefs.opacityKey) private var stripOpacity = FeedStripPrefs.defaultOpacity
-    @State private var stripDrag: CGSize = .zero
+
 
     public init(viewModel: TerminalSessionViewModel) {
         self.viewModel = viewModel
@@ -59,8 +54,7 @@ public struct StructuredTranscriptView: View {
 
     /// The one line of the feed: git (branch, worktree, changes), then the agent's model, context
     /// and limits. Search and refresh are in the session menu; the switch back to the terminal
-    /// floats at the top right, where the terminal screen has its switch to the feed. The line can
-    /// be dragged (or moved from its long-press menu) between the top and the bottom of the feed.
+    /// floats over the right end (see `ActiveTerminalSessionView.modeSwitch`).
     private var feedStrip: some View {
         let git = viewModel.gitContext
         let showsUsage = usage.map { SessionUsageItems.hasContent($0) } ?? false
@@ -86,17 +80,17 @@ public struct StructuredTranscriptView: View {
             if let usage { SessionUsageItems(monitor: usage) }
             Spacer(minLength: 0)
             if usage?.loading == true || viewModel.isTranscriptLoading { ProgressView().controlSize(.mini) }
+            // Room for the terminal switch floating over the right end.
+            Color.clear.frame(width: 78, height: 1)
         }
         .font(.system(size: 10, design: .monospaced))
         .padding(.horizontal, 10)
-        .padding(.vertical, 4)
-        .background(Color.appSecondaryBackground.opacity(stripOpacity), in: RoundedRectangle(cornerRadius: 10))
+        .frame(minHeight: 22)
+        .frame(maxWidth: .infinity)
+        .background(.bar)
         .contentShape(Rectangle())
         .onTapGesture { onRefreshUsage?(); Task { await viewModel.loadGitContext() } }
         .contextMenu {
-            Button {
-                withAnimation { stripX = FeedStripPrefs.defaultX; stripY = FeedStripPrefs.defaultY }
-            } label: { Label("Back to the top", systemImage: "arrow.up.to.line") }
             if git.isGit {
                 Button { gitSheet = .branches } label: { Label("Branches", systemImage: "arrow.triangle.branch") }
                 Button { gitSheet = .worktrees } label: { Label("Worktrees", systemImage: "square.stack.3d.down.right") }
@@ -112,42 +106,18 @@ public struct StructuredTranscriptView: View {
         }
         .task { await viewModel.loadGitContext() }
         .accessibilityElement(children: .combine)
-        .accessibilityHint("Tap to refresh, drag to move it anywhere on the screen")
+        .accessibilityHint("Tap to refresh")
     }
 
     public var body: some View {
         decorated(layout)
-            .overlay { floatingStrip }
-    }
-
-    /// The line floats over the feed; drag it anywhere on the screen, it stays where it is left.
-    private var floatingStrip: some View {
-        GeometryReader { geo in
-            let w = geo.size.width, h = geo.size.height
-            feedStrip
-                // at the top it leaves the corner of the terminal switch free
-                .frame(maxWidth: max(120, stripY + stripDrag.height / max(h, 1) < 0.12 ? w * 0.72 : w - 16))
-                .fixedSize(horizontal: false, vertical: true)
-                .position(
-                    x: min(max(stripX * w + stripDrag.width, 60), max(60, w - 60)),
-                    y: min(max(stripY * h + stripDrag.height, 16), max(16, h - 16))
-                )
-                .gesture(
-                    DragGesture(minimumDistance: 6)
-                        .onChanged { stripDrag = $0.translation }
-                        .onEnded { d in
-                            if w > 0, h > 0 {
-                                stripX = min(max(stripX + d.translation.width / w, 0.05), 0.95)
-                                stripY = min(max(stripY + d.translation.height / h, 0.01), 0.99)
-                            }
-                            stripDrag = .zero
-                        }
-                )
-        }
     }
 
     private var layout: some View {
         VStack(spacing: 0) {
+            feedStrip
+            Divider()
+
             // Main Content Area
             if let error = viewModel.transcriptError, viewModel.transcriptTurns.isEmpty {
                 VStack(spacing: 12) {
