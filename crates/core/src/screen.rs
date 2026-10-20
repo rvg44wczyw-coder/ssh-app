@@ -120,7 +120,14 @@ fn detect(lines: &[String]) -> Dialect {
     let mut claude = 0;
     let mut agy = 0;
     for l in lines {
-        if l.starts_with("⏺ ") || l.starts_with("❯ ") || l.starts_with("✻ ") {
+        // The footer is on screen even when the part of the pane that scrolled by has no marker.
+        if l.contains("⏵⏵") || l.contains("shift+tab to cycle") {
+            claude += 1;
+        } else if l.starts_with("? for shortcuts")
+            || (l.contains(" · Gemini ") && l.contains("accept-edits"))
+        {
+            agy += 1;
+        } else if l.starts_with("⏺ ") || l.starts_with("❯ ") || l.starts_with("✻ ") {
             claude += 1;
         } else if l.starts_with("○ ")
             || l.starts_with("● ")
@@ -521,6 +528,7 @@ fn reflow(lines: &[String]) -> String {
     let width = lines.iter().map(|l| l.chars().count()).max().unwrap_or(0);
     let mut out: Vec<String> = Vec::new();
     let mut prev_wrapped = false;
+    let mut prev_hard = false;
     for l in lines {
         let t = l.trim_start();
         let block_start = t.is_empty()
@@ -528,6 +536,8 @@ fn reflow(lines: &[String]) -> String {
             || t.starts_with("- ")
             || t.starts_with("* ")
             || t.starts_with('|')
+            // a row of a table the agent drew with pipes: its cells wrap, the rows must not merge
+            || t.matches('|').count() >= 2
             || t.starts_with('#')
             || t.starts_with("```")
             || t == "---"
@@ -537,16 +547,35 @@ fn reflow(lines: &[String]) -> String {
                     .starts_with(". ");
         if prev_wrapped && !block_start {
             if let Some(last) = out.last_mut() {
-                last.push(' ');
+                if !prev_hard {
+                    last.push(' ');
+                }
                 last.push_str(t);
                 prev_wrapped = l.chars().count() + 12 >= width && width > 24;
+                prev_hard = hard_wrapped(l, width);
                 continue;
             }
         }
         out.push(l.to_string());
-        prev_wrapped = !t.is_empty() && l.chars().count() + 12 >= width && width > 24;
+        prev_wrapped = !t.is_empty()
+            && t.matches('|').count() < 2
+            && l.chars().count() + 12 >= width
+            && width > 24;
+        prev_hard = hard_wrapped(l, width);
     }
     out.join("\n")
+}
+
+/// A line the terminal cut in the middle of a long word (a path, a URL): it fills the pane to the
+/// last column and ends in a long unbroken run. Word-wrapped lines stop short of the edge.
+fn hard_wrapped(line: &str, width: usize) -> bool {
+    let n = line.chars().count();
+    width > 24
+        && n >= width
+        && line
+            .rsplit(' ')
+            .next()
+            .is_some_and(|w| w.chars().count() >= 12)
 }
 
 fn strip_indent(l: &str, n: usize) -> String {
@@ -620,6 +649,7 @@ fn flush_other(b: &mut Builder, other: &mut Vec<String>) {
 // MARK: Claude Code
 
 fn claude(lines: &[String], b: &mut Builder) {
+    let pane_width = lines.iter().map(|l| l.chars().count()).max().unwrap_or(0);
     let mut other: Vec<String> = Vec::new();
     let mut i = 0;
     while i < lines.len() {
@@ -696,7 +726,9 @@ fn claude(lines: &[String], b: &mut Builder) {
                     if indent(&lines[i]) < 2 || lines[i].trim_start().starts_with('⎿') {
                         break;
                     }
-                    args.push(' ');
+                    if !hard_wrapped(&lines[i - 1], pane_width) {
+                        args.push(' ');
+                    }
                     args.push_str(lines[i].trim());
                     i += 1;
                 }
@@ -752,7 +784,11 @@ fn claude(lines: &[String], b: &mut Builder) {
         if t.starts_with('⎿') {
             flush_other(b, &mut other);
             if let Some(out) = take_result(lines, &mut i) {
-                b.system("Note", &out);
+                // "Allowed by auto mode classifier" follows every auto-approved call: it is the
+                // reason a call ran, not news, and it would split the run of calls the feed folds.
+                if out.trim() != "Allowed by auto mode classifier" {
+                    b.system("Note", &out);
+                }
             }
             continue;
         }
@@ -1428,6 +1464,65 @@ pub fn merge_thinking(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_path_cut_by_the_terminal_in_the_middle_of_a_word_is_joined_without_a_space() {
+        let cut = "  Bash(grep -n x ios/Sources/SSHApp/Views/ActiveTerm"; // fills the pane
+        let screen = format!("\n⏺ Bash(grep -n a\n{cut}\n      inalSessionView.swift)\n  ⎿  ok\n");
+        let feed = parse_screen_feed(screen);
+        let call = &feed
+            .turns
+            .iter()
+            .flat_map(|t| &t.tool_calls)
+            .next()
+            .unwrap();
+        assert!(
+            call.arguments_summary
+                .contains("ActiveTerminalSessionView.swift"),
+            "{}",
+            call.arguments_summary
+        );
+    }
+
+    #[test]
+    fn the_auto_mode_note_is_not_a_turn_but_other_notes_stay() {
+        let screen = "⏺ Bash(ls)\n  ⎿  a\n\n⏺ Bash(pwd)\n  ⎿  Allowed by auto mode classifier\n\n  ⎿  Stop says: cleanup done\n";
+        let feed = parse_screen_feed(screen.into());
+        let notes: Vec<_> = feed
+            .turns
+            .iter()
+            .filter(|t| t.label.as_deref() == Some("Note"))
+            .collect();
+        assert!(notes
+            .iter()
+            .all(|t| !t.content.clone().unwrap_or_default().contains("auto mode")));
+        assert!(feed.turns.iter().any(|t| t
+            .content
+            .clone()
+            .unwrap_or_default()
+            .contains("Stop says")));
+    }
+
+    #[test]
+    fn the_footer_names_the_agent_when_the_scrolled_part_has_no_marker() {
+        let agy = "plain text that scrolled by\nmore text\n──────\n>\n──────\n? for shortcuts   accept-edits · Gemini 3.8 Flash · medium\n";
+        assert_eq!(parse_screen_feed(agy.into()).dialect, "agy");
+        let claude = "plain text\nmore\n  ⏵⏵ auto mode on (shift+tab to cycle)\n";
+        assert_eq!(parse_screen_feed(claude.into()).dialect, "claude");
+    }
+
+    #[test]
+    fn table_rows_with_wrapped_cells_do_not_merge_into_one_line() {
+        let screen = "● intro\n   VULN-02:   |    High    |  Low  | cell one\n   Next row   |    Low     |  Low  | cell two\n";
+        let feed = parse_screen_feed(screen.into());
+        let text = feed
+            .turns
+            .iter()
+            .filter_map(|t| t.content.clone())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(text.contains("cell one\n"), "{text}");
+    }
+
     #[test]
     fn the_agent_placeholders_for_cut_output_are_not_content() {
         assert!(is_more_marker("… +13 lines"));
