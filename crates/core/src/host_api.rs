@@ -1321,6 +1321,29 @@ impl SshSessionHandle {
         Ok(())
     }
 
+    /// Keeps the installed hook script in step with the helper: its pin is inside the script, and
+    /// a stale pin sends every hook to the Python code. Replaces the script only when it is
+    /// ssh-app's own; any other file there is left alone unless `overwrite_foreign` (the user
+    /// said yes).
+    pub async fn refresh_hook_script(
+        &self,
+        overwrite_foreign: bool,
+    ) -> Result<crate::agent_hooks::HookScriptRefresh, SshCoreError> {
+        use crate::agent_hooks::{plan_hook_script_refresh, HookScriptRefresh};
+        let path = crate::agents::remote_script_path(crate::agents::DEFAULT_HOOK_DIR);
+        let existing = self.read_remote_config(&path).await?;
+        let new = crate::agents::agent_hook_script();
+        let plan = plan_hook_script_refresh(&existing, &new, overwrite_foreign);
+        if plan == HookScriptRefresh::Refreshed {
+            self.execute_command_on_active_session(format!(
+                "umask 077; {}",
+                crate::agents::build_write_file_command(&path, &new, "700")
+            ))
+            .await?;
+        }
+        Ok(plan)
+    }
+
     /// Which kind of host this is (macOS / Linux / WSL2 and the CPU), from one short probe.
     pub async fn detect_host_target(&self) -> Result<crate::hosttarget::HostTarget, SshCoreError> {
         let out = self

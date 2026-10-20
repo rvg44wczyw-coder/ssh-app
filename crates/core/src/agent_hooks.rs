@@ -52,6 +52,44 @@ pub fn agent_hook_script() -> String {
     }
 }
 
+/// What to do with the hook script already on a host after the helper changed (its pin is inside
+/// the script, so a stale pin silently sends every hook to the Python code).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum HookScriptRefresh {
+    /// No script on the host: nothing to keep in step.
+    NotInstalled,
+    /// Already the script this build ships, pin included.
+    UpToDate,
+    /// It was ssh-app's own script and was replaced.
+    Refreshed,
+    /// A file is there that is not ssh-app's script: only replaced when the user says so.
+    NeedsConfirmation,
+}
+
+/// Whether `existing` is a script of ours (any version): the docstring and the pin slot are the
+/// signature. Anything else at that path is somebody's own file.
+pub(crate) fn is_our_hook_script(existing: &str) -> bool {
+    let head: String = existing.chars().take(600).collect();
+    head.contains("ssh-app agent hook") && existing.contains("HELPER_SHA256 = ")
+}
+
+/// The decision, without touching the host: `Refreshed` here means "write the new script".
+pub(crate) fn plan_hook_script_refresh(
+    existing: &str,
+    new: &str,
+    overwrite_foreign: bool,
+) -> HookScriptRefresh {
+    if existing.trim().is_empty() {
+        HookScriptRefresh::NotInstalled
+    } else if existing == new {
+        HookScriptRefresh::UpToDate
+    } else if is_our_hook_script(existing) || overwrite_foreign {
+        HookScriptRefresh::Refreshed
+    } else {
+        HookScriptRefresh::NeedsConfirmation
+    }
+}
+
 /// The hook dir is embedded in a command the *agent's shell* executes (inside double quotes), so
 /// it must not contain anything the shell would interpret (`$`, backticks, quotes, `\`, ...).
 fn validate_hook_dir(dir: &str) -> Result<(), SshCoreError> {
@@ -808,6 +846,49 @@ pub(crate) fn validate_custom_hook_for_tests(preset: &HookPreset) {
         {
             validate_custom_hook(agent, preset).unwrap();
         }
+    }
+}
+
+#[cfg(test)]
+mod refresh_tests {
+    use super::*;
+
+    #[test]
+    fn only_our_own_script_is_refreshed_without_asking() {
+        let new = agent_hook_script();
+        assert_eq!(
+            plan_hook_script_refresh("", &new, false),
+            HookScriptRefresh::NotInstalled
+        );
+        assert_eq!(
+            plan_hook_script_refresh(&new, &new, false),
+            HookScriptRefresh::UpToDate
+        );
+        // an older copy of ours with another pin
+        let old = new.replacen("HELPER_SHA256 = \"", "HELPER_SHA256 = \"00", 1);
+        assert!(is_our_hook_script(&old) || !new.contains("HELPER_SHA256 = \""));
+        if is_our_hook_script(&old) {
+            assert_eq!(
+                plan_hook_script_refresh(&old, &new, false),
+                HookScriptRefresh::Refreshed
+            );
+        }
+        // somebody else's file at that path
+        let foreign = "#!/bin/sh\necho my own hook\n";
+        assert_eq!(
+            plan_hook_script_refresh(foreign, &new, false),
+            HookScriptRefresh::NeedsConfirmation
+        );
+        assert_eq!(
+            plan_hook_script_refresh(foreign, &new, true),
+            HookScriptRefresh::Refreshed
+        );
+        // a file that only mentions the name is not ours
+        let mention = "#!/bin/sh\n# calls ssh-app agent hook\nexec other\n";
+        assert_eq!(
+            plan_hook_script_refresh(mention, &new, false),
+            HookScriptRefresh::NeedsConfirmation
+        );
     }
 }
 

@@ -133,3 +133,6 @@ Done: `crates/host` modules `queue`, `guard`, `hook`, `ctl`, `sessions`, `status
 Deviations: the spec's separate panic hook became `catch_unwind` plus a silent panic hook (no
 `panic = abort`); a hook payload over 32 MiB is refused (deny) instead of being read without a
 limit; the helper size cap is 16 MiB (the debug build used by tests is 8.6 MB).
+
+## Keeping the pin in step (2026-10-20)
+The pin lives inside the installed `ssh-app-hook`, so updating only the helper left a stale pin and every hook silently ran the Python code (found on the owner's host: script pinned `fa6de2cf…`, helper `c4fa93ea…`). The host card now calls `refresh_hook_script` whenever the helper is ready (after an install too): a script that carries ssh-app's signature (docstring `ssh-app agent hook` and the `HELPER_SHA256 = ` slot) is rewritten with the current pin and mode 700, silently; any other file at `~/.ssh-app/bin/ssh-app-hook` is left alone and the app asks "Replace the hook script?" first. Nothing is touched when no script is installed. Not run on a device.

@@ -1643,6 +1643,14 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func readRemoteTranscript(remotePath: String) async throws  -> [TranscriptTurn]
     
     /**
+     * Keeps the installed hook script in step with the helper: its pin is inside the script, and
+     * a stale pin sends every hook to the Python code. Replaces the script only when it is
+     * ssh-app's own; any other file there is left alone unless `overwrite_foreign` (the user
+     * said yes).
+     */
+    func refreshHookScript(overwriteForeign: Bool) async throws  -> HookScriptRefresh
+    
+    /**
      * Restarts the agent of a tab: the pane of the tmux session `session_name` is respawned with
      * `command` (a launch command from `build_agent_launch_command`), the old process killed. The
      * session stays, so the phone's attached terminal just shows the new start.
@@ -2925,6 +2933,28 @@ open func readRemoteTranscript(remotePath: String)async throws  -> [TranscriptTu
             completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
             freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
             liftFunc: FfiConverterSequenceTypeTranscriptTurn.lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Keeps the installed hook script in step with the helper: its pin is inside the script, and
+     * a stale pin sends every hook to the Python code. Replaces the script only when it is
+     * ssh-app's own; any other file there is left alone unless `overwrite_foreign` (the user
+     * said yes).
+     */
+open func refreshHookScript(overwriteForeign: Bool)async throws  -> HookScriptRefresh  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_refresh_hook_script(
+                        self.uniffiCloneHandle(),FfiConverterBool.lower(overwriteForeign)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeHookScriptRefresh_lift,
             errorHandler: FfiConverterTypeSshCoreError_lift
         )
 }
@@ -10308,6 +10338,102 @@ public func FfiConverterTypeHookPresetKind_lower(_ value: HookPresetKind) -> Rus
 
 
 /**
+ * What to do with the hook script already on a host after the helper changed (its pin is inside
+ * the script, so a stale pin silently sends every hook to the Python code).
+ */
+
+public enum HookScriptRefresh: Equatable, Hashable {
+    
+    /**
+     * No script on the host: nothing to keep in step.
+     */
+    case notInstalled
+    /**
+     * Already the script this build ships, pin included.
+     */
+    case upToDate
+    /**
+     * It was ssh-app's own script and was replaced.
+     */
+    case refreshed
+    /**
+     * A file is there that is not ssh-app's script: only replaced when the user says so.
+     */
+    case needsConfirmation
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension HookScriptRefresh: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHookScriptRefresh: FfiConverterRustBuffer {
+    typealias SwiftType = HookScriptRefresh
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HookScriptRefresh {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .notInstalled
+        
+        case 2: return .upToDate
+        
+        case 3: return .refreshed
+        
+        case 4: return .needsConfirmation
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: HookScriptRefresh, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .notInstalled:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .upToDate:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .refreshed:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .needsConfirmation:
+            writeInt(&buf, Int32(4))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHookScriptRefresh_lift(_ buf: RustBuffer) throws -> HookScriptRefresh {
+    return try FfiConverterTypeHookScriptRefresh.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHookScriptRefresh_lower(_ value: HookScriptRefresh) -> RustBuffer {
+    return FfiConverterTypeHookScriptRefresh.lower(value)
+}
+
+
+
+/**
  * State of the typed helper on the host, judged against the digest the app pins.
  */
 
@@ -15187,6 +15313,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_read_remote_transcript() != 17846) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_refresh_hook_script() != 2453) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_restart_session_command() != 41626) {

@@ -15,6 +15,8 @@ struct HostHelperCard: View {
 
     @State private var pin: String?
     @State private var showWslSetup = false
+    /// The hook script on the host is somebody else's file: asked before it is replaced.
+    @State private var askReplaceHook = false
 
     private var target: HostTarget? { viewModel.hostTarget }
     private var isUnsupported: Bool { if case .unsupported? = target { return true }; return false }
@@ -73,6 +75,25 @@ struct HostHelperCard: View {
         .task(id: viewModel.state == .connected) { await refresh() }
         .onDisappear { watch?.stop(); watch = nil }
         .sheet(isPresented: $showWslSetup) { WslSetupView(publicKey: viewModel.publicKeyLine) }
+        .alert("Replace the hook script?", isPresented: $askReplaceHook) {
+            Button("Replace", role: .destructive) { Task { await refreshHookScript(overwriteForeign: true) } }
+            Button("Keep it", role: .cancel) {}
+        } message: {
+            Text("~/.ssh-app/bin/ssh-app-hook on this host is not ssh-app's own script. The agents' hooks only use the new helper with ssh-app's script. Replace it?")
+        }
+    }
+
+    /// The pin of the helper sits inside the hook script; with an old pin every hook falls back to
+    /// the Python code. Our own script is refreshed silently, any other file only after a yes.
+    private func refreshHookScript(overwriteForeign: Bool) async {
+        guard let handle = viewModel.sessionHandle else { return }
+        do {
+            if try await handle.refreshHookScript(overwriteForeign: overwriteForeign) == .needsConfirmation {
+                askReplaceHook = true
+            }
+        } catch {
+            self.error = "Could not update the hook script: \(error.localizedDescription)"
+        }
     }
 
     @ViewBuilder
@@ -153,6 +174,7 @@ struct HostHelperCard: View {
         pin = await viewModel.helperPin()
         guard let pin, !isUnsupported, !isWindows else { return }
         status = try? await handle.hostHelperStatus(expectedSha256: pin)
+        if case .ready? = status { await refreshHookScript(overwriteForeign: false) }
     }
 
     private func install() async {
