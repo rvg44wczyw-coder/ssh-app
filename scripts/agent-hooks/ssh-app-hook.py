@@ -672,6 +672,7 @@ def statusline(prev_hex):
 
 
 def main():
+    global TIMEOUT
     agent = sys.argv[1] if len(sys.argv) > 1 else ""
     event = sys.argv[2] if len(sys.argv) > 2 else ""
     if agent == "ctl":
@@ -740,6 +741,10 @@ def main():
 
     if event in ("PermissionRequest", "PreToolUse"):
         guard = load_guard()
+        wait = guard.get("approval_wait_secs")
+        if ("SSH_APP_HOOK_TIMEOUT" not in os.environ and isinstance(wait, int)
+                and not isinstance(wait, bool) and 5 <= wait <= 120):
+            TIMEOUT = float(wait)
         if input_too_big(tool_input) and any(guard_rules(guard, k) for k in ("deny", "ask", "allow")):
             # Rules cannot be checked reliably (and cheaply) on this much text: fail closed.
             sys.stdout.write(json.dumps(deny_output(

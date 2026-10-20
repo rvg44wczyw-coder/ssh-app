@@ -100,12 +100,28 @@ impl Paths {
     }
 }
 
+/// Seconds from `approval_wait_secs` in the guard; `0` = not set. The environment wins over it.
+static GUARD_WAIT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Takes the wait the user set in the app (5 to 120 s) from the guard file.
+pub fn set_guard_wait(guard: &Value) {
+    let secs = guard
+        .get("approval_wait_secs")
+        .and_then(Value::as_u64)
+        .filter(|n| (5..=120).contains(n))
+        .unwrap_or(0);
+    GUARD_WAIT.store(secs, Ordering::SeqCst);
+}
+
 pub fn timeout_secs() -> f64 {
     std::env::var("SSH_APP_HOOK_TIMEOUT")
         .ok()
         .and_then(|v| v.parse::<f64>().ok())
         .filter(|v| v.is_finite())
-        .unwrap_or(120.0)
+        .unwrap_or_else(|| match GUARD_WAIT.load(Ordering::SeqCst) {
+            0 => 120.0,
+            n => n as f64,
+        })
 }
 
 /// Valid text truncated to `limit` characters.
@@ -416,5 +432,24 @@ mod tests {
         assert!(is_decision_name(&format!("{id}.{}.json", "a".repeat(16))));
         assert!(!is_decision_name(&format!("{id}.{}.json", "A".repeat(16))));
         assert!(!is_decision_name(&format!("{id}..json")));
+    }
+}
+
+#[cfg(test)]
+mod wait_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn the_guard_sets_the_wait_within_bounds() {
+        set_guard_wait(&json!({"approval_wait_secs": 15}));
+        if std::env::var("SSH_APP_HOOK_TIMEOUT").is_err() {
+            assert_eq!(timeout_secs(), 15.0);
+        }
+        set_guard_wait(&json!({"approval_wait_secs": 2}));
+        if std::env::var("SSH_APP_HOOK_TIMEOUT").is_err() {
+            assert_eq!(timeout_secs(), 120.0);
+        }
+        set_guard_wait(&json!({}));
     }
 }

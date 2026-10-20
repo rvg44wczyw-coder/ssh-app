@@ -317,6 +317,7 @@ pub fn run(p: &Paths, args: &[String]) -> i32 {
 
 fn permission(p: &Paths, agent: &str, event: &str, call: &Call, base: &Base, too_big: bool) {
     let guard = load_guard(p);
+    crate::queue::set_guard_wait(&guard);
     let (deny, ask, allow) = (
         guard_rules(&guard, "deny"),
         guard_rules(&guard, "ask"),

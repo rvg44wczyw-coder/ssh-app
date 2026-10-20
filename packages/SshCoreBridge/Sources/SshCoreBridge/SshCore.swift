@@ -6177,6 +6177,11 @@ public struct HostGuard: Equatable, Hashable {
      * When the agent stops, ask it to continue with this message, once per stop (Claude).
      */
     public var stopMessage: String
+    /**
+     * How long the hook holds a tool call for an answer from the phone before the agent asks in
+     * its own terminal. `0` = the default (120 s); otherwise 5 to 120 seconds.
+     */
+    public var approvalWaitSecs: UInt32
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -6198,13 +6203,18 @@ public struct HostGuard: Equatable, Hashable {
          */promptContext: String, 
         /**
          * When the agent stops, ask it to continue with this message, once per stop (Claude).
-         */stopMessage: String) {
+         */stopMessage: String, 
+        /**
+         * How long the hook holds a tool call for an answer from the phone before the agent asks in
+         * its own terminal. `0` = the default (120 s); otherwise 5 to 120 seconds.
+         */approvalWaitSecs: UInt32) {
         self.deny = deny
         self.ask = ask
         self.allow = allow
         self.sessionStartContext = sessionStartContext
         self.promptContext = promptContext
         self.stopMessage = stopMessage
+        self.approvalWaitSecs = approvalWaitSecs
     }
 
     
@@ -6228,7 +6238,8 @@ public struct FfiConverterTypeHostGuard: FfiConverterRustBuffer {
                 allow: FfiConverterSequenceString.read(from: &buf), 
                 sessionStartContext: FfiConverterString.read(from: &buf), 
                 promptContext: FfiConverterString.read(from: &buf), 
-                stopMessage: FfiConverterString.read(from: &buf)
+                stopMessage: FfiConverterString.read(from: &buf), 
+                approvalWaitSecs: FfiConverterUInt32.read(from: &buf)
         )
     }
 
@@ -6239,6 +6250,7 @@ public struct FfiConverterTypeHostGuard: FfiConverterRustBuffer {
         FfiConverterString.write(value.sessionStartContext, into: &buf)
         FfiConverterString.write(value.promptContext, into: &buf)
         FfiConverterString.write(value.stopMessage, into: &buf)
+        FfiConverterUInt32.write(value.approvalWaitSecs, into: &buf)
     }
 }
 

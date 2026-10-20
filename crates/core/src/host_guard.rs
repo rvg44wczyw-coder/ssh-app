@@ -14,6 +14,8 @@ use serde_json::{json, Value};
 pub const GUARD_FILE: &str = "~/.ssh-app/guard.json";
 const MAX_RULES: usize = 100;
 const MAX_TEXT: usize = 2000;
+const MIN_WAIT: u32 = 5;
+const MAX_WAIT: u32 = 120;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, uniffi::Record)]
 pub struct HostGuard {
@@ -29,6 +31,9 @@ pub struct HostGuard {
     pub prompt_context: String,
     /// When the agent stops, ask it to continue with this message, once per stop (Claude).
     pub stop_message: String,
+    /// How long the hook holds a tool call for an answer from the phone before the agent asks in
+    /// its own terminal. `0` = the default (120 s); otherwise 5 to 120 seconds.
+    pub approval_wait_secs: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
@@ -76,6 +81,15 @@ pub fn validate_host_guard(guard: HostGuard) -> Result<HostGuard, SshCoreError> 
         session_start_context: text("Session context", &guard.session_start_context)?,
         prompt_context: text("Prompt context", &guard.prompt_context)?,
         stop_message: text("Stop message", &guard.stop_message)?,
+        approval_wait_secs: match guard.approval_wait_secs {
+            0 => 0,
+            n @ MIN_WAIT..=MAX_WAIT => n,
+            _ => {
+                return Err(invalid(format!(
+                    "The wait for the phone is {MIN_WAIT} to {MAX_WAIT} seconds"
+                )))
+            }
+        },
     })
 }
 
@@ -93,6 +107,9 @@ pub fn host_guard_to_json(guard: HostGuard) -> Result<String, SshCoreError> {
     let mut v = json!({"v": 1, "deny": g.deny, "ask": g.ask, "allow": g.allow, "context": context});
     if !g.stop_message.is_empty() {
         v["on_stop"] = json!({"message": g.stop_message});
+    }
+    if g.approval_wait_secs > 0 {
+        v["approval_wait_secs"] = json!(g.approval_wait_secs);
     }
     serde_json::to_string_pretty(&v).map_err(|e| invalid(format!("Could not write the guard: {e}")))
 }
@@ -143,6 +160,12 @@ pub fn host_guard_from_json(text: String) -> Result<HostGuard, SshCoreError> {
         session_start_context: ctx("SessionStart"),
         prompt_context: ctx("UserPromptSubmit"),
         stop_message: stop,
+        approval_wait_secs: obj
+            .get("approval_wait_secs")
+            .and_then(Value::as_u64)
+            .and_then(|n| u32::try_from(n).ok())
+            .filter(|n| (MIN_WAIT..=MAX_WAIT).contains(n))
+            .unwrap_or(0),
     })
 }
 
@@ -164,6 +187,9 @@ pub fn host_guard_warnings(guard: HostGuard) -> Vec<String> {
                 "\"{r}\" is in allow and also in deny/ask; deny wins, ask is kept."
             ));
         }
+    }
+    if guard.approval_wait_secs > 0 && guard.approval_wait_secs < 30 {
+        out.push("A short wait means the phone has little time to answer; after it the agent asks in its own terminal instead.".into());
     }
     if !guard.stop_message.is_empty() {
         out.push("The stop message makes the agent continue after every stop (once per stop). A message like \"keep going\" can run up cost; ask for something that ends, such as \"run the tests and stop when they pass\".".into());
@@ -442,6 +468,25 @@ mod tests {
     }
 
     #[test]
+    fn the_wait_for_the_phone_is_kept_and_bounded() {
+        let mut guard = g(&[]);
+        guard.approval_wait_secs = 15;
+        let json = host_guard_to_json(guard.clone()).unwrap();
+        assert!(json.contains("\"approval_wait_secs\": 15"));
+        assert_eq!(host_guard_from_json(json).unwrap().approval_wait_secs, 15);
+        // default is not written; an out-of-range value is refused, a stray one in a file is ignored
+        assert!(!host_guard_to_json(g(&[]))
+            .unwrap()
+            .contains("approval_wait_secs"));
+        guard.approval_wait_secs = 3;
+        assert!(validate_host_guard(guard.clone()).is_err());
+        guard.approval_wait_secs = 500;
+        assert!(validate_host_guard(guard).is_err());
+        let from_file = host_guard_from_json(r#"{"approval_wait_secs": 7000}"#.into());
+        assert_eq!(from_file.unwrap().approval_wait_secs, 0);
+    }
+
+    #[test]
     fn round_trips_through_the_script_json() {
         let guard = HostGuard {
             deny: v(&["Bash(rm:*)", "Read(~/.ssh/**)"]),
@@ -450,6 +495,7 @@ mod tests {
             session_start_context: "hello".into(),
             prompt_context: "world".into(),
             stop_message: "run tests".into(),
+            approval_wait_secs: 30,
         };
         let json = host_guard_to_json(guard.clone()).unwrap();
         assert_eq!(host_guard_from_json(json.clone()).unwrap(), guard);

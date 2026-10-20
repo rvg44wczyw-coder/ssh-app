@@ -56,6 +56,8 @@ struct HostGuardView: View {
     @State private var sessionContext = ""
     @State private var promptContext = ""
     @State private var stopMessage = ""
+    /// 0 = default (120 s).
+    @State private var approvalWait = 0
     @State private var sessions: [AgentSessionInfo] = []
     @State private var status: String?
     @State private var busy = false
@@ -66,7 +68,8 @@ struct HostGuardView: View {
 
     private var current: HostGuard {
         HostGuard(deny: lines(deny), ask: lines(ask), allow: lines(allow),
-                  sessionStartContext: sessionContext, promptContext: promptContext, stopMessage: stopMessage)
+                  sessionStartContext: sessionContext, promptContext: promptContext, stopMessage: stopMessage,
+                  approvalWaitSecs: UInt32(approvalWait))
     }
 
     private func load(_ g: HostGuard) {
@@ -76,6 +79,7 @@ struct HostGuardView: View {
         sessionContext = g.sessionStartContext
         promptContext = g.promptContext
         stopMessage = g.stopMessage
+        approvalWait = Int(g.approvalWaitSecs)
     }
 
     private func merge(_ p: HostGuard) {
@@ -133,6 +137,15 @@ struct HostGuardView: View {
                     footer: Text("Asks it to continue once per stop with this message. Use something that ends.")
                 ) {
                     TextField("Message (empty = off)", text: $stopMessage, axis: .vertical)
+                }
+                Section(
+                    header: Text("Waiting for the phone"),
+                    footer: Text("How long a tool call is held for your answer from the phone. After that the agent asks in its own terminal. The question does not appear in the terminal while the hook waits.")
+                ) {
+                    Picker("Wait", selection: $approvalWait) {
+                        Text("Default (2 min)").tag(0)
+                        ForEach([10, 15, 30, 60, 90], id: \.self) { Text("\($0) s").tag($0) }
+                    }
                 }
                 let warnings = hostGuardWarnings(guard: current)
                 if !warnings.isEmpty {

@@ -25,6 +25,7 @@ Rules enforced by the hook script itself, before anything reaches the phone, wit
 - **Stop message** (Claude): `{"decision":"block","reason":…}` asks the agent to do one more round; never when `stop_hook_active` is set (no loops).
 - 14 presets (block destructive / secrets / agent config / shell downloads / package installs / sudo / git writes; always ask for network and push; allow read-only and the dev loop; house-rules and briefing context; run tests before stopping). Presets merge into the editor.
 - Written with folder `0700`, file `0600`; read only if the file is a regular, owned, non-symlink file in a private folder. Unreadable or malformed content is an error in the app (never overwritten) and means "no guard" in the script.
+- **Wait for the phone** (`approval_wait_secs`, 5 to 120 s, default 120; picker in the guard editor): the hook is synchronous, so while it waits for the phone the agent shows nothing in its own terminal (Antigravity's menu included). After the wait the hook answers `ask`/no opinion and the terminal question appears. `SSH_APP_HOOK_TIMEOUT` in the environment wins over the setting. Takes effect on the next tool call, no reinstall of the hooks.
 - Not offered, on purpose: `updatedInput` (rewriting a tool call into something the user never saw), `systemMessage`, `continue:false`.
 - Agent support: Claude all; Antigravity deny/ask/allow; Codex deny/allow; Grok deny only.
 
