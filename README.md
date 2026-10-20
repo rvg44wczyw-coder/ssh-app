@@ -43,7 +43,8 @@ Native iOS mobile application (**SwiftUI + Rust Core via UniFFI**) for securely 
 - **Instant Re-Attach**: On foregrounding (`didBecomeActive`), the Rust core instantaneously reconnects and re-attaches to the tmux session.
 
 ### 2. Zero Network Attack Surface on Host
-- **No listening ports, no daemon**: `ssh-app` opens **ZERO** listening TCP/HTTP ports on the host and runs no background service. Agent hooks talk to the app through a small file queue under `~/.ssh-app/run` (directories `0700`, files `0600`, owned by you) and the app reads and answers it over SSH.
+- **No listening ports, no always-on service**: `ssh-app` opens **ZERO** listening TCP/HTTP ports on the host and installs no launchd/systemd job. Agent hooks talk to the app through a small file queue under `~/.ssh-app/run` (directories `0700`, files `0600`, owned by you) and the app reads and answers it over SSH.
+- **Host helper `ssh-app-host`**: a small typed Rust binary (macOS, Linux, Windows builds embedded in the app, installed over SSH with a pinned hash) does the hooks, usage, telemetry, file browsing and the agent state. Its optional agent runs only while a phone session holds a lease (12 h by default) and talks over a private Unix socket (`0600`), never a network port.
 - **Authenticated SSH**: All remote communication is routed through authenticated SSH channels (`russh` with Ed25519 keys) over Tailscale WireGuard, with host key verification.
 
 ### 3. Cryptographic Phone Approvals
@@ -51,10 +52,11 @@ Native iOS mobile application (**SwiftUI + Rust Core via UniFFI**) for securely 
 - **Verified on the host**: the hook checks the signature with `ssh-keygen -Y verify` against `~/.ssh-app/allowed_signers` and its **own copy** of the request, then answers the agent. No valid answer in time (or any error) means the hook has no opinion and the agent asks in the terminal as usual; it never approves on its own.
 - **Replay protection**: a freshness window of 120 seconds and single-use CSPRNG nonces.
 
-### 4. Zero-Knowledge Wake-up Pings ($0/month)
-- **Cloudflare Worker APNs Gateway**: A stateless Cloudflare Worker ([`scripts/apns-worker/worker.ts`](scripts/apns-worker/worker.ts)) forwards empty wake-up notifications (`content-available: 1`).
-- **Total Privacy**: The worker receives **ONLY** an opaque 64-character hex device token. **Zero command text, zero file paths, and zero code snippets ever touch third-party cloud servers.**
-- **Cost**: Runs completely on the Cloudflare Workers Free Tier (100,000 requests/day included, $0/month).
+### 4. Zero-Knowledge Push (agent finished / needs you / approval)
+- **Cloudflare Worker APNs relay** ([`scripts/apns-worker`](scripts/apns-worker)): the host helper posts to the relay, which forwards to APNs. Four fixed categories only: `approval`, `finished`, `waiting`, `alert`.
+- **No content**: a push carries no command, path, session or project name. The tap target is an opaque 8-hex `sid` (HMAC of the tmux session name under the relay secret), so a tap opens the right tab.
+- **Questions without hooks**: for Antigravity the helper reads the tmux screen and pushes when a menu is shown.
+- **Rate limited, mandatory secret**, runs on the Cloudflare free tier. Personal builds inject the shared secret locally (`make relay-config`, git-ignored); before any public build it must be replaced by per-install App Attest ([`docs/features/35-push-relay.md`](docs/features/35-push-relay.md) §5).
 
 ### 5. Agent Hooks, Templates and Host Guard
 - **33 hook templates** (phone approval variants, notifications, guards that block `rm -r`, force pushes, `sudo`, `curl | sh`, secrets and agent config, logging, auto-format and snapshot helpers), picked per agent profile and previewed before anything is written to the host.
@@ -65,6 +67,10 @@ Native iOS mobile application (**SwiftUI + Rust Core via UniFFI**) for securely 
 ### 6. Developer Experience & UI
 - **Sessions home screen**: every open session as a card with a live preview of its screen; tabs and a long-press jump menu (other sessions, servers and their sessions, new session plain / from a preset / with new settings).
 - **Terminal rendering**: SwiftTerm with TrueColor, tmux mouse scroll and tap, 17 built-in color schemes plus your own, per agent or profile.
+- **Agent feed** (chat mode): the agent's screen as one selectable text view in Claude Code's look: folded groups open with their calls and results, diffs for edits, Markdown, question cards (single, multi-choice and multi-question forms), extra-keys row, find. Built from the tmux screen merged with the agent's session file.
+- **Attachments**: paperclip menu (up to 6 photos or files) with a choice to keep the file on the host or only temporarily.
+- **Session status and restart**: a status symbol (finished, needs you, question, approval) on every session card and tab; Restart a tab's agent as a new conversation or continuing the last one, with the profile's current hooks and settings.
+- **Configurable menus**: order, visibility, columns and icon size of the quick menu and the session menu (Settings → Appearance).
 - **Approval banner**: agent, command with risk flags and the end of long commands, countdown on the host clock, Approve / Deny.
 - **Quick commands bar** above the keyboard (`^C`, `y`/`n`, your own buttons such as `/clear` with an optional confirmation); Esc, Tab, Ctrl and arrows stay on the system bar.
 - **Files app**: every server with a pinned host key appears as a location in the iOS Files app (File Provider extension): browse folders, open or save files to the phone, upload, create folders, rename, delete. Per server on/off and root folder in the server settings.
@@ -82,7 +88,8 @@ A StoreKit 2 Pro subscription (weekly / monthly / yearly with trials) and lifeti
 ```text
 ssh-app/
 ├── crates/
-│   └── core/                # Pure Rust core (russh, ssh-key, tmux, hooks, approvals, UniFFI)
+│   ├── core/                # Pure Rust core (russh, ssh-key, tmux, hooks, approvals, screen feed, UniFFI)
+│   └── host/                # ssh-app-host: typed host helper (hook, agent, push, telemetry, files)
 ├── packages/
 │   └── SshCoreBridge/       # Swift Package / UniFFI generated bindings + XCFramework
 ├── ios/
@@ -96,9 +103,9 @@ ssh-app/
 │   ├── agent-hooks/         # ssh-app-hook script (approvals, host guard, session registry)
 │   └── apns-worker/         # Zero-Knowledge Cloudflare Worker APNs gateway
 ├── docs/
-│   ├── features/            # Feature specifications (01 to 19)
+│   ├── features/            # Feature specifications (01 to 35)
 │   ├── security-findings/   # Adversarial security audit reports
-│   └── roadmap.md           # Implementation milestones (M0 through M21)
+│   └── roadmap.md           # Implementation milestones (M0 through M24)
 ├── Makefile                 # iphone, xcframework, test, lint ...
 ├── .agents/skills/          # Dev-chain workflow skills
 ├── AGENTS.md                # Engineering constraints and architecture invariants

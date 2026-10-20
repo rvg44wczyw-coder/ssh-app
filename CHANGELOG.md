@@ -19,6 +19,7 @@
 
 ### Push
 - Tap on a push opens the right session (opaque `sid`); pushes are suppressed while the app is in the foreground.
+- Fix: push tap and status symbol for agents without a SessionStart hook (Antigravity): any first hook event registers the session's tmux name; the app waits for the name and for restored tabs.
 - Antigravity questions are detected on the host from the tmux screen and sent as `waiting` pushes (`crates/host/src/screenwatch.rs`).
 - Default relay URL in the app; `make relay-config` injects the secret into a git-ignored file for personal builds only. TODO before distribution: per-install App Attest instead of the shared secret (`docs/features/35-push-relay.md` §5).
 
