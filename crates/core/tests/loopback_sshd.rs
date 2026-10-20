@@ -1982,6 +1982,46 @@ fn usage_report_finds_models_in_tmux_sessions_and_reads_transcripts() {
         assert!(handle.host_push_unregister(pin.clone()).await.unwrap().ok);
         assert!(!file.exists());
         assert!(!handle.host_push_status(pin.clone()).await.unwrap().unwrap().registered);
+        // 3b-pair. Pairing (feature 44): the pinned helper appends this phone's key to the host's
+        // authorized_keys (the sshd session's private HOME), once, with private modes.
+        let paired = handle
+            .pair_this_phone(pin.clone(), "Test Phone".into())
+            .await
+            .unwrap();
+        assert!(paired.ok && paired.added, "{paired:?}");
+        let again = handle
+            .pair_this_phone(pin.clone(), "Test Phone".into())
+            .await
+            .unwrap();
+        assert!(again.ok && !again.added, "{again:?}");
+        let auth_file = server.home.join(".ssh/authorized_keys");
+        let auth_text = std::fs::read_to_string(&auth_file).unwrap();
+        assert_eq!(auth_text.lines().count(), 1, "{auth_text}");
+        assert!(auth_text.trim_end().ends_with("ssh-app: Test Phone"));
+        assert_eq!(
+            std::fs::metadata(&auth_file).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert!(
+            !handle
+                .pair_this_phone("0".repeat(64), "Test Phone".into())
+                .await
+                .unwrap()
+                .ok,
+            "a different pin is refused on the host"
+        );
+        assert!(handle
+            .pair_this_phone(pin.clone(), "bad\nname".into())
+            .await
+            .is_err());
+        // The host doctor reports facts through the pinned helper, and nothing for another pin.
+        let doctor = handle
+            .host_doctor(pin.clone())
+            .await
+            .unwrap()
+            .expect("the pinned helper answers");
+        assert!(doctor.tmux.installed && !doctor.os.is_empty(), "{doctor:?}");
+        assert!(handle.host_doctor("0".repeat(64)).await.unwrap().is_none());
         // 3b'. Model choices for the quick-command menus come from the pinned helper.
         let claude_models = handle
             .fetch_agent_models("claude".into(), pin.clone())
@@ -4095,4 +4135,102 @@ fn single_hunks_are_staged_and_unstaged_in_a_temporary_repo_on_loopback_sshd() {
             .is_err());
     });
     handle.disconnect();
+}
+
+#[test]
+fn pairing_with_a_password_checks_the_host_key_before_the_password_is_sent() {
+    use ssh_core::onboarding::{pair_with_password, probe_server_host_key};
+    use ssh_core::SshCoreError;
+    let Some(server) = start_sshd() else {
+        eprintln!("SKIP: sshd/ssh-keygen/tmux unavailable");
+        return;
+    };
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let out = Command::new("ssh-keygen")
+        .args(["-lf"])
+        .arg(server._dir.path().join("host_key.pub"))
+        .output()
+        .unwrap();
+    let real = String::from_utf8_lossy(&out.stdout)
+        .split_whitespace()
+        .nth(1)
+        .unwrap()
+        .to_string();
+    let user = std::env::var("USER").unwrap_or_else(|_| "root".into());
+    let public = generate_keypair().unwrap().public_key_openssh;
+    rt.block_on(async {
+        // The fingerprint to show the user is the one an admin reads from the host.
+        let seen = probe_server_host_key("127.0.0.1".into(), server.port)
+            .await
+            .unwrap();
+        assert_eq!(seen, real);
+
+        // Another key than the confirmed one: refused, whatever the password.
+        let wrong = pair_with_password(
+            "127.0.0.1".into(),
+            server.port,
+            user.clone(),
+            "hunter2".into(),
+            format!("SHA256:{}", "A".repeat(43)),
+            public.clone(),
+            "Test Phone".into(),
+        )
+        .await;
+        assert!(
+            matches!(wrong, Err(SshCoreError::HostKeyChanged { .. })),
+            "{wrong:?}"
+        );
+
+        // The right key but a server that takes no passwords: a clean authentication error, and
+        // nothing was written.
+        let denied = pair_with_password(
+            "127.0.0.1".into(),
+            server.port,
+            user.clone(),
+            "hunter2".into(),
+            real.clone(),
+            public.clone(),
+            "Test Phone".into(),
+        )
+        .await;
+        assert!(
+            matches!(denied, Err(SshCoreError::AuthenticationError { .. })),
+            "{denied:?}"
+        );
+        assert!(!server.home.join(".ssh/authorized_keys").exists());
+
+        // Bad input never reaches the network.
+        for (pw, key, name) in [
+            ("", public.as_str(), "P"),
+            ("a\0b", public.as_str(), "P"),
+            ("pw", "junk", "P"),
+            ("pw", public.as_str(), "a\nb"),
+        ] {
+            assert!(pair_with_password(
+                "127.0.0.1".into(),
+                server.port,
+                user.clone(),
+                pw.into(),
+                real.clone(),
+                key.into(),
+                name.into(),
+            )
+            .await
+            .is_err());
+        }
+        assert!(pair_with_password(
+            "127.0.0.1".into(),
+            server.port,
+            user.clone(),
+            "pw".into(),
+            "not-a-fingerprint".into(),
+            public.clone(),
+            "P".into(),
+        )
+        .await
+        .is_err());
+    });
 }

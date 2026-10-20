@@ -1080,6 +1080,32 @@ impl SshSessionHandle {
         Ok(crate::push::parse_result(&out))
     }
 
+    /// Puts this phone's key on the host through the pinned helper (feature 44): the key and the
+    /// device name travel on stdin, the helper appends to `authorized_keys` carefully and says
+    /// whether anything changed.
+    pub async fn pair_this_phone(
+        &self,
+        expected_sha256: String,
+        device_name: String,
+    ) -> Result<crate::onboarding::HostPairResult, SshCoreError> {
+        let key = zeroize::Zeroizing::new(read_ok(&self.config).private_key_pem.clone());
+        let public = crate::keys::derive_public_key((*key).clone())?;
+        let (cmd, input) =
+            crate::onboarding::build_pair_command(&expected_sha256, &public, &device_name)?;
+        let out = self.exec_with_stdin_text(&cmd, input.as_bytes()).await?;
+        Ok(crate::onboarding::parse_pair_result(&out))
+    }
+
+    /// Facts about the host from the pinned helper's `doctor`; `None` when the helper is not usable.
+    pub async fn host_doctor(
+        &self,
+        expected_sha256: String,
+    ) -> Result<Option<crate::onboarding::HostDoctor>, SshCoreError> {
+        let cmd = crate::onboarding::build_doctor_command(&expected_sha256)?;
+        let out = self.execute_command_on_active_session(cmd).await?;
+        Ok(crate::onboarding::parse_host_doctor(&out))
+    }
+
     /// Restarts the agent of a tab: the pane of the tmux session `session_name` is respawned with
     /// `command` (a launch command from `build_agent_launch_command`), the old process killed. The
     /// session stays, so the phone's attached terminal just shows the new start.

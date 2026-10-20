@@ -73,7 +73,7 @@ fn validate_token(t: &str) -> Result<(), SshCoreError> {
 /// Runs a helper subcommand when the helper is the pinned build. With `stdin`, the command first
 /// reads the channel's stdin into `SSH_APP_IN` and pipes that to the helper, so the registration
 /// (with the relay secret) is never part of a command line.
-fn command(sha256: &str, sub: &str, stdin: bool) -> String {
+pub(crate) fn command(sha256: &str, sub: &str, stdin: bool) -> String {
     let feed = if stdin {
         "printf '%s' \"$SSH_APP_IN\" | "
     } else {

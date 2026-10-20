@@ -1,13 +1,15 @@
 //! `ssh-app-host`: the typed helper the app installs on the host (feature 24, phase P0).
 //!
-//! It runs no shell, opens no socket (except a loopback read of Ollama's `/api/ps`) and never
-//! writes a file. Stdout is one JSON object; exit status 0 means "answered".
+//! It runs no shell, opens no socket (except a loopback read of Ollama's `/api/ps` and a loopback
+//! connect by `doctor`) and writes no file, except the queue directories of the hook and the one
+//! line `pair` appends to `~/.ssh/authorized_keys`. Stdout is one JSON object; exit status 0 means "answered".
 
 use serde_json::json;
 use ssh_app_host::queue::{install_signal_handlers, Paths};
 use ssh_app_host::{
-    agent, ctl, files, hook, models, procs, push, rpc, statusline, telemetry, usage,
+    agent, ctl, doctor, files, hook, models, pair, procs, push, rpc, statusline, telemetry, usage,
 };
+use std::path::PathBuf;
 use std::sync::Arc;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -19,7 +21,7 @@ fn main() {
         Some("hello") => {
             println!(
                 "{}",
-                json!({"v": 1, "name": "ssh-app-host", "version": VERSION, "caps": ["usage", "hook", "agent", "push", "models", "telemetry", "fs", "read", "kill"]})
+                json!({"v": 1, "name": "ssh-app-host", "version": VERSION, "caps": ["usage", "hook", "agent", "push", "models", "telemetry", "fs", "read", "kill", "pair", "doctor"]})
             );
             0
         }
@@ -61,6 +63,16 @@ fn main() {
             println!("{reply}");
             i32::from(reply["ok"] != true)
         }
+        Some("doctor") => {
+            println!("{}", doctor::doctor(VERSION));
+            0
+        }
+        Some("pair") => {
+            let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
+            let reply = pair::pair(&home, &mut std::io::stdin());
+            println!("{reply}");
+            i32::from(reply["ok"] != true)
+        }
         Some("telemetry") => {
             println!("{}", telemetry::snapshot());
             0
@@ -99,7 +111,7 @@ fn main() {
             println!("{reply}");
             0
         }
-        _ => fail("usage: ssh-app-host hello | usage [CONFIG_DIR...] | hook AGENT EVENT | rpc [--lease SECS] | agent | ctl SUB | statusline [PREV_HEX]"),
+        _ => fail("usage: ssh-app-host hello | pair | doctor | usage [CONFIG_DIR...] | hook AGENT EVENT | rpc [--lease SECS] | agent | ctl SUB | statusline [PREV_HEX]"),
     };
     std::process::exit(code);
 }

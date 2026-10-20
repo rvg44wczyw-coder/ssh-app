@@ -2,11 +2,13 @@
 
 pub mod agent;
 pub mod ctl;
+pub mod doctor;
 pub mod files;
 pub mod guard;
 pub mod hook;
 pub mod linux;
 pub mod models;
+pub mod pair;
 pub mod proc;
 pub mod procs;
 pub mod push;

@@ -80,19 +80,20 @@ pub(crate) struct Endpoint<'a> {
     pub pinned_host_key: Option<&'a str>,
 }
 
-/// Connects (10 s limit), checks the host key, and authenticates with the Ed25519 key.
-pub(crate) async fn connect_authenticated(
-    ep: &Endpoint<'_>,
+/// Connects (10 s limit) and checks the host key against `pinned`; nothing is authenticated yet.
+async fn open_connection(
+    host: &str,
+    port: u16,
+    pinned: Option<&str>,
     keepalive: Duration,
     keepalive_max: usize,
 ) -> Result<Connection, SshCoreError> {
-    let key = PrivateKeyWithHashAlg::new(Arc::new(parse_private_key(ep.private_key_pem)?), None);
     let config = Arc::new(client::Config {
         keepalive_interval: Some(keepalive),
         keepalive_max,
         ..Default::default()
     });
-    let (handler, observed) = SshHandler::new(ep.pinned_host_key.map(str::to_string));
+    let (handler, observed) = SshHandler::new(pinned.map(str::to_string));
     let seen = || {
         observed
             .lock()
@@ -100,27 +101,45 @@ pub(crate) async fn connect_authenticated(
             .clone()
     };
 
-    let mut handle = tokio::time::timeout(
+    let handle = tokio::time::timeout(
         CONNECT_TIMEOUT,
-        client::connect(config, (ep.host, ep.port), handler),
+        client::connect(config, (host, port), handler),
     )
     .await
     .map_err(|_| SshCoreError::Timeout)?
-    .map_err(|e| match (ep.pinned_host_key, seen()) {
+    .map_err(|e| match (pinned, seen()) {
         (Some(expected), Some(actual)) if expected != actual => SshCoreError::HostKeyChanged {
-            host: ep.host.to_string(),
+            host: host.to_string(),
             expected: expected.to_string(),
             actual,
         },
         _ => SshCoreError::ConnectionError {
-            reason: format!("Failed to connect to {}:{}: {e}", ep.host, ep.port),
+            reason: format!("Failed to connect to {host}:{port}: {e}"),
         },
     })?;
     let host_key = seen().ok_or_else(|| SshCoreError::ConnectionError {
         reason: "The server presented no host key".to_string(),
     })?;
+    Ok(Connection { handle, host_key })
+}
 
-    let auth = handle
+/// Connects (10 s limit), checks the host key, and authenticates with the Ed25519 key.
+pub(crate) async fn connect_authenticated(
+    ep: &Endpoint<'_>,
+    keepalive: Duration,
+    keepalive_max: usize,
+) -> Result<Connection, SshCoreError> {
+    let key = PrivateKeyWithHashAlg::new(Arc::new(parse_private_key(ep.private_key_pem)?), None);
+    let mut conn = open_connection(
+        ep.host,
+        ep.port,
+        ep.pinned_host_key,
+        keepalive,
+        keepalive_max,
+    )
+    .await?;
+    let auth = conn
+        .handle
         .authenticate_publickey(ep.username, key)
         .await
         .map_err(|e| SshCoreError::AuthenticationError {
@@ -133,7 +152,52 @@ pub(crate) async fn connect_authenticated(
             reason: "Host rejected public key authentication".to_string(),
         });
     }
-    Ok(Connection { handle, host_key })
+    Ok(conn)
+}
+
+/// The host key a server presents, read without authenticating (so it can be shown to the user
+/// before anything secret is sent). The connection is closed at once.
+pub(crate) async fn probe_host_key(host: &str, port: u16) -> Result<String, SshCoreError> {
+    let conn = open_connection(host, port, None, Duration::from_secs(15), 2).await?;
+    let _ = conn
+        .handle
+        .disconnect(russh::Disconnect::ByApplication, "", "en")
+        .await;
+    Ok(conn.host_key)
+}
+
+/// One-time login with a password, for pairing only (feature 44): the host key must already be
+/// pinned, and the password is never stored. The caller holds it in a zeroizing buffer.
+pub(crate) async fn connect_with_password(
+    host: &str,
+    port: u16,
+    username: &str,
+    password: &str,
+    pinned_host_key: &str,
+) -> Result<Connection, SshCoreError> {
+    let mut conn = open_connection(
+        host,
+        port,
+        Some(pinned_host_key),
+        Duration::from_secs(15),
+        2,
+    )
+    .await?;
+    let auth = conn
+        .handle
+        .authenticate_password(username, password)
+        .await
+        .map_err(|e| SshCoreError::AuthenticationError {
+            username: username.to_string(),
+            reason: format!("Authentication request failed: {e}"),
+        })?;
+    if !auth.success() {
+        return Err(SshCoreError::AuthenticationError {
+            username: username.to_string(),
+            reason: "Host rejected the password".to_string(),
+        });
+    }
+    Ok(conn)
 }
 
 /// What an exec call produced: stdout and stderr interleaved, capped, plus the exit status.
