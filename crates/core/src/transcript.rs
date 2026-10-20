@@ -597,7 +597,25 @@ fn parse_claude_record(
         }
         "attachment" => {
             let att = val.get("attachment").unwrap_or(&serde_json::Value::Null);
-            if let Some((label, body)) = describe_attachment(att) {
+            // A message the person typed while the agent was working is their message, not a note
+            // (a queued command of the agent's own, e.g. a background task, stays a note).
+            let typed = att.get("type").and_then(|v| v.as_str()) == Some("queued_command")
+                && att
+                    .get("origin")
+                    .and_then(|o| o.get("kind"))
+                    .and_then(|k| k.as_str())
+                    == Some("human");
+            let prompt = att.get("prompt").and_then(|p| p.as_str()).unwrap_or("");
+            if typed && !prompt.trim().is_empty() {
+                push(
+                    turns,
+                    TranscriptTurnType::User,
+                    Some(clip(&strip_ansi_codes(prompt.to_string()), 4000)),
+                    None,
+                    vec![],
+                    None,
+                );
+            } else if let Some((label, body)) = describe_attachment(att) {
                 push(
                     turns,
                     TranscriptTurnType::System,
@@ -1083,5 +1101,19 @@ mod tests {
         let turns = parse_transcript_jsonl(jsonl.to_string()).expect("Should parse valid lines");
         assert_eq!(turns.len(), 1);
         assert_eq!(turns[0].content.as_deref(), Some("hello"));
+    }
+
+    #[test]
+    fn a_message_typed_while_the_agent_works_is_a_user_turn() {
+        let raw = concat!(
+            r#"{"type":"attachment","attachment":{"type":"queued_command","prompt":"собери билд","origin":{"kind":"human"},"humanTurn":true}}"#,
+            "\n",
+            r#"{"type":"attachment","attachment":{"type":"queued_command","prompt":"task done","origin":{"kind":"task-notification"}}}"#,
+            "\n"
+        );
+        let turns = parse_transcript_jsonl(raw.to_string()).unwrap();
+        assert_eq!(turns[0].turn_type, TranscriptTurnType::User);
+        assert_eq!(turns[0].content.as_deref(), Some("собери билд"));
+        assert_eq!(turns[1].turn_type, TranscriptTurnType::System);
     }
 }

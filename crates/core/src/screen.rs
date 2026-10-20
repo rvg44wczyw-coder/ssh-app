@@ -201,7 +201,9 @@ fn take_status(lines: &mut Vec<String>) -> Option<String> {
         && rest.contains('…')
         && (rest.contains("esc to interrupt")
             || rest.trim_end().ends_with('…')
-            || rest.contains("…)"))
+            || rest.contains("…)")
+            // newer Claude: "✶ Creating… (4m 30s · ↓ 4.9k tokens)", no interrupt hint
+            || rest.contains("… ("))
     {
         lines.truncate(idx);
         return Some(l.trim().to_string());
@@ -578,13 +580,30 @@ fn take_result(lines: &[String], i: &mut usize) -> Option<String> {
     *i += 1;
     while *i < lines.len() {
         let n = &lines[*i];
-        if n.is_empty() || indent(n) <= base {
+        if n.is_empty() {
+            // a result printed whole keeps its blank lines; what follows is indented well past
+            // the result marker, unlike a reply or a thought block
+            let next = lines.iter().skip(*i + 1).find(|x| !x.is_empty());
+            if next.is_some_and(|x| indent(x) >= base + 4 && !is_thought_header(x)) {
+                out.push(String::new());
+                *i += 1;
+                continue;
+            }
+            break;
+        }
+        if indent(n) <= base || is_thought_header(n) {
             break;
         }
         out.push(n.trim().to_string());
         *i += 1;
     }
     Some(out.join("\n"))
+}
+
+/// `▾ Thought for 25s, 1.5k tokens`: the header of a thought block the agent has expanded.
+fn is_thought_header(l: &str) -> bool {
+    let t = l.trim_start();
+    t.starts_with("▾ Thought for") || t.starts_with("▸ Thought for")
 }
 
 /// Unrecognised text between markers, kept folded.
@@ -657,7 +676,7 @@ fn claude(lines: &[String], b: &mut Builder) {
             i += 1;
             continue;
         }
-        if let Some(rest) = l.strip_prefix("⏺ ") {
+        if let Some(rest) = l.strip_prefix("⏺ ").or_else(|| running_tool(lines, i)) {
             flush_other(b, &mut other);
             if let Some((name, args_start)) = tool_head(rest) {
                 let mut args = args_start.to_string();
@@ -743,6 +762,26 @@ fn claude(lines: &[String], b: &mut Builder) {
     flush_other(b, &mut other);
 }
 
+/// The `⏺` of a running call blinks, so a capture can catch the call without it: `  Bash(…` at the
+/// indent of a reply, arguments indented deeper, and the `⎿` result line right below.
+fn running_tool(lines: &[String], i: usize) -> Option<&str> {
+    let l = &lines[i];
+    if indent(l) != 2 {
+        return None;
+    }
+    let t = l.trim_start();
+    tool_head(t)?;
+    for n in lines.iter().skip(i + 1).take(12) {
+        if n.trim_start().starts_with('⎿') {
+            return Some(t);
+        }
+        if n.is_empty() || indent(n) < 4 {
+            return None;
+        }
+    }
+    None
+}
+
 /// `Bash(ls -la …` -> ("Bash", "ls -la …"). Prose with a bracket in it ("Это (тест)") is not a call:
 /// the name must be a bare identifier.
 fn tool_head(rest: &str) -> Option<(&str, &str)> {
@@ -826,9 +865,15 @@ fn agy(lines: &[String], b: &mut Builder) {
                 .map(str::trim_end)
                 .unwrap_or(&full)
                 .to_string();
-            let (name, args) = match full.find(" (") {
-                Some(p) => (full[..p].to_string(), full[p + 1..].to_string()),
-                None => (full, String::new()),
+            // `Bash(ls -la)` (a call shown whole) or `Ran (ls -la)` / `Explored 2 files (a, b)`
+            let (name, args) = if let Some((name, args)) = tool_head(&full) {
+                let args = args.trim_end().strip_suffix(')').unwrap_or(args);
+                (name.to_string(), args.trim().to_string())
+            } else {
+                match full.find(" (") {
+                    Some(p) => (full[..p].to_string(), full[p + 1..].to_string()),
+                    None => (full, String::new()),
+                }
             };
             b.tool(name, args, None);
             continue;
@@ -864,6 +909,12 @@ fn agy(lines: &[String], b: &mut Builder) {
             }
             continue;
         }
+        if is_thought_header(l) {
+            flush_other(b, &mut other);
+            b.system(t.trim_start_matches(['▾', '▸']).trim(), "");
+            i += 1;
+            continue;
+        }
         if indent(l) >= 2 {
             flush_other(b, &mut other);
             let mut para: Vec<String> = Vec::new();
@@ -872,7 +923,9 @@ fn agy(lines: &[String], b: &mut Builder) {
                 let n = &lines[i];
                 if n.is_empty() {
                     let next = lines.iter().skip(i + 1).find(|x| !x.is_empty());
-                    if next.is_some_and(|x| indent(x) >= 2 && !x.trim_start().starts_with('⎿')) {
+                    if next.is_some_and(|x| {
+                        indent(x) >= 2 && !x.trim_start().starts_with('⎿') && !is_thought_header(x)
+                    }) {
                         blocks.push(reflow(&para));
                         para = Vec::new();
                         i += 1;
@@ -880,7 +933,7 @@ fn agy(lines: &[String], b: &mut Builder) {
                     }
                     break;
                 }
-                if indent(n) < 2 || n.trim_start().starts_with('⎿') {
+                if indent(n) < 2 || n.trim_start().starts_with('⎿') || is_thought_header(n) {
                     break;
                 }
                 let text = strip_indent(n, 2);
@@ -915,6 +968,26 @@ fn norm(s: &str, n: usize) -> String {
         .chars()
         .take(n)
         .collect()
+}
+
+/// The screen of Antigravity names its calls like Claude's (`Bash`, `Read`, `Edit`), its session
+/// file by the tool (`run_command`, `view_file`, `replace_file_content`): same call, same class.
+fn tool_class(name: &str) -> &str {
+    match name {
+        "Bash" | "run_command" => "bash",
+        "Read" | "read_file" | "view_file" => "read",
+        "Edit"
+        | "Write"
+        | "edit_file"
+        | "write_file"
+        | "write_to_file"
+        | "replace_file_content"
+        | "multi_replace_file_content" => "edit",
+        "Grep" | "grep_search" => "grep",
+        "Glob" | "find_by_name" => "glob",
+        "LS" | "list_dir" => "ls",
+        other => other,
+    }
 }
 
 /// Tools the agent's screen folds into "Searched for N patterns" / "Read N files" groups.
@@ -994,6 +1067,69 @@ pub fn transcript_matches_screen(file: Vec<TranscriptTurn>, screen: String) -> b
         .any(|c| screen.contains(c.as_str()))
 }
 
+/// An expanded thought block (`▾ Thought for 25s`) prints the thinking as indented text, and the
+/// reply follows with no blank line, so the screen alone cannot tell where one ends. The session
+/// file has both apart: the thought text is dropped (merge puts the file's thinking back where it
+/// belongs) and, when the step also has a reply, the screen text is cut where that reply starts.
+fn drop_expanded_thoughts(
+    screen: Vec<TranscriptTurn>,
+    file: &[TranscriptTurn],
+) -> Vec<TranscriptTurn> {
+    let steps: Vec<(String, Option<String>)> = file
+        .iter()
+        .filter(|t| t.turn_type == TranscriptTurnType::Assistant)
+        .filter_map(|t| {
+            let k = squash(t.thinking.as_deref()?);
+            (k.chars().count() >= 20).then(|| {
+                let reply = t.content.as_deref().map(squash).filter(|c| !c.is_empty());
+                (k.chars().take(40).collect::<String>(), reply)
+            })
+        })
+        .collect();
+    let mut out: Vec<TranscriptTurn> = Vec::with_capacity(screen.len());
+    let mut i = 0;
+    while i < screen.len() {
+        let header = &screen[i];
+        let is_header = header.turn_type == TranscriptTurnType::System
+            && header
+                .label
+                .as_deref()
+                .is_some_and(|l| l.starts_with("Thought for"));
+        let next = screen.get(i + 1).filter(|n| {
+            n.turn_type == TranscriptTurnType::Assistant
+                && n.thinking.is_none()
+                && n.tool_calls.is_empty()
+        });
+        if let (true, Some(next)) = (is_header, next) {
+            let text = next.content.clone().unwrap_or_default();
+            let flat = squash(&text);
+            if let Some((_, reply)) = steps.iter().find(|(k, _)| flat.starts_with(k.as_str())) {
+                match reply {
+                    None => {}
+                    Some(reply) => {
+                        let want: String = reply.chars().take(40).collect();
+                        let cut = text
+                            .char_indices()
+                            .filter(|(at, _)| *at > 0 && text[..*at].ends_with(char::is_whitespace))
+                            .map(|(at, _)| at)
+                            .find(|at| squash(&text[*at..]).starts_with(want.as_str()));
+                        let mut t = next.clone();
+                        if let Some(at) = cut {
+                            t.content = Some(text[at..].trim().to_string());
+                        }
+                        out.push(t);
+                    }
+                }
+                i += 2;
+                continue;
+            }
+        }
+        out.push(screen[i].clone());
+        i += 1;
+    }
+    out
+}
+
 /// A message of several paragraphs is drawn by the agent as its first paragraph at the prompt and
 /// the rest as indented text after a blank line, which reads like a reply. The session file has the
 /// message whole: paragraphs on the screen that continue a user turn exactly as the file's message
@@ -1057,6 +1193,7 @@ pub fn merge_thinking(
     file: Vec<TranscriptTurn>,
 ) -> Vec<TranscriptTurn> {
     let screen = absorb_user_paragraphs(screen, &file);
+    let screen = drop_expanded_thoughts(screen, &file);
     let mut before: Vec<Vec<String>> = vec![Vec::new(); screen.len() + 1];
     let mut pending: Vec<String> = Vec::new();
     let mut cursor = 0usize;
@@ -1109,7 +1246,7 @@ pub fn merge_thinking(
             if text.is_none() {
                 if let (Some((name, args)), Some(sc)) = (&tool, s.tool_calls.first()) {
                     let sa = norm(&sc.arguments_summary, 24);
-                    return &sc.tool_name == name
+                    return tool_class(&sc.tool_name) == tool_class(name)
                         && (sa.starts_with(args.as_str()) || args.starts_with(sa.as_str()));
                 }
             }
@@ -1485,6 +1622,77 @@ Ready to submit your answers?
         assert_eq!(p.question, "Ready to submit your answers?");
         assert_eq!(p.options.len(), 2);
         assert!(p.detail.contains("Хуки в работающей сессии"));
+    }
+
+    #[test]
+    fn a_running_call_without_its_blinking_bullet_and_a_plain_timer_status_are_read() {
+        let screen = "❯ run it\n\n  Bash(S=/tmp/x; tmux display -p\n      '#{pid}' | head)\n  ⎿  Running…\n\n✶ Creating… (4m 30s · ↓ 4.9k tokens)\n\n──────────\n❯ \n──────────\n  Sonnet 5.5 · 5h 1%\n  ⏵⏵ auto mode on (shift+tab to cycle)\n";
+        let feed = parse_screen_feed(screen.to_string());
+        assert_eq!(
+            feed.status.as_deref(),
+            Some("✶ Creating… (4m 30s · ↓ 4.9k tokens)")
+        );
+        let call = feed
+            .turns
+            .iter()
+            .find(|t| !t.tool_calls.is_empty())
+            .expect("a tool call");
+        assert_eq!(call.tool_calls[0].tool_name, "Bash");
+        assert!(
+            call.tool_calls[0].arguments_summary.contains("head"),
+            "{:?}",
+            call.tool_calls[0]
+        );
+    }
+
+    #[test]
+    fn an_expanded_agy_thought_is_split_from_the_reply_by_the_session_file() {
+        let screen = "> go\n\n● Read(~/a.md)\n  ⎿  Read 60 lines\n▾ Thought for 25s\n  Analyzing the competitive landscape to identify features.\n  More thinking about the plan here.\n  The answer is forty two and nothing else.\n\n────────────────────\n>\n────────────────────\n? for shortcuts                accept-edits · Gemini 3.8 Flash · medium\n";
+        let file = vec![
+            TranscriptTurn {
+                id: "f1".into(),
+                step_index: 1,
+                turn_type: TranscriptTurnType::Assistant,
+                timestamp: None,
+                content: Some("The answer is forty two and nothing else.".into()),
+                thinking: Some("Analyzing the competitive landscape to identify features. More thinking about the plan here.".into()),
+                tool_calls: vec![],
+                status: TranscriptStatus::Done,
+                label: None,
+            },
+        ];
+        let feed = parse_screen_feed(screen.to_string());
+        let merged = merge_thinking(feed.turns, file);
+        let last = merged.last().expect("a reply");
+        assert_eq!(
+            last.content.as_deref(),
+            Some("The answer is forty two and nothing else.")
+        );
+        assert!(merged.iter().any(|t| t
+            .thinking
+            .as_deref()
+            .is_some_and(|k| k.starts_with("Analyzing"))));
+        assert!(merged
+            .iter()
+            .all(|t| t.label.as_deref() != Some("Thought for 25s")));
+    }
+
+    #[test]
+    fn a_whole_agy_call_keeps_its_name_and_arguments_apart() {
+        let feed = parse_screen_feed("> go\n\n● Bash(ls -la docs)\n  ⎿  Command exited with code 0.\n\n        Command output:\n        a.md\n\n──────\n>\n──────\n".to_string());
+        let call = feed
+            .turns
+            .iter()
+            .find_map(|t| t.tool_calls.first())
+            .expect("a call");
+        assert_eq!(call.tool_name, "Bash");
+        assert_eq!(call.arguments_summary, "ls -la docs");
+        let note = feed
+            .turns
+            .iter()
+            .find(|t| t.label.as_deref() == Some("Note"))
+            .expect("result");
+        assert!(note.content.as_deref().unwrap_or("").contains("a.md"));
     }
 
     #[test]
