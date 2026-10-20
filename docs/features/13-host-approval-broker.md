@@ -180,3 +180,10 @@ Residual (documented): a same-account process can delete `allowed_signers` or a 
 - **Loopback sshd integration**: install hooks with PhoneApproval → run the hook in the background → `list_pending_approvals` sees it → `submit_approval_decision` → the hook prints the allow JSON; a deny; an expired request gives a typed error.
 - **Coverage** ≥ 85 % on the new Rust code.
 - **Manual on the iPhone** (the user's live test): launch Claude Code in a tab with the PhoneApproval profile, trigger a Bash command, approve/deny from the app.
+
+## Answered requests do not flash back (2026-10-20)
+
+A poll that was already in flight when the answer was sent still lists the request, so the card
+used to disappear and reappear for a moment. The app now remembers the requests it answered for
+30 seconds, hides them from the polls and counts them as known in the long poll. After 30 seconds a
+request the host still lists is shown again (the answer was not taken). Device check pending.

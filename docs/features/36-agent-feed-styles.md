@@ -378,3 +378,20 @@ The switch between the terminal and the feed ("Feed" on the terminal screen, "Te
 
 ### 6.y Review (rev, 2026-10-20)
 `ios-ui-dev` pass over the feed-style changes. Fixed: the assistant card's soft shadow filled the card twice (a translucent fill came out darker than the other looks); the fill is now drawn once. Checked and fine: the look is part of the layout cache key; the builder and layout statics (`presentation`, `scale`) are set and read on the main actor; no emoji left in the feed (text glyphs `[✓] [✕] [●]` only); long branch/worktree names are shortened with the full name on tap. Low, left as is: a request whose tab the host cannot name is shown on the only matching tab or the open one, and the card names the agent, tool and folder, so a wrong guess is visible. Device check of all three looks is still open.
+
+## 6.z Later changes (2026-10-20)
+
+- **More of a result, filtered instead of cut.** A folded group (`Ran 5 commands (ctrl+o to expand)`)
+  now shows up to 40 lines of each call's result (was 3), 400 characters per line (was 200).
+  Blank lines, the screen's own `… +N lines` hints and runs of build progress (`Compiling`,
+  `Downloaded`, ...) are filtered; a run of progress lines becomes one line with the count. In the
+  app a closed result shows 8 lines (was 4) and 600 characters per line (was 240); argument
+  summaries and shell tree lines are about twice as long before they are clipped.
+- **The Terminal/Feed switch.** A tap switches. Moving needs a long press (0.45 s, haptic tick, the
+  button grows), then a drag; a drag never switches. Settings → Appearance has the opacity and
+  "Put it back in the top right corner" (the old long-press reset moved there).
+- **The message waiting in the agent.** The text of the agent's input box (typed at the laptop or
+  queued while the agent works) is no longer poured into the message field. It is offered above
+  the field with an up arrow that blinks red for 4 seconds and then stops; a tap moves the text
+  into the field. When the agent's box empties and the text is still the one the arrow moved (not
+  edited), it leaves the field again.
