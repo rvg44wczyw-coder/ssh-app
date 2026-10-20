@@ -30,6 +30,8 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     @Published public var screenDraft: String? = nil
     /// What we believe the agent's box holds after our own typing (see `DraftSync`).
     private var draftInBox = ""
+    /// Set while `sendImmediately` runs: the mirroring of the field stays out of its way.
+    public private(set) var sendingNow = false
     private var draftUncertain = false
     private var draftGuardUntil = Date.distantPast
     /// The pane showed a known agent (not a shell) at the last look: only then is typing mirrored.
@@ -321,6 +323,33 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         return true
     }
 
+    /// Interrupts the agent (one Esc, which both Claude Code and Antigravity take as "stop what you
+    /// are doing") and sends `text` at once, instead of queueing it behind the running turn. The
+    /// box is read again after the Esc (an agent may take its draft back), then filled and submitted.
+    /// `false`: nothing sent (no connection, not an agent, a question is up, or the agent is idle,
+    /// where a plain send is the same and a stray Esc could do harm).
+    public func sendImmediately(_ text: String) async -> Bool {
+        guard let handle, state == .connected, feedRecognized, screenPrompt == nil, screenStatus != nil else { return false }
+        sendingNow = true
+        defer { sendingNow = false }
+        sendInput(Data([0x1b]))
+        try? await Task.sleep(for: .milliseconds(450))
+        var boxText = ""
+        if let cap = try? await handle.captureSessionScreen(sessionName: session.sessionName, knownSum: nil),
+           let screen = cap.text {
+            let feed = parseScreenFeed(text: screen)
+            if feed.prompt != nil { return false }
+            boxText = feed.draft ?? ""
+        }
+        draftInBox = boxText
+        draftUncertain = !boxText.isEmpty
+        guard await syncDraft(text) else { return false }
+        try? await Task.sleep(for: .milliseconds(120))
+        sendInput(Data([0x0d]))
+        draftWasSent()
+        return true
+    }
+
     /// The box was submitted: it is empty now.
     public func draftWasSent() {
         draftInBox = ""
@@ -381,7 +410,7 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         // agents fold groups of calls ("Ran 5 commands (ctrl+o to expand)") and cut results; the
         // file has them whole. agy shows its thinking on screen, so only the calls are taken.
         let grew = feed.turns.count != lastScreenTurnCount
-        var file = await fileTurnsForThinking(handle, force: grew)
+        var file = await fileTurnsForThinking(handle, force: grew, screen: text)
         if feed.dialect == "agy" {
             for i in file.indices { file[i].thinking = nil }
         }
@@ -463,14 +492,16 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         }
     }
 
-    private func fileTurnsForThinking(_ handle: SshSessionHandle, force: Bool) async -> [TranscriptTurn] {
+    private func fileTurnsForThinking(_ handle: SshSessionHandle, force: Bool, screen: String) async -> [TranscriptTurn] {
         // New turns on the screen: read the file now, so their thinking appears with them and does
         // not jump in later (and shift the text) when the 15 s refresh comes.
         if !force, let last = lastThinkingRead, Date().timeIntervalSince(last) < 15 { return thinkingTurns }
         lastThinkingRead = Date()
         if let found = try? await handle.detectSessionTranscriptPath(sessionName: session.sessionName),
            let turns = try? await handle.readRemoteTranscript(remotePath: found) {
-            thinkingTurns = turns
+            // The same agent may also run in this folder elsewhere (the laptop): a file whose
+            // conversation is not the one on the screen is not used.
+            thinkingTurns = transcriptMatchesScreen(file: turns, screen: screen) ? turns : []
         }
         return thinkingTurns
     }

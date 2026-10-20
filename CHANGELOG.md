@@ -17,6 +17,10 @@
 - Draft sync: what you type in the feed's message field is mirrored into the agent's input box in tmux (only the difference is sent), so a half-written prompt survives a dropped connection or a reinstall and is picked up again on open. Off in a plain shell or while a question is up.
 - Approve/Deny card only on the screen of its session; other screens get the status symbol and a local in-app notification (agent, session, server; never leaves the phone).
 
+- Session file binding: the Claude/agy file used for thoughts and the usage line is found by the session id the hooks noted for the tab's tmux session (a parallel agent in the same folder on the laptop no longer takes its place), and a file whose conversation is not the one on screen is ignored.
+- Send now (while the agent works): interrupt and send, or add to the current task.
+- Settings → Agent profiles: profiles grouped in folders per agent.
+
 ### Menus
 - Quick menu and session menu: configurable order, hidden items, columns (2–6) and icon size in Settings → Appearance; panel and bottom button row follow the width.
 

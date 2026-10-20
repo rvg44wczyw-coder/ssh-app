@@ -289,6 +289,23 @@ public struct StructuredTranscriptView: View {
                         }
                     }
 
+                    if viewModel.screenStatus != nil, viewModel.screenPrompt == nil {
+                        // The agent is working: two ways to get a message to it right now.
+                        Menu {
+                            Button(action: sendImmediately) {
+                                Label("Interrupt and send", systemImage: "stop.circle")
+                            }
+                            Button(action: sendPrompt) {
+                                Label("Add to the current task", systemImage: "text.badge.plus")
+                            }
+                        } label: {
+                            Image(systemName: "bolt.circle.fill")
+                                .font(.system(size: 30))
+                                .foregroundColor(canSend ? .orange : .secondary)
+                        }
+                        .disabled(!canSend)
+                        .accessibilityLabel("Send now")
+                    }
                     Button(action: sendPrompt) {
                         Image(systemName: "arrow.up.circle.fill")
                             .font(.system(size: 30))
@@ -449,13 +466,28 @@ public struct StructuredTranscriptView: View {
         }
     }
 
+    private func sendImmediately() {
+        guard canSend else { return }
+        let text = promptText.trimmingCharacters(in: .whitespacesAndNewlines)
+        promptText = ""
+        syncTask?.cancel()
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        Task {
+            if await !viewModel.sendImmediately(text) {
+                promptText = text   // not sent: keep the text
+            }
+            try? await Task.sleep(for: .seconds(1))
+            _ = await viewModel.reloadTranscriptQuietly()
+        }
+    }
+
     /// Mirrors the message field into the agent's input box a moment after you stop typing.
     private func scheduleDraftSync() {
         syncTask?.cancel()
         let text = promptText
         syncTask = Task {
             try? await Task.sleep(for: .milliseconds(450))
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, !viewModel.sendingNow else { return }
             _ = await viewModel.syncDraft(text)
         }
     }

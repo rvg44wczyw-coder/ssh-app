@@ -35,6 +35,27 @@ public struct AgentProfilesSheetView: View {
 
     private var connected: Bool { viewModel.state == .connected }
 
+    /// Agents whose group is folded (all open until you fold one); kept across launches.
+    @AppStorage("profile_groups_closed") private var closedGroups = ""
+
+    private var profileGroups: [(kind: AgentKind, profiles: [SavedAgentProfile])] {
+        AgentKind.groupOrder.compactMap { kind in
+            let list = manager.profiles.filter { $0.agent == kind }
+            return list.isEmpty ? nil : (kind, list)
+        }
+    }
+
+    private func groupBinding(_ kind: AgentKind) -> Binding<Bool> {
+        Binding(
+            get: { !closedGroups.split(separator: ",").contains(Substring(kind.groupTitle)) },
+            set: { open in
+                var closed = Set(closedGroups.split(separator: ",").map(String.init))
+                if open { closed.remove(kind.groupTitle) } else { closed.insert(kind.groupTitle) }
+                closedGroups = closed.sorted().joined(separator: ",")
+            }
+        )
+    }
+
     public var body: some View {
         if embedded {
             content
@@ -73,8 +94,21 @@ public struct AgentProfilesSheetView: View {
                         .disabled(!connected)
                 }
                 Section(header: Text("Profiles")) {
-                    ForEach(manager.profiles) { profile in
-                        profileRow(profile)
+                    // One folder per agent (Claude Code, Antigravity, Grok, ...) with its profiles inside.
+                    ForEach(profileGroups, id: \.kind) { group in
+                        DisclosureGroup(isExpanded: groupBinding(group.kind)) {
+                            ForEach(group.profiles) { profile in
+                                profileRow(profile)
+                            }
+                        } label: {
+                            HStack(spacing: 8) {
+                                ProfileIconView(ref: ProfileIcons.defaultSymbol(for: group.kind), size: 16)
+                                    .foregroundColor(.appAccent)
+                                Text(group.kind.groupTitle).font(.headline)
+                                Spacer()
+                                Text("\(group.profiles.count)").font(.subheadline).foregroundColor(.secondary)
+                            }
+                        }
                     }
                     Menu {
                         Button {
@@ -712,5 +746,29 @@ struct AgentProfileEditorView: View {
             }
         }
         .interactiveDismissDisabled()
+    }
+}
+
+
+extension AgentKind {
+    /// Order of the agent folders in the profile list.
+    static let groupOrder: [AgentKind] = [
+        .claudeCode, .antigravity, .grok, .codex, .openCode, .qwenCode, .crush, .cline, .aider, .goose, .ollamaChat,
+    ]
+
+    var groupTitle: String {
+        switch self {
+        case .claudeCode: return "Claude Code"
+        case .antigravity: return "Antigravity"
+        case .codex: return "Codex"
+        case .grok: return "Grok"
+        case .openCode: return "OpenCode"
+        case .qwenCode: return "Qwen Code"
+        case .crush: return "Crush"
+        case .cline: return "Cline"
+        case .aider: return "Aider"
+        case .goose: return "Goose"
+        case .ollamaChat: return "Ollama"
+        }
     }
 }

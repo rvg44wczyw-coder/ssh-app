@@ -14304,10 +14304,6 @@ public func suggestPermissionChanges(current: AgentPermissions, context: [AgentP
 })
 }
 /**
- * Puts the agent's thinking (which the screen does not show) into the screen's feed, each block
- * right before the reply text or tool call it preceded, so the order of the story is kept.
- * `file` is the session file's turns; a turn there is matched to the screen turn with the same
- * reply text or the same tool call (name and the start of its arguments), moving forward only.
  * Thinking whose turn is not found goes before the next one that is; thinking after the last
  * match is dropped rather than put in a wrong place.
  */
@@ -14328,6 +14324,21 @@ public func parseScreenFeed(text: String) -> ScreenFeed  {
         uniffiCallStatus in
     uniffi_ssh_core_fn_func_parse_screen_feed(
         FfiConverterString.lower(text),uniffiCallStatus
+    )
+})
+}
+/**
+ * Whether a session file is the one of the conversation on the screen: one of the last five things
+ * you said in the file is on the screen. Two agents of the same kind can work in the same folder
+ * (one on the laptop), and the newest file may be the other one's; its thoughts must not be shown
+ * here. A file without a user turn (a session just started) cannot be told apart and is accepted.
+ */
+public func transcriptMatchesScreen(file: [TranscriptTurn], screen: String) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_transcript_matches_screen(
+        FfiConverterSequenceTypeTranscriptTurn.lower(file),
+        FfiConverterString.lower(screen),uniffiCallStatus
     )
 })
 }
@@ -14871,10 +14882,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_func_suggest_permission_changes() != 16497) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_ssh_core_checksum_func_merge_thinking() != 56722) {
+    if (uniffi_ssh_core_checksum_func_merge_thinking() != 46269) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_parse_screen_feed() != 18858) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_transcript_matches_screen() != 28676) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_detect_host_target_once() != 32496) {
