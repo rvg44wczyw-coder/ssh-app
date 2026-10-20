@@ -1,4 +1,5 @@
 import SwiftUI
+import UserNotifications
 import SshCoreBridge
 
 struct PendingLocalLaunch {
@@ -62,6 +63,15 @@ public struct MainTerminalView: View {
     @State var assistantRoute: AssistantRoute?
     @State private var pendingLocal: PendingLocalLaunch?
     @StateObject private var approvals = ApprovalsCenter()
+    @ObservedObject private var push = PushManager.shared
+    @State private var deliveredNotices: Set<String> = []
+    /// The tab whose agent the user is about to restart (asks new / continue first).
+    @State private var restartTarget: UUID?
+    @State private var restartError: String?
+    /// Hook notices per tab (finished / needs you), cleared when the tab is opened.
+    @State private var hookAttention: [UUID: SessionAttention] = [:]
+    /// Bumped by the watcher so the symbols are read again (the view models are not observed here).
+    @State private var attentionTick = 0
     /// Chat and command state of the AI assistant, one per server (outlives tabs and the screen).
     @StateObject var assistants = AssistantStore()
 
@@ -87,13 +97,114 @@ public struct MainTerminalView: View {
         #endif
     }
 
+    /// What the tab's agent wants from you: a pending approval (the card), a question on its screen
+    /// (the watcher below), or a hook notice (finished / needs you) until you open the tab.
+    private func attention(for tab: TabSession) -> SessionAttention? {
+        _ = attentionTick
+        var found: [SessionAttention] = []
+        if let a = hookAttention[tab.id] { found.append(a) }
+        if approvals.entries.contains(where: { $0.isApproval && approvals.tmuxName(for: $0) == tab.sessionName }) {
+            found.append(.approval)
+        }
+        let viewing = !showHome && tab.id == tabsManager.selectedSessionId
+        if let vm = tabsManager.viewModel(for: tab.id), vm.screenPrompt != nil, !(viewing && vm.isChatMode) {
+            found.append(.question)
+        }
+        return found.max()
+    }
+
+    /// Every few seconds, while the app is in front: ask each connected tab's pane whether a question
+    /// is on it. One cheap checksum call per tab (nothing is parsed while the screen is unchanged).
+    private func watchPrompts() async {
+        while !Task.isCancelled {
+            try? await Task.sleep(for: .seconds(6))
+            guard scenePhase == .active else { continue }
+            for tab in tabsManager.sessions {
+                guard let vm = tabsManager.viewModel(for: tab.id) else { continue }
+                if !showHome, tab.id == tabsManager.selectedSessionId, vm.isChatMode { continue }
+                await vm.watchPromptOnce()
+            }
+            attentionTick += 1
+        }
+    }
+
+    /// Notices of the hooks (an agent finished, needs you) become a symbol on the tab's card and
+    /// tab until you open it; the queue entry is acknowledged. With the app closed the relay's push
+    /// says the same.
+    private func deliverNotices() {
+        for notice in approvals.notices where !deliveredNotices.contains(notice.id) {
+            deliveredNotices.insert(notice.id)
+            if let tmux = approvals.tmuxName(for: notice),
+               let tab = tabsManager.sessions.first(where: { $0.sessionName == tmux }),
+               !(!showHome && tab.id == tabsManager.selectedSessionId) {
+                let kind: SessionAttention = notice.item.event == "Stop" ? .finished : .needsYou
+                hookAttention[tab.id] = max(hookAttention[tab.id] ?? kind, kind)
+            }
+            Task { await approvals.dismiss(notice) }
+        }
+    }
+
+    /// Command that starts the tab's agent again: from its profile as it is now (so hooks and
+    /// permissions set up since are picked up), else the command the tab was started with.
+    private func restartCommand(for tab: TabSession, continuing: Bool) -> String? {
+        if let profile = agentProfiles.profiles.first(where: { $0.id == tab.profileId }) {
+            var p = profile
+            if continuing, let flag = Self.continueFlag(profile.agent) { p.args.append(flag) }
+            if case .success(let cmd) = p.launchCommand() { return cmd }
+            return nil
+        }
+        return tab.command
+    }
+
+    private static func continueFlag(_ agent: AgentKind) -> String? {
+        switch agent {
+        case .claudeCode: return "--continue"
+        case .antigravity: return "--continue"
+        default: return nil
+        }
+    }
+
+    private func restart(_ id: UUID, continuing: Bool) {
+        restartTarget = nil
+        guard let tab = tabsManager.sessions.first(where: { $0.id == id }),
+              let vm = tabsManager.viewModel(for: id),
+              let command = restartCommand(for: tab, continuing: continuing) else {
+            restartError = "This tab has no launch settings to restart from. Start it from an agent profile."
+            return
+        }
+        Task {
+            do {
+                try await vm.restartAgent(command: command)
+                // Later restarts start from the profile again, without the continue flag.
+                if let base = restartCommand(for: tab, continuing: false) {
+                    tabsManager.setSessionCommand(id: id, command: base)
+                }
+            } catch {
+                restartError = error.localizedDescription
+            }
+        }
+    }
+
+    /// A tap on a push opens the tab its `sid` names (no match: the tab is closed, nothing to open).
+    private func openPushTarget() {
+        guard let sid = push.pendingSid else { return }
+        guard let tab = tabsManager.sessions.first(where: { push.sessionId(for: $0.sessionName) == sid }) else {
+            push.pendingSid = nil
+            return
+        }
+        push.pendingSid = nil
+        openWaiting(tab.id)
+    }
+
+    private func openWaiting(_ id: UUID) {
+        hookAttention[id] = nil
+        tabsManager.selectedSessionId = id
+        showHome = false
+        if let vm = tabsManager.viewModel(for: id), !vm.isChatMode { vm.toggleChatMode() }
+    }
+
     @ViewBuilder
     private var approvalViews: some View {
-                ForEach(approvals.notices) { notice in
-                    ApprovalNoticeView(entry: notice) {
-                        Task { await approvals.dismiss(notice) }
-                    }
-                }
                 if let approval = approvals.current {
                     ApprovalBannerView(
                         entry: approval,
@@ -171,6 +282,8 @@ public struct MainTerminalView: View {
                         tabsManager.closeSession(id: id, server: server, privateKey: privateKey)
                     },
                     isChatMode: { tabsManager.viewModel(for: $0.id)?.isChatMode == true },
+                    attention: { attention(for: $0) },
+                    onRestart: { restartTarget = $0 },
                     onSessionAction: { runSessionAction($0, $1) },
                     onSetScheme: { tabsManager.setSessionScheme(id: $0, schemeId: $1) },
                     assistants: assistants.withHistory(in: serversManager.profiles.map(\.id)),
@@ -216,6 +329,8 @@ public struct MainTerminalView: View {
                         tabsManager.closeSession(id: id, server: server, privateKey: privateKey)
                     },
                     isChatMode: { tabsManager.viewModel(for: $0.id)?.isChatMode == true },
+                    attention: { attention(for: $0) },
+                    onRestart: { restartTarget = $0 },
                     onSessionAction: { runSessionAction($0, $1) },
                     onSetScheme: { tabsManager.setSessionScheme(id: $0, schemeId: $1) }
                 )
@@ -409,6 +524,30 @@ public struct MainTerminalView: View {
                 checkStartupServersIfMultiple()
                 startApprovalPolling()
             }
+            .confirmationDialog("Restart the agent in this tab?",
+                                isPresented: Binding(get: { restartTarget != nil }, set: { if !$0 { restartTarget = nil } }),
+                                titleVisibility: .visible) {
+                if let id = restartTarget, let tab = tabsManager.sessions.first(where: { $0.id == id }) {
+                    Button("New conversation") { restart(id, continuing: false) }
+                    if agentProfiles.profiles.first(where: { $0.id == tab.profileId }).map({ Self.continueFlag($0.agent) != nil }) == true {
+                        Button("Continue the last conversation") { restart(id, continuing: true) }
+                    }
+                }
+                Button("Cancel", role: .cancel) { restartTarget = nil }
+            } message: {
+                Text("The running agent is stopped and started again in the same tmux session with its profile's current settings, hooks and permissions included.")
+            }
+            .alert("Restart", isPresented: Binding(get: { restartError != nil }, set: { if !$0 { restartError = nil } })) {
+                Button("OK") { restartError = nil }
+            } message: { Text(restartError ?? "") }
+            .task { await watchPrompts() }
+            .onChange(of: approvals.notices.map(\.id)) { _, _ in deliverNotices() }
+            .onChange(of: tabsManager.selectedSessionId) { _, id in hookAttention[id] = nil }
+            .onChange(of: showHome) { _, home in
+                if !home { hookAttention[tabsManager.selectedSessionId] = nil }
+            }
+            .onAppear { openPushTarget() }
+            .onChange(of: push.pendingSid) { _, _ in openPushTarget() }
             .onChange(of: tabsManager.sessions.count) { old, new in
                 // A session was just started (new tab, agent profile, tmux sheet): show it.
                 if new > old, showHome { showHome = false }

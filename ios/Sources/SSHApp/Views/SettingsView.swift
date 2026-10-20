@@ -150,6 +150,18 @@ public struct SettingsView: View {
                     .padding(.vertical, 4)
                 }
             }
+            Section(
+                header: Text("Quick menu"),
+                footer: Text("Tiles per row and icon size, then drag a tile onto another to change the order, tap to show or hide it.")
+            ) {
+                QuickMenuOrderGrid()
+            }
+            Section(
+                header: Text("Session menu"),
+                footer: Text("The buttons of a tab's own menu (long press or second tap on a tab): size, order, and which ones show.")
+            ) {
+                QuickMenuOrderGrid(sessionActions: true)
+            }
             Section(header: Text("Accent color"), footer: Text("Buttons, selected chips and links. Open sheets update when you reopen them.")) {
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: 14) {
                     ForEach(AppAccent.allCases) { accent in

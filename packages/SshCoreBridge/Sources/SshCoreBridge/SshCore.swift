@@ -1358,6 +1358,14 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func approvalStatus() async throws  -> ApprovalStatus
     
     /**
+     * The text of this tab's tmux pane with its whole history (`capture-pane -p -J -S -`), for the
+     * feed built from the screen. `known_sum` is the checksum of the previous answer: when the
+     * screen is unchanged the host answers `SAME` and nothing else crosses the network.
+     * Returns `(checksum, Some(text))`, or `(checksum, None)` when unchanged.
+     */
+    func captureSessionScreen(sessionName: String, knownSum: String?) async throws  -> ScreenCapture
+    
+    /**
      * One turn of a free-form chat with the host's Ollama: the whole history goes in, the
      * assistant's reply comes back as plain text. Dropping the call stops the request on the host.
      */
@@ -1635,6 +1643,13 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func readRemoteTranscript(remotePath: String) async throws  -> [TranscriptTurn]
     
     /**
+     * Restarts the agent of a tab: the pane of the tmux session `session_name` is respawned with
+     * `command` (a launch command from `build_agent_launch_command`), the old process killed. The
+     * session stays, so the phone's attached terminal just shows the new start.
+     */
+    func restartSessionCommand(sessionName: String, command: String) async throws 
+    
+    /**
      * Switches, creates or deletes a branch (see `GitBranchOp`). Invalid names are refused here
      * as an error; git's own refusals come back in the result.
      */
@@ -1675,6 +1690,15 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
      * Removes the wrapper and restores the user's previous status line.
      */
     func uninstallClaudeStatusline(configDir: String?) async throws 
+    
+    /**
+     * Sends a file picked on the phone (photo, video, any file) to the host over a new channel
+     * of this session: `permanent` keeps it in `~/.ssh-app/inbox/<id>-<name>`, otherwise it goes
+     * to a private folder in the host's temp directory (`$TMPDIR` or `/tmp`, which the system
+     * empties). Mode 0600, folder 0700. Returns the absolute path on the host, to put in a message to the agent.
+     * The name is reduced to `[A-Za-z0-9._-]`; at most `ATTACHMENT_MAX_BYTES`.
+     */
+    func uploadAttachment(srcLocalPath: String, fileName: String, permanent: Bool) async throws  -> String
     
     /**
      * Like `list_pending_approvals`, but the host holds the call (up to ~20 s) until the pending
@@ -1930,6 +1954,28 @@ open func approvalStatus()async throws  -> ApprovalStatus  {
             completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
             freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
             liftFunc: FfiConverterTypeApprovalStatus_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * The text of this tab's tmux pane with its whole history (`capture-pane -p -J -S -`), for the
+     * feed built from the screen. `known_sum` is the checksum of the previous answer: when the
+     * screen is unchanged the host answers `SAME` and nothing else crosses the network.
+     * Returns `(checksum, Some(text))`, or `(checksum, None)` when unchanged.
+     */
+open func captureSessionScreen(sessionName: String, knownSum: String?)async throws  -> ScreenCapture  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_capture_session_screen(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(sessionName),FfiConverterOptionString.lower(knownSum)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeScreenCapture_lift,
             errorHandler: FfiConverterTypeSshCoreError_lift
         )
 }
@@ -2884,6 +2930,27 @@ open func readRemoteTranscript(remotePath: String)async throws  -> [TranscriptTu
 }
     
     /**
+     * Restarts the agent of a tab: the pane of the tmux session `session_name` is respawned with
+     * `command` (a launch command from `build_agent_launch_command`), the old process killed. The
+     * session stays, so the phone's attached terminal just shows the new start.
+     */
+open func restartSessionCommand(sessionName: String, command: String)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_restart_session_command(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(sessionName),FfiConverterString.lower(command)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_void,
+            completeFunc: ffi_ssh_core_rust_future_complete_void,
+            freeFunc: ffi_ssh_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
      * Switches, creates or deletes a branch (see `GitBranchOp`). Invalid names are refused here
      * as an error; git's own refusals come back in the result.
      */
@@ -3033,6 +3100,29 @@ open func uninstallClaudeStatusline(configDir: String?)async throws   {
             completeFunc: ffi_ssh_core_rust_future_complete_void,
             freeFunc: ffi_ssh_core_rust_future_free_void,
             liftFunc: { $0 },
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Sends a file picked on the phone (photo, video, any file) to the host over a new channel
+     * of this session: `permanent` keeps it in `~/.ssh-app/inbox/<id>-<name>`, otherwise it goes
+     * to a private folder in the host's temp directory (`$TMPDIR` or `/tmp`, which the system
+     * empties). Mode 0600, folder 0700. Returns the absolute path on the host, to put in a message to the agent.
+     * The name is reduced to `[A-Za-z0-9._-]`; at most `ATTACHMENT_MAX_BYTES`.
+     */
+open func uploadAttachment(srcLocalPath: String, fileName: String, permanent: Bool)async throws  -> String  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_upload_attachment(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(srcLocalPath),FfiConverterString.lower(fileName),FfiConverterBool.lower(permanent)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterString.lift,
             errorHandler: FfiConverterTypeSshCoreError_lift
         )
 }
@@ -7393,6 +7483,83 @@ public func FfiConverterTypePortForwardInfo_lower(_ value: PortForwardInfo) -> R
 }
 
 
+/**
+ * One choice of a menu the agent is waiting on.
+ */
+public struct PromptOption: Equatable, Hashable {
+    public var number: UInt32
+    public var label: String
+    /**
+     * Grey explanation under the label (Claude's question form); empty when there is none.
+     */
+    public var description: String
+    /**
+     * Ticked box of a multi-choice menu.
+     */
+    public var checked: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(number: UInt32, label: String, 
+        /**
+         * Grey explanation under the label (Claude's question form); empty when there is none.
+         */description: String, 
+        /**
+         * Ticked box of a multi-choice menu.
+         */checked: Bool) {
+        self.number = number
+        self.label = label
+        self.description = description
+        self.checked = checked
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension PromptOption: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePromptOption: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PromptOption {
+        return
+            try PromptOption(
+                number: FfiConverterUInt32.read(from: &buf), 
+                label: FfiConverterString.read(from: &buf), 
+                description: FfiConverterString.read(from: &buf), 
+                checked: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: PromptOption, into buf: inout [UInt8]) {
+        FfiConverterUInt32.write(value.number, into: &buf)
+        FfiConverterString.write(value.label, into: &buf)
+        FfiConverterString.write(value.description, into: &buf)
+        FfiConverterBool.write(value.checked, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePromptOption_lift(_ buf: RustBuffer) throws -> PromptOption {
+    return try FfiConverterTypePromptOption.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePromptOption_lower(_ value: PromptOption) -> RustBuffer {
+    return FfiConverterTypePromptOption.lower(value)
+}
+
+
 public struct RemoteDirectoryListing: Equatable, Hashable {
     public var currentPath: String
     public var parentPath: String?
@@ -7858,6 +8025,255 @@ public func FfiConverterTypeRemoteServerConfig_lift(_ buf: RustBuffer) throws ->
 #endif
 public func FfiConverterTypeRemoteServerConfig_lower(_ value: RemoteServerConfig) -> RustBuffer {
     return FfiConverterTypeRemoteServerConfig.lower(value)
+}
+
+
+/**
+ * The answer of `capture_session_screen`.
+ */
+public struct ScreenCapture: Equatable, Hashable {
+    public var checksum: String
+    /**
+     * `None`: the screen is the same as the one with the known checksum.
+     */
+    public var text: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(checksum: String, 
+        /**
+         * `None`: the screen is the same as the one with the known checksum.
+         */text: String?) {
+        self.checksum = checksum
+        self.text = text
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ScreenCapture: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeScreenCapture: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ScreenCapture {
+        return
+            try ScreenCapture(
+                checksum: FfiConverterString.read(from: &buf), 
+                text: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ScreenCapture, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.checksum, into: &buf)
+        FfiConverterOptionString.write(value.text, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeScreenCapture_lift(_ buf: RustBuffer) throws -> ScreenCapture {
+    return try FfiConverterTypeScreenCapture.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeScreenCapture_lower(_ value: ScreenCapture) -> RustBuffer {
+    return FfiConverterTypeScreenCapture.lower(value)
+}
+
+
+/**
+ * The screen read as a feed.
+ */
+public struct ScreenFeed: Equatable, Hashable {
+    /**
+     * `claude`, `agy` or `unknown` (nothing recognised: one folded "Terminal output" turn).
+     */
+    public var dialect: String
+    public var turns: [TranscriptTurn]
+    /**
+     * The live line of the agent ("✶ Thinking… (12s)"), if one is on screen.
+     */
+    public var status: String?
+    /**
+     * What is typed in the input box and not sent yet.
+     */
+    public var draft: String?
+    /**
+     * A question on screen that waits for an answer.
+     */
+    public var prompt: ScreenPrompt?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * `claude`, `agy` or `unknown` (nothing recognised: one folded "Terminal output" turn).
+         */dialect: String, turns: [TranscriptTurn], 
+        /**
+         * The live line of the agent ("✶ Thinking… (12s)"), if one is on screen.
+         */status: String?, 
+        /**
+         * What is typed in the input box and not sent yet.
+         */draft: String?, 
+        /**
+         * A question on screen that waits for an answer.
+         */prompt: ScreenPrompt?) {
+        self.dialect = dialect
+        self.turns = turns
+        self.status = status
+        self.draft = draft
+        self.prompt = prompt
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ScreenFeed: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeScreenFeed: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ScreenFeed {
+        return
+            try ScreenFeed(
+                dialect: FfiConverterString.read(from: &buf), 
+                turns: FfiConverterSequenceTypeTranscriptTurn.read(from: &buf), 
+                status: FfiConverterOptionString.read(from: &buf), 
+                draft: FfiConverterOptionString.read(from: &buf), 
+                prompt: FfiConverterOptionTypeScreenPrompt.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ScreenFeed, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.dialect, into: &buf)
+        FfiConverterSequenceTypeTranscriptTurn.write(value.turns, into: &buf)
+        FfiConverterOptionString.write(value.status, into: &buf)
+        FfiConverterOptionString.write(value.draft, into: &buf)
+        FfiConverterOptionTypeScreenPrompt.write(value.prompt, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeScreenFeed_lift(_ buf: RustBuffer) throws -> ScreenFeed {
+    return try FfiConverterTypeScreenFeed.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeScreenFeed_lower(_ value: ScreenFeed) -> RustBuffer {
+    return FfiConverterTypeScreenFeed.lower(value)
+}
+
+
+/**
+ * A question the agent asks on screen and waits for: a permission ("Run this command?" with
+ * Yes / Always / No) or a choice (single or with boxes). The app shows it as a card with buttons
+ * and answers with arrow keys, Space and Enter.
+ */
+public struct ScreenPrompt: Equatable, Hashable {
+    public var title: String?
+    /**
+     * What is being asked about (the command, the file), without the lead-in line.
+     */
+    public var detail: String
+    public var question: String
+    public var options: [PromptOption]
+    /**
+     * Index in `options` of the entry the cursor is on.
+     */
+    public var selected: UInt32
+    /**
+     * Boxes to tick (Space toggles, Enter confirms) instead of one answer.
+     */
+    public var multi: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(title: String?, 
+        /**
+         * What is being asked about (the command, the file), without the lead-in line.
+         */detail: String, question: String, options: [PromptOption], 
+        /**
+         * Index in `options` of the entry the cursor is on.
+         */selected: UInt32, 
+        /**
+         * Boxes to tick (Space toggles, Enter confirms) instead of one answer.
+         */multi: Bool) {
+        self.title = title
+        self.detail = detail
+        self.question = question
+        self.options = options
+        self.selected = selected
+        self.multi = multi
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ScreenPrompt: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeScreenPrompt: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ScreenPrompt {
+        return
+            try ScreenPrompt(
+                title: FfiConverterOptionString.read(from: &buf), 
+                detail: FfiConverterString.read(from: &buf), 
+                question: FfiConverterString.read(from: &buf), 
+                options: FfiConverterSequenceTypePromptOption.read(from: &buf), 
+                selected: FfiConverterUInt32.read(from: &buf), 
+                multi: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ScreenPrompt, into buf: inout [UInt8]) {
+        FfiConverterOptionString.write(value.title, into: &buf)
+        FfiConverterString.write(value.detail, into: &buf)
+        FfiConverterString.write(value.question, into: &buf)
+        FfiConverterSequenceTypePromptOption.write(value.options, into: &buf)
+        FfiConverterUInt32.write(value.selected, into: &buf)
+        FfiConverterBool.write(value.multi, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeScreenPrompt_lift(_ buf: RustBuffer) throws -> ScreenPrompt {
+    return try FfiConverterTypeScreenPrompt.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeScreenPrompt_lower(_ value: ScreenPrompt) -> RustBuffer {
+    return FfiConverterTypeScreenPrompt.lower(value)
 }
 
 
@@ -8440,10 +8856,19 @@ public struct TranscriptTurn: Equatable, Hashable {
     public var thinking: String?
     public var toolCalls: [TranscriptToolCall]
     public var status: TranscriptStatus
+    /**
+     * Short title of a service entry (hook, attachment, turn duration, checkpoint ...). Such turns
+     * are `System` and the app shows them folded; `content` holds the details.
+     */
+    public var label: String?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(id: String, stepIndex: UInt64, turnType: TranscriptTurnType, timestamp: String?, content: String?, thinking: String?, toolCalls: [TranscriptToolCall], status: TranscriptStatus) {
+    public init(id: String, stepIndex: UInt64, turnType: TranscriptTurnType, timestamp: String?, content: String?, thinking: String?, toolCalls: [TranscriptToolCall], status: TranscriptStatus, 
+        /**
+         * Short title of a service entry (hook, attachment, turn duration, checkpoint ...). Such turns
+         * are `System` and the app shows them folded; `content` holds the details.
+         */label: String?) {
         self.id = id
         self.stepIndex = stepIndex
         self.turnType = turnType
@@ -8452,6 +8877,7 @@ public struct TranscriptTurn: Equatable, Hashable {
         self.thinking = thinking
         self.toolCalls = toolCalls
         self.status = status
+        self.label = label
     }
 
     
@@ -8477,7 +8903,8 @@ public struct FfiConverterTypeTranscriptTurn: FfiConverterRustBuffer {
                 content: FfiConverterOptionString.read(from: &buf), 
                 thinking: FfiConverterOptionString.read(from: &buf), 
                 toolCalls: FfiConverterSequenceTypeTranscriptToolCall.read(from: &buf), 
-                status: FfiConverterTypeTranscriptStatus.read(from: &buf)
+                status: FfiConverterTypeTranscriptStatus.read(from: &buf), 
+                label: FfiConverterOptionString.read(from: &buf)
         )
     }
 
@@ -8490,6 +8917,7 @@ public struct FfiConverterTypeTranscriptTurn: FfiConverterRustBuffer {
         FfiConverterOptionString.write(value.thinking, into: &buf)
         FfiConverterSequenceTypeTranscriptToolCall.write(value.toolCalls, into: &buf)
         FfiConverterTypeTranscriptStatus.write(value.status, into: &buf)
+        FfiConverterOptionString.write(value.label, into: &buf)
     }
 }
 
@@ -12055,6 +12483,30 @@ fileprivate struct FfiConverterOptionTypeOllamaLoad: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeScreenPrompt: FfiConverterRustBuffer {
+    typealias SwiftType = ScreenPrompt?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeScreenPrompt.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeScreenPrompt.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeGitFileState: FfiConverterRustBuffer {
     typealias SwiftType = GitFileState?
 
@@ -12746,6 +13198,31 @@ fileprivate struct FfiConverterSequenceTypePortForwardInfo: FfiConverterRustBuff
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypePortForwardInfo.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypePromptOption: FfiConverterRustBuffer {
+    typealias SwiftType = [PromptOption]
+
+    public static func write(_ value: [PromptOption], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypePromptOption.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [PromptOption] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [PromptOption]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypePromptOption.read(from: &buf))
         }
         return seq
     }
@@ -13827,6 +14304,34 @@ public func suggestPermissionChanges(current: AgentPermissions, context: [AgentP
 })
 }
 /**
+ * Puts the agent's thinking (which the screen does not show) into the screen's feed, each block
+ * right before the reply text or tool call it preceded, so the order of the story is kept.
+ * `file` is the session file's turns; a turn there is matched to the screen turn with the same
+ * reply text or the same tool call (name and the start of its arguments), moving forward only.
+ * Thinking whose turn is not found goes before the next one that is; thinking after the last
+ * match is dropped rather than put in a wrong place.
+ */
+public func mergeThinking(screen: [TranscriptTurn], file: [TranscriptTurn]) -> [TranscriptTurn]  {
+    return try!  FfiConverterSequenceTypeTranscriptTurn.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_merge_thinking(
+        FfiConverterSequenceTypeTranscriptTurn.lower(screen),
+        FfiConverterSequenceTypeTranscriptTurn.lower(file),uniffiCallStatus
+    )
+})
+}
+/**
+ * Parses a capture of a pane. Cheap enough to run on every poll.
+ */
+public func parseScreenFeed(text: String) -> ScreenFeed  {
+    return try!  FfiConverterTypeScreenFeed_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_parse_screen_feed(
+        FfiConverterString.lower(text),uniffiCallStatus
+    )
+})
+}
+/**
  * Which system a host runs, from one short connection (before a terminal session exists). It is
  * advice for choosing the multiplexer and the helper build, never trusted for security.
  */
@@ -14366,6 +14871,12 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_func_suggest_permission_changes() != 16497) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_func_merge_thinking() != 56722) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_parse_screen_feed() != 18858) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_func_detect_host_target_once() != 32496) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -14502,6 +15013,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_approval_status() != 60832) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_capture_session_screen() != 10387) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_chat_host_ollama() != 1697) {
@@ -14648,6 +15162,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_read_remote_transcript() != 17846) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_restart_session_command() != 41626) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_run_git_branch_op() != 61266) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -14670,6 +15187,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_uninstall_claude_statusline() != 55124) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_upload_attachment() != 31872) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_wait_pending_approvals() != 31103) {

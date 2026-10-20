@@ -19,6 +19,8 @@ public struct ApprovalPollTarget {
 public final class ApprovalsCenter: ObservableObject {
     @Published public private(set) var entries: [ApprovalEntry] = []
     @Published public private(set) var busyIds: Set<String> = []
+    /// tmux session of an agent session, for naming a notice's tab: `<server key>/<agent>/<agent session>`.
+    @Published public private(set) var tmuxNames: [String: String] = [:]
     @Published public private(set) var errors: [String: String] = [:]
     /// True while the foreground poll runs; the Apple Watch only shows requests while it does.
     @Published public private(set) var isPolling = false
@@ -115,10 +117,33 @@ public final class ApprovalsCenter: ObservableObject {
         let live = Set(merged.map { $0.id })
         errors = errors.filter { live.contains($0.key) }
         let changed = merged != entries
+        // Names first, so a notice appears with its tab already known.
+        if changed { await resolveNoticeTabs(all, merged) }
         if changed { entries = merged }
         if !newApprovals.isEmpty { notifyNewApproval() }
         return (usedWait, changed)
     }
+
+    /// A notice names its agent session only by the agent's own id; the host agent knows which tmux
+    /// session that is, so the notice can show the tab. Asked once per host when a notice lacks it.
+    private func resolveNoticeTabs(_ targets: [ApprovalPollTarget], _ merged: [ApprovalEntry]) async {
+        for target in targets {
+            let missing = merged.contains {
+                $0.serverKey == target.serverKey && tmuxNames[tmuxKey($0)] == nil
+            }
+            guard missing, let handle = handles[target.serverKey],
+                  let pin = await target.viewModel.helperPin(),
+                  let state = try? await handle.hostAgentState(expectedSha256: pin) else { continue }
+            for s in state.sessions {
+                if let tmux = s.tmux { tmuxNames["\(target.serverKey)/\(s.agent)/\(s.session)"] = tmux }
+            }
+        }
+    }
+
+    private func tmuxKey(_ e: ApprovalEntry) -> String { "\(e.serverKey)/\(e.item.agent)/\(e.item.session)" }
+
+    /// The tmux session of the agent a notice is about, when the host agent has told us.
+    public func tmuxName(for e: ApprovalEntry) -> String? { tmuxNames[tmuxKey(e)] }
 
     /// Signs and sends the decision. The entry stays until the host stops listing it.
     public func decide(_ entry: ApprovalEntry, approved: Bool) async {

@@ -18,6 +18,11 @@ struct HostHelperCard: View {
 
     private var target: HostTarget? { viewModel.hostTarget }
     private var isUnsupported: Bool { if case .unsupported? = target { return true }; return false }
+    /// Unsupported because it looks like Windows without WSL2 (not an unknown CPU or a probe that failed).
+    private var unsupportedForWindows: Bool {
+        if case .unsupported(let reason)? = target { return reason.hasPrefix("Windows") }
+        return false
+    }
     private var isWindows: Bool { target.map { hostTargetMultiplexer(target: $0) == .windowsMux } ?? false }
     private var isWsl: Bool {
         switch target {
@@ -33,7 +38,10 @@ struct HostHelperCard: View {
                 Text(hostTargetLabel(target: target)).font(.caption.bold())
             }
             Text(summary).font(.caption).foregroundColor(.secondary)
-            if isWsl || isUnsupported || isWindows {
+            if case .unsupported(let reason)? = target, !unsupportedForWindows {
+                Text(reason).font(.caption).foregroundColor(.orange)
+            }
+            if isWsl || isWindows || unsupportedForWindows {
                 Button("WSL2 setup for Windows") { showWslSetup = true }.buttonStyle(.bordered)
             }
             if isWindows {

@@ -14,6 +14,7 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
 
     // Structured Transcript / Dual-Mode State
     @Published public var isChatMode: Bool = false
+    private var watchedSum: String? = nil
     private var lastTranscriptDetect: Date?
     /// Set by the terminal view: pastes the clipboard honouring the program's bracketed-paste mode.
     public var pasteHandler: (() -> Void)?
@@ -21,6 +22,14 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     @Published public var isTranscriptLoading: Bool = false
     @Published public var activeTranscriptPath: String? = nil
     @Published public var transcriptError: String? = nil
+    /// The live line of the agent on the tmux screen ("✶ Thinking… (12s)"), when the feed is built from the screen.
+    @Published public var screenStatus: String? = nil
+    /// A question the agent waits on (permission, choice), read from the screen; shown as a card.
+    @Published public var screenPrompt: ScreenPrompt? = nil
+    private var lastScreenSum: String?
+    private var lastScreenTurnCount = 0
+    private var thinkingTurns: [TranscriptTurn] = []
+    private var lastThinkingRead: Date?
 
     // Smart Snippets & Fuzzy History Search State
     @Published public var remoteHistoryCommands: [String] = []
@@ -98,7 +107,7 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         Task { @MainActor in
             let target = try? await detectHostTargetOnce(config: probe)
             var multiplexer = MultiplexerKind.tmux
-            if let target {
+            if let target = Self.conclusive(target) {
                 hostTarget = target
                 HostTargetCache.set(target, forKey: hostKey)
                 multiplexer = hostTargetMultiplexer(target: target)
@@ -264,6 +273,11 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         transcriptError = nil
 
         Task {
+            lastScreenSum = nil
+            if await reloadFromScreen() != nil {
+                self.isTranscriptLoading = false
+                return
+            }
             do {
                 // This tab's own agent, found from its tmux session; never "the newest on the host".
                 let path = try await handle.detectSessionTranscriptPath(sessionName: session.sessionName)
@@ -288,11 +302,151 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         }
     }
 
+    /// Looks at the pane only for a question the agent waits on (the banner's watcher, for tabs whose
+    /// feed is not open). Its own checksum: it never disturbs the feed's reading.
+    public func watchPromptOnce() async {
+        guard let handle = handle, state == .connected else { return }
+        guard let cap = try? await handle.captureSessionScreen(sessionName: session.sessionName, knownSum: watchedSum),
+              let text = cap.text else { return }
+        watchedSum = cap.checksum
+        let feed = parseScreenFeed(text: text)
+        let prompt = feed.dialect == "unknown" ? nil : feed.prompt
+        if screenPrompt != prompt { screenPrompt = prompt }
+    }
+
+    /// Builds the feed from the tmux pane. `nil`: nothing recognised on the screen (a plain shell, an
+    /// unknown program, no tmux), the caller falls back to the session file. `true` / `false`: the
+    /// turns shown changed / did not.
+    private func reloadFromScreen() async -> Bool? {
+        guard let handle = handle, state == .connected else { return nil }
+        guard let first = try? await handle.captureSessionScreen(sessionName: session.sessionName, knownSum: lastScreenSum)
+        else { return nil }
+        guard var text = first.text else { return false }   // the same screen as before
+        // The agent redraws its last lines while it writes (spinner, a result coming in, a reply
+        // being typed): a frame taken in the middle is the "mess" at the end of the feed. Wait
+        // until two captures in a row are the same (at most three more looks, ~1 s).
+        var cap = first
+        for _ in 0..<3 {
+            try? await Task.sleep(for: .milliseconds(350))
+            guard let again = try? await handle.captureSessionScreen(sessionName: session.sessionName, knownSum: cap.checksum),
+                  let newer = again.text else { break }   // unchanged: the frame is stable
+            cap = again
+            text = newer
+        }
+        let feed = parseScreenFeed(text: text)
+        guard feed.dialect != "unknown" else { lastScreenSum = nil; return nil }
+        lastScreenSum = cap.checksum
+        if screenStatus != feed.status { screenStatus = feed.status }
+        if screenPrompt != feed.prompt { screenPrompt = feed.prompt }
+        var turns = feed.turns
+        // Claude's screen has no thinking: it comes from the session file, in its place. Both
+        // agents fold groups of calls ("Ran 5 commands (ctrl+o to expand)") and cut results; the
+        // file has them whole. agy shows its thinking on screen, so only the calls are taken.
+        let grew = feed.turns.count != lastScreenTurnCount
+        var file = await fileTurnsForThinking(handle, force: grew)
+        if feed.dialect == "agy" {
+            for i in file.indices { file[i].thinking = nil }
+        }
+        turns = mergeThinking(screen: turns, file: file)
+        lastScreenTurnCount = feed.turns.count
+        transcriptError = nil
+        guard turns != transcriptTurns else { return false }
+        transcriptTurns = turns
+        return true
+    }
+
+    /// Answers the menu on the screen from the card: the cursor goes to the option with the arrow
+    /// keys, then Enter (a choice) or Space (a box). Enter is its own write: after a burst of keys
+    /// an agent's menu would take it for part of one input.
+    public func answerPrompt(index: Int, toggle: Bool) {
+        guard let p = screenPrompt, index >= 0, index < p.options.count else { return }
+        let delta = index - Int(p.selected)
+        var keys = Data()
+        let arrow = delta > 0 ? "\u{1b}[B" : "\u{1b}[A"
+        for _ in 0..<abs(delta) { keys.append(Data(arrow.utf8)) }
+        if toggle { keys.append(Data(" ".utf8)) }
+        if !keys.isEmpty { sendInput(keys) }
+        if !toggle {
+            Task {
+                try? await Task.sleep(for: .milliseconds(120))
+                self.sendInput(Data([0x0d]))
+                try? await Task.sleep(for: .milliseconds(400))
+                self.lastScreenSum = nil
+                _ = await self.reloadFromScreen()
+            }
+        } else {
+            Task {
+                try? await Task.sleep(for: .milliseconds(300))
+                self.lastScreenSum = nil
+                _ = await self.reloadFromScreen()
+            }
+        }
+    }
+
+    /// Restarts the agent of this tab in its tmux session with `command`. The terminal stays attached,
+    /// the feed starts over from the new screen.
+    public func restartAgent(command: String) async throws {
+        guard let handle, state == .connected else { throw SshCoreError.NotConnected }
+        try await handle.restartSessionCommand(sessionName: session.sessionName, command: command)
+        lastScreenSum = nil
+        watchedSum = nil
+        screenPrompt = nil
+        screenStatus = nil
+        transcriptTurns = []
+        thinkingTurns = []
+        try? await Task.sleep(for: .seconds(2))
+        _ = await reloadFromScreen()
+    }
+
+    /// Sends a picked file to the host's inbox; returns its path there.
+    /// `permanent`: kept in the host's `~/.ssh-app/inbox`; otherwise in its temp folder.
+    public func uploadAttachment(_ url: URL, name: String, permanent: Bool) async throws -> String {
+        guard let handle, state == .connected else { throw SshCoreError.NotConnected }
+        return try await handle.uploadAttachment(srcLocalPath: url.path, fileName: name, permanent: permanent)
+    }
+
+    /// Moves between the tabs of a multi-question form (Left / Right), so earlier answers can be changed.
+    public func moveTab(back: Bool) {
+        sendInput(Data([0x1b, 0x5b, back ? 0x44 : 0x43]))
+        Task {
+            try? await Task.sleep(for: .milliseconds(400))
+            self.lastScreenSum = nil
+            _ = await self.reloadFromScreen()
+        }
+    }
+
+    /// Confirms a multi-choice menu (Enter) or cancels the question (Esc).
+    public func finishPrompt(confirm: Bool) {
+        sendInput(Data([confirm ? 0x0d : 0x1b]))
+        Task {
+            try? await Task.sleep(for: .milliseconds(400))
+            self.lastScreenSum = nil
+            _ = await self.reloadFromScreen()
+        }
+    }
+
+    private func fileTurnsForThinking(_ handle: SshSessionHandle, force: Bool) async -> [TranscriptTurn] {
+        // New turns on the screen: read the file now, so their thinking appears with them and does
+        // not jump in later (and shift the text) when the 15 s refresh comes.
+        if !force, let last = lastThinkingRead, Date().timeIntervalSince(last) < 15 { return thinkingTurns }
+        lastThinkingRead = Date()
+        if let found = try? await handle.detectSessionTranscriptPath(sessionName: session.sessionName),
+           let turns = try? await handle.readRemoteTranscript(remotePath: found) {
+            thinkingTurns = turns
+        }
+        return thinkingTurns
+    }
+
     /// Live tail for the feed: re-reads the transcript without touching the loading or error state,
     /// and publishes only when something changed (so the view does not re-render or scroll).
     /// A failure keeps what is on screen.
-    public func reloadTranscriptQuietly() async {
-        guard let handle = handle, state == .connected, !isTranscriptLoading else { return }
+    /// Returns whether the shown turns changed (the caller slows the polling down while nothing happens).
+    @discardableResult
+    public func reloadTranscriptQuietly() async -> Bool {
+        guard let handle = handle, state == .connected, !isTranscriptLoading else { return false }
+        // The feed is the tmux screen (full history while the agent draws in the normal buffer); the
+        // session file is only the fallback and the source of the thinking.
+        if let changed = await reloadFromScreen() { return changed }
         // Which transcript belongs to this tab can change (the agent was quit or another one
         // started), so ask the host again, but not more often than every 20 s.
         if lastTranscriptDetect == nil || Date().timeIntervalSince(lastTranscriptDetect!) >= 20 {
@@ -304,9 +458,11 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
                 transcriptTurns = []
             }
         }
-        guard let path = activeTranscriptPath, let turns = try? await handle.readRemoteTranscript(remotePath: path) else { return }
-        if turns != transcriptTurns { transcriptTurns = turns }
+        guard let path = activeTranscriptPath, let turns = try? await handle.readRemoteTranscript(remotePath: path) else { return false }
+        var changed = false
+        if turns != transcriptTurns { transcriptTurns = turns; changed = true }
         if transcriptError != nil, !turns.isEmpty { transcriptError = nil }
+        return changed
     }
 
     public func fetchRemoteHistory() {
@@ -323,11 +479,18 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         }
     }
 
+    /// A probe that got no answer (slow login shell, dropped line) says nothing about the system: it
+    /// is not remembered, so the next look asks again, instead of the card calling a Mac "Windows".
+    private static func conclusive(_ target: HostTarget?) -> HostTarget? {
+        if case .unsupported(let reason)? = target, reason.hasPrefix("The host did not answer") { return nil }
+        return target
+    }
+
     /// SHA-256 of the helper build that fits this host. Until the system is known (or when it cannot
     /// be told) it is the Mac build's, which keeps the behaviour of a Mac host unchanged.
     public func helperPin() async -> String? {
         if hostTarget == nil, let handle, state == .connected {
-            hostTarget = try? await handle.detectHostTarget()
+            hostTarget = Self.conclusive(try? await handle.detectHostTarget())
             if let target = hostTarget { HostTargetCache.set(target, forKey: hostKey) }
         }
         guard let target = hostTarget else { return bundledHostHelperSha256() }

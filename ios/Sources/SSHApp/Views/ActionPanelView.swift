@@ -12,13 +12,30 @@ struct ActionPanelView: View {
 
     @Environment(\.dynamicTypeSize) private var typeSize
     @AppStorage(QuickMenuPrefs.storageKey) private var hiddenRaw: String = ""
+    @AppStorage(QuickMenuPrefs.orderKey) private var orderRaw: String = ""
     @State private var editing = false
     @State private var hintAction: AppAction? = nil
     @State private var hintToken = 0
 
+    @AppStorage(MenuGridPrefs.columnsKey(session: false)) private var quickColumns = MenuGridPrefs.defaultColumns
+    @AppStorage(MenuGridPrefs.sizeKey(session: false)) private var quickSize = MenuGridPrefs.defaultSize
+    @AppStorage(MenuGridPrefs.columnsKey(session: true)) private var sessionColumns = MenuGridPrefs.defaultColumns
+    @AppStorage(MenuGridPrefs.sizeKey(session: true)) private var sessionSize = MenuGridPrefs.defaultSize
+
+    private var iconSize: CGFloat { CGFloat(scope == .session ? sessionSize : quickSize) }
+
+    /// The panel is as wide as its tiles need, so fewer columns or smaller icons make it narrower and
+    /// more or bigger ones wider.
+    private var panelWidth: CGFloat {
+        let chosen = scope == .session ? sessionColumns : quickColumns
+        return MenuGridPrefs.panelWidth(columns: MenuGridPrefs.shownColumns(chosen, accessibility: typeSize.isAccessibilitySize),
+                                        iconSize: Double(iconSize))
+    }
+
     private var columns: [GridItem] {
-        let count = typeSize.isAccessibilitySize ? 2 : 3
-        return Array(repeating: GridItem(.flexible(), spacing: 10), count: count)
+        let chosen = scope == .session ? sessionColumns : quickColumns
+        let count = MenuGridPrefs.shownColumns(chosen, accessibility: typeSize.isAccessibilitySize)
+        return Array(repeating: GridItem(.flexible(), spacing: 6), count: count)
     }
 
     var body: some View {
@@ -35,8 +52,8 @@ struct ActionPanelView: View {
                         .font(.caption.bold())
                 }
             }
-            LazyVGrid(columns: columns, spacing: 14) {
-                ForEach(AppAction.allCases.filter { $0.isSessionAction == (scope == .session) && shownWithoutHost($0) && (editing || !hidden.contains($0)) }) { action in
+            LazyVGrid(columns: columns, spacing: 12) {
+                ForEach(QuickMenuPrefs.ordered(from: orderRaw).filter { $0.isSessionAction == (scope == .session) && shownWithoutHost($0) && (editing || !hidden.contains($0)) }) { action in
                     tile(action)
                 }
             }
@@ -53,8 +70,8 @@ struct ActionPanelView: View {
                 }
             }
         }
-        .padding(16)
-        .frame(minWidth: 300, idealWidth: 340)
+        .padding(14)
+        .frame(width: panelWidth)
     }
 
     /// Settings → Terminal → AI Assistant decides: only while connected (default), always, or never.
@@ -67,7 +84,7 @@ struct ActionPanelView: View {
                 .isVisible(connected: isConnected)
     }
 
-    private var hidden: Set<AppAction> { scope == .session ? [] : QuickMenuPrefs.hidden(from: hiddenRaw) }
+    private var hidden: Set<AppAction> { QuickMenuPrefs.hidden(from: hiddenRaw) }
 
     private func enabled(_ action: AppAction) -> Bool {
         !action.requiresConnection || isConnected
@@ -79,14 +96,14 @@ struct ActionPanelView: View {
         // While customizing every tile is a toggle, never an action.
         let isEnabled = editing ? action.canHide : enabled(action)
         let title = action.title(isChatMode: isChatMode)
-        VStack(spacing: 6) {
+        VStack(spacing: 4) {
             ZStack {
                 Circle().fill(action.tint.opacity(isEnabled ? 0.18 : 0.08))
                 Image(systemName: action.systemImage(isChatMode: isChatMode, keyVisible: keyVisible))
-                    .font(.system(size: 20, weight: .semibold))
+                    .font(.system(size: iconSize * 0.42, weight: .semibold))
                     .foregroundColor(isEnabled ? action.tint : .secondary)
             }
-            .frame(width: 48, height: 48)
+            .frame(width: iconSize, height: iconSize)
             .overlay(alignment: .topTrailing) {
                 if editing {
                     Image(systemName: !action.canHide ? "lock.fill" : (isHidden ? "eye.slash.fill" : "eye.fill"))
@@ -98,7 +115,7 @@ struct ActionPanelView: View {
                 }
             }
             Text(title)
-                .font(.caption)
+                .font(.caption2)
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
                 .foregroundColor(isEnabled ? .primary : .secondary)

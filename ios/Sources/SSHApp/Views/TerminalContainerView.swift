@@ -428,7 +428,13 @@ public struct TerminalContainerView: UIViewRepresentable {
             let blank: (Int) -> Bool = { row in
                 self.rowText(row, in: tv).allSatisfy { $0 == " " || $0 == "\0" }
             }
-            guard !blank(tapped) else { return }
+            // Triple tap on an empty line pastes the clipboard (as the keyboard's Paste button does).
+            guard !blank(tapped) else {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                pasteClipboard()
+                if !tv.isFirstResponder { _ = tv.becomeFirstResponder() }
+                return
+            }
             var first = tapped, last = tapped
             while first > 0, !blank(first - 1) { first -= 1 }
             while last < term.rows - 1, !blank(last + 1) { last += 1 }

@@ -17,6 +17,8 @@ struct SessionsHomeView: View {
     let onRename: (UUID, String) -> Void
     let onClose: (UUID) -> Void
     let isChatMode: (TabSession) -> Bool
+    let attention: (TabSession) -> SessionAttention?
+    let onRestart: (UUID) -> Void
     let onSessionAction: (UUID, AppAction) -> Void
     let onSetScheme: (UUID, String?) -> Void
     /// Assistants that have history, shown as cards after the sessions.
@@ -73,6 +75,7 @@ struct SessionsHomeView: View {
                     ProfileIconView(ref: ic.symbol, size: 13).foregroundColor(ic.color ?? .appAccent)
                     Text(s.title).font(.subheadline.bold()).lineLimit(1).foregroundColor(.primary)
                     Spacer(minLength: 0)
+                    if let a = attention(s) { SessionAttentionBadge(attention: a, size: 13) }
                     Circle().fill(stateColor(state)).frame(width: 8, height: 8)
                 }
                 Text([serverName(s), s.sessionName].compactMap { $0 }.joined(separator: " · "))
@@ -109,6 +112,7 @@ struct SessionsHomeView: View {
                 onAction: { onSessionAction(s.id, $0) },
                 onScheme: { onSetScheme(s.id, $0) },
                 onRename: { renaming = s; renameText = s.title },
+                onRestart: s.profileId == nil && s.command == nil ? nil : { onRestart(s.id) },
                 onClose: { onClose(s.id) }
             )
         }

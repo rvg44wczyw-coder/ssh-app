@@ -178,3 +178,55 @@ public enum QuickMenuPrefs {
         return Self.raw(from: set)
     }
 }
+
+extension QuickMenuPrefs {
+    public static let orderKey = "quick_action_order"
+
+    /// The saved order first (unknown and duplicate ids dropped), then whatever is not in it, in the
+    /// built-in order: a new action of a later app version shows up at the end.
+    public static func ordered(from raw: String) -> [AppAction] {
+        var seen = Set<AppAction>()
+        var out: [AppAction] = []
+        for part in raw.split(separator: ",") {
+            if let a = AppAction(rawValue: String(part)), !seen.contains(a) { seen.insert(a); out.append(a) }
+        }
+        out += AppAction.allCases.filter { !seen.contains($0) }
+        return out
+    }
+
+    public static func raw(from order: [AppAction]) -> String { order.map(\.rawValue).joined(separator: ",") }
+
+    /// `action` goes to the place of `target` (the others shift).
+    public static func moved(_ action: AppAction, to target: AppAction, in raw: String) -> String {
+        var order = ordered(from: raw)
+        guard action != target, let from = order.firstIndex(of: action), let to = order.firstIndex(of: target) else { return raw }
+        order.remove(at: from)
+        order.insert(action, at: to)
+        return Self.raw(from: order)
+    }
+}
+
+/// Size of a menu's grid, set in Settings → Appearance: how many tiles to a row and how big the
+/// icon of a tile is. One setting each for the quick menu and for the session menu.
+public enum MenuGridPrefs {
+    public static let columnRange = 2...6
+    public static let sizeRange: ClosedRange<Double> = 28...60
+    public static let defaultColumns = 4
+    public static let defaultSize = 40.0
+
+    /// Columns as shown: kept in range, two for accessibility text sizes.
+    public static func shownColumns(_ chosen: Int, accessibility: Bool) -> Int {
+        accessibility ? 2 : min(max(chosen, columnRange.lowerBound), columnRange.upperBound)
+    }
+
+    /// A tile's cell: the icon plus room for its label.
+    public static func cellWidth(iconSize: Double) -> CGFloat { CGFloat(max(iconSize + 22, 62)) }
+
+    /// Width of a menu panel: columns of cells, the gaps, the padding.
+    public static func panelWidth(columns: Int, iconSize: Double) -> CGFloat {
+        max(CGFloat(columns) * cellWidth(iconSize: iconSize) + CGFloat(columns - 1) * 6 + 28, 190)
+    }
+
+    public static func columnsKey(session: Bool) -> String { session ? "session_menu_columns" : "quick_menu_columns" }
+    public static func sizeKey(session: Bool) -> String { session ? "session_menu_icon_size" : "quick_menu_icon_size" }
+}

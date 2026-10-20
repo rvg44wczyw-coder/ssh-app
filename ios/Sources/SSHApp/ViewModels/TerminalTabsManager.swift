@@ -68,6 +68,14 @@ public final class TerminalTabsManager: ObservableObject {
         }
     }
 
+    /// The launch command a restarted tab runs from now on (the profile's settings may have changed).
+    public func setSessionCommand(id: UUID, command: String) {
+        if let index = sessions.firstIndex(where: { $0.id == id }) {
+            sessions[index].command = command
+            saveSessions()
+        }
+    }
+
     /// `nil` goes back to the profile's / the agent's scheme.
     public func setSessionScheme(id: UUID, schemeId: String?) {
         guard let index = sessions.firstIndex(where: { $0.id == id }) else { return }

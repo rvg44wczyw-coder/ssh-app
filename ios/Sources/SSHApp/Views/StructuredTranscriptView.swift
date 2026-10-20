@@ -1,4 +1,6 @@
 import SwiftUI
+import PhotosUI
+import UniformTypeIdentifiers
 import SshCoreBridge
 
 public struct StructuredTranscriptView: View {
@@ -16,6 +18,15 @@ public struct StructuredTranscriptView: View {
     @FocusState private var inputFocused: Bool
     @State private var expandedThinkingTurns: Set<String> = []
     @State private var expandedToolCalls: Set<String> = []
+    // Attachments: files go to the host's inbox, the path lands in the message.
+    @State private var showPhotoPicker = false
+    @State private var showFileImporter = false
+    @State private var pickedPhotos: [PhotosPickerItem] = []
+    @State private var uploads: [FeedUpload] = []
+    /// Picked but not sent yet: the user is asked first whether the host keeps them.
+    @State private var pendingPhotos: [PhotosPickerItem] = []
+    @State private var pendingFiles: [URL] = []
+    @State private var askKeep = false
 
     public init(viewModel: TerminalSessionViewModel) {
         self.viewModel = viewModel
@@ -157,7 +168,17 @@ public struct StructuredTranscriptView: View {
                         case .thinking(let id):
                             if expandedThinkingTurns.contains(id) { expandedThinkingTurns.remove(id) } else { expandedThinkingTurns.insert(id) }
                         case .tool(let id):
-                            if expandedToolCalls.contains(id) { expandedToolCalls.remove(id) } else { expandedToolCalls.insert(id) }
+                            // closed -> open -> fully open -> closed ("id+" marks the last stage)
+                            if id.hasPrefix("svc:") || id.contains("#") {
+                                if expandedToolCalls.contains(id) { expandedToolCalls.remove(id) } else { expandedToolCalls.insert(id) }
+                            } else if !expandedToolCalls.contains(id) {
+                                expandedToolCalls.insert(id)
+                            } else if !expandedToolCalls.contains(id + "+") {
+                                expandedToolCalls.insert(id + "+")
+                            } else {
+                                expandedToolCalls.remove(id)
+                                expandedToolCalls.remove(id + "+")
+                            }
                         }
                     },
                     atBottom: $atBottom,
@@ -196,18 +217,53 @@ public struct StructuredTranscriptView: View {
                 }
             }
 
+            if let prompt = viewModel.screenPrompt {
+                FeedPromptCard(prompt: prompt,
+                               pick: { viewModel.answerPrompt(index: $0, toggle: prompt.multi) },
+                               finish: { viewModel.finishPrompt(confirm: $0) },
+                               tab: { viewModel.moveTab(back: $0) })
+            }
+
+            if let status = viewModel.screenStatus {
+                Text(status)
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 4)
+            }
+
             Divider()
 
             // Bottom prompt: a multi-line editor with a few control keys above it.
             VStack(spacing: 6) {
-                HStack(spacing: 6) {
-                    feedKey("Esc") { viewModel.sendInput(Data([0x1b])) }
-                    feedKey("^C") { viewModel.sendInput(Data([0x03])) }
-                    feedKey("↑") { viewModel.sendInput(Data([0x1b, 0x5b, 0x41])) }
-                    feedKey("⏎") { viewModel.sendInput(Data([0x0d])) }
-                    Spacer()
+                // The system keyboard has none of these; a row that scrolls sideways, in groups.
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(FeedKeys.all) { key in
+                            feedKey(key.title) { UIImpactFeedbackGenerator(style: .light).impactOccurred(); viewModel.sendInput(Data(key.bytes)) }
+                            if key.endsGroup { Divider().frame(height: 18) }
+                        }
+                    }
+                }
+                if !uploads.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(uploads) { u in uploadChip(u) }
+                        }
+                    }
                 }
                 HStack(alignment: .bottom, spacing: 8) {
+                    Menu {
+                        Button { showPhotoPicker = true } label: { Label("Photos & videos", systemImage: "photo.on.rectangle") }
+                        Button { showFileImporter = true } label: { Label("Files", systemImage: "folder") }
+                    } label: {
+                        Image(systemName: "paperclip.circle.fill")
+                            .font(.system(size: 30))
+                            .foregroundColor(.appAccent)
+                    }
+                    .disabled(viewModel.sessionHandle == nil || viewModel.state != .connected)
                     TextField("Message…", text: $promptText, axis: .vertical)
                         .lineLimit(1...(editorExpanded ? 16 : 6))
                         .focused($inputFocused)
@@ -243,6 +299,26 @@ public struct StructuredTranscriptView: View {
             .padding(.vertical, 8)
             .background(Color.appBackground)
         }
+        .photosPicker(isPresented: $showPhotoPicker, selection: $pickedPhotos, maxSelectionCount: 6,
+                      matching: .any(of: [.images, .videos]))
+        .onChange(of: pickedPhotos) { _, items in
+            guard !items.isEmpty else { return }
+            pickedPhotos = []
+            pendingPhotos += items
+            askKeep = true
+        }
+        .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
+            guard case .success(let urls) = result else { return }
+            pendingFiles += urls
+            askKeep = true
+        }
+        .confirmationDialog("Keep on the host?", isPresented: $askKeep, titleVisibility: .visible) {
+            Button("Keep permanently") { sendPending(permanent: true) }
+            Button("Temporary") { sendPending(permanent: false) }
+            Button("Cancel", role: .cancel) { pendingPhotos = []; pendingFiles = [] }
+        } message: {
+            Text("Permanent: ~/.ssh-app/inbox, stays until you delete it. Temporary: the host's temp folder, which the system empties.")
+        }
         .onAppear {
             if viewModel.transcriptTurns.isEmpty {
                 viewModel.loadTranscript()
@@ -250,10 +326,79 @@ public struct StructuredTranscriptView: View {
         }
         // Live tail: only while this view is on screen (the task ends with it).
         .task {
+            // 3 s while the transcript moves; 5 s, then 10 s when it stands still (each poll is a
+            // remote command, a parse and a layout: that is what warms the phone).
+            var quiet = 0
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(3))
-                await viewModel.reloadTranscriptQuietly()
+                try? await Task.sleep(for: .seconds(quiet >= 6 ? 10 : (quiet >= 2 ? 5 : 3)))
+                quiet = await viewModel.reloadTranscriptQuietly() ? 0 : quiet + 1
             }
+        }
+    }
+
+    private func uploadChip(_ u: FeedUpload) -> some View {
+        HStack(spacing: 5) {
+            switch u.state {
+            case .sending: ProgressView().controlSize(.mini)
+            case .failed: Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.orange)
+            }
+            Text(u.failure.map { "\(u.name): \($0)" } ?? u.name)
+                .font(.system(size: 11, design: .monospaced))
+                .lineLimit(1)
+            if u.state == .failed {
+                Button { uploads.removeAll { $0.id == u.id } } label: { Image(systemName: "xmark.circle.fill") }
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding(.horizontal, 8).padding(.vertical, 4)
+        .background(Color.appSecondaryBackground, in: Capsule())
+    }
+
+    private func sendPending(permanent: Bool) {
+        let photos = pendingPhotos, files = pendingFiles
+        pendingPhotos = []
+        pendingFiles = []
+        for item in photos { Task { await attachPhoto(item, permanent: permanent) } }
+        for url in files { Task { await attachFile(url, permanent: permanent) } }
+    }
+
+    private func attachPhoto(_ item: PhotosPickerItem, permanent: Bool) async {
+        let label = item.supportedContentTypes.first?.preferredFilenameExtension.map { "photo.\($0)" } ?? "photo"
+        let id = UUID()
+        uploads.append(FeedUpload(id: id, name: label))
+        guard let picked = try? await item.loadTransferable(type: PickedFile.self) else {
+            fail(id, "could not read")
+            return
+        }
+        defer { try? FileManager.default.removeItem(at: picked.url) }
+        await send(id, url: picked.url, name: picked.name, permanent: permanent)
+    }
+
+    private func attachFile(_ url: URL, permanent: Bool) async {
+        let id = UUID()
+        uploads.append(FeedUpload(id: id, name: url.lastPathComponent))
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        await send(id, url: url, name: url.lastPathComponent, permanent: permanent)
+    }
+
+    private func send(_ id: UUID, url: URL, name: String, permanent: Bool) async {
+        do {
+            let path = try await viewModel.uploadAttachment(url, name: name, permanent: permanent)
+            uploads.removeAll { $0.id == id }
+            // the path goes into the message where the cursor was left: on its own, space-separated
+            let sep = promptText.isEmpty || promptText.hasSuffix(" ") || promptText.hasSuffix("\n") ? "" : " "
+            promptText += sep + path + " "
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+        } catch {
+            fail(id, error.localizedDescription)
+        }
+    }
+
+    private func fail(_ id: UUID, _ message: String) {
+        if let i = uploads.firstIndex(where: { $0.id == id }) {
+            uploads[i].state = .failed
+            uploads[i].failure = String(message.prefix(60))
         }
     }
 
@@ -274,8 +419,15 @@ public struct StructuredTranscriptView: View {
 
     private func sendPrompt() {
         guard canSend else { return }
-        viewModel.sendInput(Data(FeedSubmit.bytes(for: promptText)))
+        // The text and the Enter go as two writes: an agent's input box takes a burst of characters
+        // for a paste, and an Enter inside a paste is a new line, not "send".
+        let body = Array(FeedSubmit.bytes(for: promptText).dropLast())
+        viewModel.sendInput(Data(body))
         promptText = ""
+        Task {
+            try? await Task.sleep(for: .milliseconds(120))
+            viewModel.sendInput(Data([0x0d]))
+        }
         // The transcript catches up through the live tail.
         Task {
             try? await Task.sleep(for: .seconds(1))
@@ -304,5 +456,176 @@ enum FeedSubmit {
         }
         out.append(0x0d)
         return out
+    }
+}
+
+
+/// The agent's question as a card with buttons, instead of arrow keys in a terminal.
+struct FeedPromptCard: View {
+    let prompt: ScreenPrompt
+    let pick: (Int) -> Void
+    let finish: (Bool) -> Void
+    let tab: (Bool) -> Void
+
+    /// "☒ A ☐ B ✔ Submit" → ["☒ A", "☐ B", "✔ Submit"]
+    private static func tabs(_ s: String) -> [String] {
+        var out: [String] = []
+        for ch in s {
+            if "☒☐✔☑".contains(ch) || out.isEmpty { out.append(String(ch)) } else { out[out.count - 1].append(ch) }
+        }
+        return out.map { $0.trimmingCharacters(in: .whitespaces) }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let title = prompt.title {
+                if title.contains("Submit") {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(Array(Self.tabs(title).enumerated()), id: \.offset) { _, t in
+                                let done = t.hasPrefix("☒") || t.hasPrefix("✔")
+                                Text(t)
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .padding(.horizontal, 8).padding(.vertical, 3)
+                                    .background((done ? Color.appAccent : Color.secondary).opacity(0.18), in: Capsule())
+                            }
+                        }
+                    }
+                } else {
+                    Text(title.uppercased())
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            if !prompt.detail.isEmpty {
+                Text(prompt.detail)
+                    .font(.system(size: 12.5, design: .monospaced))
+                    .lineLimit(14)
+                    .padding(8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+            }
+            Text(prompt.question)
+                .font(.system(size: 14, weight: .semibold))
+            ForEach(Array(prompt.options.enumerated()), id: \.offset) { i, o in
+                Button { pick(i) } label: {
+                    HStack(alignment: .top, spacing: 8) {
+                        if prompt.multi {
+                            Image(systemName: o.checked ? "checkmark.square.fill" : "square")
+                        } else {
+                            Text("\(o.number)").font(.system(size: 12, weight: .bold, design: .monospaced))
+                                .frame(width: 18)
+                        }
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(o.label).font(.system(size: 13, weight: .medium)).multilineTextAlignment(.leading)
+                            if !o.description.isEmpty {
+                                Text(o.description).font(.system(size: 11.5)).foregroundStyle(.secondary)
+                                    .multilineTextAlignment(.leading)
+                            }
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 10).padding(.vertical, 7)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(i == Int(prompt.selected) ? Color.appAccent.opacity(0.16) : Color.secondary.opacity(0.1),
+                                in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8)
+                        .stroke(i == Int(prompt.selected) ? Color.appAccent.opacity(0.6) : Color.clear, lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+            }
+            HStack {
+                if prompt.title?.contains("Submit") == true {
+                    Button { tab(true) } label: { Label("Back", systemImage: "chevron.left") }.buttonStyle(.bordered)
+                    Button { tab(false) } label: { Label("Next", systemImage: "chevron.right") }.buttonStyle(.borderedProminent)
+                }
+                // in a multi-question form Enter only toggles; "Done" is the next tab (the last one is Submit)
+                if prompt.multi && prompt.title?.contains("Submit") != true {
+                    Button("Done") { finish(true) }.buttonStyle(.borderedProminent)
+                }
+                Spacer()
+                Button("Esc") { finish(false) }.buttonStyle(.bordered)
+            }
+            .font(.system(size: 13))
+        }
+        .padding(12)
+        .background(Color.appBackground)
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.secondary.opacity(0.35), lineWidth: 1))
+        .padding(.horizontal, 10).padding(.vertical, 6)
+    }
+}
+
+
+/// Keys for the feed's key row (bytes as a terminal sends them).
+struct FeedKey: Identifiable {
+    let title: String
+    let bytes: [UInt8]
+    var endsGroup = false
+    var id: String { title }
+}
+
+enum FeedKeys {
+    private static func esc(_ s: String) -> [UInt8] { [0x1b] + Array(s.utf8) }
+    private static func ctrl(_ c: Character) -> [UInt8] { [UInt8(c.asciiValue! & 0x1f)] }
+
+    static let all: [FeedKey] = [
+        FeedKey(title: "Esc", bytes: [0x1b]),
+        FeedKey(title: "Tab", bytes: [0x09]),
+        FeedKey(title: "⇧Tab", bytes: esc("[Z")),
+        FeedKey(title: "⏎", bytes: [0x0d], endsGroup: true),
+        FeedKey(title: "↑", bytes: esc("[A")),
+        FeedKey(title: "↓", bytes: esc("[B")),
+        FeedKey(title: "←", bytes: esc("[D")),
+        FeedKey(title: "→", bytes: esc("[C")),
+        FeedKey(title: "Home", bytes: esc("[H")),
+        FeedKey(title: "End", bytes: esc("[F")),
+        FeedKey(title: "PgUp", bytes: esc("[5~")),
+        FeedKey(title: "PgDn", bytes: esc("[6~"), endsGroup: true),
+        FeedKey(title: "^C", bytes: ctrl("c")),
+        FeedKey(title: "^D", bytes: ctrl("d")),
+        FeedKey(title: "^Z", bytes: ctrl("z")),
+        FeedKey(title: "^L", bytes: ctrl("l")),
+        FeedKey(title: "^R", bytes: ctrl("r")),
+        FeedKey(title: "^A", bytes: ctrl("a")),
+        FeedKey(title: "^E", bytes: ctrl("e")),
+        FeedKey(title: "^U", bytes: ctrl("u")),
+        FeedKey(title: "^W", bytes: ctrl("w")),
+        FeedKey(title: "^K", bytes: ctrl("k")),
+        FeedKey(title: "^O", bytes: ctrl("o"), endsGroup: true),
+        FeedKey(title: "y", bytes: Array("y".utf8)),
+        FeedKey(title: "n", bytes: Array("n".utf8)),
+        FeedKey(title: "/", bytes: Array("/".utf8)),
+        FeedKey(title: "|", bytes: Array("|".utf8)),
+        FeedKey(title: "~", bytes: Array("~".utf8)),
+        FeedKey(title: "\\", bytes: Array("\\".utf8)),
+        FeedKey(title: "-", bytes: Array("-".utf8)),
+        FeedKey(title: "_", bytes: Array("_".utf8)),
+        FeedKey(title: "`", bytes: Array("`".utf8)),
+    ]
+}
+
+
+/// An attachment on its way to the host.
+struct FeedUpload: Identifiable {
+    enum State { case sending, failed }
+    let id: UUID
+    var name: String
+    var state: State = .sending
+    var failure: String?
+}
+
+/// A photo, video or file taken from the picker, copied to a temporary file the core can read.
+struct PickedFile: Transferable {
+    let url: URL
+    let name: String
+
+    static var transferRepresentation: some TransferRepresentation {
+        FileRepresentation(importedContentType: .item) { received in
+            let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let dest = dir.appendingPathComponent(received.file.lastPathComponent)
+            try FileManager.default.copyItem(at: received.file, to: dest)
+            return PickedFile(url: dest, name: received.file.lastPathComponent)
+        }
     }
 }

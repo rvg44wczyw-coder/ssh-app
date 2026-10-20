@@ -3,6 +3,8 @@ import SshCoreBridge
 
 public struct SessionTabsView: View {
     public let sessions: [TabSession]
+    public let attention: ((TabSession) -> SessionAttention?)?
+    let onRestart: ((UUID) -> Void)?
     @Binding public var selectedSessionId: UUID
     public let sessionStates: [UUID: SessionState]
     public var serverNameProvider: ((TabSession) -> String?)? = nil
@@ -38,6 +40,8 @@ public struct SessionTabsView: View {
         onRename: @escaping (UUID, String) -> Void,
         onClose: @escaping (UUID) -> Void,
         isChatMode: ((TabSession) -> Bool)? = nil,
+        attention: ((TabSession) -> SessionAttention?)? = nil,
+        onRestart: ((UUID) -> Void)? = nil,
         onSessionAction: ((UUID, AppAction) -> Void)? = nil,
         onSetScheme: ((UUID, String?) -> Void)? = nil
     ) {
@@ -53,6 +57,8 @@ public struct SessionTabsView: View {
         self.onRename = onRename
         self.onClose = onClose
         self.isChatMode = isChatMode
+        self.attention = attention
+        self.onRestart = onRestart
         self.onSessionAction = onSessionAction
         self.onSetScheme = onSetScheme
     }
@@ -72,7 +78,9 @@ public struct SessionTabsView: View {
                 }
             )
             Divider()
-            HStack(spacing: 10) {
+            // Theme, Rename, Restart, Close: laid out like the tiles above (same columns and icon
+            // size), so a narrower or wider menu keeps them in step.
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: dropdownColumns), spacing: 8) {
                 if let onSetScheme {
                     Menu {
                         Button { onSetScheme(session.id, nil) } label: {
@@ -91,6 +99,13 @@ public struct SessionTabsView: View {
                     renameText = session.title
                     showRenameAlert = true
                 } label: { dropdownButton("Rename", "pencil", .primary) }
+                if let onRestart, session.profileId != nil || session.command != nil {
+                    Button {
+                        tabForMenu = nil
+                        onRestart(session.id)
+                    } label: { dropdownButton("Restart", "arrow.clockwise", .orange) }
+                    .disabled(sessionStates[session.id] != .connected)
+                }
                 if sessions.count > 1 {
                     Button(role: .destructive) {
                         tabForMenu = nil
@@ -99,18 +114,27 @@ public struct SessionTabsView: View {
                 }
             }
             .buttonStyle(.plain)
-            .padding(.horizontal, 16)
+            .padding(.horizontal, 14)
             .padding(.bottom, 12)
         }
+        .frame(width: MenuGridPrefs.panelWidth(columns: dropdownColumns, iconSize: sessionIconSize))
+    }
+
+    @AppStorage(MenuGridPrefs.columnsKey(session: true)) private var sessionColumns = MenuGridPrefs.defaultColumns
+    @AppStorage(MenuGridPrefs.sizeKey(session: true)) private var sessionIconSize = MenuGridPrefs.defaultSize
+    @Environment(\.dynamicTypeSize) private var dropdownTypeSize
+
+    private var dropdownColumns: Int {
+        MenuGridPrefs.shownColumns(sessionColumns, accessibility: dropdownTypeSize.isAccessibilitySize)
     }
 
     private func dropdownButton(_ title: String, _ icon: String, _ color: Color) -> some View {
         VStack(spacing: 4) {
-            Image(systemName: icon).font(.system(size: 18))
-            Text(title).font(.caption2)
+            Image(systemName: icon).font(.system(size: sessionIconSize * 0.42))
+            Text(title).font(.caption2).lineLimit(1)
         }
         .foregroundColor(color)
-        .frame(maxWidth: .infinity, minHeight: 52)
+        .frame(maxWidth: .infinity, minHeight: CGFloat(sessionIconSize) + 12)
         .background(Color.appSecondaryBackground, in: RoundedRectangle(cornerRadius: 12))
     }
 
@@ -176,6 +200,9 @@ public struct SessionTabsView: View {
                             Text(displayTitle)
                                 .font(.system(size: 11, weight: isSelected ? .bold : .medium))
 
+                            if let a = attention?(session) {
+                                SessionAttentionBadge(attention: a, size: 10)
+                            }
                             // Status Indicator
                             Circle()
                                 .fill(statusColor(for: state))
@@ -241,10 +268,13 @@ struct SessionMenuItems: View {
     let onAction: (AppAction) -> Void
     var onScheme: ((String?) -> Void)? = nil
     let onRename: () -> Void
+    var onRestart: (() -> Void)? = nil
     let onClose: () -> Void
+    @AppStorage(QuickMenuPrefs.orderKey) private var orderRaw: String = ""
+    @AppStorage(QuickMenuPrefs.storageKey) private var hiddenRaw: String = ""
 
     var body: some View {
-        ForEach(AppAction.allCases.filter(\.isSessionAction)) { action in
+        ForEach(QuickMenuPrefs.ordered(from: orderRaw).filter { $0.isSessionAction && !QuickMenuPrefs.hidden(from: hiddenRaw).contains($0) }) { action in
             Button { onAction(action) } label: {
                 Label(action.title(isChatMode: isChatMode), systemImage: action.systemImage(isChatMode: isChatMode, keyVisible: false))
             }
@@ -263,6 +293,10 @@ struct SessionMenuItems: View {
             } label: { Label("Theme", systemImage: "paintpalette") }
         }
         Button(action: onRename) { Label("Rename", systemImage: "pencil") }
+        if let onRestart {
+            Button(action: onRestart) { Label("Restart", systemImage: "arrow.clockwise") }
+                .disabled(!isConnected)
+        }
         if canClose {
             Button(role: .destructive, action: onClose) { Label("Close", systemImage: "xmark.circle") }
         }

@@ -143,26 +143,3 @@ public struct ApprovalBannerView: View {
         .disabled(isBusy)
     }
 }
-
-/// Informational notice (agent finished, needs attention): one line with a dismiss button.
-public struct ApprovalNoticeView: View {
-    public let entry: ApprovalEntry
-    public let onDismiss: () -> Void
-
-    public var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "bell.fill").foregroundColor(.appAccent).font(.system(size: 12))
-            Text(verbatim: "\(entry.item.agent.capitalized) · \(entry.serverName): \(entry.item.event)")
-                .font(.system(size: 12))
-                .lineLimit(1)
-            Spacer()
-            Button(action: onDismiss) {
-                Image(systemName: "xmark.circle.fill").foregroundColor(.secondary)
-            }
-            .accessibilityLabel("Dismiss")
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(Color.appSecondaryBackground)
-    }
-}
