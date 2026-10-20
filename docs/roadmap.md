@@ -35,6 +35,10 @@
 | **M32: Hardware Keys & iCloud Vault Sync** | FIDO2/YubiKey (`ed25519-sk`), OpenSSH private key import with zeroization, zero-knowledge iCloud Keychain host sync (`docs/features/43-hardware-keys-and-vault-sync.md`) | Spec written | `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker` |
 | **M33: Zero-Touch Host Onboarding** | paste-one-line or password pairing (no hosted script), automatic helper deploy, safe atomic `authorized_keys` append (`ssh-app-host pair`), read-only host doctor (`docs/features/44-zero-touch-host-onboarding.md`) | Implemented (helper, core, app; device run pending) | `doc-dev`, `rev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `hacker` |
 | **M34: Docker Containers & In-Container Terminal** | Container monitoring (green/red status, RAM, CPU), 1-tap `[ ↺ Restart ]`, `[ ⎘ Logs ]`, and 1-tap `[ >_ Terminal ]` spawn directly into container shell (`docs/features/45-docker-container-manager-and-terminal.md`) | Spec written | `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker` |
+| **M35: Modular Configuration Engine** | Universal configuration architecture with granular tuning across all 9 subsystems (Docker, Uploads, Live Activities, Voice, Mermaid, Keyboard, Vault, Mesh, SSH Core) + JSON Export/Import (`docs/features/46-modular-configuration-and-power-settings.md`) | Spec written | `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker` |
+| **M36: Native macOS Terminal User Interface (TUI)** | Desktop-class terminal UI in pure Rust (`crates/tui` with `ratatui` + `crossterm`), 3-pane keyboard layout (`hjkl`), floating approval modals, Docker manager, and sub-millisecond rendering in Alacritty/Ghostty/Terminal.app (`docs/features/47-macos-desktop-architecture-and-ui.md`) | Spec written | `doc-dev`, `rust-core-dev`, `rust-tui-dev`, `rev`, `hacker` |
+| **M37: Apple Shortcuts & App Intents Automation** | Siri voice commands (*"Hey Siri, run tests with Claude"*), iOS 18 Control Center widgets, Lock Screen actions, and Shortcuts parametric workflows (`docs/features/48-apple-shortcuts-and-app-intents.md`) | Spec written | `doc-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker` |
+| **M38: Zellij Terminal Multiplexer Support** | Zellij as a third `MultiplexerKind` (attach, detach, kill, list only; no feed) (auto-detect, session attach/create/kill, KDL layouts) for modern Rust/Go environments (`docs/features/49-zellij-multiplexer-support.md`) | Spec written | `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker` |
 
 ---
 
@@ -265,6 +269,30 @@
 - **Scope**: Docker container list with green/red status indicators, memory & CPU statistics, 1-tap `[ ↺ Restart ]`, slide-over `[ ⎘ Logs ]` viewer, and 1-tap `[ >_ Terminal ]` opening an interactive shell tab directly inside the container via `docker exec -it`.
 - **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
 - **Status**: Spec reviewed and corrected (`rev`, 2026-10-20; binding corrections at the end of the spec), implementation pending.
+
+### Feature 46 / M35: Modular Configuration Engine & Granular Subsystem Settings (`docs/features/46-modular-configuration-and-power-settings.md`)
+- **Doc**: `docs/features/46-modular-configuration-and-power-settings.md`
+- **Scope**: Universal configuration engine in Rust Core & Swift SettingsStore: granular controls for Docker (custom sockets, shells, log bounds), Uploads (compression, dimensions, TTL, EXIF), Live Activities (throttling, Face ID), Voice (locales, custom lexicon), Mermaid (themes, line caps), Keyboard (remapping, debounce), Vault (sync toggles), Mesh (turn limits, leases), and Core SSH (grace periods, timeouts, TrueColor). Clean JSON Export/Import and per-module Reset.
+- **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
+- **Status**: Spec reviewed and corrected (`rev` + `hacker`, 2026-10-20), implementation pending.
+
+### Feature 47 / M36: Native macOS Terminal User Interface (TUI) via Ratatui & Crossterm (`docs/features/47-macos-desktop-architecture-and-ui.md`)
+- **Doc**: `docs/features/47-macos-desktop-architecture-and-ui.md`
+- **Scope**: 3-pane native desktop TUI in pure Rust (`crates/tui`): Sidebar (Servers, Docker, Sessions), Canvas (Agent Feed, Split PTY), Inspector (Sparklines, Telemetry, Git diffs). Floating modals for SSHSIG cryptographic approvals, Vim-style navigation (`hjkl`, Tab, `:` palette), panic-hook safe terminal restore, sub-millisecond rendering in Ghostty, Kitty, Alacritty, iTerm2, and Terminal.app.
+- **Roles**: `doc-dev`, `rust-core-dev`, `rev`, `hacker`
+- **Status**: Spec reviewed and corrected (`rev` + `hacker`, 2026-10-20), implementation pending. First deliverable is a spike (connect, list, attach, approve with the Mac's own key).
+
+### Feature 48 / M37: Apple Shortcuts & App Intents Automation (`docs/features/48-apple-shortcuts-and-app-intents.md`)
+- **Doc**: `docs/features/48-apple-shortcuts-and-app-intents.md`
+- **Scope**: App Intents framework integration for Siri voice commands (*"Hey Siri, run tests with Claude on MacBook"*), iOS 18 Control Center widgets, Lock Screen triggers, and Shortcuts parametric actions with structured JSON outputs.
+- **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
+- **Status**: Spec reviewed and corrected (`rev` + `hacker`, 2026-10-20), implementation pending.
+
+### Feature 49 / M38: Zellij Terminal Multiplexer Support (`docs/features/49-zellij-multiplexer-support.md`)
+- **Doc**: `docs/features/49-zellij-multiplexer-support.md`
+- **Scope**: Universal `MultiplexerKind` trait supporting both `tmux` and `zellij` (auto-detect, session attach/create/kill, KDL layouts) for modern Rust/Go environments, dynamic PTY resizing, and native TrueColor.
+- **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
+- **Status**: Spec reviewed and corrected (`rev` + `hacker`, 2026-10-20), implementation pending. Scope cut to attach/detach only (milestone A).
 
 ## Plan limits (2026-10-18)
 - Claude: real 5h/7d percentages come only from the `statusLine` JSON (`rate_limits`). The hook script has a `claude statusline` mode (wrapper that records them under `~/.ssh-app/run/limits/<hash of CLAUDE_CONFIG_DIR>.json` and runs the user's previous status line); installed per profile from the Hooks screen ("Plan limits"), so the personal profile (`~/.claude-personal`) is covered by its own config dir. The usage probe shows them in the strip (`5h 42% 7d 18%`).
