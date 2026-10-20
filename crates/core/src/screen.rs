@@ -965,6 +965,33 @@ fn describe_group(group: &mut TranscriptToolCall, calls: &[TranscriptToolCall]) 
 /// right before the reply text or tool call it preceded, so the order of the story is kept.
 /// `file` is the session file's turns; a turn there is matched to the screen turn with the same
 /// reply text or the same tool call (name and the start of its arguments), moving forward only.
+fn squash(s: &str) -> String {
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Whether a session file is the one of the conversation on the screen: one of the last five things
+/// you said in the file is on the screen. Two agents of the same kind can work in the same folder
+/// (one on the laptop), and the newest file may be the other one's; its thoughts must not be shown
+/// here. A file without a user turn (a session just started) cannot be told apart and is accepted.
+#[uniffi::export]
+pub fn transcript_matches_screen(file: Vec<TranscriptTurn>, screen: String) -> bool {
+    let screen = squash(&screen);
+    let said: Vec<String> = file
+        .iter()
+        .filter(|t| t.turn_type == TranscriptTurnType::User)
+        .filter_map(|t| t.content.as_deref())
+        .map(|c| squash(c).chars().take(40).collect::<String>())
+        .filter(|c| c.chars().count() >= 3)
+        .collect();
+    if said.is_empty() {
+        return true;
+    }
+    said.iter()
+        .rev()
+        .take(5)
+        .any(|c| screen.contains(c.as_str()))
+}
+
 /// Thinking whose turn is not found goes before the next one that is; thinking after the last
 /// match is dropped rather than put in a wrong place.
 #[uniffi::export]
@@ -1400,6 +1427,36 @@ Ready to submit your answers?
         assert_eq!(p.question, "Ready to submit your answers?");
         assert_eq!(p.options.len(), 2);
         assert!(p.detail.contains("Хуки в работающей сессии"));
+    }
+
+    fn user(text: &str) -> TranscriptTurn {
+        TranscriptTurn {
+            id: text.into(),
+            step_index: 0,
+            turn_type: TranscriptTurnType::User,
+            timestamp: None,
+            content: Some(text.into()),
+            thinking: None,
+            tool_calls: vec![],
+            status: TranscriptStatus::Done,
+            label: None,
+        }
+    }
+
+    #[test]
+    fn a_file_matches_the_screen_when_something_you_said_is_on_it() {
+        let screen = "❯ fix the login\n\n⏺ Done.\n❯ and   now the\n  tests please\n".to_string();
+        assert!(transcript_matches_screen(
+            vec![user("fix the login"), user("and now the tests please")],
+            screen.clone()
+        ));
+        // another conversation in the same folder
+        assert!(!transcript_matches_screen(
+            vec![user("rewrite the parser")],
+            screen.clone()
+        ));
+        // nothing said yet: cannot tell, accepted
+        assert!(transcript_matches_screen(vec![], screen));
     }
 
     #[test]

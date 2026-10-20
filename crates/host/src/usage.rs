@@ -288,6 +288,23 @@ impl Probe {
         }
     }
 
+    /// The file of one known session (the id the hooks noted for the tmux session), in any project
+    /// folder: another session of the same agent in the same folder cannot take its place.
+    fn transcript_of(&self, sid: &str) -> Option<(PathBuf, usize)> {
+        for (i, d) in self.dirs.iter().enumerate() {
+            let Ok(rd) = std::fs::read_dir(d.join("projects")) else {
+                continue;
+            };
+            for e in rd.flatten() {
+                let p = e.path().join(format!("{sid}.jsonl"));
+                if regular(&p).is_some() {
+                    return Some((p, i));
+                }
+            }
+        }
+        None
+    }
+
     fn newest_transcript(&self, cwd: &str) -> Option<(PathBuf, usize)> {
         let mut best: Option<(PathBuf, usize)> = None;
         let mut best_m = 0.0;
@@ -361,9 +378,12 @@ impl Probe {
         out
     }
 
-    pub fn claude_state(&self, cwd: &str) -> Map<String, Value> {
+    pub fn claude_state(&self, cwd: &str, sid: Option<&str>) -> Map<String, Value> {
         let mut out = Map::new();
-        let Some((file, dir_index)) = self.newest_transcript(cwd) else {
+        let Some((file, dir_index)) = sid
+            .and_then(|s| self.transcript_of(s))
+            .or_else(|| self.newest_transcript(cwd))
+        else {
             return out;
         };
         out.insert(
@@ -522,7 +542,7 @@ impl Probe {
 
     // ---- Antigravity ----------------------------------------------------------------------------
 
-    pub fn agy_state(&self, cwd: &str) -> Map<String, Value> {
+    pub fn agy_state(&self, cwd: &str, sid: Option<&str>) -> Map<String, Value> {
         let mut out = Map::new();
         let agy_home = home().join(".gemini").join("antigravity-cli");
         let Some(mapping) =
@@ -535,10 +555,12 @@ impl Probe {
         let real = std::fs::canonicalize(cwd)
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|_| cwd.to_string());
-        let conv = mapping
-            .get(&real)
-            .or_else(|| mapping.get(cwd))
-            .and_then(Value::as_str);
+        let conv = sid.or_else(|| {
+            mapping
+                .get(&real)
+                .or_else(|| mapping.get(cwd))
+                .and_then(Value::as_str)
+        });
         let Some(conv) = conv.filter(|c| {
             (8..=64).contains(&c.len()) && c.chars().all(|x| x.is_ascii_hexdigit() || x == '-')
         }) else {
@@ -804,6 +826,22 @@ fn ollama_loaded() -> Vec<Value> {
 
 // ---- the report -------------------------------------------------------------------------------------
 
+/// The agent's own session id for a tmux session, as the hooks noted it (the newest record wins).
+fn registered_id(registry: &[Value], tmux: &str, agent: &str) -> Option<String> {
+    registry
+        .iter()
+        .filter(|r| r["tmux"] == tmux && r["agent"] == agent)
+        .max_by_key(|r| r["ts"].as_i64().unwrap_or(0))
+        .and_then(|r| r["session"].as_str())
+        .filter(|id| {
+            (1..=80).contains(&id.len())
+                && id
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        })
+        .map(String::from)
+}
+
 pub fn report(config_dirs: &[String]) -> Value {
     let dirs: Vec<PathBuf> = if config_dirs.is_empty() {
         vec![home().join(".claude")]
@@ -811,6 +849,7 @@ pub fn report(config_dirs: &[String]) -> Value {
         config_dirs.iter().map(|d| expand(d)).collect()
     };
     let probe = Probe::new(dirs, now());
+    let registry = crate::sessions::list_sessions(&crate::queue::Paths::from_env());
     let procs = read_procs();
     let detector = Detector::new();
     let panes = run(
@@ -846,11 +885,16 @@ pub fn report(config_dirs: &[String]) -> Value {
         s.insert("agent".into(), json!(agent));
         let cwd = parts[2];
         match agent {
-            "claude" => s.extend(probe.claude_state(cwd)),
+            "claude" => s.extend(
+                probe.claude_state(cwd, registered_id(&registry, parts[0], "claude").as_deref()),
+            ),
             "codex" => {
                 s.insert("limits".into(), Value::Array(probe.codex_limits()));
             }
-            "agy" => s.extend(probe.agy_state(cwd)),
+            "agy" => s.extend(probe.agy_state(
+                cwd,
+                registered_id(&registry, parts[0], "antigravity").as_deref(),
+            )),
             "ollama" => {
                 if let Some(a) = arg.filter(|a| !a.is_empty()) {
                     s.insert("ollama_model".into(), json!(a));
@@ -951,6 +995,44 @@ mod tests {
         assert_eq!(percent(13.5), 14);
         assert_eq!(percent(250.0), 100);
         assert_eq!(percent(-3.0), 0);
+    }
+
+    #[test]
+    fn registered_id_takes_the_newest_valid_record_of_that_tmux_and_agent() {
+        let reg = vec![
+            json!({"agent":"claude","session":"old","tmux":"t","ts":1}),
+            json!({"agent":"claude","session":"new","tmux":"t","ts":9}),
+            json!({"agent":"claude","session":"other","tmux":"u","ts":99}),
+            json!({"agent":"antigravity","session":"agy","tmux":"t","ts":99}),
+        ];
+        assert_eq!(registered_id(&reg, "t", "claude").as_deref(), Some("new"));
+        assert_eq!(
+            registered_id(&reg, "t", "antigravity").as_deref(),
+            Some("agy")
+        );
+        assert_eq!(registered_id(&reg, "none", "claude"), None);
+        let bad = vec![json!({"agent":"claude","session":"../x","tmux":"t","ts":1})];
+        assert_eq!(registered_id(&bad, "t", "claude"), None);
+    }
+
+    #[test]
+    fn a_known_session_id_beats_the_newest_file_of_the_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let proj = dir.path().join("projects/-w");
+        std::fs::create_dir_all(&proj).unwrap();
+        std::fs::write(proj.join("mine.jsonl"), "{}\n").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        std::fs::write(proj.join("laptop.jsonl"), "{}\n").unwrap();
+        let probe = Probe::new(vec![dir.path().to_path_buf()], 0.0);
+        assert_eq!(
+            probe.newest_transcript("/w").unwrap().0,
+            proj.join("laptop.jsonl")
+        );
+        assert_eq!(
+            probe.transcript_of("mine").unwrap().0,
+            proj.join("mine.jsonl")
+        );
+        assert!(probe.transcript_of("absent").is_none());
     }
 
     #[test]

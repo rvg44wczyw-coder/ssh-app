@@ -131,9 +131,9 @@ fn rust_readers_match_the_python_probe_on_one_fixture_tree() {
     std::env::set_var("CODEX_HOME", &codex);
     let probe = Probe::new(vec![cfg.clone()], now);
     let rust = json!({
-        "claude": probe.claude_state(work.to_str().unwrap()),
+        "claude": probe.claude_state(work.to_str().unwrap(), None),
         "codex": probe.codex_limits(),
-        "agy": probe.agy_state(work.to_str().unwrap()),
+        "agy": probe.agy_state(work.to_str().unwrap(), None),
         "totals": {"five": probe.window_totals().0, "week": probe.window_totals().1, "partial": probe.window_totals().2},
     });
 

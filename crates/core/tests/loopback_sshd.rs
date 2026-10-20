@@ -1717,6 +1717,33 @@ fn usage_report_finds_models_in_tmux_sessions_and_reads_transcripts() {
             Some(proj.join("s.jsonl").to_str().unwrap()),
             "claude tab gets its own project's transcript"
         );
+        // The same agent also runs in this folder elsewhere (the laptop): its file is the newest. The
+        // hooks noted this tab's session id, and that names the file.
+        let reg = server.home.join(".ssh-app/run/sessions");
+        std::fs::create_dir_all(&reg).unwrap();
+        std::fs::write(proj.join("reg-sid.jsonl"), "{}\n").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        std::fs::write(proj.join("parallel-local.jsonl"), "{}\n").unwrap();
+        std::fs::write(
+            reg.join("0123456789abcdef0123456789abcdef.json"),
+            format!(
+                "{{\"agent\":\"claude\",\"cwd\":\"/w\",\"session\":\"reg-sid\",\"tmux\":\"{claude}\",\"ts\":{now},\"v\":1}}"
+            ),
+        )
+        .unwrap();
+        let by_id = handle
+            .detect_session_transcript_path(claude.clone())
+            .await
+            .unwrap();
+        assert_eq!(
+            by_id.as_deref(),
+            Some(proj.join("reg-sid.jsonl").to_str().unwrap()),
+            "the session id from the hooks beats the newest file of the folder"
+        );
+        // Back to the plain layout for the usage checks below.
+        std::fs::remove_file(proj.join("reg-sid.jsonl")).unwrap();
+        std::fs::remove_file(proj.join("parallel-local.jsonl")).unwrap();
+        std::fs::remove_dir_all(server.home.join(".ssh-app")).unwrap();
         assert_eq!(
             handle
                 .detect_session_transcript_path(plain.clone())

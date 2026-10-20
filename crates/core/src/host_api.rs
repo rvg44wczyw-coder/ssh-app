@@ -1511,6 +1511,19 @@ found=$(ps -Ao pid=,ppid=,args= 2>/dev/null | awk -v root="$pid" '
       break } q=pp[q]; d++ } } }')
 kind=${found%% *}; apid=${found##* }
 case "$apid" in ""|*[!0-9]*) exit 0;; esac
+# The agent's own session id, as the hooks noted it for this tmux session (~/.ssh-app/run/sessions):
+# it names the file exactly, even when the same agent runs in the same folder on the laptop.
+sid=""; bts=-1
+for r in "$HOME"/.ssh-app/run/sessions/*.json; do
+  [ -f "$r" ] || continue
+  grep -q "\"tmux\":\"$1\"" "$r" 2>/dev/null || continue
+  grep -q "\"agent\":\"$( [ "$kind" = agy ] && echo antigravity || echo claude )\"" "$r" 2>/dev/null || continue
+  ts=$(sed -n 's/.*"ts":\([0-9]*\).*/\1/p' "$r" | head -n 1)
+  if [ "${ts:-0}" -gt "$bts" ]; then
+    bts=${ts:-0}; sid=$(sed -n 's/.*"session":"\([^"]*\)".*/\1/p' "$r" | head -n 1)
+  fi
+done
+case "$sid" in ""|*[!A-Za-z0-9_-]*) sid="";; esac
 cwd=$(readlink "/proc/$apid/cwd" 2>/dev/null)
 [ -n "$cwd" ] || cwd=$(lsof -a -p "$apid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -n 1)
 case "$kind" in
@@ -1521,6 +1534,14 @@ case "$kind" in
     # or ~/.claude; accounts set up as ~/.claude-<name> are looked at too. The newest file wins.
     cdir=$(ps eww -p "$apid" 2>/dev/null | tr ' ' '\n' | sed -n 's/^CLAUDE_CONFIG_DIR=//p' | head -n 1)
     f=""
+    if [ -n "$sid" ]; then
+      for d in "$cdir" "$HOME/.claude" "$HOME"/.claude-*; do
+        [ -n "$d" ] || continue
+        c=$(ls "$d"/projects/*/"$sid".jsonl 2>/dev/null | head -n 1)
+        [ -f "$c" ] && f=$c && break
+      done
+      [ -f "$f" ] && { echo "$f"; exit 0; }
+    fi
     for d in "$cdir" "$HOME/.claude" "$HOME"/.claude-*; do
       [ -n "$d" ] || continue
       c=$(ls -t "$d/projects/$slug"/*.jsonl 2>/dev/null | head -n 1)
@@ -1528,7 +1549,9 @@ case "$kind" in
     done
     [ -f "$f" ] && echo "$f";;
   agy)
-    d=$(ls -l "/proc/$apid/fd" 2>/dev/null | grep -o "/[^ ]*/brain/[^/]*" | head -n 1)
+    d=""
+    [ -n "$sid" ] && [ -d "$HOME/.gemini/antigravity-cli/brain/$sid" ] && d="$HOME/.gemini/antigravity-cli/brain/$sid"
+    [ -n "$d" ] || d=$(ls -l "/proc/$apid/fd" 2>/dev/null | grep -o "/[^ ]*/brain/[^/]*" | head -n 1)
     [ -n "$d" ] || d=$(lsof -p "$apid" -Fn 2>/dev/null | sed -n 's/^n//p' | grep -o "^.*/brain/[^/]*" | head -n 1)
     [ -n "$d" ] || d=$(ls -td "$HOME/.gemini/antigravity-cli/brain"/* 2>/dev/null | head -n 1)
     f="$d/.system_generated/logs/transcript.jsonl"
