@@ -65,6 +65,8 @@ public struct MainTerminalView: View {
     @StateObject private var approvals = ApprovalsCenter()
     @ObservedObject private var push = PushManager.shared
     @State private var deliveredNotices: Set<String> = []
+    @State private var pushTapDeadline: Date?
+    @State private var noticeFirstSeen: [String: Date] = [:]
     /// The tab whose agent the user is about to restart (asks new / continue first).
     @State private var restartTarget: UUID?
     @State private var restartError: String?
@@ -133,10 +135,14 @@ public struct MainTerminalView: View {
     /// says the same.
     private func deliverNotices() {
         for notice in approvals.notices where !deliveredNotices.contains(notice.id) {
+            let tmux = approvals.tmuxName(for: notice)
+            let tab = tmux.flatMap { name in tabsManager.sessions.first(where: { $0.sessionName == name }) }
+            // The tab's name may still be on its way from the host agent: wait a little for it.
+            let seen = noticeFirstSeen[notice.id] ?? Date()
+            noticeFirstSeen[notice.id] = seen
+            if tab == nil, Date().timeIntervalSince(seen) < 30 { continue }
             deliveredNotices.insert(notice.id)
-            if let tmux = approvals.tmuxName(for: notice),
-               let tab = tabsManager.sessions.first(where: { $0.sessionName == tmux }),
-               !(!showHome && tab.id == tabsManager.selectedSessionId) {
+            if let tab, !(!showHome && tab.id == tabsManager.selectedSessionId) {
                 let kind: SessionAttention = notice.item.event == "Stop" ? .finished : .needsYou
                 hookAttention[tab.id] = max(hookAttention[tab.id] ?? kind, kind)
             }
@@ -189,9 +195,17 @@ public struct MainTerminalView: View {
     private func openPushTarget() {
         guard let sid = push.pendingSid else { return }
         guard let tab = tabsManager.sessions.first(where: { push.sessionId(for: $0.sessionName) == sid }) else {
+            // On a cold start the tabs may not be restored yet: keep the tap until they are (or 20 s).
+            if tabsManager.sessions.isEmpty || pushTapDeadline == nil {
+                let deadline = pushTapDeadline ?? Date().addingTimeInterval(20)
+                pushTapDeadline = deadline
+                if Date() < deadline { return }
+            }
             push.pendingSid = nil
+            pushTapDeadline = nil
             return
         }
+        pushTapDeadline = nil
         push.pendingSid = nil
         openWaiting(tab.id)
     }
@@ -548,6 +562,8 @@ public struct MainTerminalView: View {
             }
             .onAppear { openPushTarget() }
             .onChange(of: push.pendingSid) { _, _ in openPushTarget() }
+            .onChange(of: tabsManager.sessions.count) { _, _ in openPushTarget() }
+            .onChange(of: approvals.tmuxNames) { _, _ in deliverNotices() }
             .onChange(of: tabsManager.sessions.count) { old, new in
                 // A session was just started (new tab, agent profile, tmux sheet): show it.
                 if new > old, showHome { showHome = false }
