@@ -10,14 +10,24 @@ static ANSI_REGEX: OnceLock<Regex> = OnceLock::new();
 
 fn get_ansi_regex() -> &'static Regex {
     ANSI_REGEX.get_or_init(|| {
-        Regex::new(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])").expect("Valid ANSI regex pattern")
+        // OSC strings (title, hyperlinks) up to their terminator first, then the short forms and CSI.
+        Regex::new(r"\x1B\][^\x07\x1B]*(?:\x07|\x1B\\)?|\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+            .expect("Valid ANSI regex pattern")
     })
 }
 
-/// Strip ANSI escape codes from terminal / agent text.
+/// Strip ANSI escape codes from terminal / agent text, then every other control character except
+/// line breaks and tabs, and the bidi override / isolate characters that can reorder what is shown.
 #[uniffi::export]
 pub fn strip_ansi_codes(input: String) -> String {
-    get_ansi_regex().replace_all(&input, "").to_string()
+    get_ansi_regex()
+        .replace_all(&input, "")
+        .chars()
+        .filter(|c| {
+            (!c.is_control() || matches!(c, '\n' | '\t'))
+                && !matches!(c, '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}')
+        })
+        .collect()
 }
 
 /// Execution status of an agent turn or individual tool call.

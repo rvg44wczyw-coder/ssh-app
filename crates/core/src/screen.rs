@@ -65,6 +65,8 @@ enum Dialect {
 /// Parses a capture of a pane. Cheap enough to run on every poll.
 #[uniffi::export]
 pub fn parse_screen_feed(text: String) -> ScreenFeed {
+    // The pane is untrusted display data: no escape sequences or control characters get through.
+    let text = crate::transcript::strip_ansi_codes(text);
     let mut lines: Vec<String> = text.lines().map(|l| l.trim_end().to_string()).collect();
     while lines.last().is_some_and(|l| l.is_empty()) {
         lines.pop();
@@ -1427,6 +1429,16 @@ Ready to submit your answers?
         assert_eq!(p.question, "Ready to submit your answers?");
         assert_eq!(p.options.len(), 2);
         assert!(p.detail.contains("Хуки в работающей сессии"));
+    }
+
+    #[test]
+    fn the_screen_is_cleaned_of_escapes_and_control_characters() {
+        let dirty = "\u{1b}]0;title\u{7}❯ hi\u{1b}[31m red\u{8}\u{202e}evil\u{7}\n";
+        let feed = parse_screen_feed(dirty.to_string());
+        let text = format!("{feed:?}");
+        for bad in ['\u{1b}', '\u{7}', '\u{8}', '\u{202e}'] {
+            assert!(!text.contains(bad), "{bad:?} survived: {text}");
+        }
     }
 
     fn user(text: &str) -> TranscriptTurn {
