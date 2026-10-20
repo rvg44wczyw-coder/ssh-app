@@ -6,6 +6,11 @@ import SshCoreBridge
 public struct StructuredTranscriptView: View {
     @ObservedObject var viewModel: TerminalSessionViewModel
     @State private var promptText: String = ""
+    /// The text taken from the agent's box into the field by the up button; it leaves the field
+    /// again when the agent's box empties without the text having been edited.
+    @State private var adoptedText: String?
+    @State private var blinkRed = false
+    @State private var blinkTask: Task<Void, Never>?
     @AppStorage(FeedPresentationStyle.storageKey) private var feedStyleRaw: String = FeedPresentationStyle.fallback.rawValue
     /// Tap on the branch / worktree names: shortened names shown whole (and back).
     @State private var gitNamesFull = false
@@ -278,6 +283,7 @@ public struct StructuredTranscriptView: View {
                         }
                     }
                 }
+                if let queued = offeredDraft { queuedStrip(queued) }
                 if !uploads.isEmpty {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 6) {
@@ -376,12 +382,12 @@ public struct StructuredTranscriptView: View {
             if viewModel.transcriptTurns.isEmpty {
                 viewModel.loadTranscript()
             }
-            adoptScreenDraft()
+            draftChanged(viewModel.screenDraft)
         }
         .onChange(of: promptText) { _, _ in
             if adopting { adopting = false } else { scheduleDraftSync() }
         }
-        .onChange(of: viewModel.screenDraft) { _, _ in adoptScreenDraft() }
+        .onChange(of: viewModel.screenDraft) { _, new in draftChanged(new) }
         // Live tail: only while this view is on screen (the task ends with it).
         .task {
             // 3 s while the transcript moves; 5 s, then 10 s when it stands still (each poll is a
@@ -526,12 +532,71 @@ public struct StructuredTranscriptView: View {
         }
     }
 
-    /// A draft that is already in the agent's box (typed before the app was closed, or at the
-    /// keyboard of the laptop) fills the message field, as long as you have not written anything else.
+    /// What the agent's box holds (a message typed at the laptop, or queued while it works) when the
+    /// field is empty: offered above the field, not poured into it.
+    private var offeredDraft: String? {
+        guard promptText.isEmpty, let d = viewModel.screenDraft, !d.isEmpty else { return nil }
+        return d
+    }
+
+    /// The up arrow blinks red for 4 seconds when something new is offered, then stops; a tap moves
+    /// the text into the field.
+    private func queuedStrip(_ text: String) -> some View {
+        HStack(spacing: 8) {
+            Button { adoptScreenDraft() } label: {
+                Image(systemName: "arrow.up.circle.fill")
+                    .font(.system(size: 28))
+                    .foregroundColor(blinkRed ? .red : .appAccent)
+            }
+            .accessibilityLabel("Edit the message waiting in the agent")
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Waiting in the agent").font(.caption2.bold()).foregroundStyle(.secondary)
+                Text(text).font(.system(size: 12)).lineLimit(2)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.appSecondaryBackground))
+    }
+
+    private func startBlink() {
+        blinkTask?.cancel()
+        blinkTask = Task { @MainActor in
+            let end = Date().addingTimeInterval(4)
+            while Date() < end, !Task.isCancelled {
+                blinkRed.toggle()
+                try? await Task.sleep(for: .milliseconds(400))
+            }
+            blinkRed = false
+        }
+    }
+
+    /// The agent's box changed: new text starts the blink; an empty box takes back what the up
+    /// button had moved into the field, unless you changed it.
+    private func draftChanged(_ draft: String?) {
+        if let d = draft, !d.isEmpty {
+            if promptText.isEmpty { startBlink() }
+            return
+        }
+        blinkTask?.cancel()
+        blinkRed = false
+        if let a = adoptedText, promptText == a {
+            adopting = true
+            promptText = ""
+            viewModel.draftWasSent()
+        }
+        adoptedText = nil
+    }
+
+    /// Moves the text of the agent's box into the message field (as long as nothing else is written).
     private func adoptScreenDraft() {
         guard let adopted = viewModel.adoptableDraft(current: promptText) else { return }
+        blinkTask?.cancel()
+        blinkRed = false
         adopting = true
         promptText = adopted
+        adoptedText = adopted
     }
 
 }
