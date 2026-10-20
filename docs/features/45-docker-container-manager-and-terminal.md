@@ -68,20 +68,17 @@ pub enum ContainerState {
 }
 
 impl ContainerState {
-    pub fn from_status_str(status: &str) -> Self {
-        let lower = status.to_lowercase();
-        if lower.starts_with("up") || lower.contains("running") {
-            Self::Running
-        } else if lower.starts_with("exited") || lower.contains("stopped") {
-            Self::Exited
-        } else if lower.contains("paused") {
-            Self::Paused
-        } else if lower.contains("restarting") {
-            Self::Restarting
-        } else if lower.contains("dead") {
-            Self::Dead
-        } else {
-            Self::Unknown
+    /// Parsed from the `State` field of `docker ps --format '{{json .}}'` (`running`, `exited`,
+    /// `paused`, `restarting`, `created`, `dead`, `removing`), never from the human `Status` text:
+    /// "Up 4 hours (Paused)" and "(unhealthy)" would read as Running there.
+    pub fn from_state_field(state: &str) -> Self {
+        match state.trim().to_ascii_lowercase().as_str() {
+            "running" => Self::Running,
+            "exited" | "created" | "removing" => Self::Exited,
+            "paused" => Self::Paused,
+            "restarting" => Self::Restarting,
+            "dead" => Self::Dead,
+            _ => Self::Unknown,
         }
     }
 }
@@ -95,6 +92,13 @@ pub struct DockerContainerInfo {
     pub status_text: String,        // e.g. "Up 4 hours" or "Exited (1) 10m ago"
     pub created_at: String,
     pub ports: String,              // e.g. "0.0.0.0:5432->5432/tcp"
+    pub unhealthy: bool,            // from the "(unhealthy)" suffix of Status, shown as a badge only
+}
+
+/// Optional and separate: `docker stats --no-stream --format '{{json .}}'` takes 1-2 s, so the
+/// list never waits for it; it is fetched on demand for the open detail view.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DockerContainerStats {
     pub memory_usage_bytes: Option<u64>,
     pub memory_limit_bytes: Option<u64>,
     pub cpu_percentage: Option<f32>,
@@ -116,7 +120,11 @@ impl SshSessionHandle {
     /// Queries Docker containers on the remote host (via helper or docker CLI).
     pub async fn fetch_docker_containers(&self) -> Result<DockerContainersSnapshot, SshCoreError>;
 
-    /// Restarts a specific Docker container by ID or name.
+    /// Optional resource numbers of one container (a separate, slower call).
+    pub async fn fetch_docker_stats(&self, container_id: String) -> Result<DockerContainerStats, SshCoreError>;
+
+    /// Restarts or stops a container. The app asks for confirmation first (it may be a
+    /// production database); the core refuses an empty or invalid identifier.
     pub async fn restart_docker_container(&self, container_id: String) -> Result<bool, SshCoreError>;
 
     /// Fetches the recent log tail of a specific container.
@@ -136,6 +144,7 @@ import SshCoreBridge
 public struct DisplayableContainer: Identifiable {
     public var id: String { raw.id }
     public let raw: DockerContainerInfo
+    public var stats: DockerContainerStats?   // filled lazily in the detail view
 
     public var isRunning: Bool { raw.state == .running }
     public var stateGlyph: String {
@@ -155,7 +164,7 @@ public struct DisplayableContainer: Identifiable {
         }
     }
     public var memoryDisplay: String {
-        guard let usage = raw.memoryUsageBytes, let limit = raw.memoryLimitBytes, limit > 0 else {
+        guard let usage = stats?.memoryUsageBytes, let limit = stats?.memoryLimitBytes, limit > 0 else {
             return "RAM: --"
         }
         let uMb = usage / (1024 * 1024)
@@ -172,8 +181,7 @@ public struct DisplayableContainer: Identifiable {
 ### 3.1 Host Probing Protocol
 To minimize round-trips and keep CPU overhead near zero, the host query runs via:
 1. **Helper Path (`ssh-app-host docker-list`)**:
-   - The compiled helper connects directly to `/var/run/docker.sock` over HTTP/Unix-domain socket.
-   - Fast, zero fork/exec overhead, parses JSON directly.
+   - The helper has no HTTP client, so it runs the `docker` CLI itself (fixed argv, no shell, 5 s limit) and returns the JSON lines unchanged. On macOS with Docker Desktop the CLI finds its own socket (`~/.docker/run/docker.sock`); the helper never opens a socket path itself.
 2. **POSIX Shell Fallback**:
    - If the helper is absent, executes a single-shot POSIX command:
    ```bash
@@ -189,7 +197,8 @@ When the user taps `[ >_ Terminal ]`:
 1. The container ID is validated via `validate_docker_container_identifier(container_id)` and clamped to alphanumeric hex or sanitized slug.
 2. The tmux session name is slugified to prevent tmux delimiter collisions (`.` and `:` mapped to `-`):
    ```rust
-   let session_name = format!("docker-{}", sanitize_tmux_session_name(&container.name));
+   // `a.b` and `a-b` both slugify to `a-b`, so a short id suffix keeps them apart:
+   let session_name = format!("docker-{}-{}", sanitize_tmux_session_name(&container.name), &container.id[..6]);
    ```
 3. The shell command is wrapped with a termination trap to prevent the tmux pane from abruptly disappearing if the container stops or exits:
    ```bash
@@ -272,6 +281,8 @@ On the app's home dashboard, container sessions sit side-by-side with AI agent a
 | **Container ID / Name Shell Injection** | Identifiers must match strict regex: `^[a-zA-Z0-9][a-zA-Z0-9_.-]{1,127}$`. Any string containing whitespace, semicolons, backticks, or pipes is rejected with `SshCoreError::InvalidIdentifier`. |
 | **Privilege Escalation via Docker Exec** | `docker exec` runs with the container's default user. The app does NOT inject `--privileged` or `--user root`. |
 | **Socket Hijacking / DoS** | Helper accesses `/var/run/docker.sock` strictly with timeout (max 5 s). If the user does not have permission to access the socket (not in `docker` group), a clean typed error `DockerPermissionDenied` is returned rather than hanging. |
+| **Docker group is root** | Membership in the `docker` group is root on the host. The app says so in the first-use sheet and never adds the user to the group. A shell inside a container does not pass through the hook guard (the guard watches the agent's tool calls, not a terminal tab). |
+| **Destructive actions** | Restart and Stop show a confirmation naming the container; there is no one-tap restart. |
 | **Output Flooding on Logs** | The logs command is strictly clamped with `--tail 200` and maximum output buffer of 2 MB, preventing iOS memory spikes. |
 
 ---
@@ -281,19 +292,16 @@ On the app's home dashboard, container sessions sit side-by-side with AI agent a
 1. **Rust Core Tests**:
    - `test_validate_container_identifier`: accepts `web-app_1`, `postgres-db`, `e3b0c44298fc`; rejects `app; rm -rf /`, `app$(whoami)`.
    - `test_parse_docker_ps_json_stream`: validates parsing of single and multiple container records.
+   - `test_state_field_wins_over_status_text`: `State=running` with `Status="Up 4 hours (Paused)"` is Running only when State says so; `paused` is Paused; `created` is Exited; `(unhealthy)` sets the badge, not the state.
+   - `test_session_names_do_not_collide`: containers `a.b` and `a-b` get different tmux names.
    - `test_build_docker_exec_command_format`: verifies properly escaped exec invocation.
 2. **Swift UI Tests**:
-   - One-tap restart button triggering loading state and haptic feedback.
+   - Restart/Stop ask for confirmation, then show the loading state and haptic feedback.
    - Logs viewer scrolling and clipboard copy action.
    - Spawning in-container terminal tab and verifying tab selection in `TerminalTabsManager`.
 
 ---
 
-## Review (`rev`, 2026-10-20)
+## Review (`rev`, 2026-10-20) - applied
 
-- [High] `docker ps --format` has no memory or CPU. `docker stats --no-stream` does, takes 1-2 s, and must be a separate, optional call.
-- [High] `from_status_str` checks `starts_with("up")` first, so "Up 4 hours (Paused)" and "(unhealthy)" read as Running; "Created" is Unknown. Parse the state from the `State` field of the JSON, not from the status text.
-- [High] Restart and Stop need a confirmation (a production database).
-- [Medium] Names `a.b` and `a-b` give the same tmux session `docker-a-b`; add a short id suffix.
-- [Medium] The helper has no HTTP client for the socket; use `docker` itself first. On macOS with Docker Desktop the socket may be `~/.docker/run/docker.sock`.
-- [Medium] Say plainly that membership in the `docker` group is root on the host, and that a container shell does not pass through the hook guard.
+All items are folded into sections 2, 3, 5 and 6 above: state from the `State` field, optional separate stats call, confirmation for Restart/Stop, short id suffix in tmux names, CLI instead of a socket client, plain statement about the `docker` group and the guard.

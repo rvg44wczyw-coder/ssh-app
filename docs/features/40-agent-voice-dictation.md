@@ -2,7 +2,7 @@
 
 - **Slug**: `agent-voice-dictation`
 - **Target Release**: Milestone 29 (Mobile Ergonomics & Natural Language Steering)
-- **Roles**: `doc-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
+- **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
 - **Hacker Gate**: Yes (audio privacy, local on-device speech processing, microphone entitlement, prompt injection prevention)
 - **Status**: Reviewed: fix the normalizer and the fallback (`rev`, 2026-10-20; see the last section).
 
@@ -38,43 +38,20 @@ However, standard iOS voice dictation struggles with programming syntax:
 
 ### 2.1 Rule-Based Technical Lexicon Normalizer (`crates/core/src/dictation.rs`)
 
-```rust
-use regex::Regex;
-use std::sync::LazyLock;
+The normalizer works on whitespace-separated words, not on regular expressions: nothing can fail to compile at run time, so there is no `expect`, and every rule is a plain comparison that a test can pin. Words are compared case-insensitively; the original spelling of everything that is not a rule word is kept.
 
-static RE_FILE_EXTENSIONS: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)\b(?:dot\s+|point\s+)(rs|ts|tsx|js|jsx|py|go|swift|c|cpp|h|json|toml|yaml|yml|md|sh)\b")
-        .expect("valid regex")
-});
+| Spoken | Written | Rule |
+| :--- | :--- | :--- |
+| `main dot py` | `main.py` | `dot` or `point` followed by a known extension joins the previous word and the extension with no spaces (the space before `dot` is consumed). Extensions: `rs ts tsx js jsx py go swift c cpp h json toml yaml yml md sh`. |
+| `dash dash force` | `--force` | `dash dash` / `minus minus` followed by one flag word (`[a-z0-9_-]+`). |
+| `git commit dash m` | `git commit -m` | `dash` / `minus` followed by a single letter or digit **only** when the previous word is a command-like word (`git`, `cargo`, `ls`, `rm`, `cp`, `mv`, `npm`, `make`, `docker`, `tmux`, `ssh`, `grep`, `curl`, any word already starting with `-`) or the composer is in code mode. "dash a" in ordinary prose stays as spoken. |
+| `snake case user id` | `user_id` | `snake case` joins the following words (up to the next rule word or the end) with `_`, lower-cased. Without a following word the phrase is left as spoken. |
+| `camel case user id` | `userId` | `camel case` joins the following words, first lower-case, the rest capitalised. |
+| `slash` between two words | `a/b` | only inside a path-looking run (next to a word containing `.` or `/`), not in prose. |
 
-static RE_CLI_FLAGS: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)\b(?:dash\s+dash|minus\s+minus)\s+([a-z0-9\-_]+)\b")
-        .expect("valid regex")
-});
+Russian speech with English terms is the real use case. The lexicon therefore also knows Russian spoken forms: `точка` (as `dot`), `тире тире` (as `dash dash`), `слэш`, `снейк кейс`, `кэмел кейс`, plus extensions spelled by letters (`эр эс` for `rs`, `пай` for `py`). Forms that are not in the table are not guessed: the limitation is stated in the UI help ("works for English terms and the listed Russian forms"). On-device recognition also has a per-request time limit (about one minute): the recorder restarts the request on every limit and joins the pieces.
 
-static RE_SINGLE_FLAGS: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)\b(?:dash|minus)\s+([a-z0-9])\b")
-        .expect("valid regex")
-});
-
-pub fn normalize_technical_dictation(raw_text: &str) -> String {
-    let mut normalized = raw_text.to_string();
-
-    // 1. Normalize file extensions: "auth dot rs" -> "auth.rs"
-    normalized = RE_FILE_EXTENSIONS.replace_all(&normalized, ".$1").to_string();
-
-    // 2. Normalize flags: "dash dash force" -> "--force"
-    normalized = RE_CLI_FLAGS.replace_all(&normalized, "--$1").to_string();
-
-    // 3. Normalize single flags: "minus v" -> "-v"
-    normalized = RE_SINGLE_FLAGS.replace_all(&normalized, "-$1").to_string();
-
-    // 4. Clean spacing around dots in paths
-    normalized = normalized.replace(" / ", "/").replace(" . ", ".");
-
-    normalized
-}
-```
+Control characters (`\x00..\x1F` except space, raw ANSI escapes) are stripped first.
 
 ### 2.2 UniFFI Interface
 
@@ -111,7 +88,7 @@ pub fn sanitize_agent_voice_prompt(raw_transcript: String) -> String {
 | Aspect | Policy |
 | :--- | :--- |
 | **Microphone Entitlement** | `NSMicrophoneUsageDescription` states clearly: "Microphone is used strictly for on-device prompt dictation. No audio is recorded or sent over the network." |
-| **Speech Privacy** | `SFSpeechAudioBufferRecognitionRequest.requiresOnDeviceRecognition = true`. If on-device recognition is unavailable on older iOS models, dictation falls back to standard keyboard dictation without third-party audio transmission. |
+| **Speech Privacy** | `SFSpeechAudioBufferRecognitionRequest.requiresOnDeviceRecognition = true`. If on-device recognition is unavailable for the language or the device, the microphone button is disabled with the reason shown; there is no fallback, because the keyboard's own dictation sends audio to Apple and the stated promise is that no audio leaves the device. |
 | **Prompt Injection Protection** | Sanitizer strips control characters (`\x00..\x1F`, raw ANSI escapes) before insertion into the composer to prevent escape sequence injection into the active terminal pane. |
 
 ---
@@ -119,7 +96,11 @@ pub fn sanitize_agent_voice_prompt(raw_transcript: String) -> String {
 ## 5. Verification & Test Suite
 
 1. **Rust Core Tests**:
-   - `test_normalize_file_extensions`: verifies `main dot py` $\rightarrow$ `main.py`.
+   - `test_normalize_file_extensions`: `main dot py` -> `main.py`, `Main Dot RS` -> `Main.rs`, `dot` without a known extension stays.
+   - `test_camel_and_snake_case`: `snake case user id` -> `user_id`, `camel case user id` -> `userId`, a bare `snake case` stays.
+   - `test_single_flag_needs_a_command_word`: `git commit dash m` -> `git commit -m`; `dash a thing` in prose stays.
+   - `test_russian_forms`: `main точка пай` -> `main.py`.
+   - `test_no_panic_on_any_input`: empty, one word, only rule words, very long input (a fuzz-style loop).
    - `test_normalize_flags`: verifies `dash dash all` $\rightarrow$ `--all`.
    - `test_strip_dangerous_ansi_escapes`: removes escape codes from dictated strings.
 2. **Swift UI Tests**:
@@ -128,12 +109,6 @@ pub fn sanitize_agent_voice_prompt(raw_transcript: String) -> String {
 
 ---
 
-## Review (`rev`, 2026-10-20)
+## Review (`rev`, 2026-10-20) - applied
 
-- [High] `"main dot py"` becomes `"main .py"`: the space before `dot` stays. The regex must consume it (`\s*\b(?:dot|point)\s+(ext)\b` replaced by `.ext`). The test `main dot py -> main.py` would fail as written.
-- [High] The fallback to ordinary keyboard dictation sends audio to Apple. That contradicts "no audio leaves the device"; if on-device recognition is unavailable, disable the microphone button.
-- [Medium] `camel case` and `snake case` are in scope but have no rule or test.
-- [Medium] `.expect("valid regex")` in non-test code; build the regexes in a way that cannot panic at runtime or cover them with a test.
-- [Medium] "dash a" also matches ordinary English; only convert after a command-like word or inside the composer's "code" mode.
-- [Medium] Russian speech with English terms is the real use case; the lexicon needs Russian forms ("точка эр эс") or the limitation must be stated. On-device recognition also has a per-request time limit.
-- [Low] The role list lacks `rust-core-dev`, although the code lives in `crates/core`.
+All items of the first review are folded into sections 2.1, 4 and 5 above (word-based engine instead of regexes, no audio fallback, camel/snake rules with tests, command-word guard for single flags, Russian forms and the time limit). The code lives in `crates/core`, so `rust-core-dev` is part of the chain for this feature: `doc-dev -> rev -> rust-core-dev -> rev -> swift-bridge-dev -> rev -> ios-ui-dev -> rev -> hacker`.
