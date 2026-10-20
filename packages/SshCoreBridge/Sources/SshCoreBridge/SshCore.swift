@@ -9099,6 +9099,64 @@ public func FfiConverterTypeSnippetItem_lower(_ value: SnippetItem) -> RustBuffe
 }
 
 
+/**
+ * Subagents (Claude's `Task` / `Agent` tool) the session has started. Claude hands searching to
+ * them often, so the feed shows how many are working now and how many ran in total.
+ */
+public struct SubagentStats: Equatable, Hashable {
+    public var running: UInt32
+    public var total: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(running: UInt32, total: UInt32) {
+        self.running = running
+        self.total = total
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension SubagentStats: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSubagentStats: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SubagentStats {
+        return
+            try SubagentStats(
+                running: FfiConverterUInt32.read(from: &buf), 
+                total: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SubagentStats, into buf: inout [UInt8]) {
+        FfiConverterUInt32.write(value.running, into: &buf)
+        FfiConverterUInt32.write(value.total, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSubagentStats_lift(_ buf: RustBuffer) throws -> SubagentStats {
+    return try FfiConverterTypeSubagentStats.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSubagentStats_lower(_ value: SubagentStats) -> RustBuffer {
+    return FfiConverterTypeSubagentStats.lower(value)
+}
+
+
 public struct TerminalSize: Equatable, Hashable {
     public var cols: UInt16
     public var rows: UInt16
@@ -15501,6 +15559,17 @@ public func stripAnsiCodes(input: String) -> String  {
 })
 }
 /**
+ * UniFFI form of [`subagent_stats_of`].
+ */
+public func subagentStats(turns: [TranscriptTurn]) -> SubagentStats  {
+    return try!  FfiConverterTypeSubagentStats_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_subagent_stats(
+        FfiConverterSequenceTypeTranscriptTurn.lower(turns),uniffiCallStatus
+    )
+})
+}
+/**
  * SHA-256 of the embedded helper: the digest the app pins. `None` when no helper is embedded.
  */
 public func bundledHostHelperSha256() -> String?  {
@@ -15865,6 +15934,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_strip_ansi_codes() != 9002) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_subagent_stats() != 14481) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_bundled_host_helper_sha256() != 54613) {
