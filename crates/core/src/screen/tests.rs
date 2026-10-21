@@ -810,3 +810,53 @@ fn the_queued_messages_hint_in_the_box_is_not_a_draft() {
     let f = parse_screen_feed(screen.into());
     assert_eq!(f.draft, None);
 }
+
+#[test]
+fn a_box_drawn_table_becomes_markdown_rows() {
+    let lines: Vec<String> = [
+        "  ┌──────┬─────────────┐",
+        "  │ Name │ What        │",
+        "  ├──────┼─────────────┤",
+        "  │ a    │ first part  │",
+        "  │      │ of the cell │",
+        "  ├──────┼─────────────┤",
+        "  │ b    │ second      │",
+        "  └──────┴─────────────┘",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+    assert_eq!(
+        box_tables_to_markdown(&lines),
+        vec![
+            "  | Name | What |",
+            "  | --- | --- |",
+            "  | a | first part of the cell |",
+            "  | b | second |",
+        ]
+    );
+}
+
+#[test]
+fn a_box_table_in_a_claude_reply_reaches_the_feed_as_table_rows() {
+    let screen = "\n❯ table please\n\n⏺ Here:\n\n  ┌───┬───┐\n  │ A │ B │\n  ├───┼───┤\n  │ 1 │ 2 │\n  └───┴───┘\n\n  Done.\n";
+    let f = parse_screen_feed(screen.into());
+    let text: String = f
+        .turns
+        .iter()
+        .filter_map(|t| t.content.clone())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(text.contains("| A | B |"), "{text}");
+    assert!(text.contains("| 1 | 2 |"), "{text}");
+    assert!(!text.contains('┌'), "{text}");
+}
+
+#[test]
+fn box_lines_without_a_closing_edge_are_left_alone() {
+    let lines: Vec<String> = ["┌──┐", "│ a │", "text"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    assert_eq!(box_tables_to_markdown(&lines), lines);
+}

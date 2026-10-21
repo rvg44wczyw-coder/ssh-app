@@ -5,6 +5,8 @@ use super::*;
 /// continuation, not a list item, table row, heading or code.
 pub(super) fn reflow(lines: &[String]) -> String {
     let width = lines.iter().map(|l| l.chars().count()).max().unwrap_or(0);
+    let converted = box_tables_to_markdown(lines);
+    let lines = &converted[..];
     let mut out: Vec<String> = Vec::new();
     let mut prev_wrapped = false;
     let mut prev_hard = false;
@@ -126,3 +128,74 @@ pub(super) fn flush_other(b: &mut Builder, other: &mut Vec<String>) {
 }
 
 // MARK: Claude Code
+
+/// Claude Code draws a Markdown table with box characters (`┌─┬─┐`, `│ a │ b │`, `├─┼─┤`, `└─┴─┘`)
+/// and wraps long cells over several `│` lines. Turns each such table back into Markdown rows
+/// (`| a | b |` with a `---` rule under the header), so the app renders it as a table and
+/// `reflow` never merges its lines.
+pub(super) fn box_tables_to_markdown(lines: &[String]) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < lines.len() {
+        let t = lines[i].trim();
+        if !(t.starts_with('┌') && t.ends_with('┐')) {
+            out.push(lines[i].clone());
+            i += 1;
+            continue;
+        }
+        let lead: String = lines[i].chars().take_while(|c| c.is_whitespace()).collect();
+        // rows are the `│` lines between two separators; their wrapped cell lines are joined
+        let mut rows: Vec<Vec<String>> = Vec::new();
+        let mut current: Option<Vec<String>> = None;
+        let mut j = i + 1;
+        let mut closed = false;
+        while j < lines.len() {
+            let r = lines[j].trim();
+            if r.starts_with('│') {
+                let cells: Vec<String> = r
+                    .trim_matches('│')
+                    .split('│')
+                    .map(|c| c.trim().to_string())
+                    .collect();
+                match current.as_mut() {
+                    Some(row) if row.len() == cells.len() => {
+                        for (cell, more) in row.iter_mut().zip(cells) {
+                            if !more.is_empty() {
+                                if !cell.is_empty() {
+                                    cell.push(' ');
+                                }
+                                cell.push_str(&more);
+                            }
+                        }
+                    }
+                    _ => current = Some(cells),
+                }
+            } else if r.starts_with('├') || r.starts_with('└') {
+                if let Some(row) = current.take() {
+                    rows.push(row);
+                }
+                if r.starts_with('└') {
+                    closed = true;
+                    break;
+                }
+            } else {
+                break;
+            }
+            j += 1;
+        }
+        if !closed || rows.is_empty() {
+            // not a table after all: keep the lines as they were
+            out.push(lines[i].clone());
+            i += 1;
+            continue;
+        }
+        let md = |cells: &[String]| format!("{lead}| {} |", cells.join(" | "));
+        out.push(md(&rows[0]));
+        out.push(format!("{lead}|{}", " --- |".repeat(rows[0].len())));
+        for row in &rows[1..] {
+            out.push(md(row));
+        }
+        i = j + 1;
+    }
+    out
+}
