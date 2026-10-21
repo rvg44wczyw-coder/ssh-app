@@ -1341,6 +1341,13 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func approvalStatus() async throws  -> ApprovalStatus
     
     /**
+     * Approves request `id` and, in the same signed step, trusts `category_ids` in the policy's
+     * project that contains the request's folder, for this agent session, for `trust_secs`
+     * (capped by the policy). Refused unless every category covers the approved command.
+     */
+    func approveWithTrust(id: String, categoryIds: [String], trustSecs: UInt32) async throws 
+    
+    /**
      * Whether the tab's pane runs an AI CLI or a plain shell (see `pane_context`). A host error
      * is "unknown", which callers treat like a shell.
      */
@@ -1363,10 +1370,24 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func listPendingApprovals() async throws  -> ApprovalList
     
     /**
+     * Active temporary trusts on the host.
+     */
+    func listTrusts() async throws  -> [AutoTrust]
+    
+    /**
+     * The last automatic decisions of the hook (newest last).
+     */
+    func readAutoLog() async throws  -> [AutoLogEntry]
+    
+    /**
      * The host guard (`~/.ssh-app/guard.json`); a missing file is an empty guard. A file the app
      * cannot understand is an error, so it is never overwritten by accident.
      */
     func readHostGuard() async throws  -> HostGuard
+    
+    func revokeAllTrusts() async throws 
+    
+    func revokeTrust(id: String) async throws 
     
     /**
      * Signs and submits the user's decision for request `id`. The signature covers the host's
@@ -1926,6 +1947,27 @@ open func approvalStatus()async throws  -> ApprovalStatus  {
 }
     
     /**
+     * Approves request `id` and, in the same signed step, trusts `category_ids` in the policy's
+     * project that contains the request's folder, for this agent session, for `trust_secs`
+     * (capped by the policy). Refused unless every category covers the approved command.
+     */
+open func approveWithTrust(id: String, categoryIds: [String], trustSecs: UInt32)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_approve_with_trust(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(id),FfiConverterSequenceString.lower(categoryIds),FfiConverterUInt32.lower(trustSecs)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_void,
+            completeFunc: ffi_ssh_core_rust_future_complete_void,
+            freeFunc: ffi_ssh_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
      * Whether the tab's pane runs an AI CLI or a plain shell (see `pane_context`). A host error
      * is "unknown", which callers treat like a shell.
      */
@@ -2004,6 +2046,44 @@ open func listPendingApprovals()async throws  -> ApprovalList  {
 }
     
     /**
+     * Active temporary trusts on the host.
+     */
+open func listTrusts()async throws  -> [AutoTrust]  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_list_trusts(
+                        self.uniffiCloneHandle()
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceTypeAutoTrust.lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * The last automatic decisions of the hook (newest last).
+     */
+open func readAutoLog()async throws  -> [AutoLogEntry]  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_read_auto_log(
+                        self.uniffiCloneHandle()
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceTypeAutoLogEntry.lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
      * The host guard (`~/.ssh-app/guard.json`); a missing file is an empty guard. A file the app
      * cannot understand is an error, so it is never overwritten by accident.
      */
@@ -2019,6 +2099,38 @@ open func readHostGuard()async throws  -> HostGuard  {
             completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
             freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
             liftFunc: FfiConverterTypeHostGuard_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+open func revokeAllTrusts()async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_revoke_all_trusts(
+                        self.uniffiCloneHandle()
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_void,
+            completeFunc: ffi_ssh_core_rust_future_complete_void,
+            freeFunc: ffi_ssh_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+open func revokeTrust(id: String)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_revoke_trust(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(id)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_void,
+            completeFunc: ffi_ssh_core_rust_future_complete_void,
+            freeFunc: ffi_ssh_core_rust_future_free_void,
+            liftFunc: { $0 },
             errorHandler: FfiConverterTypeSshCoreError_lift
         )
 }
@@ -4289,6 +4401,781 @@ public func FfiConverterTypeApprovalStatus_lower(_ value: ApprovalStatus) -> Rus
 }
 
 
+public struct AutoAgentOverride: Equatable, Hashable {
+    /**
+     * The hook's name of the agent: `claude`, `antigravity`, `codex`, `qwen`, `crush`, `opencode`, `grok`.
+     */
+    public var agent: String
+    public var levels: [AutoCategoryLevel]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The hook's name of the agent: `claude`, `antigravity`, `codex`, `qwen`, `crush`, `opencode`, `grok`.
+         */agent: String, levels: [AutoCategoryLevel]) {
+        self.agent = agent
+        self.levels = levels
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension AutoAgentOverride: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAutoAgentOverride: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AutoAgentOverride {
+        return
+            try AutoAgentOverride(
+                agent: FfiConverterString.read(from: &buf), 
+                levels: FfiConverterSequenceTypeAutoCategoryLevel.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AutoAgentOverride, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.agent, into: &buf)
+        FfiConverterSequenceTypeAutoCategoryLevel.write(value.levels, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAutoAgentOverride_lift(_ buf: RustBuffer) throws -> AutoAgentOverride {
+    return try FfiConverterTypeAutoAgentOverride.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAutoAgentOverride_lower(_ value: AutoAgentOverride) -> RustBuffer {
+    return FfiConverterTypeAutoAgentOverride.lower(value)
+}
+
+
+public struct AutoCategory: Equatable, Hashable {
+    public var id: String
+    public var title: String
+    public var description: String
+    /**
+     * The highest risk among its commands.
+     */
+    public var risk: AutoRisk
+    public var commands: [AutoCommand]
+    /**
+     * The category covers the file-edit tools (`Edit`, `Write`, …) inside the project.
+     */
+    public var editsFiles: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, title: String, description: String, 
+        /**
+         * The highest risk among its commands.
+         */risk: AutoRisk, commands: [AutoCommand], 
+        /**
+         * The category covers the file-edit tools (`Edit`, `Write`, …) inside the project.
+         */editsFiles: Bool) {
+        self.id = id
+        self.title = title
+        self.description = description
+        self.risk = risk
+        self.commands = commands
+        self.editsFiles = editsFiles
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension AutoCategory: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAutoCategory: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AutoCategory {
+        return
+            try AutoCategory(
+                id: FfiConverterString.read(from: &buf), 
+                title: FfiConverterString.read(from: &buf), 
+                description: FfiConverterString.read(from: &buf), 
+                risk: FfiConverterTypeAutoRisk.read(from: &buf), 
+                commands: FfiConverterSequenceTypeAutoCommand.read(from: &buf), 
+                editsFiles: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AutoCategory, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.title, into: &buf)
+        FfiConverterString.write(value.description, into: &buf)
+        FfiConverterTypeAutoRisk.write(value.risk, into: &buf)
+        FfiConverterSequenceTypeAutoCommand.write(value.commands, into: &buf)
+        FfiConverterBool.write(value.editsFiles, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAutoCategory_lift(_ buf: RustBuffer) throws -> AutoCategory {
+    return try FfiConverterTypeAutoCategory.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAutoCategory_lower(_ value: AutoCategory) -> RustBuffer {
+    return FfiConverterTypeAutoCategory.lower(value)
+}
+
+
+public struct AutoCategoryLevel: Equatable, Hashable {
+    public var category: String
+    public var level: AutoLevel
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(category: String, level: AutoLevel) {
+        self.category = category
+        self.level = level
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension AutoCategoryLevel: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAutoCategoryLevel: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AutoCategoryLevel {
+        return
+            try AutoCategoryLevel(
+                category: FfiConverterString.read(from: &buf), 
+                level: FfiConverterTypeAutoLevel.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AutoCategoryLevel, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.category, into: &buf)
+        FfiConverterTypeAutoLevel.write(value.level, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAutoCategoryLevel_lift(_ buf: RustBuffer) throws -> AutoCategoryLevel {
+    return try FfiConverterTypeAutoCategoryLevel.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAutoCategoryLevel_lower(_ value: AutoCategoryLevel) -> RustBuffer {
+    return FfiConverterTypeAutoCategoryLevel.lower(value)
+}
+
+
+public struct AutoCommand: Equatable, Hashable {
+    /**
+     * A guard rule, e.g. `Bash(cargo test:*)` or the tool name `Read`.
+     */
+    public var rule: String
+    public var risk: AutoRisk
+    public var note: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * A guard rule, e.g. `Bash(cargo test:*)` or the tool name `Read`.
+         */rule: String, risk: AutoRisk, note: String) {
+        self.rule = rule
+        self.risk = risk
+        self.note = note
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension AutoCommand: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAutoCommand: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AutoCommand {
+        return
+            try AutoCommand(
+                rule: FfiConverterString.read(from: &buf), 
+                risk: FfiConverterTypeAutoRisk.read(from: &buf), 
+                note: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AutoCommand, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.rule, into: &buf)
+        FfiConverterTypeAutoRisk.write(value.risk, into: &buf)
+        FfiConverterString.write(value.note, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAutoCommand_lift(_ buf: RustBuffer) throws -> AutoCommand {
+    return try FfiConverterTypeAutoCommand.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAutoCommand_lower(_ value: AutoCommand) -> RustBuffer {
+    return FfiConverterTypeAutoCommand.lower(value)
+}
+
+
+/**
+ * One automatic decision of the hook (`ctl auto-log`).
+ */
+public struct AutoLogEntry: Equatable, Hashable {
+    public var timestampSec: UInt64
+    public var agent: String
+    public var tool: String
+    public var summary: String
+    /**
+     * `allow`, `trusted` or `deny`.
+     */
+    public var decision: String
+    public var rule: String
+    public var root: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(timestampSec: UInt64, agent: String, tool: String, summary: String, 
+        /**
+         * `allow`, `trusted` or `deny`.
+         */decision: String, rule: String, root: String) {
+        self.timestampSec = timestampSec
+        self.agent = agent
+        self.tool = tool
+        self.summary = summary
+        self.decision = decision
+        self.rule = rule
+        self.root = root
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension AutoLogEntry: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAutoLogEntry: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AutoLogEntry {
+        return
+            try AutoLogEntry(
+                timestampSec: FfiConverterUInt64.read(from: &buf), 
+                agent: FfiConverterString.read(from: &buf), 
+                tool: FfiConverterString.read(from: &buf), 
+                summary: FfiConverterString.read(from: &buf), 
+                decision: FfiConverterString.read(from: &buf), 
+                rule: FfiConverterString.read(from: &buf), 
+                root: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AutoLogEntry, into buf: inout [UInt8]) {
+        FfiConverterUInt64.write(value.timestampSec, into: &buf)
+        FfiConverterString.write(value.agent, into: &buf)
+        FfiConverterString.write(value.tool, into: &buf)
+        FfiConverterString.write(value.summary, into: &buf)
+        FfiConverterString.write(value.decision, into: &buf)
+        FfiConverterString.write(value.rule, into: &buf)
+        FfiConverterString.write(value.root, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAutoLogEntry_lift(_ buf: RustBuffer) throws -> AutoLogEntry {
+    return try FfiConverterTypeAutoLogEntry.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAutoLogEntry_lower(_ value: AutoLogEntry) -> RustBuffer {
+    return FfiConverterTypeAutoLogEntry.lower(value)
+}
+
+
+public struct AutoPolicy: Equatable, Hashable {
+    public var presetId: String?
+    /**
+     * Levels used inside every project; a category not listed is `Ask`.
+     */
+    public var levels: [AutoCategoryLevel]
+    public var agentOverrides: [AutoAgentOverride]
+    public var projects: [AutoProject]
+    /**
+     * The read-only `inspect` category without a project (still behind the floor).
+     */
+    public var inspectAnywhere: Bool
+    /**
+     * Longest temporary trust the host honours; `0` = the default (24 h).
+     */
+    public var trustMaxSecs: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(presetId: String?, 
+        /**
+         * Levels used inside every project; a category not listed is `Ask`.
+         */levels: [AutoCategoryLevel], agentOverrides: [AutoAgentOverride], projects: [AutoProject], 
+        /**
+         * The read-only `inspect` category without a project (still behind the floor).
+         */inspectAnywhere: Bool, 
+        /**
+         * Longest temporary trust the host honours; `0` = the default (24 h).
+         */trustMaxSecs: UInt32) {
+        self.presetId = presetId
+        self.levels = levels
+        self.agentOverrides = agentOverrides
+        self.projects = projects
+        self.inspectAnywhere = inspectAnywhere
+        self.trustMaxSecs = trustMaxSecs
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension AutoPolicy: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAutoPolicy: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AutoPolicy {
+        return
+            try AutoPolicy(
+                presetId: FfiConverterOptionString.read(from: &buf), 
+                levels: FfiConverterSequenceTypeAutoCategoryLevel.read(from: &buf), 
+                agentOverrides: FfiConverterSequenceTypeAutoAgentOverride.read(from: &buf), 
+                projects: FfiConverterSequenceTypeAutoProject.read(from: &buf), 
+                inspectAnywhere: FfiConverterBool.read(from: &buf), 
+                trustMaxSecs: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AutoPolicy, into buf: inout [UInt8]) {
+        FfiConverterOptionString.write(value.presetId, into: &buf)
+        FfiConverterSequenceTypeAutoCategoryLevel.write(value.levels, into: &buf)
+        FfiConverterSequenceTypeAutoAgentOverride.write(value.agentOverrides, into: &buf)
+        FfiConverterSequenceTypeAutoProject.write(value.projects, into: &buf)
+        FfiConverterBool.write(value.inspectAnywhere, into: &buf)
+        FfiConverterUInt32.write(value.trustMaxSecs, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAutoPolicy_lift(_ buf: RustBuffer) throws -> AutoPolicy {
+    return try FfiConverterTypeAutoPolicy.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAutoPolicy_lower(_ value: AutoPolicy) -> RustBuffer {
+    return FfiConverterTypeAutoPolicy.lower(value)
+}
+
+
+public struct AutoPreset: Equatable, Hashable {
+    public var id: String
+    public var title: String
+    public var description: String
+    public var levels: [AutoCategoryLevel]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, title: String, description: String, levels: [AutoCategoryLevel]) {
+        self.id = id
+        self.title = title
+        self.description = description
+        self.levels = levels
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension AutoPreset: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAutoPreset: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AutoPreset {
+        return
+            try AutoPreset(
+                id: FfiConverterString.read(from: &buf), 
+                title: FfiConverterString.read(from: &buf), 
+                description: FfiConverterString.read(from: &buf), 
+                levels: FfiConverterSequenceTypeAutoCategoryLevel.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AutoPreset, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.title, into: &buf)
+        FfiConverterString.write(value.description, into: &buf)
+        FfiConverterSequenceTypeAutoCategoryLevel.write(value.levels, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAutoPreset_lift(_ buf: RustBuffer) throws -> AutoPreset {
+    return try FfiConverterTypeAutoPreset.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAutoPreset_lower(_ value: AutoPreset) -> RustBuffer {
+    return FfiConverterTypeAutoPreset.lower(value)
+}
+
+
+public struct AutoProject: Equatable, Hashable {
+    /**
+     * Absolute folder on the host.
+     */
+    public var root: String
+    public var label: String
+    /**
+     * Only `Ask` or `Auto` here: a project cannot lift a Block.
+     */
+    public var overrides: [AutoCategoryLevel]
+    /**
+     * `Edit`/`Write` inside the root may be allowed (needs the `files` category on `Auto`).
+     */
+    public var allowFileEdits: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Absolute folder on the host.
+         */root: String, label: String, 
+        /**
+         * Only `Ask` or `Auto` here: a project cannot lift a Block.
+         */overrides: [AutoCategoryLevel], 
+        /**
+         * `Edit`/`Write` inside the root may be allowed (needs the `files` category on `Auto`).
+         */allowFileEdits: Bool) {
+        self.root = root
+        self.label = label
+        self.overrides = overrides
+        self.allowFileEdits = allowFileEdits
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension AutoProject: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAutoProject: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AutoProject {
+        return
+            try AutoProject(
+                root: FfiConverterString.read(from: &buf), 
+                label: FfiConverterString.read(from: &buf), 
+                overrides: FfiConverterSequenceTypeAutoCategoryLevel.read(from: &buf), 
+                allowFileEdits: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AutoProject, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.root, into: &buf)
+        FfiConverterString.write(value.label, into: &buf)
+        FfiConverterSequenceTypeAutoCategoryLevel.write(value.overrides, into: &buf)
+        FfiConverterBool.write(value.allowFileEdits, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAutoProject_lift(_ buf: RustBuffer) throws -> AutoProject {
+    return try FfiConverterTypeAutoProject.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAutoProject_lower(_ value: AutoProject) -> RustBuffer {
+    return FfiConverterTypeAutoProject.lower(value)
+}
+
+
+/**
+ * An active temporary trust on the host (`ctl trusts`).
+ */
+public struct AutoTrust: Equatable, Hashable {
+    public var id: String
+    public var agent: String
+    public var session: String
+    public var root: String
+    public var expiresSec: UInt64
+    public var edits: Bool
+    public var rules: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, agent: String, session: String, root: String, expiresSec: UInt64, edits: Bool, rules: [String]) {
+        self.id = id
+        self.agent = agent
+        self.session = session
+        self.root = root
+        self.expiresSec = expiresSec
+        self.edits = edits
+        self.rules = rules
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension AutoTrust: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAutoTrust: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AutoTrust {
+        return
+            try AutoTrust(
+                id: FfiConverterString.read(from: &buf), 
+                agent: FfiConverterString.read(from: &buf), 
+                session: FfiConverterString.read(from: &buf), 
+                root: FfiConverterString.read(from: &buf), 
+                expiresSec: FfiConverterUInt64.read(from: &buf), 
+                edits: FfiConverterBool.read(from: &buf), 
+                rules: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AutoTrust, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.agent, into: &buf)
+        FfiConverterString.write(value.session, into: &buf)
+        FfiConverterString.write(value.root, into: &buf)
+        FfiConverterUInt64.write(value.expiresSec, into: &buf)
+        FfiConverterBool.write(value.edits, into: &buf)
+        FfiConverterSequenceString.write(value.rules, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAutoTrust_lift(_ buf: RustBuffer) throws -> AutoTrust {
+    return try FfiConverterTypeAutoTrust.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAutoTrust_lower(_ value: AutoTrust) -> RustBuffer {
+    return FfiConverterTypeAutoTrust.lower(value)
+}
+
+
+/**
+ * What the approval card can offer as "Approve, and allow … for …".
+ */
+public struct AutoTrustOffer: Equatable, Hashable {
+    public var categories: [String]
+    public var projectRoot: String
+    public var projectLabel: String
+    /**
+     * Longest duration the host honours.
+     */
+    public var maxSecs: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(categories: [String], projectRoot: String, projectLabel: String, 
+        /**
+         * Longest duration the host honours.
+         */maxSecs: UInt32) {
+        self.categories = categories
+        self.projectRoot = projectRoot
+        self.projectLabel = projectLabel
+        self.maxSecs = maxSecs
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension AutoTrustOffer: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAutoTrustOffer: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AutoTrustOffer {
+        return
+            try AutoTrustOffer(
+                categories: FfiConverterSequenceString.read(from: &buf), 
+                projectRoot: FfiConverterString.read(from: &buf), 
+                projectLabel: FfiConverterString.read(from: &buf), 
+                maxSecs: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AutoTrustOffer, into buf: inout [UInt8]) {
+        FfiConverterSequenceString.write(value.categories, into: &buf)
+        FfiConverterString.write(value.projectRoot, into: &buf)
+        FfiConverterString.write(value.projectLabel, into: &buf)
+        FfiConverterUInt32.write(value.maxSecs, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAutoTrustOffer_lift(_ buf: RustBuffer) throws -> AutoTrustOffer {
+    return try FfiConverterTypeAutoTrustOffer.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAutoTrustOffer_lower(_ value: AutoTrustOffer) -> RustBuffer {
+    return FfiConverterTypeAutoTrustOffer.lower(value)
+}
+
+
+public struct AutoTrustRules: Equatable, Hashable {
+    public var rules: [String]
+    public var edits: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(rules: [String], edits: Bool) {
+        self.rules = rules
+        self.edits = edits
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension AutoTrustRules: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAutoTrustRules: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AutoTrustRules {
+        return
+            try AutoTrustRules(
+                rules: FfiConverterSequenceString.read(from: &buf), 
+                edits: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AutoTrustRules, into buf: inout [UInt8]) {
+        FfiConverterSequenceString.write(value.rules, into: &buf)
+        FfiConverterBool.write(value.edits, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAutoTrustRules_lift(_ buf: RustBuffer) throws -> AutoTrustRules {
+    return try FfiConverterTypeAutoTrustRules.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAutoTrustRules_lower(_ value: AutoTrustRules) -> RustBuffer {
+    return FfiConverterTypeAutoTrustRules.lower(value)
+}
+
+
 /**
  * Canonical signing payload representation for agent approvals.
  */
@@ -6473,6 +7360,10 @@ public struct HostGuard: Equatable, Hashable {
      * its own terminal. `0` = the default (120 s); otherwise 5 to 120 seconds.
      */
     public var approvalWaitSecs: UInt32
+    /**
+     * Auto-approval by command category (feature 50); compiled into `auto_rules` on every save.
+     */
+    public var auto: AutoPolicy
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -6498,7 +7389,10 @@ public struct HostGuard: Equatable, Hashable {
         /**
          * How long the hook holds a tool call for an answer from the phone before the agent asks in
          * its own terminal. `0` = the default (120 s); otherwise 5 to 120 seconds.
-         */approvalWaitSecs: UInt32) {
+         */approvalWaitSecs: UInt32, 
+        /**
+         * Auto-approval by command category (feature 50); compiled into `auto_rules` on every save.
+         */auto: AutoPolicy) {
         self.deny = deny
         self.ask = ask
         self.allow = allow
@@ -6506,6 +7400,7 @@ public struct HostGuard: Equatable, Hashable {
         self.promptContext = promptContext
         self.stopMessage = stopMessage
         self.approvalWaitSecs = approvalWaitSecs
+        self.auto = auto
     }
 
     
@@ -6530,7 +7425,8 @@ public struct FfiConverterTypeHostGuard: FfiConverterRustBuffer {
                 sessionStartContext: FfiConverterString.read(from: &buf), 
                 promptContext: FfiConverterString.read(from: &buf), 
                 stopMessage: FfiConverterString.read(from: &buf), 
-                approvalWaitSecs: FfiConverterUInt32.read(from: &buf)
+                approvalWaitSecs: FfiConverterUInt32.read(from: &buf), 
+                auto: FfiConverterTypeAutoPolicy.read(from: &buf)
         )
     }
 
@@ -6542,6 +7438,7 @@ public struct FfiConverterTypeHostGuard: FfiConverterRustBuffer {
         FfiConverterString.write(value.promptContext, into: &buf)
         FfiConverterString.write(value.stopMessage, into: &buf)
         FfiConverterUInt32.write(value.approvalWaitSecs, into: &buf)
+        FfiConverterTypeAutoPolicy.write(value.auto, into: &buf)
     }
 }
 
@@ -9929,6 +10826,177 @@ public func FfiConverterTypeApprovalKind_lift(_ buf: RustBuffer) throws -> Appro
 #endif
 public func FfiConverterTypeApprovalKind_lower(_ value: ApprovalKind) -> RustBuffer {
     return FfiConverterTypeApprovalKind.lower(value)
+}
+
+
+
+/**
+ * What happens to a command of a category.
+ */
+
+public enum AutoLevel: Equatable, Hashable {
+    
+    /**
+     * The default: asked on the phone like any other call.
+     */
+    case ask
+    /**
+     * Allowed without a question (inside a project, past the boundary check).
+     */
+    case auto
+    /**
+     * Refused on the host.
+     */
+    case block
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension AutoLevel: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAutoLevel: FfiConverterRustBuffer {
+    typealias SwiftType = AutoLevel
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AutoLevel {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .ask
+        
+        case 2: return .auto
+        
+        case 3: return .block
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: AutoLevel, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .ask:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .auto:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .block:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAutoLevel_lift(_ buf: RustBuffer) throws -> AutoLevel {
+    return try FfiConverterTypeAutoLevel.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAutoLevel_lower(_ value: AutoLevel) -> RustBuffer {
+    return FfiConverterTypeAutoLevel.lower(value)
+}
+
+
+
+/**
+ * How much harm a command can do.
+ */
+
+public enum AutoRisk: Equatable, Hashable {
+    
+    case readOnly
+    case localChange
+    /**
+     * Runs code from the repository (`build.rs`, Makefile, package scripts, tests).
+     */
+    case runsProjectCode
+    case network
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension AutoRisk: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAutoRisk: FfiConverterRustBuffer {
+    typealias SwiftType = AutoRisk
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AutoRisk {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .readOnly
+        
+        case 2: return .localChange
+        
+        case 3: return .runsProjectCode
+        
+        case 4: return .network
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: AutoRisk, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .readOnly:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .localChange:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .runsProjectCode:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .network:
+            writeInt(&buf, Int32(4))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAutoRisk_lift(_ buf: RustBuffer) throws -> AutoRisk {
+    return try FfiConverterTypeAutoRisk.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAutoRisk_lower(_ value: AutoRisk) -> RustBuffer {
+    return FfiConverterTypeAutoRisk.lower(value)
 }
 
 
@@ -13408,6 +14476,30 @@ fileprivate struct FfiConverterOptionTypeAgentPermissions: FfiConverterRustBuffe
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeAutoTrustOffer: FfiConverterRustBuffer {
+    typealias SwiftType = AutoTrustOffer?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeAutoTrustOffer.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeAutoTrustOffer.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeHostAgentState: FfiConverterRustBuffer {
     typealias SwiftType = HostAgentState?
 
@@ -13694,6 +14786,206 @@ fileprivate struct FfiConverterSequenceTypeAgentSessionInfo: FfiConverterRustBuf
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeAgentSessionInfo.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeAutoAgentOverride: FfiConverterRustBuffer {
+    typealias SwiftType = [AutoAgentOverride]
+
+    public static func write(_ value: [AutoAgentOverride], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeAutoAgentOverride.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [AutoAgentOverride] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [AutoAgentOverride]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeAutoAgentOverride.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeAutoCategory: FfiConverterRustBuffer {
+    typealias SwiftType = [AutoCategory]
+
+    public static func write(_ value: [AutoCategory], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeAutoCategory.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [AutoCategory] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [AutoCategory]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeAutoCategory.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeAutoCategoryLevel: FfiConverterRustBuffer {
+    typealias SwiftType = [AutoCategoryLevel]
+
+    public static func write(_ value: [AutoCategoryLevel], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeAutoCategoryLevel.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [AutoCategoryLevel] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [AutoCategoryLevel]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeAutoCategoryLevel.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeAutoCommand: FfiConverterRustBuffer {
+    typealias SwiftType = [AutoCommand]
+
+    public static func write(_ value: [AutoCommand], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeAutoCommand.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [AutoCommand] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [AutoCommand]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeAutoCommand.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeAutoLogEntry: FfiConverterRustBuffer {
+    typealias SwiftType = [AutoLogEntry]
+
+    public static func write(_ value: [AutoLogEntry], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeAutoLogEntry.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [AutoLogEntry] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [AutoLogEntry]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeAutoLogEntry.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeAutoPreset: FfiConverterRustBuffer {
+    typealias SwiftType = [AutoPreset]
+
+    public static func write(_ value: [AutoPreset], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeAutoPreset.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [AutoPreset] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [AutoPreset]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeAutoPreset.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeAutoProject: FfiConverterRustBuffer {
+    typealias SwiftType = [AutoProject]
+
+    public static func write(_ value: [AutoProject], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeAutoProject.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [AutoProject] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [AutoProject]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeAutoProject.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeAutoTrust: FfiConverterRustBuffer {
+    typealias SwiftType = [AutoTrust]
+
+    public static func write(_ value: [AutoTrust], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeAutoTrust.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [AutoTrust] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [AutoTrust]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeAutoTrust.read(from: &buf))
         }
         return seq
     }
@@ -15033,6 +16325,120 @@ public func signApprovalSshsig(privateKeyOpenssh: String, message: Data)throws  
 })
 }
 /**
+ * The categories, narrow subcommands only: a program is never listed whole (`cargo test`, not
+ * `cargo`), so `cargo run` and `cargo install` are not allowed by a build category.
+ */
+public func autoCategories() -> [AutoCategory]  {
+    return try!  FfiConverterSequenceTypeAutoCategory.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_auto_categories(uniffiCallStatus
+    )
+})
+}
+/**
+ * Categories a tool call belongs to (every part of a shell command must be covered by some
+ * category, else none): the ones a temporary trust could cover. A command with a redirection or
+ * a substitution has none.
+ */
+public func autoCategoriesForCall(tool: String, command: String) -> [String]  {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_auto_categories_for_call(
+        FfiConverterString.lower(tool),
+        FfiConverterString.lower(command),uniffiCallStatus
+    )
+})
+}
+/**
+ * Checks and tidies a policy the app has edited (trims labels, drops duplicates, rejects a bad
+ * folder or an unknown category).
+ */
+public func autoPolicyValidate(policy: AutoPolicy)throws  -> AutoPolicy  {
+    return try  FfiConverterTypeAutoPolicy_lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_auto_policy_validate(
+        FfiConverterTypeAutoPolicy_lower(policy),uniffiCallStatus
+    )
+})
+}
+/**
+ * Things to read twice before applying a policy.
+ */
+public func autoPolicyWarnings(policy: AutoPolicy) -> [String]  {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_auto_policy_warnings(
+        FfiConverterTypeAutoPolicy_lower(policy),uniffiCallStatus
+    )
+})
+}
+/**
+ * Starting policy of a preset (projects are kept as they are).
+ */
+public func autoPolicyWithPreset(current: AutoPolicy, presetId: String)throws  -> AutoPolicy  {
+    return try  FfiConverterTypeAutoPolicy_lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_auto_policy_with_preset(
+        FfiConverterTypeAutoPolicy_lower(current),
+        FfiConverterString.lower(presetId),uniffiCallStatus
+    )
+})
+}
+public func autoPresets() -> [AutoPreset]  {
+    return try!  FfiConverterSequenceTypeAutoPreset.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_auto_presets(uniffiCallStatus
+    )
+})
+}
+/**
+ * `None`: nothing can be trusted for this call (no project of the policy contains `cwd`, or the
+ * command is in no category, or part of it is not).
+ */
+public func autoTrustOffer(policy: AutoPolicy, tool: String, command: String, cwd: String) -> AutoTrustOffer?  {
+    return try!  FfiConverterOptionTypeAutoTrustOffer.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_auto_trust_offer(
+        FfiConverterTypeAutoPolicy_lower(policy),
+        FfiConverterString.lower(tool),
+        FfiConverterString.lower(command),
+        FfiConverterString.lower(cwd),uniffiCallStatus
+    )
+})
+}
+/**
+ * The rules a trust for these categories carries (signed with it), and whether it covers file
+ * edits inside the project. Unknown ids are an error; `Destructive`-free by construction.
+ */
+public func autoTrustRules(categoryIds: [String])throws  -> AutoTrustRules  {
+    return try  FfiConverterTypeAutoTrustRules_lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_auto_trust_rules(
+        FfiConverterSequenceString.lower(categoryIds),uniffiCallStatus
+    )
+})
+}
+/**
+ * Bytes the phone signs for a temporary trust: `SSH_APP_TRUST_V1:` and the fields, each as
+ * `<utf8 length>:<bytes>\n`. The host rebuilds them from the stored blob.
+ */
+public func createTrustSigningBytes(id: String, nonce: String, ts: UInt64, expires: UInt64, agent: String, session: String, root: String, edits: Bool, rules: [String]) -> Data  {
+    return try!  FfiConverterData.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_create_trust_signing_bytes(
+        FfiConverterString.lower(id),
+        FfiConverterString.lower(nonce),
+        FfiConverterUInt64.lower(ts),
+        FfiConverterUInt64.lower(expires),
+        FfiConverterString.lower(agent),
+        FfiConverterString.lower(session),
+        FfiConverterString.lower(root),
+        FfiConverterBool.lower(edits),
+        FfiConverterSequenceString.lower(rules),uniffiCallStatus
+    )
+})
+}
+/**
  * A path or file name for the screen: bidi / zero-width / control characters become a visible
  * marker. The raw string stays the one used for navigation.
  */
@@ -15912,6 +17318,33 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_func_sign_approval_sshsig() != 39274) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_func_auto_categories() != 2432) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_auto_categories_for_call() != 56036) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_auto_policy_validate() != 65049) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_auto_policy_warnings() != 57967) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_auto_policy_with_preset() != 61301) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_auto_presets() != 48573) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_auto_trust_offer() != 38908) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_auto_trust_rules() != 63159) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_create_trust_signing_bytes() != 55888) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_func_display_safe_text() != 44786) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -16149,6 +17582,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_approval_status() != 25886) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_approve_with_trust() != 1578) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_detect_pane_context() != 23180) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -16161,7 +17597,19 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_list_pending_approvals() != 23839) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_list_trusts() != 30890) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_read_auto_log() != 50012) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_read_host_guard() != 40567) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_revoke_all_trusts() != 40669) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_revoke_trust() != 51665) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_submit_approval_decision() != 44196) {

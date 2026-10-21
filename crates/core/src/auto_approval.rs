@@ -192,10 +192,8 @@ pub fn auto_categories() -> Vec<AutoCategory> {
         "git diff",
         "git log",
         "git show",
-        "git branch --list",
-        "git branch -a",
-        "git branch -v",
-        "git remote -v",
+        "git branch --show-current",
+        "git remote get-url",
         "git rev-parse",
     ]));
     vec![
@@ -528,6 +526,13 @@ pub fn validate_auto_policy(policy: &AutoPolicy) -> Result<AutoPolicy, SshCoreEr
         inspect_anywhere: policy.inspect_anywhere,
         trust_max_secs: trust,
     })
+}
+
+/// Checks and tidies a policy the app has edited (trims labels, drops duplicates, rejects a bad
+/// folder or an unknown category).
+#[uniffi::export]
+pub fn auto_policy_validate(policy: AutoPolicy) -> Result<AutoPolicy, SshCoreError> {
+    validate_auto_policy(&policy)
 }
 
 /// Starting policy of a preset (projects are kept as they are).

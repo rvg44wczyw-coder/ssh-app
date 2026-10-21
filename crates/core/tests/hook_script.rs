@@ -1754,6 +1754,9 @@ fn auto_rules_allow_inside_the_project_only_and_log_it() {
         "cat ../o/x",
         "cat ~/.zshrc",
         "cat $HOME/.zshrc",
+        "cat .env",
+        "cat .git/config",
+        "cat .claude/settings.json",
         "cargo test > notes.txt",
     ] {
         assert_eq!(cmd(out, &proj), "none", "{out}");
@@ -1768,6 +1771,14 @@ fn auto_rules_allow_inside_the_project_only_and_log_it() {
     assert_eq!(edit(proj.join(".git/config"), &proj.join("sub")), "none");
     assert_eq!(edit(proj.join("link/a"), &proj), "none");
     assert_eq!(edit(outside.join("a"), &proj), "none");
+    assert_eq!(
+        decide(
+            "Read",
+            json!({"file_path": outside.join(".aws/credentials")}),
+            &proj
+        ),
+        "none"
+    );
     // Reading outside is only open through the rootless read-only entry.
     assert_eq!(
         decide("Read", json!({"file_path": outside.join("a")}), &proj),

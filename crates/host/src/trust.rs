@@ -275,6 +275,8 @@ pub fn decision(
                 t.edits && edit_target_ok(&root, cwd, &tool_paths(input)),
                 "project file edits".to_string(),
             )
+        } else if crate::auto::touches_sensitive(&crate::auto::call_text(kind, input)) {
+            continue;
         } else {
             let hit = guard_allows(&t.rules, tool, input, cwd);
             let stays = if kind == "Bash" {

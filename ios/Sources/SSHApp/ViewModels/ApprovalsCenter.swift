@@ -22,6 +22,10 @@ public final class ApprovalsCenter: ObservableObject {
     /// tmux session of an agent session, for naming a notice's tab: `<server key>/<agent>/<agent session>`.
     @Published public private(set) var tmuxNames: [String: String] = [:]
     @Published public private(set) var errors: [String: String] = [:]
+    /// What an approval card may offer as "Approve, and allow … for …": by entry id. Only for a
+    /// request whose folder is inside a project of the auto-approval policy and whose command is
+    /// covered by categories.
+    @Published public private(set) var trustOffers: [String: AutoTrustOffer] = [:]
     /// True while the foreground poll runs; the Apple Watch only shows requests while it does.
     @Published public private(set) var isPolling = false
 
@@ -132,6 +136,8 @@ public final class ApprovalsCenter: ObservableObject {
         if changed { await resolveNoticeTabs(all, merged) }
         if changed { entries = merged }
         if !newApprovals.isEmpty { notifyNewApproval() }
+        trustOffers = trustOffers.filter { live.contains($0.key) }
+        await loadTrustOffers(newApprovals)
         return (usedWait, changed)
     }
 
@@ -171,6 +177,40 @@ public final class ApprovalsCenter: ObservableObject {
             let message = error.localizedDescription
             errors[entry.id] = message
             if message.contains("gone or has expired") {
+                entries.removeAll { $0.id == entry.id }
+            }
+        }
+    }
+
+    /// Reads each host's policy once per batch of new requests and works out the offers.
+    private func loadTrustOffers(_ fresh: [ApprovalEntry]) async {
+        var policies: [String: AutoPolicy] = [:]
+        for e in fresh {
+            guard let handle = handles[e.serverKey] else { continue }
+            if policies[e.serverKey] == nil {
+                policies[e.serverKey] = (try? await handle.readHostGuard())?.auto
+            }
+            guard let policy = policies[e.serverKey], !e.item.session.isEmpty,
+                  let offer = autoTrustOffer(policy: policy, tool: e.item.tool, command: e.item.command, cwd: e.item.cwd)
+            else { continue }
+            trustOffers[e.id] = offer
+        }
+    }
+
+    /// Approves and trusts `categories` in the offer's project for `seconds` (same agent session).
+    public func decideWithTrust(_ entry: ApprovalEntry, categories: [String], seconds: UInt32) async {
+        guard let handle = handles[entry.serverKey], !busyIds.contains(entry.id) else { return }
+        busyIds.insert(entry.id)
+        errors[entry.id] = nil
+        defer { busyIds.remove(entry.id) }
+        do {
+            try await handle.approveWithTrust(id: entry.item.id, categoryIds: categories, trustSecs: seconds)
+            decided[entry.id] = Date()
+            entries.removeAll { $0.id == entry.id }
+            _ = await pollOnce()
+        } catch {
+            errors[entry.id] = error.localizedDescription
+            if error.localizedDescription.contains("gone or has expired") {
                 entries.removeAll { $0.id == entry.id }
             }
         }

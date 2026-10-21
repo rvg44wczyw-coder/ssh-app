@@ -50,6 +50,55 @@ pub enum AutoDecision {
     Allow(String, Option<String>, bool),
 }
 
+const SENSITIVE: [&str; 19] = [
+    ".ssh",
+    ".aws",
+    ".gnupg",
+    ".env",
+    ".pem",
+    ".key",
+    ".kube",
+    ".netrc",
+    ".npmrc",
+    ".pypirc",
+    ".docker",
+    ".git-credentials",
+    "id_rsa",
+    "id_ed25519",
+    "id_ecdsa",
+    "keychain",
+    ".claude",
+    ".gemini",
+    ".mcp.json",
+];
+
+/// Credentials, agent settings and the .git folder are never reached by an automatic allow,
+/// wherever they are named (a word may hide them inside a longer path).
+pub(crate) fn touches_sensitive(text: &str) -> bool {
+    static GIT: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let low = text.to_lowercase();
+    SENSITIVE.iter().any(|t| low.contains(t))
+        || low.contains(".codex")
+        || low.contains(".grok")
+        || GIT
+            .get_or_init(|| {
+                regex::Regex::new(r#"(?:^|[/\s'"=])\.git(?:$|[/\s'"])"#).expect("static pattern")
+            })
+            .is_match(&low)
+}
+
+pub(crate) fn call_text(kind: &str, input: &Value) -> String {
+    if kind == "Bash" {
+        let keys: Vec<&str> = std::iter::once("command")
+            .chain(ANTIGRAVITY_CMD_KEYS[..4].iter().copied())
+            .collect();
+        let empty = serde_json::Map::new();
+        first_str(input.as_object().unwrap_or(&empty), &keys).to_string()
+    } else {
+        tool_paths(input).join(" ")
+    }
+}
+
 pub fn entries(guard: &Value, agent: &str) -> Vec<Entry> {
     let Some(raw) = guard.get("auto_rules").and_then(Value::as_array) else {
         return vec![];
@@ -245,6 +294,9 @@ pub fn auto_decision(
             ),
             _ => crate::trust::decision(p, guard, agent, session, tool, input, cwd),
         };
+    }
+    if touches_sensitive(&call_text(kind, input)) {
+        return None;
     }
     if let (Some(r), false) = (&root, project_rules.is_empty()) {
         let mut all = project_rules;

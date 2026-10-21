@@ -267,6 +267,10 @@ public struct MainTerminalView: View {
                 queuedBehind: mine.count - 1,
                 isBusy: approvals.busyIds.contains(approval.id),
                 errorMessage: approvals.errors[approval.id],
+                trustOffer: approvals.trustOffers[approval.id],
+                onTrust: { categories, secs in
+                    Task { await approvals.decideWithTrust(approval, categories: categories, seconds: secs) }
+                },
                 onDecision: { approved in
                     Task { await approvals.decide(approval, approved: approved) }
                 }

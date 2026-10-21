@@ -11,11 +11,20 @@ public struct ApprovalBannerView: View {
     public let isBusy: Bool
     public let errorMessage: String?
     public let onDecision: (Bool) -> Void
+    /// Set when a temporary trust can be offered for this request (feature 50).
+    public let trustOffer: AutoTrustOffer?
+    public let onTrust: ([String], UInt32) -> Void
 
     @State private var showFullCwd = false
+    @AppStorage("trust_never_offer") private var neverOfferTrust = false
+    @AppStorage("trust_default_secs") private var defaultTrustSecs = 3600
 
     public init(entry: ApprovalEntry, queuedBehind: Int, isBusy: Bool, errorMessage: String?,
+                trustOffer: AutoTrustOffer? = nil,
+                onTrust: @escaping ([String], UInt32) -> Void = { _, _ in },
                 onDecision: @escaping (Bool) -> Void) {
+        self.trustOffer = trustOffer
+        self.onTrust = onTrust
         self.entry = entry
         self.queuedBehind = queuedBehind
         self.isBusy = isBusy
@@ -103,6 +112,10 @@ public struct ApprovalBannerView: View {
                 decisionButton(title: "Approve", icon: "checkmark.shield.fill", color: .green, approved: true)
             }
 
+            if let offer = trustOffer, !neverOfferTrust {
+                trustMenu(offer)
+            }
+
             if queuedBehind > 0 {
                 Text(verbatim: "+\(queuedBehind) more waiting")
                     .font(.caption2)
@@ -119,6 +132,36 @@ public struct ApprovalBannerView: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 4)
         .accessibilityElement(children: .contain)
+    }
+
+    private static func durationName(_ secs: Int) -> String {
+        secs % 3600 == 0 ? "\(secs / 3600) h" : "\(secs / 60) min"
+    }
+
+    /// "Approve, and allow Rust in ssh-app for 1 h": the host keeps a signed trust for this agent
+    /// session and this project only; it never extends past the project folder.
+    private func trustMenu(_ offer: AutoTrustOffer) -> some View {
+        let titles = autoCategories().filter { offer.categories.contains($0.id) }.map(\.title).joined(separator: ", ")
+        let durations = [900, 3600, 4 * 3600, Int(offer.maxSecs)]
+            .filter { $0 <= Int(offer.maxSecs) }
+        var unique: [Int] = []
+        for d in durations where !unique.contains(d) { unique.append(d) }
+        return Menu {
+            ForEach(unique, id: \.self) { secs in
+                Button(secs == Int(offer.maxSecs) && secs > 4 * 3600 ? "Until the session ends (max \(Self.durationName(secs)))" : "For \(Self.durationName(secs))") {
+                    onTrust(offer.categories, UInt32(secs))
+                }
+            }
+        } label: {
+            Label("Approve, and allow \(titles) in \(offer.projectLabel)…", systemImage: "clock.badge.checkmark")
+                .font(.system(size: 11, weight: .semibold))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 6)
+                .background(Color.green.opacity(0.12))
+                .foregroundColor(.green)
+                .cornerRadius(6)
+        }
+        .disabled(isBusy)
     }
 
     private func decisionButton(title: String, icon: String, color: Color, approved: Bool) -> some View {

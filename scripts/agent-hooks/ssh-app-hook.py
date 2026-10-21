@@ -600,6 +600,19 @@ AUTOLOG = os.path.join(RUN, "auto.log")
 AUTOLOG_MAX = 200000
 
 
+SENSITIVE = (".ssh", ".aws", ".gnupg", ".env", ".pem", ".key", ".kube", ".netrc", ".npmrc", ".pypirc",
+             ".docker", ".git-credentials", "id_rsa", "id_ed25519", "id_ecdsa", "keychain",
+             ".claude", ".gemini", ".codex", ".grok", ".mcp.json")
+GIT_DIR_RE = re.compile(r"(?:^|[/\s'\"=])\.git(?:$|[/\s'\"])")
+
+
+def touches_sensitive(text):
+    """Credentials, agent settings and the .git folder are never reached by an automatic allow,
+    wherever they are named (a word may hide them inside a longer path)."""
+    low = text.lower()
+    return any(t in low for t in SENSITIVE) or GIT_DIR_RE.search(low) is not None
+
+
 def auto_entries(guard, agent):
     raw = guard.get("auto_rules")
     out = []
@@ -730,6 +743,8 @@ def auto_decision(guard, agent, session, tool, tool_input, cwd):
         if edits and root and edit_target_ok(root, cwd, tool_paths(ti)):
             return ("allow", "project file edits", root)
         return trust_decision(guard, agent, session, tool, tool_input, cwd)
+    if touches_sensitive(tool_command(ti) if kind == "Bash" else " ".join(tool_paths(ti))):
+        return None
     if root is not None and project_rules:
         hit = guard_allows(project_rules + free_rules, tool, tool_input, cwd)
         stays = (bash_stays_inside(root, cwd, tool_command(ti)) if kind == "Bash"
@@ -890,6 +905,8 @@ def trust_decision(guard, agent, session, tool, tool_input, cwd):
         if kind == "Edit":
             ok = t["edits"] and edit_target_ok(root, cwd, tool_paths(ti))
             hit = "project file edits"
+        elif touches_sensitive(tool_command(ti) if kind == "Bash" else " ".join(tool_paths(ti))):
+            continue
         else:
             hit = guard_allows(t["rules"], tool, tool_input, cwd)
             ok = hit is not None and (bash_stays_inside(root, cwd, tool_command(ti)) if kind == "Bash"
