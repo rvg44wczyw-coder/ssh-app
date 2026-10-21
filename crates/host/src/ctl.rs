@@ -146,6 +146,7 @@ pub fn run(p: &Paths, args: &[String]) -> Value {
     }
     match sub {
         "sessions" => return json!({"host_time": t, "items": list_sessions(p)}),
+        "auto-log" => return json!({"host_time": t, "items": crate::auto::log_items(p)}),
         "list" => return json!({"host_time": t, "items": pending_items(p, t)}),
         "wait" => {
             // Long poll: answers as soon as the set of pending ids differs from the ids the app

@@ -311,7 +311,7 @@ fn normpath(path: &str) -> String {
 }
 
 /// `os.path.realpath`: symlinks resolved as far as the path exists, the rest kept lexically.
-fn realpath(path: &str) -> String {
+pub(crate) fn realpath(path: &str) -> String {
     let mut existing = PathBuf::from(normpath(path));
     let mut tail: Vec<std::ffi::OsString> = Vec::new();
     loop {
@@ -376,7 +376,7 @@ pub fn input_too_big(tool_input: &Value) -> bool {
     })
 }
 
-fn first_str<'a>(map: &'a serde_json::Map<String, Value>, keys: &[&str]) -> &'a str {
+pub(crate) fn first_str<'a>(map: &'a serde_json::Map<String, Value>, keys: &[&str]) -> &'a str {
     keys.iter()
         .filter_map(|k| map.get(*k).and_then(Value::as_str))
         .find(|s| !s.is_empty())
@@ -451,7 +451,7 @@ fn parse_rule(rule: &str) -> Option<(String, Option<String>)> {
 }
 
 /// `2>&1`, `>/dev/null`, `&>/dev/null`: not edits, and the `&` in them must not split a line.
-fn strip_safe_redirects(command: &str) -> String {
+pub(crate) fn strip_safe_redirects(command: &str) -> String {
     static R: OnceLock<Regex> = OnceLock::new();
     re(&R, r"\d*>>?\s*/dev/null|\d*>&\d|&>\s*/dev/null")
         .replace_all(command, " ")

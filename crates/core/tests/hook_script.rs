@@ -1707,3 +1707,77 @@ fn a_guard_allow_rule_needs_every_part_of_a_command_covered() {
         assert_eq!(decision(bad), "none", "{bad}");
     }
 }
+
+#[test]
+fn auto_rules_allow_inside_the_project_only_and_log_it() {
+    need_tools!();
+    let h = Host::new();
+    let area = tempfile::tempdir().unwrap();
+    let base = std::fs::canonicalize(area.path()).unwrap();
+    let (proj, outside) = (base.join("p"), base.join("o"));
+    std::fs::create_dir_all(proj.join("sub")).unwrap();
+    std::fs::create_dir_all(&outside).unwrap();
+    std::os::unix::fs::symlink(&outside, proj.join("link")).unwrap();
+    write_guard_json(
+        &h,
+        json!({"auto_rules": [
+            {"deny": ["Bash(rm:*)", "Edit(./.git/**)"], "allow": [], "edits": false},
+            {"agents": ["claude"], "root": proj, "edits": true, "deny": [],
+             "allow": ["Bash(cargo test:*)", "Bash(cat:*)", "Read"]},
+            {"agents": ["claude"], "allow": ["Read"], "deny": [], "edits": false},
+        ]}),
+    );
+    let decide = |tool: &str, input: Value, cwd: &Path| -> String {
+        let stdin = json!({"tool_name": tool, "tool_input": input, "cwd": cwd, "session_id": "s1"})
+            .to_string();
+        let (out, _) = h.spawn_hook("claude", "PreToolUse", &stdin, 1).finish();
+        if out.is_empty() {
+            return "none".into();
+        }
+        let v: Value = serde_json::from_str(&out).unwrap();
+        v["hookSpecificOutput"]["permissionDecision"]
+            .as_str()
+            .unwrap_or("none")
+            .to_string()
+    };
+    let cmd = |c: &str, cwd: &Path| decide("Bash", json!({"command": c}), cwd);
+    // Inside the project, whole command covered.
+    assert_eq!(cmd("cargo test -p x", &proj), "allow");
+    assert_eq!(cmd("cat sub/x", &proj.join("sub")), "allow");
+    assert_eq!(cmd("cat ../sub/x", &proj.join("sub")), "allow");
+    // Always-blocked list first; an uncovered part; a way out of the folder.
+    assert_eq!(cmd("rm -rf x", &proj), "deny");
+    assert_eq!(cmd("cargo test; rm x", &proj), "deny");
+    for out in [
+        "cargo test --manifest-path /etc/Cargo.toml",
+        "cat link/x",
+        "cat ../o/x",
+        "cat ~/.zshrc",
+        "cat $HOME/.zshrc",
+        "cargo test > notes.txt",
+    ] {
+        assert_eq!(cmd(out, &proj), "none", "{out}");
+    }
+    // The same command from another folder is not allowed.
+    assert_eq!(cmd("cargo test", &outside), "none");
+    // File edits: inside, not in protected places, not through the symlink, not outside.
+    let edit = |p: PathBuf, cwd: &Path| decide("Edit", json!({"file_path": p}), cwd);
+    assert_eq!(edit(proj.join("a.rs"), &proj), "allow");
+    assert_eq!(edit(proj.join(".git/config"), &proj), "deny");
+    // From a subfolder the relative floor rule does not apply; the protected-place check does.
+    assert_eq!(edit(proj.join(".git/config"), &proj.join("sub")), "none");
+    assert_eq!(edit(proj.join("link/a"), &proj), "none");
+    assert_eq!(edit(outside.join("a"), &proj), "none");
+    // Reading outside is only open through the rootless read-only entry.
+    assert_eq!(
+        decide("Read", json!({"file_path": outside.join("a")}), &proj),
+        "allow"
+    );
+    // Decisions are logged, without anything else.
+    let log = h.ctl("auto-log", "");
+    let items = log["items"].as_array().unwrap();
+    assert!(items
+        .iter()
+        .any(|i| i["decision"] == "allow" && i["rule"] == "Bash(cargo test:*)"));
+    assert!(items.iter().any(|i| i["decision"] == "deny"));
+}

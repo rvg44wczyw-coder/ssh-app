@@ -572,6 +572,191 @@ def guard_allows(rules, tool, tool_input, cwd):
     return first
 
 
+# ---------------------------------------------------------------------------------------------
+# Auto-approval by category (feature 50). The app compiles its policy into `auto_rules`
+# (guard.json): [{"agents": [..]?, "root": "/p"?, "allow": [..], "deny": [..], "edits": bool}].
+# Entries with a root apply only to a session whose cwd is inside that folder, and only to a call
+# that stays inside it (section 4.5 of the spec). Nothing here reads the repository's own files.
+# ---------------------------------------------------------------------------------------------
+AUTO_MAX_ENTRIES = 100
+AUTO_MAX_WORDS = 200
+AUTO_PROTECTED = (".git", ".claude", ".gemini", ".agents", ".ssh-app", ".mcp.json")
+AUTO_PATH_INPUT_KEYS = PATH_KEYS + ("pattern", "glob")
+AUTOLOG = os.path.join(RUN, "auto.log")
+AUTOLOG_MAX = 200000
+
+
+def auto_entries(guard, agent):
+    raw = guard.get("auto_rules")
+    out = []
+    if not isinstance(raw, list):
+        return out
+    for e in raw[:AUTO_MAX_ENTRIES]:
+        if not isinstance(e, dict):
+            continue
+        agents = e.get("agents")
+        if agents is not None and not (isinstance(agents, list) and agent in agents):
+            continue
+        root = e.get("root")
+        if root is not None and not (isinstance(root, str) and root.startswith("/") and len(root) <= 400):
+            continue
+        out.append({"root": root, "allow": guard_rules(e, "allow"), "deny": guard_rules(e, "deny"),
+                    "edits": e.get("edits") is True})
+    return out
+
+
+def real(path):
+    try:
+        return os.path.realpath(path)
+    except (OSError, ValueError):
+        return None
+
+
+def inside(root, path):
+    """True when the real path `path` is root itself or below it (both already resolved)."""
+    return path == root or path.startswith(root.rstrip("/") + "/")
+
+
+def project_root(entries, cwd):
+    """The most specific root (resolved) that contains cwd, else None."""
+    here = real(cwd) if cwd else None
+    if not here:
+        return None
+    best = None
+    for e in entries:
+        if e["root"] is None:
+            continue
+        r = real(e["root"])
+        if r and inside(r, here) and (best is None or len(r) > len(best)):
+            best = r
+    return best
+
+
+def word_stays_inside(root, cwd, word):
+    """False for a word that names a place outside the project (or cannot be resolved)."""
+    if "$" in word or "`" in word:
+        return False
+    for part in ([word] + [word.split("=", 1)[1]] if "=" in word else [word]):
+        if not part or part.startswith("-") and "=" not in word:
+            continue
+        looks_like_path = part.startswith(("/", "~", ".")) or "/" in part or ".." in part
+        target = os.path.expanduser(part) if part.startswith("~") else part
+        if not looks_like_path and not os.path.lexists(os.path.join(cwd, target)):
+            continue
+        r = real(target if target.startswith("/") else os.path.join(cwd, target))
+        if r is None or not inside(root, r):
+            return False
+    return True
+
+
+def bash_stays_inside(root, cwd, command):
+    words = []
+    for seg in shell_segments(SAFE_REDIRECTS.sub(" ", command)):
+        try:
+            words += shlex.split(seg, posix=True)
+        except ValueError:
+            return False
+        if len(words) > AUTO_MAX_WORDS:
+            return False
+    return all(word_stays_inside(root, cwd, w) for w in words)
+
+
+def tool_paths(ti):
+    paths = []
+    for key in AUTO_PATH_INPUT_KEYS:
+        if isinstance(ti.get(key), str) and ti[key]:
+            paths.append(ti[key])
+    for key in ("paths", "file_paths"):
+        if isinstance(ti.get(key), list):
+            paths += [x for x in ti[key] if isinstance(x, str) and x][:50]
+    return paths
+
+
+def paths_stay_inside(root, cwd, paths):
+    return all(word_stays_inside(root, cwd, p) for p in paths)
+
+
+def edit_target_ok(root, cwd, paths):
+    """Edit tools: every file inside the project and not in a protected place."""
+    if not paths:
+        return False
+    for p in paths:
+        if "$" in p:
+            return False
+        full = os.path.expanduser(p) if p.startswith("~") else p
+        r = real(full if full.startswith("/") else os.path.join(cwd, full))
+        if r is None or not inside(root, r):
+            return False
+        rel = os.path.relpath(r, root).split(os.sep)
+        if any(c in AUTO_PROTECTED for c in rel):
+            return False
+    return True
+
+
+def auto_decision(guard, agent, tool, tool_input, cwd):
+    """("deny", rule) | ("allow", rule, root) | None for a tool call, from the compiled auto rules."""
+    entries = auto_entries(guard, agent)
+    if not entries:
+        return None
+    for e in entries:
+        hit = guard_match(e["deny"], tool, tool_input, cwd)
+        if hit is not None:
+            return ("deny", hit)
+    ti = tool_input if isinstance(tool_input, dict) else {}
+    kind = tool_kind(tool)
+    root = project_root(entries, cwd)
+    project_rules, free_rules, edits = [], [], False
+    for e in entries:
+        if e["root"] is None:
+            free_rules += e["allow"]
+        elif root is not None and real(e["root"]) == root:
+            project_rules += e["allow"]
+            edits = edits or e["edits"]
+    if kind == "Edit":
+        if edits and root and edit_target_ok(root, cwd, tool_paths(ti)):
+            return ("allow", "project file edits", root)
+        return None
+    if root is not None and project_rules:
+        hit = guard_allows(project_rules + free_rules, tool, tool_input, cwd)
+        stays = (bash_stays_inside(root, cwd, tool_command(ti)) if kind == "Bash"
+                 else paths_stay_inside(root, cwd, tool_paths(ti)))
+        if hit is not None and stays:
+            return ("allow", hit, root)
+    # Read-only inspection anywhere: the floor (deny) has already run, no project boundary applies.
+    hit = guard_allows(free_rules, tool, tool_input, cwd)
+    if hit is not None:
+        return ("allow", hit, root)
+    return None
+
+
+def auto_log(agent, session, tool, summary, decision, rule, root):
+    """One line per automatic decision, newest last, trimmed by size. Best effort."""
+    try:
+        if not private_dir(HOME_DIR):
+            return
+        os.makedirs(RUN, mode=0o700, exist_ok=True)
+        line = json.dumps({"ts": int(time.time()), "agent": clean(agent, 40), "session": clean(session, 80),
+                           "tool": clean(tool, 60), "summary": clean(summary, 200), "decision": decision,
+                           "rule": clean(rule, 120), "root": clean(root or "", 300)}) + "\n"
+        try:
+            if os.path.getsize(AUTOLOG) > AUTOLOG_MAX:
+                with open(AUTOLOG, "rb") as f:
+                    keep = f.read()[-AUTOLOG_MAX // 2:]
+                keep = keep[keep.find(b"\n") + 1:]
+                fd = os.open(AUTOLOG, os.O_WRONLY | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+                os.write(fd, keep)
+                os.close(fd)
+        except OSError:
+            pass
+        fd = os.open(AUTOLOG, os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o600)
+        try:
+            os.write(fd, line.encode("utf-8"))
+        finally:
+            os.close(fd)
+    except OSError:
+        pass
+
+
 # Agents that speak Claude's hook protocol (payload fields and reply shapes). Qwen Code documents
 # the same `permissionDecision` / `PermissionRequest` replies.
 CLAUDE_STYLE = ("claude", "codex", "qwen")
@@ -828,7 +1013,7 @@ def main():
         if ("SSH_APP_HOOK_TIMEOUT" not in os.environ and isinstance(wait, int)
                 and not isinstance(wait, bool) and 5 <= wait <= 120):
             TIMEOUT = float(wait)
-        if input_too_big(tool_input) and any(guard_rules(guard, k) for k in ("deny", "ask", "allow")):
+        if input_too_big(tool_input) and (any(guard_rules(guard, k) for k in ("deny", "ask", "allow")) or guard.get("auto_rules")):
             # Rules cannot be checked reliably (and cheaply) on this much text: fail closed.
             sys.stdout.write(json.dumps(deny_output(
                 agent, event, "Blocked: the tool input is longer than %d characters, too long to check against the host guard rules" % GUARD_MAX_INPUT)))
@@ -837,6 +1022,11 @@ def main():
         if hit is not None:
             reason = "Blocked by a host guard rule: " + clean(hit, 120)
             sys.stdout.write(json.dumps(deny_output(agent, event, reason)))
+            return 0
+        auto = auto_decision(guard, agent, tool, tool_input, cwd)
+        if auto is not None and auto[0] == "deny":
+            auto_log(agent, session, tool, summary, "deny", auto[1], None)
+            sys.stdout.write(json.dumps(deny_output(agent, event, "Blocked by an auto-approval category: " + clean(auto[1], 120))))
             return 0
         hit = guard_match(guard_rules(guard, "ask"), tool, tool_input, cwd)
         if hit is not None:
@@ -849,6 +1039,12 @@ def main():
             if hit is not None:
                 out = allow_output(agent, event, "Allowed by a host guard rule: " + clean(hit, 120))
                 if out is not None:
+                    sys.stdout.write(json.dumps(out))
+                    return 0
+            elif auto is not None:
+                out = allow_output(agent, event, "Allowed automatically: " + clean(auto[1], 120))
+                if out is not None:
+                    auto_log(agent, session, tool, summary, "allow", auto[1], auto[2])
                     sys.stdout.write(json.dumps(out))
                     return 0
         # Antigravity's own allow list (permissions.allow in its settings): a plain command on it runs
@@ -1041,6 +1237,19 @@ def pending_items(now):
     return items[:MAX_LIST]
 
 
+def auto_log_items():
+    raw = read_small(AUTOLOG, AUTOLOG_MAX * 2)
+    items = []
+    for line in (raw or b"").decode("utf-8", "replace").splitlines()[-200:]:
+        try:
+            v = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(v, dict):
+            items.append(v)
+    return items[-50:]
+
+
 def ctl(sub):
     now = int(time.time())
     if sub == "status":
@@ -1056,6 +1265,8 @@ def ctl(sub):
         return reply({"ok": False, "error": "approval queue is missing or not private"})
     if sub == "sessions":
         return reply({"host_time": now, "items": list_sessions()})
+    if sub == "auto-log":
+        return reply({"host_time": now, "items": auto_log_items()})
     if sub == "list":
         return reply({"host_time": now, "items": pending_items(now)})
     if sub == "wait":

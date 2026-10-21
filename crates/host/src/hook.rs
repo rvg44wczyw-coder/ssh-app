@@ -2,6 +2,7 @@
 //! through the queue and prints the agent-specific decision. No output means "no opinion" and the
 //! agent applies its own policy (OpenCode is the documented exception, see below).
 
+use crate::auto::{auto_decision, AutoDecision};
 use crate::guard::{
     guard_allows, guard_match, guard_rules, guard_text, input_too_big, load_guard, GUARD_MAX_INPUT,
 };
@@ -326,7 +327,11 @@ fn permission(p: &Paths, agent: &str, event: &str, call: &Call, base: &Base, too
     // A payload beyond the read cap was never parsed: the phone would be asked about a blank
     // request, so it is refused outright (nothing legitimate is that large).
     if too_big
-        || (input_too_big(&call.input) && !(deny.is_empty() && ask.is_empty() && allow.is_empty()))
+        || (input_too_big(&call.input)
+            && !(deny.is_empty()
+                && ask.is_empty()
+                && allow.is_empty()
+                && guard.get("auto_rules").is_none()))
     {
         // Rules cannot be checked reliably (and cheaply) on this much text: fail closed.
         emit(&deny_output(
@@ -341,6 +346,13 @@ fn permission(p: &Paths, agent: &str, event: &str, call: &Call, base: &Base, too
         emit(&deny_output(agent, event, &reason));
         return;
     }
+    let auto = auto_decision(&guard, agent, &call.tool, &call.input, &call.cwd);
+    if let Some(AutoDecision::Deny(rule)) = &auto {
+        crate::auto::log(p, base, "deny", rule, None);
+        let reason = format!("Blocked by an auto-approval category: {}", clean(rule, 120));
+        emit(&deny_output(agent, event, &reason));
+        return;
+    }
     if let Some(hit) = guard_match(&ask, &call.tool, &call.input, &call.cwd) {
         let reason = format!("A host guard rule asks you first: {}", clean(&hit, 120));
         if let Some(out) = ask_output(agent, event, &reason) {
@@ -350,6 +362,13 @@ fn permission(p: &Paths, agent: &str, event: &str, call: &Call, base: &Base, too
     } else if let Some(hit) = guard_allows(&allow, &call.tool, &call.input, &call.cwd) {
         let reason = format!("Allowed by a host guard rule: {}", clean(&hit, 120));
         if let Some(out) = allow_output(agent, event, &reason) {
+            emit(&out);
+            return;
+        }
+    } else if let Some(AutoDecision::Allow(rule, root)) = &auto {
+        let reason = format!("Allowed automatically: {}", clean(rule, 120));
+        if let Some(out) = allow_output(agent, event, &reason) {
+            crate::auto::log(p, base, "allow", rule, root.as_deref());
             emit(&out);
             return;
         }
