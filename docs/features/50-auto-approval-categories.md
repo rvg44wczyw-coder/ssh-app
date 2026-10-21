@@ -332,3 +332,25 @@ Findings of the review of §1-11, and what the implementation follows (these win
 7. **Where each rule is enforced twice** (script and Rust port): boundary, all-parts allow, edit rule, trust verify. One test table is
    shared (`crates/core/tests/hook_script.rs` for the script, `crates/host/src/guard.rs` tests for the port).
 8. **Cost**: one `ssh-keygen -Y verify` per use of a trust (only when a trust matches the call's agent, session and project).
+
+
+## 13. Implementation and security review (2026-10-21)
+
+Phases 1-4 are implemented: `crates/core/src/auto_approval.rs` (categories, presets, policy, compile to `auto_rules`,
+trust bytes, offers), `scripts/agent-hooks/ssh-app-hook.py` and `crates/host/src/{auto,trust}.rs` (evaluation, boundary,
+audit log, signed trust), `HookTemplatesView.swift` (screen) and `ApprovalBannerView.swift` (card button). One integration
+test per behaviour runs against both implementations (`SSH_APP_TEST_IMPL=rust`).
+
+Findings of the `hacker` pass, all closed:
+
+- `inspect_anywhere` and in-project `cat` could read `~/.ssh`, `.env`, cloud credentials through Bash (the floor only
+  covers the Read tool). Fix: an automatic allow never applies to a call that names a credential, agent-settings or
+  `.git` path anywhere in its text (`touches_sensitive`, script and port, also for trusts).
+- Prefix rules `git branch -a`, `git branch -v`, `git remote -v` could be extended with `-D` / `add`. Replaced by
+  `git branch --show-current` and `git remote get-url`.
+- A trust is bound to the request the phone saw (id, nonce, agent, session), carries its own SSHSIG, is re-verified on
+  every use, ends with `SessionEnd`, and only works while its root is still a project of the policy.
+
+Known limits (documented, not fixed): `git commit` runs the repository's own git hooks and `cargo`/`make`/`npm` run
+project code (the categories say so and the warnings repeat it); a command substitution inside an argument
+(`git commit -m "$(…)"`) always asks.
