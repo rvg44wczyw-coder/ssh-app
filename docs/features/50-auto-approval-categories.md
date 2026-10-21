@@ -304,3 +304,31 @@ Workflow: `doc-dev → rev → rust-core-dev → rev → swift-bridge-dev → re
 3. The exact set of path-taking flags the boundary check knows (`-C`, `--manifest-path`, `--prefix`, `--directory`, `--work-tree`,
    `--git-dir`, `-f` of make): kept as data in the hook, extended with the category tables; an unknown flag with a path-like value is
    treated as outside.
+
+## 12. Review (`rev`, 2026-10-21) - applied
+
+Findings of the review of §1-11, and what the implementation follows (these win over earlier text):
+
+1. **No `managed` bookkeeping.** `HostGuard` keeps only what the user typed (`deny`/`ask`/`allow`) and gains `auto: AutoPolicy`.
+   The hook JSON is **compiled on every write** (`host_guard_to_json`): nothing generated is ever read back as a user rule, so a
+   stale rule from an older category table cannot survive. `guard.json` carries the policy (`"auto"`, for the app) and the compiled
+   `auto_rules` (for the hook).
+2. **One compiled shape for the hook** (`auto_rules`, evaluated in this order, deny before allow):
+   `[{"agents": ["claude"]?, "root": "/p"?, "allow": [...], "deny": [...], "edits": bool}]`. An entry applies when the agent matches
+   (absent = all agents) and, if `root` is present, the call's `cwd` resolves inside it. `allow` rules of an entry with a `root` pass the
+   boundary check (§4.5); an entry without a `root` (only `inspect_anywhere` and global Block) is not boundary-checked.
+3. **Precedence of levels**: project override > agent override > default. **Block** is per category and per agent, **not** per project
+   (a project can only choose Ask or Auto), so a project cannot lift a Block.
+4. **Floor** (§3.1) is emitted as global `deny` entries whenever any category is `Auto` or any project exists; it is never removable
+   by a project or a trust.
+5. **Scope of `Auto` is `Project`** for every category except when `inspect_anywhere` is on, which turns on only the `inspect`
+   category (read-only commands and `Read`/`Glob`/`Grep`) without a project, still behind the floor.
+6. **Trust message** (signed by the phone with the approval key, namespace `ssh-app-approval`, a distinct message prefix so it can
+   never be mistaken for an approval): `SSH_APP_TRUST_V1:` followed by the fields `id, nonce, ts, expires, agent, session, root, edits,
+   sha256(rules joined by "\n")`, each as `<utf8 length>:<bytes>\n`. The decision file carries `trust: {expires, agent, session, root,
+   edits, rules[], signature}` next to the approval's own signature. The **rules travel signed** (the phone expands the categories), so
+   the hook needs no category table. The hook rechecks `expires <= ts + trust_max_secs`, the agent/session of the live call, then the
+   boundary and the all-parts check with the trusted rules.
+7. **Where each rule is enforced twice** (script and Rust port): boundary, all-parts allow, edit rule, trust verify. One test table is
+   shared (`crates/core/tests/hook_script.rs` for the script, `crates/host/src/guard.rs` tests for the port).
+8. **Cost**: one `ssh-keygen -Y verify` per use of a trust (only when a trust matches the call's agent, session and project).
