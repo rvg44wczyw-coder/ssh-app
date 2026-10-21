@@ -188,9 +188,15 @@ fn wrap(text: &str, style: u8) -> String {
 }
 
 /// Lays the stream's styles over `content`, moving `cursor` forward through the stream.
-fn restyle(content: &str, stream: &[StyledWord], cursor: &mut usize) -> String {
+fn restyle(
+    content: &str,
+    stream: &[StyledWord],
+    cursor: &mut usize,
+    dialect: ScreenDialect,
+) -> String {
     let mut out = String::with_capacity(content.len() + 16);
     let mut fenced = false;
+    let mut prev_line = "";
     for (n, line) in content.split('\n').enumerate() {
         if n > 0 {
             out.push('\n');
@@ -198,10 +204,12 @@ fn restyle(content: &str, stream: &[StyledWord], cursor: &mut usize) -> String {
         if line.trim_start().starts_with("```") {
             fenced = !fenced;
             out.push_str(line);
+            prev_line = line;
             continue;
         }
         if fenced {
             out.push_str(line);
+            prev_line = line;
             continue;
         }
         // Tokens of the line: (is_space, text). Words get styled pieces, spaces get the style
@@ -249,6 +257,15 @@ fn restyle(content: &str, stream: &[StyledWord], cursor: &mut usize) -> String {
                 };
             }
         }
+        // Claude draws a heading as a bold line of its own; a Markdown heading says it better.
+        let before = if n == 0 { "" } else { prev_line };
+        if dialect == ScreenDialect::Claude && is_bold_heading(&pieces, line, before) {
+            let text: String = pieces.iter().map(|p| p.0.as_str()).collect();
+            out.push_str("### ");
+            out.push_str(text.trim());
+            prev_line = line;
+            continue;
+        }
         let mut i = 0;
         while i < pieces.len() {
             let style = pieces[i].1;
@@ -261,8 +278,25 @@ fn restyle(content: &str, stream: &[StyledWord], cursor: &mut usize) -> String {
             out.push_str(&wrap(&text, style));
             i = j;
         }
+        prev_line = line;
     }
     out
+}
+
+/// A line that is bold from start to end, short, unpunctuated at the end, and starts a block
+/// (first line or after a blank one): not a list item, not a sentence.
+fn is_bold_heading(pieces: &[(String, u8)], line: &str, before: &str) -> bool {
+    let text: String = pieces.iter().map(|p| p.0.as_str()).collect();
+    let text = text.trim();
+    !text.is_empty()
+        && text.chars().count() <= 80
+        && before.trim().is_empty()
+        && !line.trim_start().starts_with(['-', '•', '>', '|', '#'])
+        && !text.ends_with(['.', ',', ';', ':'])
+        && pieces
+            .iter()
+            .filter(|p| !p.0.trim().is_empty())
+            .all(|p| p.1 == BOLD)
 }
 
 /// Restyles the reply text of the turns the screen produced.
@@ -280,7 +314,7 @@ pub(super) fn restyle_turns(turns: &mut [TranscriptTurn], raw: &str, dialect: Sc
             continue;
         }
         if let Some(content) = t.content.as_mut() {
-            *content = restyle(content, &stream, &mut cursor);
+            *content = restyle(content, &stream, &mut cursor, dialect);
         }
     }
 }
@@ -292,7 +326,7 @@ mod style_tests {
     fn run(raw: &str, content: &str, d: ScreenDialect) -> String {
         let s = styled_words(raw, d);
         let mut c = 0;
-        restyle(content, &s, &mut c)
+        restyle(content, &s, &mut c, d)
     }
 
     #[test]
@@ -336,6 +370,20 @@ mod style_tests {
         let raw = "\u{1b}[1malpha\u{1b}[0m beta\ngamma \u{1b}[1mdelta\u{1b}[0m";
         let got = run(raw, "alpha beta gamma delta", ScreenDialect::Claude);
         assert_eq!(got, "**alpha** beta gamma **delta**");
+    }
+
+    #[test]
+    fn a_bold_line_of_its_own_becomes_a_heading_in_claude_only() {
+        let raw = "\u{1b}[1mNext steps\u{1b}[0m\n1. one\n\n\u{1b}[1mSentence that is bold.\u{1b}[0m\n\u{1b}[1mHead\u{1b}[0m";
+        let content = "Next steps\n1. one\n\nSentence that is bold.\nHead";
+        let got = run(raw, content, ScreenDialect::Claude);
+        assert_eq!(
+            got,
+            "### Next steps\n1. one\n\n**Sentence that is bold.**\nHead"
+                .replace("\nHead", "\n**Head**")
+        );
+        // agy writes its own `###`; a bold line stays bold there
+        assert!(run(raw, content, ScreenDialect::Agy).starts_with("**Next steps**"));
     }
 
     #[test]
