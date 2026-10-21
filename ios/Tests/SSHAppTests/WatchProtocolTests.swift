@@ -63,7 +63,7 @@ final class WatchProtocolTests: XCTestCase {
     }
 
     func testWatchListIsBuiltFromApprovalsOnly() {
-        func entry(_ id: String, kind: String, command: String = "git push") -> ApprovalEntry {
+        func entry(_ id: String, kind: ApprovalKind, command: String = "git push") -> ApprovalEntry {
             ApprovalEntry(
                 id: "s/\(id)", serverKey: "s", serverName: "Mac",
                 item: PendingApproval(id: id, kind: kind, agent: "claude", event: "PermissionRequest", tool: "Bash",
@@ -74,9 +74,9 @@ final class WatchProtocolTests: XCTestCase {
         }
         let other = String(repeating: "cd34", count: 8)
         let list = WatchBridge.items(from: [
-            entry(id, kind: "approval", command: "sudo rm -rf /tmp/x"),
-            entry(other, kind: "notify"),
-            entry("not-an-id", kind: "approval")
+            entry(id, kind: .approval, command: "sudo rm -rf /tmp/x"),
+            entry(other, kind: .notify),
+            entry("not-an-id", kind: .approval)
         ])
         XCTAssertEqual(list.map(\.id), [id], "notices and malformed ids are not sent")
         XCTAssertEqual(list[0].dir, "proj")

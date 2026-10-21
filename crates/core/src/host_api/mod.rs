@@ -198,8 +198,7 @@ pub(crate) fn build_write_config_command(path: &str, previous: &str, content: &s
 
 impl SshSessionHandle {
     /// `chat_host_ollama` against another port (tests run a fake server).
-    #[cfg(any(test, feature = "test-support"))]
-    pub async fn chat_ollama_on_port(
+    pub(crate) async fn chat_ollama_on_port(
         &self,
         port: u16,
         model: String,
@@ -218,8 +217,7 @@ impl SshSessionHandle {
     }
 
     /// `query_host_ollama` against another port (tests run a fake server; the product uses 11434).
-    #[cfg(any(test, feature = "test-support"))]
-    pub async fn query_ollama_on_port(
+    pub(crate) async fn query_ollama_on_port(
         &self,
         port: u16,
         model: String,
@@ -319,3 +317,29 @@ mod statusline_push;
 #[cfg(test)]
 mod tests;
 mod transcript;
+
+/// Entry points for the loopback tests (fake Ollama on another port); not part of the UniFFI surface.
+#[cfg(feature = "test-support")]
+impl SshSessionHandle {
+    pub async fn test_chat_ollama_on_port(
+        &self,
+        port: u16,
+        model: String,
+        system_prompt: String,
+        messages: Vec<crate::ai::ChatMessage>,
+    ) -> Result<String, SshCoreError> {
+        self.chat_ollama_on_port(port, model, system_prompt, messages)
+            .await
+    }
+
+    pub async fn test_query_ollama_on_port(
+        &self,
+        port: u16,
+        model: String,
+        system_prompt: String,
+        user_prompt: String,
+    ) -> Result<crate::ai::AiCommandSuggestion, SshCoreError> {
+        self.query_ollama_on_port(port, model, system_prompt, user_prompt)
+            .await
+    }
+}

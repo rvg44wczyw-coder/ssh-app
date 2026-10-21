@@ -182,13 +182,19 @@ fn split_footer(lines: &[String]) -> (usize, Option<String>) {
                         .trim()
                         .to_string()
                 })
-                .filter(|l| !l.is_empty())
+                .filter(|l| !l.is_empty() && !is_box_hint(l))
                 .collect();
             let draft = (!draft.is_empty()).then(|| draft.join("\n"));
             return (s1, draft);
         }
     }
     (lines.len(), None)
+}
+
+/// The agent's own hint inside the input box ("Press up to edit queued messages"), not a draft.
+fn is_box_hint(l: &str) -> bool {
+    let l = l.to_lowercase();
+    l.contains("to edit queued messages") || l.starts_with("press up") || l.starts_with("press ↑")
 }
 
 /// The spinner line just above the input box ("✶ Thinking… (12s · esc to interrupt)").

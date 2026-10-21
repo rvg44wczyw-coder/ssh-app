@@ -2184,7 +2184,7 @@ fn stopping_a_local_model_request_kills_it_on_the_host() {
     rt.block_on(async {
         let h = handle.clone();
         let task = tokio::spawn(async move {
-            h.query_ollama_on_port(fake_port, "m".into(), "system".into(), "user".into())
+            h.test_query_ollama_on_port(fake_port, "m".into(), "system".into(), "user".into())
                 .await
         });
         let deadline = Instant::now() + Duration::from_secs(15);
@@ -2269,7 +2269,7 @@ fn local_assistant_chat_sends_the_whole_history_and_returns_the_reply() {
             content: c.into(),
         };
         handle
-            .chat_ollama_on_port(
+            .test_chat_ollama_on_port(
                 fake_port,
                 "m".into(),
                 "be brief".into(),

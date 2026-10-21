@@ -10,12 +10,12 @@ final class AssistantSessionTests: XCTestCase {
         let sa = store.session(for: a)
         XCTAssertTrue(sa === store.session(for: a))
         XCTAssertTrue(store.withHistory(in: [a, b]).isEmpty, "no card before first use")
-        sa.chatMessages = [ChatMessage(role: "user", content: "hi"), ChatMessage(role: "assistant", content: "hello")]
+        sa.chatMessages = [ChatMessage(role: .user, content: "hi"), ChatMessage(role: .assistant, content: "hello")]
         XCTAssertEqual(store.withHistory(in: [a, b]).map(\.serverId), [a])
         XCTAssertEqual(sa.preview, "hello")
         // Clearing one server's chat leaves the others.
         let sb = store.session(for: b)
-        sb.chatMessages = [ChatMessage(role: "user", content: "x")]
+        sb.chatMessages = [ChatMessage(role: .user, content: "x")]
         sa.clearAll()
         XCTAssertEqual(store.withHistory(in: [a, b]).map(\.serverId), [b])
     }
@@ -33,7 +33,7 @@ final class AssistantSessionTests: XCTestCase {
 
     func testInterruptEndsARunningRequestVisiblyAndKeepsHistory() {
         let s = AssistantSession(serverId: UUID())
-        s.chatMessages = [ChatMessage(role: "user", content: "q")]
+        s.chatMessages = [ChatMessage(role: .user, content: "q")]
         s.isChatLoading = true
         s.isAiLoading = true
         s.interrupt()

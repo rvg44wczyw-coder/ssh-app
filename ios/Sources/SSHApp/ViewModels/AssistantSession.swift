@@ -28,7 +28,7 @@ public final class AssistantSession: ObservableObject, Identifiable {
 
     /// One line for the card: the last answer, else the last suggested command.
     public var preview: String {
-        if let last = chatMessages.last(where: { $0.role == "assistant" }) { return last.content }
+        if let last = chatMessages.last(where: { $0.role == .assistant }) { return last.content }
         return activeAiSuggestion?.command ?? ""
     }
 
@@ -47,14 +47,14 @@ public final class AssistantSession: ObservableObject, Identifiable {
             kept.append(m)
         }
         kept.reverse()
-        while let first = kept.first, first.role != "user" { kept.removeFirst() }
+        while let first = kept.first, first.role != .user { kept.removeFirst() }
         return kept
     }
 
     public func sendChat(_ text: String, modelName: String, handle: SshSessionHandle?, connected: Bool) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !isChatLoading else { return }
-        chatMessages.append(ChatMessage(role: "user", content: trimmed))
+        chatMessages.append(ChatMessage(role: .user, content: trimmed))
         chatError = nil
         guard let handle, connected else {
             chatError = "Session is not connected"
@@ -67,7 +67,7 @@ public final class AssistantSession: ObservableObject, Identifiable {
                 let reply = try await handle.chatHostOllama(
                     model: modelName, systemPrompt: Self.chatSystemPrompt, messages: window)
                 guard let self, !Task.isCancelled else { return }
-                self.chatMessages.append(ChatMessage(role: "assistant", content: reply))
+                self.chatMessages.append(ChatMessage(role: .assistant, content: reply))
                 self.isChatLoading = false
             } catch {
                 guard let self, !Task.isCancelled else { return }

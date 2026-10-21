@@ -803,3 +803,10 @@ fn thinking_is_put_before_its_reply_and_tool() {
     assert_eq!(t2 + 1, reply);
     assert!(bash < t2);
 }
+
+#[test]
+fn the_queued_messages_hint_in_the_box_is_not_a_draft() {
+    let screen = "\n⏺ Working on it\n\n────────────────────\n❯ Press up to edit queued messages\n────────────────────\n  ⏵⏵ accept edits on (shift+tab to cycle)\n";
+    let f = parse_screen_feed(screen.into());
+    assert_eq!(f.draft, None);
+}

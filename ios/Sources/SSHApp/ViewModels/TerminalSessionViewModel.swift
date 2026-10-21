@@ -405,7 +405,7 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
               let text = cap.text else { return }
         watchedSum = cap.checksum
         let feed = parseScreenFeed(text: text)
-        let prompt = feed.dialect == "unknown" ? nil : feed.prompt
+        let prompt = feed.dialect == .unknown ? nil : feed.prompt
         if screenPrompt != prompt { screenPrompt = prompt }
     }
 
@@ -429,8 +429,8 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
             text = newer
         }
         let feed = parseScreenFeed(text: text)
-        feedRecognized = feed.dialect != "unknown"
-        guard feed.dialect != "unknown" else { lastScreenSum = nil; return nil }
+        feedRecognized = feed.dialect != .unknown
+        guard feed.dialect != .unknown else { lastScreenSum = nil; return nil }
         lastScreenSum = cap.checksum
         if screenDraft != feed.draft { screenDraft = feed.draft }
         if screenStatus != feed.status { screenStatus = feed.status }
@@ -441,7 +441,7 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         // file has them whole. agy shows its thinking on screen, so only the calls are taken.
         let grew = feed.turns.count != lastScreenTurnCount
         var file = await fileTurnsForThinking(handle, force: grew, screen: text)
-        if feed.dialect == "agy" {
+        if feed.dialect == .agy {
             for i in file.indices { file[i].thinking = nil }
         }
         turns = mergeThinking(screen: turns, file: file)

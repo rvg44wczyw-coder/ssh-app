@@ -12,7 +12,7 @@ public struct ApprovalEntry: Identifiable, Sendable {
     public let hostTimeAtFetch: UInt64
     public let fetchedAt: Date
 
-    public var isApproval: Bool { item.kind == "approval" }
+    public var isApproval: Bool { item.kind == .approval }
 
     /// Seconds left before the host-side hook gives up and the agent falls back to its own prompt.
     public func remainingSeconds(at now: Date = Date()) -> Int {

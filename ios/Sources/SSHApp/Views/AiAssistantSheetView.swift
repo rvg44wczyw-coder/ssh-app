@@ -265,7 +265,7 @@ public struct AiAssistantSheetView: View {
     }
 
     private func chatBubble(_ message: ChatMessage) -> some View {
-        let isUser = message.role == "user"
+        let isUser = message.role == .user
         return HStack {
             if isUser { Spacer(minLength: 40) }
             Text(message.content)
