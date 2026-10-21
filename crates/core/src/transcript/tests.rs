@@ -191,7 +191,7 @@ fn test_payload_too_large() {
     let result = parse_transcript_jsonl(large_payload);
     assert!(matches!(
         result,
-        Err(TranscriptError::PayloadTooLarge { .. })
+        Err(SshCoreError::TranscriptTooLarge { .. })
     ));
 }
 

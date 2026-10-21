@@ -44,8 +44,8 @@ pub struct ScreenPrompt {
 /// The screen read as a feed.
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct ScreenFeed {
-    /// `claude`, `agy` or `unknown` (nothing recognised: one folded "Terminal output" turn).
-    pub dialect: String,
+    /// `Unknown`: nothing recognised, one folded "Terminal output" turn.
+    pub dialect: ScreenDialect,
     pub turns: Vec<TranscriptTurn>,
     /// The live line of the agent ("✶ Thinking… (12s)"), if one is on screen.
     pub status: Option<String>,
@@ -55,8 +55,9 @@ pub struct ScreenFeed {
     pub prompt: Option<ScreenPrompt>,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Dialect {
+/// Which agent's terminal UI the screen was recognised as.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum ScreenDialect {
     Claude,
     Agy,
     Unknown,
@@ -94,21 +95,16 @@ pub fn parse_screen_feed(text: String) -> ScreenFeed {
 
     let mut b = Builder::default();
     match dialect {
-        Dialect::Claude => claude(&lines, &mut b),
-        Dialect::Agy => agy(&join_thought_wraps(&lines), &mut b),
-        Dialect::Unknown => {
+        ScreenDialect::Claude => claude(&lines, &mut b),
+        ScreenDialect::Agy => agy(&join_thought_wraps(&lines), &mut b),
+        ScreenDialect::Unknown => {
             let tail: Vec<&str> = lines.iter().map(String::as_str).collect();
             let keep = tail.len().saturating_sub(300);
             b.system("Terminal output", &tail[keep..].join("\n"));
         }
     }
     ScreenFeed {
-        dialect: match dialect {
-            Dialect::Claude => "claude",
-            Dialect::Agy => "agy",
-            Dialect::Unknown => "unknown",
-        }
-        .to_string(),
+        dialect,
         turns: b.turns,
         status,
         draft,
@@ -116,7 +112,7 @@ pub fn parse_screen_feed(text: String) -> ScreenFeed {
     }
 }
 
-fn detect(lines: &[String]) -> Dialect {
+fn detect(lines: &[String]) -> ScreenDialect {
     let mut claude = 0;
     let mut agy = 0;
     for l in lines {
@@ -138,11 +134,11 @@ fn detect(lines: &[String]) -> Dialect {
         }
     }
     if claude == 0 && agy == 0 {
-        Dialect::Unknown
+        ScreenDialect::Unknown
     } else if claude >= agy {
-        Dialect::Claude
+        ScreenDialect::Claude
     } else {
-        Dialect::Agy
+        ScreenDialect::Agy
     }
 }
 

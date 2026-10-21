@@ -56,7 +56,7 @@ impl SshSessionHandle {
         let item = list
             .items
             .iter()
-            .find(|i| i.id == id && i.kind == "approval")
+            .find(|i| i.id == id && i.kind == crate::approval_queue::ApprovalKind::Approval)
             .filter(|i| i.expires_sec > list.host_time_sec)
             .ok_or_else(|| SshCoreError::ApprovalVerificationError {
                 reason: "the request is gone or has expired".to_string(),

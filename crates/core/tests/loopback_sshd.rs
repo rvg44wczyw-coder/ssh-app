@@ -736,7 +736,7 @@ fn phone_approval_roundtrip_against_loopback_sshd() {
             let deadline = Instant::now() + Duration::from_secs(10);
             let item = loop {
                 let l = handle.list_pending_approvals().await.unwrap();
-                if let Some(i) = l.items.into_iter().find(|i| i.kind == "approval") {
+                if let Some(i) = l.items.into_iter().find(|i| i.kind == ssh_core::ApprovalKind::Approval) {
                     break i;
                 }
                 assert!(Instant::now() < deadline, "request never showed up");
@@ -2264,8 +2264,8 @@ fn local_assistant_chat_sends_the_whole_history_and_returns_the_reply() {
         .build()
         .unwrap();
     let answer = rt.block_on(async {
-        let msg = |r: &str, c: &str| ssh_core::ai::ChatMessage {
-            role: r.into(),
+        let msg = |r: ssh_core::ai::ChatRole, c: &str| ssh_core::ai::ChatMessage {
+            role: r,
             content: c.into(),
         };
         handle
@@ -2274,9 +2274,9 @@ fn local_assistant_chat_sends_the_whole_history_and_returns_the_reply() {
                 "m".into(),
                 "be brief".into(),
                 vec![
-                    msg("user", "what is it'? "),
-                    msg("assistant", "a thing"),
-                    msg("user", "why?"),
+                    msg(ssh_core::ai::ChatRole::User, "what is it'? "),
+                    msg(ssh_core::ai::ChatRole::Assistant, "a thing"),
+                    msg(ssh_core::ai::ChatRole::User, "why?"),
                 ],
             )
             .await

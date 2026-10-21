@@ -1,28 +1,28 @@
 use super::*;
 
 /// Validates whether a remote path is safe to read.
-pub fn validate_transcript_path(path: &str) -> Result<(), TranscriptError> {
+pub fn validate_transcript_path(path: &str) -> Result<(), SshCoreError> {
     let trimmed = path.trim();
     if trimmed.is_empty() {
-        return Err(TranscriptError::InvalidPath {
+        return Err(SshCoreError::InvalidTranscriptPath {
             path: path.to_string(),
             reason: "Path cannot be empty".to_string(),
         });
     }
     if trimmed.starts_with('-') {
-        return Err(TranscriptError::InvalidPath {
+        return Err(SshCoreError::InvalidTranscriptPath {
             path: path.to_string(),
             reason: "Path cannot start with '-'".to_string(),
         });
     }
     if trimmed.contains("..") {
-        return Err(TranscriptError::InvalidPath {
+        return Err(SshCoreError::InvalidTranscriptPath {
             path: path.to_string(),
             reason: "Path traversal ('..') is prohibited".to_string(),
         });
     }
     if trimmed.chars().any(|c| c.is_control()) || trimmed.contains('\'') {
-        return Err(TranscriptError::InvalidPath {
+        return Err(SshCoreError::InvalidTranscriptPath {
             path: path.to_string(),
             reason: "Path contains illegal characters".to_string(),
         });
@@ -42,7 +42,7 @@ pub fn validate_transcript_path(path: &str) -> Result<(), TranscriptError> {
     ];
     for prefix in forbidden_prefixes {
         if trimmed.starts_with(prefix) {
-            return Err(TranscriptError::InvalidPath {
+            return Err(SshCoreError::InvalidTranscriptPath {
                 path: path.to_string(),
                 reason: format!("Access to '{}' is prohibited", prefix),
             });
@@ -51,7 +51,7 @@ pub fn validate_transcript_path(path: &str) -> Result<(), TranscriptError> {
     let forbidden_segments = ["/.ssh/", "/.gnupg/", "/.aws/", "/Library/Keychains/"];
     for segment in forbidden_segments {
         if trimmed.contains(segment) {
-            return Err(TranscriptError::InvalidPath {
+            return Err(SshCoreError::InvalidTranscriptPath {
                 path: path.to_string(),
                 reason: format!("Access to '{}' is prohibited", segment),
             });

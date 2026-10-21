@@ -466,10 +466,18 @@ pub fn parse_ollama_generate_response(json_body: &str) -> Result<String, SshCore
         })
 }
 
-/// One turn of the local-assistant chat. `role` is `user` or `assistant`.
+/// Who said a turn of the local-assistant chat.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, uniffi::Enum)]
+#[serde(rename_all = "lowercase")]
+pub enum ChatRole {
+    User,
+    Assistant,
+}
+
+/// One turn of the local-assistant chat.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, uniffi::Record)]
 pub struct ChatMessage {
-    pub role: String,
+    pub role: ChatRole,
     pub content: String,
 }
 
@@ -494,7 +502,7 @@ pub fn build_ollama_chat_payload(
     if messages.is_empty() || messages.len() > CHAT_MAX_MESSAGES {
         return Err(bad("Chat history is empty or too long"));
     }
-    if messages.last().map(|m| m.role.as_str()) != Some("user") {
+    if messages.last().map(|m| m.role) != Some(ChatRole::User) {
         return Err(bad("Chat must end with a user message"));
     }
     let total: usize =
@@ -504,10 +512,11 @@ pub fn build_ollama_chat_payload(
     }
     let mut turns = vec![serde_json::json!({"role": "system", "content": system_prompt})];
     for m in messages {
-        if m.role != "user" && m.role != "assistant" {
-            return Err(bad("Unknown chat role"));
-        }
-        turns.push(serde_json::json!({"role": m.role, "content": m.content}));
+        let role = match m.role {
+            ChatRole::User => "user",
+            ChatRole::Assistant => "assistant",
+        };
+        turns.push(serde_json::json!({"role": role, "content": m.content}));
     }
     Ok(serde_json::json!({"model": model, "messages": turns, "stream": false}).to_string())
 }
@@ -760,9 +769,9 @@ mod tests {
         let response_text = parse_ollama_generate_response(json).unwrap();
         assert!(response_text.contains("COMMAND: ls"));
     }
-    fn turn(role: &str, content: &str) -> ChatMessage {
+    fn turn(role: ChatRole, content: &str) -> ChatMessage {
         ChatMessage {
-            role: role.into(),
+            role,
             content: content.into(),
         }
     }
@@ -770,9 +779,9 @@ mod tests {
     #[test]
     fn chat_payload_carries_history_and_rejects_bad_input() {
         let msgs = vec![
-            turn("user", "hi"),
-            turn("assistant", "hello"),
-            turn("user", "why?"),
+            turn(ChatRole::User, "hi"),
+            turn(ChatRole::Assistant, "hello"),
+            turn(ChatRole::User, "why?"),
         ];
         let v: serde_json::Value =
             serde_json::from_str(&build_ollama_chat_payload("m", "sys", &msgs).unwrap()).unwrap();
@@ -782,11 +791,9 @@ mod tests {
         assert_eq!(v["messages"][3]["content"], "why?");
         assert!(build_ollama_chat_payload("", "s", &msgs).is_err());
         assert!(build_ollama_chat_payload("m", "s", &[]).is_err());
-        assert!(build_ollama_chat_payload("m", "s", &[turn("assistant", "x")]).is_err());
-        assert!(
-            build_ollama_chat_payload("m", "s", &[turn("system", "x"), turn("user", "y")]).is_err()
-        );
-        let huge = turn("user", &"a".repeat(CHAT_MAX_TOTAL_BYTES + 1));
+        assert!(build_ollama_chat_payload("m", "s", &[turn(ChatRole::Assistant, "x")]).is_err());
+
+        let huge = turn(ChatRole::User, &"a".repeat(CHAT_MAX_TOTAL_BYTES + 1));
         assert!(build_ollama_chat_payload("m", "s", &[huge]).is_err());
     }
 

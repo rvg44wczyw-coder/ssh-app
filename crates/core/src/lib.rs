@@ -65,10 +65,11 @@ pub use approval::{
     verify_approval_signature, CanonicalSigningPayload,
 };
 pub use approval_queue::{
-    approval_request_digest, sign_approval_sshsig, ApprovalList, ApprovalStatus, PendingApproval,
+    approval_request_digest, sign_approval_sshsig, ApprovalKind, ApprovalList, ApprovalStatus,
+    PendingApproval,
 };
 pub use config::{RemoteServerConfig, SessionConfig, SessionState, TerminalSize};
-pub use error::{SshCoreError, TranscriptError};
+pub use error::SshCoreError;
 pub use file_browser::{
     parse_remote_directory_listing, quote_remote_path_for_shell, RemoteDirectoryListing,
     RemoteFileEntry, RemoteFileKind, RemoteFilePreview,

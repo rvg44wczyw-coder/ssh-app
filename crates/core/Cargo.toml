@@ -16,6 +16,8 @@ required-features = ["cli"]
 [features]
 default = []
 cli = ["uniffi/cli"]
+# Test-only entry points (fake Ollama port); never part of the UniFFI surface.
+test-support = []
 
 [dependencies]
 russh = { version = "0.63", default-features = false, features = ["aws-lc-rs", "flate2"] }
@@ -35,4 +37,5 @@ hex = "0.4"
 ed25519-dalek = "3"
 
 [dev-dependencies]
+ssh-core = { path = ".", features = ["test-support"] }
 tempfile = "3"

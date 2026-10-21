@@ -1,4 +1,4 @@
-use crate::error::TranscriptError;
+use crate::error::SshCoreError;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;

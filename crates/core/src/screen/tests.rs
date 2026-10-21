@@ -38,9 +38,12 @@ fn the_auto_mode_note_is_not_a_turn_but_other_notes_stay() {
 #[test]
 fn the_footer_names_the_agent_when_the_scrolled_part_has_no_marker() {
     let agy = "plain text that scrolled by\nmore text\n──────\n>\n──────\n? for shortcuts   accept-edits · Gemini 3.8 Flash · medium\n";
-    assert_eq!(parse_screen_feed(agy.into()).dialect, "agy");
+    assert_eq!(parse_screen_feed(agy.into()).dialect, ScreenDialect::Agy);
     let claude = "plain text\nmore\n  ⏵⏵ auto mode on (shift+tab to cycle)\n";
-    assert_eq!(parse_screen_feed(claude.into()).dialect, "claude");
+    assert_eq!(
+        parse_screen_feed(claude.into()).dialect,
+        ScreenDialect::Claude
+    );
 }
 
 #[test]
@@ -110,7 +113,7 @@ const CLAUDE: &str = "\
 #[test]
 fn claude_screen() {
     let f = turns(CLAUDE);
-    assert_eq!(f.dialect, "claude");
+    assert_eq!(f.dialect, ScreenDialect::Claude);
     assert_eq!(f.draft.as_deref(), Some("черновик"));
     assert_eq!(
         f.status.as_deref(),
@@ -195,7 +198,7 @@ fai...
 #[test]
 fn agy_screen() {
     let f = turns(AGY);
-    assert_eq!(f.dialect, "agy");
+    assert_eq!(f.dialect, ScreenDialect::Agy);
     assert_eq!(f.draft, None);
     let kinds: Vec<String> = f
         .turns
@@ -709,7 +712,7 @@ fn matched_edit_gets_arguments_and_result_from_the_file() {
 fn ctrl_o_transcript_view_keeps_full_calls_and_drops_its_footer() {
     let text = include_str!("../../tests/data/claude_ctrl_o.txt");
     let f = parse_screen_feed(text.to_string());
-    assert_eq!(f.dialect, "claude");
+    assert_eq!(f.dialect, ScreenDialect::Claude);
     let bash = f
         .turns
         .iter()
@@ -740,7 +743,7 @@ fn no_prompt_without_a_hint_line() {
 #[test]
 fn unknown_screen_is_kept_folded() {
     let f = turns("user@host ~ % ls\nfoo bar\n");
-    assert_eq!(f.dialect, "unknown");
+    assert_eq!(f.dialect, ScreenDialect::Unknown);
     assert_eq!(f.turns.len(), 1);
     assert!(f.turns[0].content.as_deref().unwrap().contains("foo bar"));
 }

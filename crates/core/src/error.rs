@@ -65,6 +65,12 @@ pub enum SshCoreError {
     #[error("Transcript error: {reason}")]
     TranscriptError { reason: String },
 
+    #[error("Transcript is larger than the safety limit ({bytes} bytes)")]
+    TranscriptTooLarge { bytes: u64 },
+
+    #[error("Invalid transcript path '{path}': {reason}")]
+    InvalidTranscriptPath { path: String, reason: String },
+
     #[error("No such file or directory: {path}")]
     FileNotFound { path: String },
 
@@ -79,19 +85,4 @@ pub enum SshCoreError {
 
     #[error("Transfer cancelled")]
     Cancelled,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, uniffi::Error)]
-pub enum TranscriptError {
-    #[error("Failed to parse JSONL line: {reason}")]
-    JsonParseError { reason: String },
-
-    #[error("File size exceeds safety limit ({bytes} bytes)")]
-    PayloadTooLarge { bytes: u64 },
-
-    #[error("Invalid remote path '{path}': {reason}")]
-    InvalidPath { path: String, reason: String },
-
-    #[error("Transcript IO error: {reason}")]
-    IoError { reason: String },
 }

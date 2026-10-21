@@ -2,9 +2,9 @@ use super::*;
 
 /// Parses a JSONL transcript payload into a normalized sequence of `TranscriptTurn`s.
 #[uniffi::export]
-pub fn parse_transcript_jsonl(raw_jsonl: String) -> Result<Vec<TranscriptTurn>, TranscriptError> {
+pub fn parse_transcript_jsonl(raw_jsonl: String) -> Result<Vec<TranscriptTurn>, SshCoreError> {
     if raw_jsonl.len() > MAX_PAYLOAD_SIZE {
-        return Err(TranscriptError::PayloadTooLarge {
+        return Err(SshCoreError::TranscriptTooLarge {
             bytes: raw_jsonl.len() as u64,
         });
     }

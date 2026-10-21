@@ -20,12 +20,21 @@ const MAX_COMMAND: usize = 2000;
 const MAX_FIELD: usize = 512;
 const CTL: &str = "python3 -I \"$HOME/.ssh-app/bin/ssh-app-hook\" ctl";
 
-/// One request the host hook is waiting on (`kind == "approval"`) or an informational notice
-/// (`kind == "notify"`). All text fields are display-safe (see the module docs).
+/// What a pending entry asks of the user.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum ApprovalKind {
+    /// The host hook waits for allow / deny.
+    Approval,
+    /// Informational; acknowledged, not decided.
+    Notify,
+}
+
+/// One request the host hook is waiting on or an informational notice. All text fields are
+/// display-safe (see the module docs).
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct PendingApproval {
     pub id: String,
-    pub kind: String,
+    pub kind: ApprovalKind,
     pub agent: String,
     pub event: String,
     pub tool: String,
@@ -165,10 +174,11 @@ fn parse_item(v: &Value) -> Option<PendingApproval> {
     if !is_valid_id(id) {
         return None;
     }
-    let kind = v.get("kind")?.as_str()?;
-    if kind != "approval" && kind != "notify" {
-        return None;
-    }
+    let kind = match v.get("kind")?.as_str()? {
+        "approval" => ApprovalKind::Approval,
+        "notify" => ApprovalKind::Notify,
+        _ => return None,
+    };
     let agent = str_field(v, "agent", MAX_FIELD)?;
     let tool = str_field(v, "tool", MAX_FIELD)?;
     let cwd = str_field(v, "cwd", MAX_FIELD)?;
@@ -186,7 +196,7 @@ fn parse_item(v: &Value) -> Option<PendingApproval> {
     }
     Some(PendingApproval {
         id: id.to_string(),
-        kind: kind.to_string(),
+        kind,
         agent: display_safe(agent),
         event: display_safe(event),
         tool: display_safe(tool),
@@ -379,8 +389,8 @@ mod tests {
         assert_eq!(l.items.len(), 1);
         let i = &l.items[0];
         assert_eq!(
-            (i.id.as_str(), i.kind.as_str(), i.command.as_str()),
-            (ID, "approval", "git push")
+            (i.id.as_str(), i.kind, i.command.as_str()),
+            (ID, ApprovalKind::Approval, "git push")
         );
         assert_eq!((i.timestamp_sec, i.expires_sec), (100, 220));
     }

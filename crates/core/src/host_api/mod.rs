@@ -198,7 +198,7 @@ pub(crate) fn build_write_config_command(path: &str, previous: &str, content: &s
 
 impl SshSessionHandle {
     /// `chat_host_ollama` against another port (tests run a fake server).
-    #[doc(hidden)]
+    #[cfg(any(test, feature = "test-support"))]
     pub async fn chat_ollama_on_port(
         &self,
         port: u16,
@@ -218,7 +218,7 @@ impl SshSessionHandle {
     }
 
     /// `query_host_ollama` against another port (tests run a fake server; the product uses 11434).
-    #[doc(hidden)]
+    #[cfg(any(test, feature = "test-support"))]
     pub async fn query_ollama_on_port(
         &self,
         port: u16,
