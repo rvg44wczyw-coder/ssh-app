@@ -5,6 +5,7 @@ pub mod agents;
 pub mod ai;
 pub mod approval;
 pub mod approval_queue;
+pub mod auto_approval;
 pub mod buffer;
 pub mod config;
 pub mod error;
@@ -67,6 +68,11 @@ pub use approval::{
 pub use approval_queue::{
     approval_request_digest, sign_approval_sshsig, ApprovalKind, ApprovalList, ApprovalStatus,
     PendingApproval,
+};
+pub use auto_approval::{
+    auto_categories, auto_policy_warnings, auto_policy_with_preset, auto_presets,
+    AutoAgentOverride, AutoCategory, AutoCategoryLevel, AutoCommand, AutoLevel, AutoPolicy,
+    AutoPreset, AutoProject, AutoRisk,
 };
 pub use config::{RemoteServerConfig, SessionConfig, SessionState, TerminalSize};
 pub use error::SshCoreError;

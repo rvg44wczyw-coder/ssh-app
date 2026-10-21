@@ -34,6 +34,8 @@ pub struct HostGuard {
     /// How long the hook holds a tool call for an answer from the phone before the agent asks in
     /// its own terminal. `0` = the default (120 s); otherwise 5 to 120 seconds.
     pub approval_wait_secs: u32,
+    /// Auto-approval by command category (feature 50); compiled into `auto_rules` on every save.
+    pub auto: crate::auto_approval::AutoPolicy,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
@@ -90,6 +92,7 @@ pub fn validate_host_guard(guard: HostGuard) -> Result<HostGuard, SshCoreError> 
                 )))
             }
         },
+        auto: crate::auto_approval::validate_auto_policy(&guard.auto)?,
     })
 }
 
@@ -110,6 +113,14 @@ pub fn host_guard_to_json(guard: HostGuard) -> Result<String, SshCoreError> {
     }
     if g.approval_wait_secs > 0 {
         v["approval_wait_secs"] = json!(g.approval_wait_secs);
+    }
+    if g.auto != crate::auto_approval::AutoPolicy::default() {
+        v["auto"] = crate::auto_approval::policy_to_json(&g.auto);
+        let rules = crate::auto_approval::compile_auto_rules(&g.auto)?;
+        if !rules.is_empty() {
+            v["auto_rules"] = Value::Array(rules);
+        }
+        v["trust_max_secs"] = json!(crate::auto_approval::trust_cap(&g.auto));
     }
     serde_json::to_string_pretty(&v).map_err(|e| invalid(format!("Could not write the guard: {e}")))
 }
@@ -166,6 +177,7 @@ pub fn host_guard_from_json(text: String) -> Result<HostGuard, SshCoreError> {
             .and_then(|n| u32::try_from(n).ok())
             .filter(|n| (MIN_WAIT..=MAX_WAIT).contains(n))
             .unwrap_or(0),
+        auto: crate::auto_approval::policy_from_json(obj.get("auto")),
     })
 }
 
@@ -496,6 +508,7 @@ mod tests {
             prompt_context: "world".into(),
             stop_message: "run tests".into(),
             approval_wait_secs: 30,
+            auto: Default::default(),
         };
         let json = host_guard_to_json(guard.clone()).unwrap();
         assert_eq!(host_guard_from_json(json.clone()).unwrap(), guard);
