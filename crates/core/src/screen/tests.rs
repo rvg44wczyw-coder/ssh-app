@@ -925,3 +925,22 @@ fn a_real_agy_table_has_one_row_per_competitor() {
         "{md:#?}"
     );
 }
+
+#[test]
+fn a_real_styled_claude_reply_gets_bold_and_code_back() {
+    let raw = include_str!("../../tests/data/claude_styled_reply.txt");
+    assert!(raw.contains('\u{1b}'), "the fixture keeps its styles");
+    let feed = parse_screen_feed(raw.to_string());
+    assert_eq!(feed.dialect, ScreenDialect::Claude);
+    let text: String = feed
+        .turns
+        .iter()
+        .filter_map(|t| t.content.clone())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(text.contains("закоммичены (`364713f`)."), "{text}");
+    assert!(text.contains("**Спеки 37–43 и 45:**"), "{text}");
+    assert!(text.contains("«Review (`rev`, 2026-10-20)»"), "{text}");
+    assert!(text.contains("`docs/roadmap.md`:"), "{text}");
+    assert!(!text.contains('\u{1b}'));
+}

@@ -1,7 +1,9 @@
 use super::*;
 
 pub(super) fn norm(s: &str, n: usize) -> String {
-    s.split_whitespace()
+    s.split(['*', '`'])
+        .collect::<String>()
+        .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
         .to_lowercase()
@@ -143,6 +145,9 @@ pub(super) fn describe_group(group: &mut TranscriptToolCall, calls: &[Transcript
 /// right before the reply text or tool call it preceded, so the order of the story is kept.
 /// `file` is the session file's turns; a turn there is matched to the screen turn with the same
 /// reply text or the same tool call (name and the start of its arguments), moving forward only.
+/// Whitespace-collapsed text without Markdown emphasis marks, so a reply compares equal whether
+/// or not its styles were turned into `**` and backticks on either side.
 pub(super) fn squash(s: &str) -> String {
-    s.split_whitespace().collect::<Vec<_>>().join(" ")
+    let plain: String = s.chars().filter(|c| !matches!(c, '*' | '`')).collect();
+    plain.split_whitespace().collect::<Vec<_>>().join(" ")
 }

@@ -67,6 +67,8 @@ pub enum ScreenDialect {
 #[uniffi::export]
 pub fn parse_screen_feed(text: String) -> ScreenFeed {
     // The pane is untrusted display data: no escape sequences or control characters get through.
+    // The raw capture is kept only to read styles from (`style::restyle_turns`).
+    let raw = text.clone();
     let text = crate::transcript::strip_ansi_codes(text);
     let mut lines: Vec<String> = text.lines().map(|l| l.trim_end().to_string()).collect();
     while lines.last().is_some_and(|l| l.is_empty()) {
@@ -103,9 +105,11 @@ pub fn parse_screen_feed(text: String) -> ScreenFeed {
             b.system("Terminal output", &tail[keep..].join("\n"));
         }
     }
+    let mut turns = b.turns;
+    style::restyle_turns(&mut turns, &raw, dialect);
     ScreenFeed {
         dialect,
-        turns: b.turns,
+        turns,
         status,
         draft,
         prompt,
@@ -322,6 +326,7 @@ use agy::*;
 mod tools;
 use tools::*;
 mod merge;
+mod style;
 pub use merge::{merge_thinking, transcript_matches_screen};
 #[cfg(test)]
 mod tests;

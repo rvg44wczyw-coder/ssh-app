@@ -74,7 +74,7 @@ impl SshSessionHandle {
         }
     }
 
-    /// The text of this tab's tmux pane with its whole history (`capture-pane -p -J -S -`), for the
+    /// The text of this tab's tmux pane with its whole history (`capture-pane -e -p -J -S -`, styles kept), for the
     /// feed built from the screen. `known_sum` is the checksum of the previous answer: when the
     /// screen is unchanged the host answers `SAME` and nothing else crosses the network.
     /// Returns `(checksum, Some(text))`, or `(checksum, None)` when unchanged.
@@ -112,7 +112,7 @@ impl SshSessionHandle {
                 reason: "The pane could not be read".to_string(),
             })?;
         // The pane is untrusted display data: bounded like a transcript.
-        let text: String = rest.chars().take(2_000_000).collect();
+        let text: String = rest.chars().take(3_000_000).collect();
         Ok(ScreenCapture {
             checksum: sum.trim().to_string(),
             text: Some(text),
