@@ -1,0 +1,221 @@
+use super::*;
+
+/// The hook dir is embedded in a command the *agent's shell* executes (inside double quotes), so
+/// it must not contain anything the shell would interpret (`$`, backticks, quotes, `\`, ...).
+pub(super) fn validate_hook_dir(dir: &str) -> Result<(), SshCoreError> {
+    validate_dir(dir)?;
+    if !dir
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '/' | '~' | ' '))
+    {
+        return Err(invalid(
+            "Hook directory may only contain letters, digits, space and . _ - / ~",
+        ));
+    }
+    Ok(())
+}
+
+pub(super) fn validate_dir(dir: &str) -> Result<(), SshCoreError> {
+    if dir.trim().is_empty() || has_control(dir) {
+        return Err(invalid("Invalid directory"));
+    }
+    Ok(())
+}
+
+/// Remote path (with a leading `~/`) of the config file the hooks live in.
+#[uniffi::export]
+pub fn agent_hooks_config_path(
+    agent: AgentKind,
+    config_dir: Option<String>,
+) -> Result<String, SshCoreError> {
+    let (default_dir, file) = match agent {
+        AgentKind::ClaudeCode => ("~/.claude", "settings.json"),
+        AgentKind::Antigravity => ("~/.gemini/config", "hooks.json"),
+        // Codex trusts hooks by hash (the user reviews them with /hooks); Grok reads every
+        // `*.json` in its hooks directory, so the installer owns one file there.
+        AgentKind::Codex => ("~/.codex", "hooks.json"),
+        AgentKind::Grok => ("~/.grok/hooks", "ssh-app.json"),
+        // Qwen Code reads Claude-style hooks from `settings.json`; Crush from `crush.json`;
+        // OpenCode loads every file in its plugins directory (the installer owns one). The Qwen
+        // and Crush user paths are not stated in the docs consulted: the preview shows the target.
+        AgentKind::QwenCode => ("~/.qwen", "settings.json"),
+        AgentKind::Crush => ("~/.config/crush", "crush.json"),
+        AgentKind::OpenCode => ("~/.config/opencode/plugins", "ssh-app.js"),
+        other => return Err(no_hooks(other)),
+    };
+    let dir = match config_dir
+        .as_deref()
+        .map(str::trim)
+        .filter(|d| !d.is_empty())
+    {
+        Some(d) => {
+            validate_dir(d)?;
+            d.trim_end_matches('/').to_string()
+        }
+        None => default_dir.to_string(),
+    };
+    Ok(format!("{dir}/{file}"))
+}
+
+pub(super) fn no_hooks(agent: AgentKind) -> SshCoreError {
+    invalid(format!(
+        "{agent:?} has no hook mechanism ssh-app can use; it asks in its own terminal"
+    ))
+}
+
+pub(super) fn hook_command(hook_dir: &str, agent: &str, event: &str) -> String {
+    let dir = hook_dir.trim_end_matches('/');
+    let path = match dir.strip_prefix("~/") {
+        Some(rest) => format!("$HOME/{rest}/{HOOK_MARKER}"),
+        None => format!("{dir}/{HOOK_MARKER}"),
+    };
+    format!("python3 -I \"{path}\" {agent} {event}")
+}
+
+/// Exactly the commands we write: the script invocation (`python3 -I ".../ssh-app-hook" <agent>
+/// <Event>`) or a custom command ending in our marker comment. A substring match would also
+/// delete a user's unrelated hook that merely mentions the marker in a path.
+pub(super) fn is_our_command(command: &str) -> bool {
+    command.ends_with(&format!(" # {HOOK_MARKER}-custom"))
+        || (command.starts_with("python3 -I \"") && command.contains(&format!("/{HOOK_MARKER}\" ")))
+}
+
+pub(super) fn is_our_handler(h: &Value) -> bool {
+    h.get("command")
+        .and_then(Value::as_str)
+        .map(is_our_command)
+        .unwrap_or(false)
+}
+
+/// Key that holds `{event: [entries]}` in the agent's config.
+pub(super) fn container_key(agent: AgentKind) -> Result<&'static str, SshCoreError> {
+    match agent {
+        AgentKind::ClaudeCode
+        | AgentKind::Codex
+        | AgentKind::Grok
+        | AgentKind::QwenCode
+        | AgentKind::Crush => Ok("hooks"),
+        AgentKind::Antigravity => Ok(ANTIGRAVITY_HOOK_KEY),
+        // OpenCode's hooks are a JS plugin, not a JSON container (see `opencode_*`).
+        other => Err(no_hooks(other)),
+    }
+}
+
+/// Best-effort scan for an object that repeats a key (a rewrite would silently keep only the
+/// last one). Runs on text; escapes inside keys are compared in their raw form.
+pub(super) fn find_duplicate_key(text: &str) -> Option<String> {
+    use std::collections::HashSet;
+    // One frame per open container: Some(keys seen) for objects, None for arrays.
+    let mut stack: Vec<Option<HashSet<String>>> = vec![];
+    let mut expect_key: Vec<bool> = vec![];
+    let mut chars = text.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            '{' => {
+                stack.push(Some(HashSet::new()));
+                expect_key.push(true);
+            }
+            '[' => {
+                stack.push(None);
+                expect_key.push(false);
+            }
+            '}' | ']' => {
+                stack.pop();
+                expect_key.pop();
+            }
+            ',' => {
+                if let (Some(Some(_)), Some(e)) = (stack.last(), expect_key.last_mut()) {
+                    *e = true;
+                }
+            }
+            ':' => {
+                if let Some(e) = expect_key.last_mut() {
+                    *e = false;
+                }
+            }
+            '"' => {
+                let mut raw = String::new();
+                while let Some(ch) = chars.next() {
+                    match ch {
+                        '\\' => {
+                            raw.push(ch);
+                            if let Some(n) = chars.next() {
+                                raw.push(n);
+                            }
+                        }
+                        '"' => break,
+                        _ => raw.push(ch),
+                    }
+                }
+                if let (Some(Some(keys)), Some(true)) = (stack.last_mut(), expect_key.last()) {
+                    if !keys.insert(raw.clone()) {
+                        return Some(raw);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+pub(crate) fn parse_object(existing: &str) -> Result<Map<String, Value>, SshCoreError> {
+    if existing.trim().is_empty() {
+        return Ok(Map::new());
+    }
+    if let Some(key) = find_duplicate_key(existing) {
+        return Err(invalid(format!(
+            "Config file has the duplicate key \"{key}\"; refusing to modify it"
+        )));
+    }
+    match serde_json::from_str::<Value>(existing) {
+        Ok(Value::Object(m)) => Ok(m),
+        Ok(_) => Err(invalid(
+            "Config file is not a JSON object; refusing to modify it",
+        )),
+        Err(e) => Err(invalid(format!(
+            "Config file is not valid JSON ({e}); refusing to modify it"
+        ))),
+    }
+}
+
+pub(crate) fn render(map: Map<String, Value>) -> Result<String, SshCoreError> {
+    serde_json::to_string_pretty(&Value::Object(map))
+        .map(|s| s + "\n")
+        .map_err(|e| invalid(format!("Failed to serialize config: {e}")))
+}
+
+pub(super) fn handler(command: String) -> Value {
+    json!({ "type": "command", "command": command, "timeout": HOOK_TIMEOUT_SECS })
+}
+
+/// Removes only our handlers from `<key>.<event>` (keeping everyone else's, including siblings in
+/// the same entry) and drops entries/events/containers that become empty.
+pub(super) fn strip_container(map: &mut Map<String, Value>, key: &str) {
+    if let Some(Value::Object(events)) = map.get_mut(key) {
+        for (_, list) in events.iter_mut() {
+            if let Value::Array(items) = list {
+                // Antigravity's flat events (Stop, ...) hold handler objects directly.
+                items.retain(|item| !(item.get("hooks").is_none() && is_our_handler(item)));
+                // Only entries that *became* empty because we took our handler out are dropped.
+                let emptied: Vec<bool> = items
+                    .iter_mut()
+                    .map(|item| match item.get_mut("hooks") {
+                        Some(Value::Array(hs)) => {
+                            let before = hs.len();
+                            hs.retain(|h| !is_our_handler(h));
+                            before > 0 && hs.is_empty()
+                        }
+                        _ => false,
+                    })
+                    .collect();
+                let mut it = emptied.into_iter();
+                items.retain(|_| !it.next().unwrap_or(false));
+            }
+        }
+        events.retain(|_, v| !matches!(v, Value::Array(a) if a.is_empty()));
+    }
+    if matches!(map.get(key), Some(Value::Object(h)) if h.is_empty()) {
+        map.shift_remove(key);
+    }
+}
