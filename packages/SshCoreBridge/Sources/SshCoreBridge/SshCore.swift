@@ -1733,7 +1733,7 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func previewClaudeStatusline(configDir: String?, hookDir: String?) async throws  -> String
     
     /**
-     * The text of this tab's tmux pane with its whole history (`capture-pane -p -J -S -`), for the
+     * The text of this tab's tmux pane with its whole history (`capture-pane -e -p -J -S -`, styles kept), for the
      * feed built from the screen. `known_sum` is the checksum of the previous answer: when the
      * screen is unchanged the host answers `SAME` and nothing else crosses the network.
      * Returns `(checksum, Some(text))`, or `(checksum, None)` when unchanged.
@@ -3291,7 +3291,7 @@ open func previewClaudeStatusline(configDir: String?, hookDir: String?)async thr
 }
     
     /**
-     * The text of this tab's tmux pane with its whole history (`capture-pane -p -J -S -`), for the
+     * The text of this tab's tmux pane with its whole history (`capture-pane -e -p -J -S -`, styles kept), for the
      * feed built from the screen. `known_sum` is the checksum of the previous answer: when the
      * screen is unchanged the host answers `SAME` and nothing else crosses the network.
      * Returns `(checksum, Some(text))`, or `(checksum, None)` when unchanged.
@@ -17786,7 +17786,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_preview_claude_statusline() != 59992) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_ssh_core_checksum_method_sshsessionhandle_capture_session_screen() != 4476) {
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_capture_session_screen() != 27434) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_detect_active_transcript_path() != 64654) {
