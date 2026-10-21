@@ -67,6 +67,9 @@ public struct MainTerminalView: View {
     @State private var deliveredNotices: Set<String> = []
     @State private var pushTapDeadline: Date?
     @State private var announcedApprovals: Set<String> = []
+    /// Offer to set up phone approvals and hooks on a host that has none (once per server and run).
+    @State private var showSetupOffer = false
+    @State private var setupOfferedFor: Set<String> = []
     @State private var noticeFirstSeen: [String: Date] = [:]
     /// The tab whose agent the user is about to restart (asks new / continue first).
     @State private var restartTarget: UUID?
@@ -306,6 +309,27 @@ public struct MainTerminalView: View {
             configDirs: agentProfiles.claudeConfigDirs,
             force: force
         )
+    }
+
+    private var setupKey: String? {
+        tabsManager.activeSession.map { "setup_declined_\($0.serverId)" }
+    }
+
+    private func rememberSetupDeclined() {
+        if let key = setupKey { UserDefaults.standard.set(true, forKey: key) }
+    }
+
+    /// A host without a working approval queue gets one offer to set it up. Quiet when the user said
+    /// no before, when it was offered already in this run, and on any error.
+    private func offerSetupIfNeeded() async {
+        guard let key = setupKey, !UserDefaults.standard.bool(forKey: key),
+              !setupOfferedFor.contains(key),
+              let handle = tabsManager.activeViewModel?.sessionHandle else { return }
+        try? await Task.sleep(nanoseconds: 4_000_000_000)
+        guard scenePhase == .active, let status = try? await handle.approvalStatus() else { return }
+        if status.sshKeygen && status.allowedSigners { return }
+        setupOfferedFor.insert(key)
+        showSetupOffer = true
     }
 
     private func presentSheet(_ sheet: ActiveModalSheet) {
@@ -658,7 +682,17 @@ public struct MainTerminalView: View {
                 }
             }
             .onChange(of: tabsManager.activeViewModel?.state) { _, state in
-                if state == .connected { refreshUsage() }
+                if state == .connected {
+                    refreshUsage()
+                    Task { await offerSetupIfNeeded() }
+                }
+            }
+            .alert("Set up phone approvals?", isPresented: $showSetupOffer) {
+                Button("Set up") { presentSheet(.agentProfiles) }
+                Button("Not now", role: .cancel) {}
+                Button("Don't ask again") { rememberSetupDeclined() }
+            } message: {
+                Text("This host has no approval hooks yet. One button installs them for Claude Code and Antigravity so you can approve tool calls from the phone.")
             }
         }
     }
