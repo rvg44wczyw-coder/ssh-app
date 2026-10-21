@@ -206,6 +206,7 @@ public struct StructuredTranscriptView: View {
             if let prompt = viewModel.screenPrompt {
                 FeedPromptCard(prompt: prompt,
                                pick: { viewModel.answerPrompt(index: $0, toggle: prompt.multi) },
+                               pickText: { viewModel.answerPrompt(index: $0, text: $1) },
                                finish: { viewModel.finishPrompt(confirm: $0) },
                                tab: { viewModel.moveTab(back: $0) })
             }
@@ -621,8 +622,21 @@ enum FeedSubmit {
 struct FeedPromptCard: View {
     let prompt: ScreenPrompt
     let pick: (Int) -> Void
+    /// Moves to the free-text option and types the text into it.
+    let pickText: (Int, String) -> Void
     let finish: (Bool) -> Void
     let tab: (Bool) -> Void
+
+    /// The option that waits for your own words ("Type something.", "Other"): a text field, not a
+    /// button, otherwise the agent gets an empty answer.
+    @State private var typingIn: Int?
+    @State private var typed = ""
+    @FocusState private var typedFocused: Bool
+
+    private static func isFreeText(_ label: String) -> Bool {
+        let l = label.lowercased().trimmingCharacters(in: .whitespaces)
+        return l.hasPrefix("type something") || l == "other" || l == "other."
+    }
 
     /// "☒ A ☐ B ✔ Submit" → ["☒ A", "☐ B", "✔ Submit"]
     private static func tabs(_ s: String) -> [String] {
@@ -665,7 +679,14 @@ struct FeedPromptCard: View {
             Text(prompt.question)
                 .font(.system(size: 14, weight: .semibold))
             ForEach(Array(prompt.options.enumerated()), id: \.offset) { i, o in
-                Button { pick(i) } label: {
+                Button {
+                    if Self.isFreeText(o.label) {
+                        typingIn = typingIn == i ? nil : i
+                        typedFocused = typingIn != nil
+                    } else {
+                        pick(i)
+                    }
+                } label: {
                     HStack(alignment: .top, spacing: 8) {
                         if prompt.multi {
                             Image(systemName: o.checked ? "checkmark.square.fill" : "square")
@@ -690,6 +711,22 @@ struct FeedPromptCard: View {
                         .stroke(i == Int(prompt.selected) ? Color.appAccent.opacity(0.6) : Color.clear, lineWidth: 1))
                 }
                 .buttonStyle(.plain)
+                if typingIn == i {
+                    HStack(spacing: 8) {
+                        TextField("Your answer", text: $typed, axis: .vertical)
+                            .textFieldStyle(.roundedBorder)
+                            .lineLimit(1...5)
+                            .focused($typedFocused)
+                        Button {
+                            let text = typed.trimmingCharacters(in: .whitespacesAndNewlines)
+                            guard !text.isEmpty else { return }
+                            pickText(i, text)
+                            typed = ""
+                            typingIn = nil
+                        } label: { Image(systemName: "arrow.up.circle.fill").font(.system(size: 26)) }
+                            .disabled(typed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                }
             }
             HStack {
                 if prompt.title?.contains("Submit") == true {

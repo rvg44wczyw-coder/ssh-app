@@ -480,6 +480,27 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         }
     }
 
+    /// Answers a free-text option ("Type something."): the cursor goes to it, the text is typed and
+    /// sent with Enter as its own write. Newlines become spaces: Enter would submit.
+    public func answerPrompt(index: Int, text: String) {
+        guard let p = screenPrompt, index >= 0, index < p.options.count else { return }
+        let delta = index - Int(p.selected)
+        var keys = Data()
+        let arrow = delta > 0 ? "\u{1b}[B" : "\u{1b}[A"
+        for _ in 0..<abs(delta) { keys.append(Data(arrow.utf8)) }
+        if !keys.isEmpty { sendInput(keys) }
+        let line = text.replacingOccurrences(of: "\n", with: " ")
+        Task {
+            try? await Task.sleep(for: .milliseconds(200))
+            self.sendInput(Data(line.utf8))
+            try? await Task.sleep(for: .milliseconds(250))
+            self.sendInput(Data([0x0d]))
+            try? await Task.sleep(for: .milliseconds(500))
+            self.lastScreenSum = nil
+            _ = await self.reloadFromScreen()
+        }
+    }
+
     /// Restarts the agent of this tab in its tmux session with `command`. The terminal stays attached,
     /// the feed starts over from the new screen.
     public func restartAgent(command: String) async throws {
