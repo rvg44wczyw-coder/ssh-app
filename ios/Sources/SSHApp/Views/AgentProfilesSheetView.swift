@@ -18,6 +18,9 @@ public struct AgentProfilesSheetView: View {
     @State private var showingGuard = false
     @State private var message: String? = nil
     @State private var approvalStatus: ApprovalStatus? = nil
+    @State private var setupBusy = false
+    @State private var setupLog: [String] = []
+    @AppStorage("setup_include_limits") private var setupIncludeLimits = true
 
     public init(
         manager: AgentProfilesManager,
@@ -81,10 +84,25 @@ public struct AgentProfilesSheetView: View {
                     }
                 }
                 Section(
-                    header: Text("Phone approvals"),
-                    footer: Text("Needs OpenSSH (ssh-keygen) on the host and this device's key trusted there. \"Review & install\" on a profile sets both up. Requests reach the app while it is open.")
+                    header: Text("Phone approvals and hooks"),
+                    footer: Text("One tap sets up what is missing for every profile below: the approval hooks in each agent's config on the host (and this device's key, trusted there for approval signatures only). Needs OpenSSH (ssh-keygen) on the host. Requests reach the app while it is open. \"Review & install\" on a profile shows exactly what is written.")
                 ) {
                     approvalStatusRow
+                    Toggle("Also show Claude plan limits", isOn: $setupIncludeLimits)
+                        .font(.caption)
+                    Button {
+                        Task { await setUpEverything() }
+                    } label: {
+                        HStack {
+                            if setupBusy { ProgressView().controlSize(.small) }
+                            Label(setupBusy ? "Setting up…" : "Set up everything", systemImage: "wand.and.stars")
+                        }
+                    }
+                    .disabled(!connected || setupBusy || manager.profiles.allSatisfy { !$0.supportsHooks })
+                    ForEach(setupLog, id: \.self) { line in
+                        Text(line).font(.caption)
+                            .foregroundColor(line.hasPrefix("✗") ? .red : .secondary)
+                    }
                 }
                 Section(
                     header: Text("Host guard"),
@@ -229,7 +247,7 @@ public struct AgentProfilesSheetView: View {
                 Label("ssh-keygen not found on the host: phone approvals are unavailable", systemImage: "xmark.octagon")
                     .font(.caption).foregroundColor(.red)
             } else if !st.allowedSigners {
-                Label("Not set up yet: press Review & install on a profile", systemImage: "exclamationmark.triangle")
+                Label("Not set up yet: press Set up everything", systemImage: "exclamationmark.triangle")
                     .font(.caption).foregroundColor(.orange)
             } else {
                 Label("Ready (\(st.pending) waiting)", systemImage: "checkmark.shield.fill")
@@ -281,6 +299,40 @@ public struct AgentProfilesSheetView: View {
                 .font(.caption)
                 .buttonStyle(.borderless)
         }
+    }
+
+    /// Installs the approval hooks of every profile that lacks them (or whose hooks drifted) and, for
+    /// Claude, the plan-limits wrapper, one agent config at a time; the result is listed per config.
+    private func setUpEverything() async {
+        guard connected, let handle = viewModel.sessionHandle else { return }
+        setupBusy = true
+        setupLog = []
+        defer { setupBusy = false }
+        var seen = Set<String>()
+        for p in manager.profiles where p.supportsHooks {
+            let key = "\(p.agent)|\(p.configDir ?? "")"
+            guard seen.insert(key).inserted else { continue }
+            let label = p.agent.groupTitle + (p.configDir.map { " (\($0))" } ?? "")
+            do {
+                let planned = (try? planAgentHooks(agent: p.agent, preset: p.hookPreset, hookDir: nil)) ?? []
+                let status = try? await handle.agentHooksStatus(agent: p.agent, configDir: p.configDir, hookDir: nil)
+                let current = status.map { $0.hooksInstalled && hooksDrift(planned: planned, installed: $0.installed).isEmpty } ?? false
+                if !current {
+                    try await handle.installAgentHooksWithPreset(
+                        agent: p.agent, configDir: p.configDir, hookDir: nil, preset: p.hookPreset)
+                }
+                setupLog.append("✓ \(label): hooks " + (current ? "already set up" : "installed"))
+                if setupIncludeLimits, p.agent == .claudeCode,
+                   (try? await handle.claudeStatuslineStatus(configDir: p.configDir)) != true {
+                    try await handle.installClaudeStatusline(configDir: p.configDir, hookDir: nil)
+                    setupLog.append("✓ \(label): plan limits wrapper installed")
+                }
+            } catch {
+                setupLog.append("✗ \(label): \(error.localizedDescription)")
+            }
+        }
+        if setupLog.isEmpty { setupLog = ["Nothing to set up."] }
+        await refreshAll()
     }
 
     private func refreshAll() async {
