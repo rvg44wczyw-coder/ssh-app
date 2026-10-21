@@ -1,0 +1,27 @@
+@startuml
+!include style.iuml
+title How one agent's answer reaches another
+start
+:Agent A finishes its turn;
+:Find the final text\n(after the last tool call of the turn);
+if (Any final text?) then (no)
+  :Relay nothing;\ncard says "no final text";
+  stop
+endif
+if (Already relayed?\n(turn id and text hash)) then (yes)
+  stop
+endif
+:Card "A to B" in the room feed;
+if (Mode) then (manual)
+  :Wait for "Pass to B";
+else (auto)
+  if (Rounds used up?) then (yes)
+    :Pause and ask the user;
+    stop
+  endif
+endif
+:Build the labelled message,\nstrip control characters;
+:Deliver into B\n(draft swap);
+:When B finishes its turn,\nthe same in the other direction;
+stop
+@enduml

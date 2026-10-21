@@ -1,0 +1,34 @@
+@startuml
+!include style.iuml
+title Delivering a relayed message into the target tab (one host command)
+actor "User" as U
+participant "App" as A
+participant "ssh-app-host\nrelay-send" as H
+participant "tmux pane\n(target agent)" as P
+
+A -> H : message (stdin), session, dialect
+H -> P : capture-pane
+P --> H : screen
+H -> H : agent idle? not in copy-mode?\ndraft unchanged since last poll?
+alt busy, in a menu, or the user is typing
+  H --> A : wait (message stays queued)
+else clear to go
+  H -> H : stash the draft in a named tmux buffer\n(a copy is also kept in the app)
+  H -> P : clear the field
+  H -> P : capture-pane (field empty?)
+  H -> P : paste-buffer -p (the message)
+  H -> P : capture-pane (field equals the message?)
+  alt mismatch
+    H -> P : clear the field
+    H -> P : restore the draft
+    H --> A : aborted, with the reason
+  else verified
+    H -> P : Enter
+    P --> H : agent accepted (turn started)
+    H -> P : restore the draft (no Enter)
+    H -> H : delete the named buffers
+    H --> A : done
+  end
+end
+A -> U : card in the room feed
+@enduml
