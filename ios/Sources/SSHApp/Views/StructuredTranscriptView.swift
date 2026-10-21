@@ -486,8 +486,8 @@ public struct StructuredTranscriptView: View {
     /// What the agent's box holds (a message typed at the laptop, or queued while it works) when the
     /// field is empty: offered above the field, not poured into it.
     private var offeredDraft: String? {
-        guard promptText.isEmpty, let d = viewModel.screenDraft, !d.isEmpty else { return nil }
-        return d
+        guard promptText.isEmpty else { return nil }
+        return viewModel.offerableScreenDraft
     }
 
     /// The up arrow blinks red for 4 seconds when something new is offered, then stops; a tap moves

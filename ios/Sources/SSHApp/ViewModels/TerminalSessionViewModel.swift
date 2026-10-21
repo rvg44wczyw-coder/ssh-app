@@ -388,6 +388,14 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         draftGuardUntil = Date().addingTimeInterval(4)
     }
 
+    /// What the strip above the field may offer: nothing in the seconds after a send (the agent's
+    /// box is still redrawing, or shows its own queue hint), nor its hints.
+    public var offerableScreenDraft: String? {
+        guard Date() >= draftGuardUntil, let d = screenDraft, !d.isEmpty,
+              !d.lowercased().contains("to edit queued messages") else { return nil }
+        return d
+    }
+
     /// The draft on the screen when we have typed nothing ourselves and the field is empty.
     public func adoptableDraft(current: String) -> String? {
         guard current.isEmpty, draftInBox.isEmpty, Date() >= draftGuardUntil,
