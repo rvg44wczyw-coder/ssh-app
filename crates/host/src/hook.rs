@@ -3,7 +3,7 @@
 //! agent applies its own policy (OpenCode is the documented exception, see below).
 
 use crate::guard::{
-    guard_match, guard_rules, guard_text, input_too_big, load_guard, GUARD_MAX_INPUT,
+    guard_allows, guard_match, guard_rules, guard_text, input_too_big, load_guard, GUARD_MAX_INPUT,
 };
 use crate::pyjson::{dumps, py_str};
 use crate::queue::{clean, submit, summarize, Base, Paths};
@@ -347,7 +347,7 @@ fn permission(p: &Paths, agent: &str, event: &str, call: &Call, base: &Base, too
             emit(&out);
             return;
         }
-    } else if let Some(hit) = guard_match(&allow, &call.tool, &call.input, &call.cwd) {
+    } else if let Some(hit) = guard_allows(&allow, &call.tool, &call.input, &call.cwd) {
         let reason = format!("Allowed by a host guard rule: {}", clean(&hit, 120));
         if let Some(out) = allow_output(agent, event, &reason) {
             emit(&out);

@@ -409,9 +409,10 @@ def command_candidates(command):
     return cands
 
 
-def bash_spec_matches(spec, command):
+def bash_spec_matches(spec, command, raw_only=False):
     rx = None if spec.endswith(":*") else glob_regex(spec)
-    for cand in command_candidates(command):
+    cands = [re.sub(r"\s+", " ", command).strip()] if raw_only else command_candidates(command)
+    for cand in cands:
         if rx is None:
             prefix = spec[:-2]
             low, pl = cand.lower(), prefix.lower()
@@ -492,6 +493,83 @@ def guard_match(rules, tool, tool_input, cwd):
         except re.error:
             continue
     return None
+
+
+SAFE_REDIRECTS = re.compile(r"\d*>>?\s*/dev/null|\d*>&\d|&>\s*/dev/null")
+
+
+def tool_command(ti):
+    for key in ("command",) + ANTIGRAVITY_CMD_KEYS[:4]:
+        if isinstance(ti.get(key), str) and ti[key]:
+            return ti[key]
+    return ""
+
+
+def unsafe_for_allow(command):
+    """Shell syntax that makes a command more than the words of its segments: output redirection
+    into a file (an edit), process substitution. Such a command is never allowed without asking."""
+    plain = SAFE_REDIRECTS.sub(" ", command)
+    return ">" in plain or "<(" in plain
+
+
+def segment_allowed(rules, tool, seg, depth=0):
+    """Name of the allow rule that covers this one command line, else None. Allow looks at what
+    was typed (no peeling of `sudo`/`env`/`sh -c`: those are exactly what must not borrow the
+    permission of the command inside them), and every `$(...)` / backtick inside must be allowed too."""
+    if depth > 4:
+        return None
+    hit = None
+    for rule in rules:
+        m = RULE_RE.match(rule.strip())
+        if not m or not rule_tool_matches(m.group(1), tool):
+            continue
+        spec = m.group(2)
+        if spec is None or spec == "":
+            hit = rule
+            break
+        try:
+            if bash_spec_matches(spec, seg, raw_only=True):
+                hit = rule
+                break
+        except re.error:
+            continue
+    if hit is None:
+        return None
+    for sub in re.findall(r"\$\(([^()]*)\)", seg) + re.findall(r"`([^`]*)`", seg):
+        for inner in shell_segments(sub):
+            if segment_allowed(rules, tool, inner, depth + 1) is None:
+                return None
+    return hit
+
+
+def guard_allows(rules, tool, tool_input, cwd):
+    """The allow rule that covers this tool call, else None. Unlike deny/ask (any matching part is
+    enough), allow needs EVERY part of a shell command covered: `cargo test; rm -rf ~` must not ride
+    on the `cargo test` rule."""
+    if not rules:
+        return None
+    if tool_kind(tool) != "Bash":
+        return guard_match(rules, tool, tool_input, cwd)
+    ti = tool_input if isinstance(tool_input, dict) else {}
+    command = tool_command(ti)
+    # `2>&1` and `>/dev/null` are not edits and must not split the line at their `&`.
+    segs = shell_segments(SAFE_REDIRECTS.sub(" ", command))
+    if not segs:
+        return None
+    # A bare `Bash` rule is the user's own "everything" and keeps meaning that.
+    for rule in rules:
+        m = RULE_RE.match(rule.strip())
+        if m and rule_tool_matches(m.group(1), tool) and not m.group(2):
+            return rule
+    if unsafe_for_allow(command):
+        return None
+    first = None
+    for seg in segs:
+        hit = segment_allowed(rules, tool, seg)
+        if hit is None:
+            return None
+        first = first or hit
+    return first
 
 
 # Agents that speak Claude's hook protocol (payload fields and reply shapes). Qwen Code documents
@@ -767,7 +845,7 @@ def main():
                 sys.stdout.write(json.dumps(out))
                 return 0
         else:
-            hit = guard_match(guard_rules(guard, "allow"), tool, tool_input, cwd)
+            hit = guard_allows(guard_rules(guard, "allow"), tool, tool_input, cwd)
             if hit is not None:
                 out = allow_output(agent, event, "Allowed by a host guard rule: " + clean(hit, 120))
                 if out is not None:
