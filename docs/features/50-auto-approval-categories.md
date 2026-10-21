@@ -1,6 +1,6 @@
 # Feature 50: Auto-approval by command category (configurable, with presets)
 
-Status: spec (2026-10-21), not reviewed (`rev` next). Builds on `19-hooks-templates-and-host-guard.md` (host guard
+Status: spec (2026-10-21), owner decisions on file edits, per-project policy and temporary trust applied (§10); not yet reviewed (`rev` next). Builds on `19-hooks-templates-and-host-guard.md` (host guard
 rules enforced by the hook), `25-host-hook.md` (approval flow) and `docs/security-findings/2026-10-21-guard-allow-compound-commands.md`
 (the allow semantics this feature relies on; fixed first).
 
@@ -25,6 +25,10 @@ Goals:
 4. **Risk is explicit**: each command in a category carries a risk tag; commands that run project code or reach
    the network are never hidden inside a "safe" category.
 5. One enforcement point: the host guard in the hook (works the same for every agent), no new protocol.
+6. **Projects with a hard boundary** (§4.3, §4.5): `Auto` is granted inside a project folder only; anything that
+   reaches outside it is asked on the phone, never auto-allowed.
+7. **Temporary trust** (§4.6): "Allow for N minutes" on the approval card, with a configurable duration, signed by the
+   phone so the agent cannot create one.
 
 Non-goals: not a sandbox (see §8); no AI judgement of commands (that is the agent's own auto mode); no
 auto-approval from the phone side (the hook decides on the host, the phone is not involved when `Auto`);
@@ -37,9 +41,16 @@ AutoCategory { id, title, description, risk, commands: [AutoCommand], tools: [St
 AutoCommand  { rule: "Bash(cargo test:*)", risk, note }
 Risk         = ReadOnly | LocalChange | RunsProjectCode | Network | Destructive
 Level        = Ask | Auto | Block
-AutoPolicy   = { agent-independent defaults: { category id -> Level },
+AutoScope    = Project | Anywhere                 // where a category may be Auto
+AutoPolicy   = { defaults: { category id -> Level },           // used inside any project below
                  per-agent overrides: { agent -> { category id -> Level } },
-                 trusted_dirs: [String], preset_id: Option<String> }
+                 projects: [ AutoProject ],
+                 inspect_anywhere: bool,                       // default false
+                 preset_id: Option<String> }
+AutoProject  = { root: String, label: String,
+                 overrides: { category id -> Level },          // per project, wins over defaults
+                 allow_file_edits: bool }                      // Edit/Write inside the root (see §3.3)
+TempTrust    = { id, category ids, project root, agent, session id, expires_at, signature }
 ```
 
 Rules of the model:
@@ -52,7 +63,7 @@ Rules of the model:
   `go vet`, not `go:*` (`go run`, `go install`). `python3 -m pytest`, not `python3:*` (`python3 -c` runs anything).
 - `RunsProjectCode` commands (`cargo build`/`test`/`run`, `make`, `npm run`/`test`, `go test`, `pytest`, `python3 x.py`,
   `xcodebuild`) execute code from the repository (`build.rs`, proc macros, Makefile, package scripts, test code). They
-  can be set to `Auto` only together with **trusted folders** (§5): outside a trusted folder they stay `Ask`.
+  can be set to `Auto` only inside a **project** (§4.3): outside every project they stay `Ask`.
 - `Network` commands (`curl`, `wget`, `git fetch/pull/push`, `npm install`, `pip install`, `cargo install`, `docker
   pull`) are never in a "read-only" or "build" category; they have their own category and default `Ask`.
 - The level of a category applies to its commands **as a whole**; a user who wants one command out edits the raw rules
@@ -65,13 +76,13 @@ Rules of the model:
 | `inspect` | Read-only inspection | `Read`, `Glob`, `Grep`, `Bash(ls)`, `pwd`, `cat`, `head`, `tail`, `wc`, `which`, `file`, `stat`, `echo`, `Bash(git status/diff/log/show/branch)`; ReadOnly | Auto |
 | `git-local` | Git: local changes | `git add`, `git commit`, `git checkout`, `git switch`, `git stash`, `git restore`; LocalChange | Ask |
 | `git-remote` | Git: remote | `git fetch`, `pull`, `push`; Network | Ask |
-| `rust` | Rust (cargo) | `cargo check`, `build`, `test`, `clippy`, `fmt`, `doc`; RunsProjectCode | Auto in trusted folders |
-| `python` | Python | `python3 -m pytest`, `pytest`, `ruff`, `mypy`, `python3 -m unittest`; RunsProjectCode | Auto in trusted folders |
-| `go` | Go | `go build`, `test`, `vet`, `fmt`, `mod tidy`; RunsProjectCode | Auto in trusted folders |
-| `node` | Node | `npm test`, `npm run lint`, `npm run build`, `pnpm test`, `yarn test`; RunsProjectCode | Auto in trusted folders |
-| `swift` | Swift / Xcode | `swift build`, `swift test`, `xcodebuild … build/test`; RunsProjectCode | Auto in trusted folders |
+| `rust` | Rust (cargo) | `cargo check`, `build`, `test`, `clippy`, `fmt`, `doc`; RunsProjectCode | Auto in projects |
+| `python` | Python | `python3 -m pytest`, `pytest`, `ruff`, `mypy`, `python3 -m unittest`; RunsProjectCode | Auto in projects |
+| `go` | Go | `go build`, `test`, `vet`, `fmt`, `mod tidy`; RunsProjectCode | Auto in projects |
+| `node` | Node | `npm test`, `npm run lint`, `npm run build`, `pnpm test`, `yarn test`; RunsProjectCode | Auto in projects |
+| `swift` | Swift / Xcode | `swift build`, `swift test`, `xcodebuild … build/test`; RunsProjectCode | Auto in projects |
 | `make` | Make / CMake | `make`, `cmake --build`; RunsProjectCode (runs the repository's recipes) | Ask |
-| `files` | Files: create and move | `mkdir`, `touch`, `cp`, `mv` inside the project, `Edit`/`Write` in the project; LocalChange | Ask |
+| `files` | Files: create, move, edit | `mkdir`, `touch`, `cp`, `mv`, and the `Edit`/`Write` tools, **inside the project only** (§3.3, §4.5); LocalChange | Ask (Auto in "Trusted project") |
 | `docker` | Docker (read-only) | `docker ps`, `logs`, `images`, `inspect`; ReadOnly | Auto |
 | `network` | Network | `curl`, `wget`, `WebFetch`, `WebSearch`; Network | Ask |
 | `install` | Package installs | `npm install`, `pip install`, `cargo install`, `brew install`, `go install`; Network + RunsProjectCode | Ask |
@@ -86,9 +97,18 @@ whenever any `Auto` category is on (§4.2).
 | Preset | Effect |
 |---|---|
 | **Cautious** | `inspect` and `docker` Auto; everything else Ask. |
-| **Developer** | Cautious + language categories (`rust`, `python`, `go`, `node`, `swift`) Auto **in trusted folders**; `git-local` Ask. |
-| **Trusted project** | Developer + `git-local`, `files`, `make` Auto in trusted folders; `network`, `git-remote`, `install` Ask. |
+| **Developer** | Cautious + language categories (`rust`, `python`, `go`, `node`, `swift`) Auto **inside projects**; `git-local` and `files` Ask. |
+| **Trusted project** | Developer + `git-local`, `files` (including file edits), `make` Auto inside projects; `network`, `git-remote`, `install` Ask. |
 | **Lockdown** | Everything Ask (removes all category rules), the floor stays. |
+
+### 3.3 File edits (decision of 2026-10-21)
+
+Edits and writes (`Edit`, `Write`, `MultiEdit`, `NotebookEdit`, and the agents' equivalents) may be `Auto` **inside the project
+only**. The hook resolves the target with `realpath` (symlinks followed, `..` and `~` expanded) and allows only a path inside the
+project root; a path outside, a symlink that leaves, or a path that cannot be resolved is **not** allowed automatically and goes to
+the phone as a normal approval. Never auto-allowed even inside the project: `.git/**`, the agent's and ssh-app's settings and hook
+files (`.claude/**`, `.gemini/**`, `~/.ssh-app/**`), `.env*`, key files, and files the floor already protects. The same boundary
+applies to the shell forms (`cp`, `mv`, `mkdir`, `touch`): every path argument must resolve inside the project (§4.5).
 
 A preset sets levels; the user can then change any category; the screen shows "Custom (based on Developer)" once it
 differs. Presets are data (core), not UI code, so the macOS TUI (feature 47) and the watch can use them.
@@ -102,7 +122,10 @@ differs. Presets are data (core), not UI code, so the macOS TUI (feature 47) and
 ```json
 { "v": 1, "deny": [...], "ask": [...], "allow": [...],
   "auto": { "preset": "developer", "levels": {"rust": "auto", ...}, "agents": {"antigravity": {"go": "ask"}},
-            "trusted_dirs": ["/Users/me/rust/ssh-app"], "managed": {"allow": [...], "ask": [...], "deny": [...]} } }
+            "projects": [{"root": "/Users/me/rust/ssh-app", "label": "ssh-app",
+                          "overrides": {"make": "auto"}, "allow_file_edits": true}],
+            "inspect_anywhere": false, "trust_max_secs": 86400,
+            "managed": {"allow": [...], "ask": [...], "deny": [...]} } }
 ```
 
 The hook keeps reading `deny`/`ask`/`allow` only. The app **compiles** the policy into those lists when it saves:
@@ -121,14 +144,54 @@ words as typed, no `sudo`/`env`/`sh -c` borrowing, no file redirection, no proce
 semantics) → otherwise the phone is asked. A category set to `Auto` therefore only removes questions for commands
 that are covered whole; `cargo test && rm x` still goes to the deny floor.
 
-### 4.3 Trusted folders
+### 4.3 Projects
 
-`RunsProjectCode` rules are emitted into a separate list `allow_in` with the folders: the hook allows them only when
-the payload's `cwd` is inside a trusted folder (both resolved with `realpath`; a path outside, a symlink out, or a
-`cwd` that cannot be resolved means "not trusted"). `cd` inside a command changes the effective directory, so a line that
-contains `cd`, `pushd`, `git -C` or `--manifest-path`/`-C <dir>` pointing outside the trusted folders is **not**
-auto-allowed under `allow_in` (falls to the phone). Trusted folders are typed by the user in the app (folder picker
-of the connected host); nothing a repository or an agent writes can add one.
+A **project** is a folder on the host that the user added in the app (remote folder picker). The hook finds the project of a tool call
+from the payload's `cwd` (both resolved with `realpath`; the longest matching root wins). A call whose `cwd` is in no project, or whose
+`cwd` cannot be resolved, gets **no automatic allow** for any category with scope `Project` (all of them by default), so it is asked on
+the phone as today. Rules reach the hook as `allow_in` entries (`{"root": ..., "rules": [...], "edits": true|false}`) next to the
+plain `allow` list; the plain `allow` list keeps only what was typed by hand and, optionally, `inspect` when "Read-only anywhere" is on.
+
+Per-project policy: each project has its own overrides on top of the defaults (a scratch project may allow `make`, a work project may
+not allow `files`). The policy is **stored on the host and edited only in the app**. A file inside the repository never grants anything
+(it is attacker-controlled); a future repo file could only *narrow* (add asks), and is out of scope here.
+
+### 4.5 The project boundary (hard)
+
+Every automatic allow under `allow_in` must pass the boundary check in the hook, in addition to the all-parts-covered check:
+
+1. every path-like argument of the command and every tool path resolves (after `~`, `..`, symlinks, relative to `cwd`) **inside the
+   project root**; an unresolvable argument (shell variable `$X`, `$(…)`, backticks, globs that expand outside, env-dependent
+   values) counts as outside;
+2. no `cd`/`pushd`/`git -C`/`--manifest-path`/`-C <dir>`/`--prefix`/`--directory` with a target outside the root (inside is fine);
+3. no absolute path argument at all except under the root (`/tmp`, `/etc`, `/Users/…` elsewhere are outside);
+4. tool calls with a path (`Edit`, `Write`, `Read`) follow the same rule with the tool's path.
+
+Leaving the project is **only** possible through a manual phone approval: the call is not auto-allowed, it goes through the normal
+signed approval flow; the approval card says "outside the project `<label>`" when that is the reason. The temporary trust of §4.6
+**never extends a project boundary**: it is bound to the same project root and re-checked by the same boundary code.
+
+### 4.6 Temporary trust ("Allow for 1 h")
+
+On an approval card the user can tap **Approve, and allow `<category>` in `<project>` for `<duration>`**. The duration is configurable:
+
+- Settings → Auto-approval → **Temporary trust**: default duration (15 min, 1 h, 4 h, until this agent session ends, custom
+  minutes), the list of durations offered on the card, a switch to never offer it, and the host's hard cap
+  (`trust_max_secs`, default 24 h, written to `guard.json`; the hook ignores longer requests).
+- A trust covers the **categories of the approved command** (not the exact string), within the **same project**, for the **same agent
+  session**. A command with no category, a `Destructive` command, anything on the floor, and anything outside the project boundary
+  cannot be trusted this way (the button is not shown).
+
+Forgery resistance: the agent runs as the same user and can write files, so a trust is a **signed fact**, not a file entry. The approval
+decision the phone signs (SSHSIG, existing `approval.rs` canonical payload) is extended with a versioned trust block (`trust_secs`,
+category ids, project root, session id). The hook verifies the signature with `ssh-keygen -Y verify` against `allowed_signers` before it
+honours a trust and **stores the signed blob** under `~/.ssh-app/run/trust/` (private folder, bounded to 50 entries); on every use it
+re-verifies the blob and checks expiry with the host clock. Writing a trust file by hand therefore gives nothing without the phone's
+private key. Expired or invalid entries are deleted on read.
+
+Visibility and control: the Auto-approval screen lists **Active trusts** (category, project, agent, time left) with Revoke and **Revoke
+all**; each use is written to the audit log (§4.4) as `trusted` with the trust id; the host sends no push for it. A trust ends when the
+agent session ends (the `SessionEnd` event) unless the chosen duration is "until session ends", which is the same event.
 
 ### 4.4 Audit
 
@@ -145,13 +208,17 @@ Settings → **Auto-approval** (per connected host, like the guard; "Connect to 
    explanation each.
 2. **Agent** switch: "All agents" or one agent (Claude Code, Antigravity, others listed as supported); per-agent
    overrides are shown with a dot and can be reset.
-3. **Categories list**: icon, title, risk badge, **Ask / Auto / Block** control. Rows whose `Auto` depends on trusted folders
-   show "in trusted folders". Tapping a row lists its exact commands with risk badges and the rule behind each.
-4. **Trusted folders**: list + "Add folder…" (remote directory picker already in the app) + warning text.
-5. **Floor**: read-only list "Always asked or blocked".
-6. **Recently auto-approved** (from `auto.log`) and **Preview rules** (the compiled `allow`/`deny`/`allow_in`) before **Save**.
-7. Warnings (existing `host_guard_warnings` plus new): a preset above Cautious with no trusted folders ("language
-   categories do nothing until you add a trusted folder"); hooks not installed or without `PreToolUse`; the agent does not
+3. **Categories list**: icon, title, risk badge, **Ask / Auto / Block** control. Rows whose `Auto` depends on a project
+   show "in projects". Tapping a row lists its exact commands with risk badges and the rule behind each.
+4. **Projects**: list + "Add project…" (remote directory picker already in the app) with the folder as root; tapping a project
+   opens its **overrides** (same Ask/Auto/Block control per category, "Allow file edits in this project" switch). A warning states
+   the boundary rule in one sentence: "Anything outside the project folder is always asked on your phone."
+   Also: switch "Read-only inspection anywhere" (default off).
+5. **Temporary trust**: default duration, durations offered on the card, never-offer switch, host cap; **Active trusts** with Revoke.
+6. **Floor**: read-only list "Always asked or blocked".
+7. **Recently auto-approved** (from `auto.log`) and **Preview rules** (the compiled `allow`/`deny`/`allow_in`) before **Save**.
+8. Warnings (existing `host_guard_warnings` plus new): a preset above Cautious with no project ("language
+   categories do nothing until you add a project"); hooks not installed or without `PreToolUse`; the agent does not
    support `allow`; a category's commands are partly already allowed by the agent's own settings.
 
 The raw guard editor (feature 19) stays for exceptions and shows managed rules as locked lines with a "managed by
@@ -166,6 +233,8 @@ compile_auto_policy(policy: AutoPolicy, current: HostGuard) -> Result<HostGuard,
 auto_policy_from_guard(guard: HostGuard) -> AutoPolicy        // reads the "auto" object; unknown/invalid -> Lockdown
 auto_policy_warnings(policy: AutoPolicy, agent_support: ...) -> Vec<String>
 read_auto_log(session) -> Vec<AutoDecision>                     // via ctl on the host
+list_trusts(session) -> Vec<TempTrust>; revoke_trust(session, id); revoke_all_trusts(session)
+trust_options(category ids of a request, cwd) -> Option<TrustOffer>   // None: nothing can be trusted for this call
 ```
 
 Enums, not strings, for `Risk`, `Level` and preset ids (spec 36/UniFFI cleanup applies: `AutoLevel`, `AutoRisk`).
@@ -183,7 +252,7 @@ syntax and limits are the same) and refuses a policy that would make a `Destruct
 | Cline, Aider, Goose, Ollama chat | no | no | no | no hooks; the screen shows "not supported" |
 
 Claude's own `permissions.allow` (feature 21) remains available and independent; the UI explains the difference
-("Auto-approval works on the host for every agent and understands trusted folders; the agent's own rules stay in its
+("Auto-approval works on the host for every agent and understands projects and their boundary; the agent's own rules stay in its
 settings").
 
 ## 8. Security considerations (for `rev` and `hacker`)
@@ -195,15 +264,18 @@ settings").
    is a bare program name.
 3. **Project code is attacker-controlled** under prompt injection (the agent can edit `build.rs`/`Makefile`/test
    files if `files` is `Auto`, then run `cargo build`). Therefore `files` Auto and `RunsProjectCode` Auto together in
-   one trusted folder is the "Trusted project" preset only, with an explicit warning, and never the default.
-4. **`cd`/`-C`/`--manifest-path` escaping the trusted folder** (§4.3) is handled by not auto-allowing such lines.
+   one project is the "Trusted project" preset only, with an explicit warning, and never the default.
+4. **The boundary** (§4.5) is checked on resolved paths; anything unresolvable counts as outside; the check lives in the hook (script and port, same tests) and also covers the trust of §4.6.
 5. **Managed rules are rewritten only by the app**, but the agent runs as the same user and can edit `guard.json`
    with a shell command: the existing mitigation (deny edits of `~/.ssh-app/**`, part of the floor) is on whenever any
    `Auto` is on; the limitation (a shell write cannot be seen by a hook) is stated in the screen.
 6. **Input too large** fails closed (existing). **Unknown tool names** are never auto-allowed (only the listed ones).
 7. The audit log is display-safe, bounded, and not a source of truth for anything.
 8. The policy comes only from the app user; nothing in a transcript, file or command text becomes a rule, a category
-   or a trusted folder.
+   or a project.
+9. **Temporary trust is signed** (§4.6): the hook verifies the phone's signature before storing it and on every use; the grace
+   cannot outlive the host cap; revocation deletes the blob.
+10. **File edits** (§3.3): realpath on the target, symlink-out and protected paths excluded, never `.git`/agent/hook settings.
 
 ## 9. Phases
 
@@ -211,18 +283,24 @@ settings").
 |---|---|---|
 | 0 | Fix `allow` compound semantics in the hook script and the Rust port | **done 2026-10-21** (`68b9e82`) |
 | 1 | Core: category/preset data, `compile_auto_policy`, `auto_policy_from_guard`, enums, warnings; per-agent lists in the hook (script + port) | unit tests incl. "no bare program", "no destructive Auto", bypass list; parity tests script ↔ port |
-| 2 | `allow_in` + trusted folders in the hook (realpath, `cd`/`-C` rule), audit log + `ctl auto-log` | loopback tests with a private tmux/sshd as in AGENTS.md |
-| 3 | Bridge regeneration, iOS screen, raw-editor "managed" lines | simulator + Swift tests; device check |
-| 4 | `rev` + `hacker` pass; docs: roadmap row, feature 19 cross-links | findings closed |
+| 2 | Projects in the hook: `allow_in`, project lookup, **boundary check** (§4.5), file-edit rule (§3.3), audit log + `ctl auto-log` | loopback tests with a private tmux/sshd as in AGENTS.md; boundary test table (`..`, symlink out, `$X`, `-C`, absolute paths) in script and port |
+| 3 | **Temporary trust** (§4.6): trust block in the signed decision (`approval.rs` canonical bytes, versioned), hook verify/store/expire, `ctl trusts/revoke`, host cap | forgery tests (hand-written trust file, expired, wrong key, wrong project/session) |
+| 4 | Bridge regeneration, iOS screen (presets, categories, projects, temporary trust, active trusts), card button, raw-editor "managed" lines | simulator + Swift tests; device check |
+| 5 | `rev` + `hacker` pass; docs: feature 19 cross-links | findings closed |
 
 Workflow: `doc-dev → rev → rust-core-dev → rev → swift-bridge-dev → rev → ios-ui-dev → rev → hacker → merge`.
 
-## 10. Open questions
+## 10. Decisions (owner, 2026-10-21)
 
-1. Per-**project** policy (a policy file in the repository the user trusts) vs only per host: a repo-provided file is
-   attacker-controlled, so it must never grant anything; at most it could *narrow* (add asks). Out of scope for v1.
-2. Should `Auto` also cover `Edit`/`Write` of files inside a trusted folder (it is `files`, `LocalChange`)? Proposed: yes
-   only in "Trusted project", only paths inside the folder, never dotfiles, `.git`, hook or agent settings.
-3. Timeouts: should an `Auto` decision expire (e.g. "for 1 hour")? Proposed for v2: a "Trust this session for 1 h"
-   button on the approval card that adds a temporary managed rule.
-4. Windows/WSL hosts (feature 33/34): commands differ (`cargo.exe`, PowerShell); categories are POSIX-shell only in v1.
+1. **File edits**: yes, automatically, **inside the project only**; outside the project it is a normal ask, no auto-allow (§3.3, §4.5).
+2. **Policy per project**: yes, strict. Stored on the host, edited in the app; **leaving the project folder only through a manual
+   approval** (§4.3, §4.5). A repository file never grants anything.
+3. **Temporary trust**: in the first version, with a **configurable duration** (§4.6).
+
+## 11. Still open
+
+1. Windows/WSL hosts (features 33/34): categories are POSIX-shell only in v1.
+2. A repository file that can only narrow the policy (add asks): not in v1.
+3. The exact set of path-taking flags the boundary check knows (`-C`, `--manifest-path`, `--prefix`, `--directory`, `--work-tree`,
+   `--git-dir`, `-f` of make): kept as data in the hook, extended with the category tables; an unknown flag with a path-like value is
+   treated as outside.
