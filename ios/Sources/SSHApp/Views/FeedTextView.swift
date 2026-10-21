@@ -807,6 +807,12 @@ enum FeedAttributedBuilder {
         let columns = cells.map(\.count).max() ?? 0
         var widths = [Int](repeating: 0, count: columns)
         for r in cells { for (i, c) in r.enumerated() { widths[i] = max(widths[i], c.count) } }
+        // Like Claude: a table wider than the screen becomes a list, one block per row.
+        let glyph = ("0" as NSString).size(withAttributes: [.font: mono(size: 12.5)]).width
+        let fits = Int(max(0, width - 40) / max(glyph, 1))
+        if cells.count > 1, widths.reduce(0, +) + 3 * max(columns - 1, 0) + 2 > fits {
+            return tableAsList(cells)
+        }
         let out = NSMutableAttributedString()
         for (n, r) in cells.enumerated() {
             let text = r.enumerated().map { $1.padding(toLength: widths[$0], withPad: " ", startingAt: 0) }.joined(separator: " │ ")
@@ -815,6 +821,23 @@ enum FeedAttributedBuilder {
             if n == 0, cells.count > 1 {
                 out.append(line("  " + widths.map { String(repeating: "─", count: $0) }.joined(separator: "─┼─") + "\n",
                                 font: mono(size: 12.5), color: .tertiaryLabel, indent: 14, first: 0, after: 0))
+            }
+        }
+        return out
+    }
+
+    /// A table too wide for the screen, as Claude shows it: each row a block, the first cell as its
+    /// title, the other cells as "Header: value" lines.
+    private static func tableAsList(_ cells: [[String]]) -> NSAttributedString {
+        let header = cells[0]
+        let out = NSMutableAttributedString()
+        for (n, r) in cells.dropFirst().enumerated() {
+            if n > 0 { out.append(line("\n", font: mono(size: 5), after: 0)) }
+            out.append(line("● " + (r.first ?? "") + "\n", font: body(.semibold), indent: 14, first: 0, after: 1))
+            for (i, c) in r.enumerated().dropFirst() where !c.isEmpty {
+                let name = i < header.count ? header[i] : ""
+                out.append(line("  " + (name.isEmpty ? "" : name + ": ") + c + "\n", font: body(),
+                                color: .label, indent: 28, first: 14, after: 1))
             }
         }
         return out
