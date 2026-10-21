@@ -1,4 +1,3 @@
-
 #[test]
 fn a_path_cut_by_the_terminal_in_the_middle_of_a_word_is_joined_without_a_space() {
     let cut = "  Bash(grep -n x ios/Sources/SSHApp/Views/ActiveTerm"; // fills the pane
