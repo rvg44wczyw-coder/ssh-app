@@ -733,7 +733,7 @@ pub fn compile_auto_rules(policy: &AutoPolicy) -> Result<Vec<Value>, SshCoreErro
         }
     }
 
-    if any_auto {
+    if any_auto || !policy.projects.is_empty() {
         entries.insert(
             0,
             json!({"deny": auto_floor(), "allow": [], "edits": false}),
@@ -793,6 +793,267 @@ pub fn policy_to_json(policy: &AutoPolicy) -> Value {
 pub fn policy_from_json(v: Option<&Value>) -> AutoPolicy {
     v.and_then(|v| serde_json::from_value::<AutoPolicy>(v.clone()).ok())
         .and_then(|p| validate_auto_policy(&p).ok())
+        .unwrap_or_default()
+}
+
+/// Bytes the phone signs for a temporary trust: `SSH_APP_TRUST_V1:` and the fields, each as
+/// `<utf8 length>:<bytes>\n`. The host rebuilds them from the stored blob.
+#[allow(clippy::too_many_arguments)]
+#[uniffi::export]
+pub fn create_trust_signing_bytes(
+    id: String,
+    nonce: String,
+    ts: u64,
+    expires: u64,
+    agent: String,
+    session: String,
+    root: String,
+    edits: bool,
+    rules: Vec<String>,
+) -> Vec<u8> {
+    use sha2::{Digest, Sha256};
+    let rules_hash = hex::encode(Sha256::digest(rules.join("\n").as_bytes()));
+    let fields = [
+        id,
+        nonce,
+        ts.to_string(),
+        expires.to_string(),
+        agent,
+        session,
+        root,
+        if edits { "true" } else { "false" }.to_string(),
+        rules_hash,
+    ];
+    let mut out = b"SSH_APP_TRUST_V1:".to_vec();
+    for f in fields {
+        out.extend_from_slice(format!("{}:", f.len()).as_bytes());
+        out.extend_from_slice(f.as_bytes());
+        out.push(b'\n');
+    }
+    out
+}
+
+/// Categories a tool call belongs to (every part of a shell command must be covered by some
+/// category, else none): the ones a temporary trust could cover. A command with a redirection or
+/// a substitution has none.
+#[uniffi::export]
+pub fn auto_categories_for_call(tool: String, command: String) -> Vec<String> {
+    let cats = auto_categories();
+    let mut found: Vec<String> = Vec::new();
+    let is_shell = matches!(
+        tool.as_str(),
+        "Bash" | "run_command" | "bash" | "shell" | "run_shell_command"
+    );
+    if !is_shell {
+        for c in &cats {
+            if c.commands.iter().any(|k| k.rule == tool) || (c.edits_files && is_edit_tool(&tool)) {
+                found.push(c.id.clone());
+            }
+        }
+        return found;
+    }
+    let plain = command
+        .replace("2>&1", " ")
+        .replace(">/dev/null", " ")
+        .replace("&>/dev/null", " ");
+    if plain.contains('>') || plain.contains("<(") || plain.contains("$(") || plain.contains('`') {
+        return found;
+    }
+    for seg in plain.split(['\n', ';', '&', '|']) {
+        let seg = seg.trim();
+        if seg.is_empty() {
+            continue;
+        }
+        let words = seg.split_whitespace().collect::<Vec<_>>().join(" ");
+        let Some(cat) = cats.iter().find(|c| {
+            c.commands.iter().any(|k| {
+                k.rule
+                    .strip_prefix("Bash(")
+                    .and_then(|r| r.strip_suffix(":*)"))
+                    .is_some_and(|prefix| {
+                        words == prefix || words.starts_with(&format!("{prefix} "))
+                    })
+            })
+        }) else {
+            return vec![];
+        };
+        if !found.contains(&cat.id) {
+            found.push(cat.id.clone());
+        }
+    }
+    found
+}
+
+fn is_edit_tool(tool: &str) -> bool {
+    matches!(tool, "Edit" | "Write" | "MultiEdit" | "NotebookEdit")
+}
+
+/// The rules a trust for these categories carries (signed with it), and whether it covers file
+/// edits inside the project. Unknown ids are an error; `Destructive`-free by construction.
+#[uniffi::export]
+pub fn auto_trust_rules(category_ids: Vec<String>) -> Result<AutoTrustRules, SshCoreError> {
+    let cats = auto_categories();
+    for id in &category_ids {
+        if find_category(&cats, id).is_none() {
+            return Err(invalid(format!("Unknown category '{id}'")));
+        }
+    }
+    let edits = category_ids
+        .iter()
+        .any(|id| find_category(&cats, id).is_some_and(|c| c.edits_files));
+    Ok(AutoTrustRules {
+        rules: rules_of(&cats, &category_ids, false),
+        edits,
+    })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct AutoTrustRules {
+    pub rules: Vec<String>,
+    pub edits: bool,
+}
+
+/// What the approval card can offer as "Approve, and allow … for …".
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct AutoTrustOffer {
+    pub categories: Vec<String>,
+    pub project_root: String,
+    pub project_label: String,
+    /// Longest duration the host honours.
+    pub max_secs: u32,
+}
+
+/// `None`: nothing can be trusted for this call (no project of the policy contains `cwd`, or the
+/// command is in no category, or part of it is not).
+#[uniffi::export]
+pub fn auto_trust_offer(
+    policy: AutoPolicy,
+    tool: String,
+    command: String,
+    cwd: String,
+) -> Option<AutoTrustOffer> {
+    let policy = validate_auto_policy(&policy).ok()?;
+    let categories = auto_categories_for_call(tool, command);
+    if categories.is_empty() {
+        return None;
+    }
+    let cwd = cwd.trim_end_matches('/');
+    let project = policy
+        .projects
+        .iter()
+        .filter(|p| cwd == p.root || cwd.starts_with(&format!("{}/", p.root)))
+        .max_by_key(|p| p.root.len())?;
+    Some(AutoTrustOffer {
+        categories,
+        project_root: project.root.clone(),
+        project_label: project.label.clone(),
+        max_secs: trust_cap(&policy),
+    })
+}
+
+/// An active temporary trust on the host (`ctl trusts`).
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct AutoTrust {
+    pub id: String,
+    pub agent: String,
+    pub session: String,
+    pub root: String,
+    pub expires_sec: u64,
+    pub edits: bool,
+    pub rules: Vec<String>,
+}
+
+/// One automatic decision of the hook (`ctl auto-log`).
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct AutoLogEntry {
+    pub timestamp_sec: u64,
+    pub agent: String,
+    pub tool: String,
+    pub summary: String,
+    /// `allow`, `trusted` or `deny`.
+    pub decision: String,
+    pub rule: String,
+    pub root: String,
+}
+
+pub(crate) fn parse_trusts(output: &str) -> Vec<AutoTrust> {
+    use crate::approval_queue::display_safe;
+    let Ok(v) = serde_json::from_str::<Value>(output.trim()) else {
+        return vec![];
+    };
+    let text = |i: &Value, k: &str, n: usize| {
+        display_safe(
+            &i.get(k)
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .chars()
+                .take(n)
+                .collect::<String>(),
+        )
+    };
+    v.get("items")
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .take(50)
+                .filter_map(|i| {
+                    let id = text(i, "id", 32);
+                    (crate::approval_queue::is_valid_id(&id)).then(|| AutoTrust {
+                        id,
+                        agent: text(i, "agent", 40),
+                        session: text(i, "session", 80),
+                        root: text(i, "root", 300),
+                        expires_sec: i.get("expires").and_then(Value::as_u64).unwrap_or(0),
+                        edits: i.get("edits").and_then(Value::as_bool).unwrap_or(false),
+                        rules: i
+                            .get("rules")
+                            .and_then(Value::as_array)
+                            .map(|r| {
+                                r.iter()
+                                    .filter_map(Value::as_str)
+                                    .take(12)
+                                    .map(|x| display_safe(&x.chars().take(120).collect::<String>()))
+                                    .collect()
+                            })
+                            .unwrap_or_default(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+pub(crate) fn parse_auto_log(output: &str) -> Vec<AutoLogEntry> {
+    use crate::approval_queue::display_safe;
+    let Ok(v) = serde_json::from_str::<Value>(output.trim()) else {
+        return vec![];
+    };
+    let text = |i: &Value, k: &str, n: usize| {
+        display_safe(
+            &i.get(k)
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .chars()
+                .take(n)
+                .collect::<String>(),
+        )
+    };
+    v.get("items")
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .take(50)
+                .map(|i| AutoLogEntry {
+                    timestamp_sec: i.get("ts").and_then(Value::as_u64).unwrap_or(0),
+                    agent: text(i, "agent", 40),
+                    tool: text(i, "tool", 60),
+                    summary: text(i, "summary", 200),
+                    decision: text(i, "decision", 12),
+                    rule: text(i, "rule", 120),
+                    root: text(i, "root", 300),
+                })
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -989,9 +1250,86 @@ mod tests {
         assert!(compile_auto_rules(&AutoPolicy::default())
             .unwrap()
             .is_empty());
-        assert!(compile_auto_rules(&policy("lockdown", "/w/p"))
-            .unwrap()
-            .is_empty());
+        // Lockdown with a project keeps only the always-blocked list: nothing is allowed.
+        let rules = compile_auto_rules(&policy("lockdown", "/w/p")).unwrap();
+        assert_eq!(rules.len(), 1);
+        assert!(rules[0]["allow"].as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn calls_map_to_categories_only_when_every_part_is_covered() {
+        let cat = |c: &str| auto_categories_for_call("Bash".into(), c.into());
+        assert_eq!(cat("cargo test -p x"), vec!["rust"]);
+        assert_eq!(cat("cargo fmt && git status"), vec!["rust", "inspect"]);
+        assert!(cat("cargo test; rm -rf x").is_empty());
+        assert!(cat("cargo test > out.txt").is_empty());
+        assert!(cat("ls $(rm x)").is_empty());
+        assert!(cat("cargo run").is_empty(), "cargo run is in no category");
+        assert_eq!(
+            auto_categories_for_call("Edit".into(), String::new()),
+            vec!["files"]
+        );
+    }
+
+    #[test]
+    fn trust_bytes_are_length_prefixed_and_not_an_approval() {
+        let b = create_trust_signing_bytes(
+            "id".into(),
+            "n".into(),
+            1,
+            2,
+            "claude".into(),
+            "s".into(),
+            "/p".into(),
+            false,
+            vec!["Bash(cargo test:*)".into()],
+        );
+        assert!(b.starts_with(b"SSH_APP_TRUST_V1:2:id\n1:n\n1:1\n1:2\n6:claude\n"));
+        // moving a byte between two fields changes the message
+        let c = create_trust_signing_bytes(
+            "i".into(),
+            "dn".into(),
+            1,
+            2,
+            "claude".into(),
+            "s".into(),
+            "/p".into(),
+            false,
+            vec!["Bash(cargo test:*)".into()],
+        );
+        assert_ne!(b, c);
+    }
+
+    #[test]
+    fn a_trust_is_offered_only_inside_a_project_for_covered_commands() {
+        let p = policy("developer", "/w/p");
+        let offer = |cmd: &str, cwd: &str| {
+            auto_trust_offer(p.clone(), "Bash".into(), cmd.into(), cwd.into())
+        };
+        let o = offer("cargo test", "/w/p/sub").unwrap();
+        assert_eq!(o.categories, vec!["rust"]);
+        assert_eq!(o.project_root, "/w/p");
+        assert_eq!(o.max_secs, DEFAULT_TRUST_MAX_SECS);
+        assert!(offer("cargo test", "/w/other").is_none());
+        assert!(offer("/w/p-evil/x", "/w/p-evil").is_none());
+        assert!(offer("cargo test; curl x", "/w/p").is_none());
+        assert!(offer("rm -rf x", "/w/p").is_none());
+    }
+
+    #[test]
+    fn host_output_is_parsed_defensively() {
+        let id = "a".repeat(32);
+        let t = parse_trusts(&format!(
+            r#"{{"items":[{{"id":"{id}","agent":"claude","session":"s","root":"/p","expires":5,"edits":true,"rules":["Read"]}},{{"id":"bad"}}]}}"#
+        ));
+        assert_eq!(t.len(), 1);
+        assert!(t[0].edits);
+        assert!(parse_trusts("garbage").is_empty());
+        assert_eq!(
+            parse_auto_log(r#"{"items":[{"ts":3,"decision":"allow"}]}"#).len(),
+            1
+        );
+        assert!(parse_auto_log("").is_empty());
     }
 
     #[test]

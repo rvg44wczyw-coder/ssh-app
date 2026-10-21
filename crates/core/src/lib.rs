@@ -70,9 +70,10 @@ pub use approval_queue::{
     PendingApproval,
 };
 pub use auto_approval::{
-    auto_categories, auto_policy_warnings, auto_policy_with_preset, auto_presets,
-    AutoAgentOverride, AutoCategory, AutoCategoryLevel, AutoCommand, AutoLevel, AutoPolicy,
-    AutoPreset, AutoProject, AutoRisk,
+    auto_categories, auto_categories_for_call, auto_policy_warnings, auto_policy_with_preset,
+    auto_presets, auto_trust_offer, auto_trust_rules, create_trust_signing_bytes,
+    AutoAgentOverride, AutoCategory, AutoCategoryLevel, AutoCommand, AutoLevel, AutoLogEntry,
+    AutoPolicy, AutoPreset, AutoProject, AutoRisk, AutoTrust, AutoTrustOffer, AutoTrustRules,
 };
 pub use config::{RemoteServerConfig, SessionConfig, SessionState, TerminalSize};
 pub use error::SshCoreError;

@@ -1781,3 +1781,118 @@ fn auto_rules_allow_inside_the_project_only_and_log_it() {
         .any(|i| i["decision"] == "allow" && i["rule"] == "Bash(cargo test:*)"));
     assert!(items.iter().any(|i| i["decision"] == "deny"));
 }
+
+#[test]
+fn a_signed_temporary_trust_allows_in_the_same_session_and_project_only() {
+    need_tools!();
+    let h = Host::new();
+    let area = tempfile::tempdir().unwrap();
+    let base = std::fs::canonicalize(area.path()).unwrap();
+    let proj = base.join("p");
+    std::fs::create_dir_all(&proj).unwrap();
+    write_guard_json(
+        &h,
+        json!({"auto_rules": [{"deny": ["Bash(rm:*)"], "allow": [], "edits": false}],
+               "auto": {"projects": [{"root": proj, "label": "p"}]}}),
+    );
+    let call = |session: &str, command: &str, cwd: &Path, timeout: u32| -> Hook {
+        let stdin = json!({"tool_name": "Bash", "tool_input": {"command": command},
+            "cwd": cwd, "session_id": session})
+        .to_string();
+        h.spawn_hook("claude", "PreToolUse", &stdin, timeout)
+    };
+    let verdict = |hook: Hook| -> String {
+        let (out, _) = hook.finish();
+        if out.is_empty() {
+            return "none".into();
+        }
+        let v: Value = serde_json::from_str(&out).unwrap();
+        v["hookSpecificOutput"]["permissionDecision"]
+            .as_str()
+            .unwrap_or("none")
+            .to_string()
+    };
+    let rules = vec!["Bash(cargo test:*)".to_string()];
+    let sign_trust = |key: &KeypairResult, item: &Value, ts: u64, expires: u64, root: &Path| {
+        let bytes = ssh_core::create_trust_signing_bytes(
+            item["id"].as_str().unwrap().into(),
+            item["nonce"].as_str().unwrap().into(),
+            ts,
+            expires,
+            "claude".into(),
+            "s1".into(),
+            root.to_string_lossy().into(),
+            false,
+            rules.clone(),
+        );
+        sign_approval_sshsig(key.private_key_openssh.clone(), bytes).unwrap()
+    };
+    let approve_with_trust = |key: &KeypairResult, expires_in: u64| {
+        let hook = call("s1", "cargo test", &proj, 5);
+        let (item, t) = h.wait_item("approval");
+        let trust_sig = sign_trust(key, &item, t, t + expires_in, &proj);
+        let mut body: Value = serde_json::from_str(&h.honest(&item, t, true)).unwrap();
+        body["trust"] = json!({"expires": t + expires_in, "agent": "claude", "session": "s1",
+            "root": proj, "edits": false, "rules": rules, "signature": trust_sig});
+        assert_eq!(decide_ok(&h, &body.to_string())["ok"], true);
+        assert_eq!(verdict(hook), "allow");
+    };
+
+    // A trust signed by another key is not stored: the approval itself still counts once.
+    let stranger = generate_keypair().unwrap();
+    approve_with_trust(&stranger, 600);
+    assert_eq!(h.ctl("trusts", "")["items"].as_array().unwrap().len(), 0);
+    assert_eq!(verdict(call("s1", "cargo test", &proj, 1)), "none");
+
+    // A trust file written by hand gives nothing.
+    let dir = h.run().join("trust");
+    std::fs::create_dir_all(&dir).unwrap();
+    chmod(&dir, 0o700);
+    let fake = "a".repeat(32);
+    std::fs::write(
+        dir.join(format!("{fake}.json")),
+        json!({"v":1,"id":fake,"nonce":"b".repeat(32),"ts":1,"expires":4_000_000_000u64,
+            "agent":"claude","session":"s1","root":proj,"edits":false,"rules":rules,
+            "signature":"-----BEGIN SSH SIGNATURE-----\nAAAA\n-----END SSH SIGNATURE-----"})
+        .to_string(),
+    )
+    .unwrap();
+    assert_eq!(verdict(call("s1", "cargo test", &proj, 1)), "none");
+
+    // The phone's own signature: honoured for the same agent session, project and rules.
+    approve_with_trust(&h.key, 600);
+    let trusts = h.ctl("trusts", "");
+    assert_eq!(trusts["items"].as_array().unwrap().len(), 1);
+    assert_eq!(verdict(call("s1", "cargo test -p y", &proj, 1)), "allow");
+    assert_eq!(verdict(call("s1", "cargo test; rm x", &proj, 1)), "deny");
+    // Not another session, another agent folder, an uncovered command, or a way out.
+    assert_eq!(verdict(call("s2", "cargo test", &proj, 1)), "none");
+    assert_eq!(verdict(call("s1", "cargo test", &base, 1)), "none");
+    assert_eq!(verdict(call("s1", "cargo build", &proj, 1)), "none");
+    assert_eq!(
+        verdict(call("s1", "cargo test --manifest-path /etc/x", &proj, 1)),
+        "none"
+    );
+    // Uses are logged as trusted.
+    let log = h.ctl("auto-log", "");
+    assert!(log["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|i| i["decision"] == "trusted"));
+
+    // Revoked, it stops at once; the end of the session also ends it.
+    let id = trusts["items"][0]["id"].as_str().unwrap().to_string();
+    assert_eq!(h.ctl("revoke", &json!({"id": id}).to_string())["ok"], true);
+    assert_eq!(verdict(call("s1", "cargo test", &proj, 1)), "none");
+    approve_with_trust(&h.key, 600);
+    let end = json!({"cwd": proj, "session_id": "s1"}).to_string();
+    h.spawn_hook("claude", "SessionEnd", &end, 1).finish();
+    assert_eq!(verdict(call("s1", "cargo test", &proj, 1)), "none");
+
+    // Expiry is the host clock's.
+    approve_with_trust(&h.key, 2);
+    assert_eq!(verdict(call("s1", "cargo test", &proj, 1)), "allow");
+    std::thread::sleep(Duration::from_secs(3));
+    assert_eq!(verdict(call("s1", "cargo test", &proj, 1)), "none");
+}

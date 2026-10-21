@@ -46,8 +46,8 @@ pub struct Entry {
 #[derive(Debug, PartialEq, Eq)]
 pub enum AutoDecision {
     Deny(String),
-    /// Rule (or reason) and the project root, if any.
-    Allow(String, Option<String>),
+    /// Rule (or reason), the project root if any, and whether a signed temporary trust allowed it.
+    Allow(String, Option<String>, bool),
 }
 
 pub fn entries(guard: &Value, agent: &str) -> Vec<Entry> {
@@ -81,7 +81,7 @@ pub fn entries(guard: &Value, agent: &str) -> Vec<Entry> {
     out
 }
 
-fn inside(root: &str, path: &str) -> bool {
+pub(crate) fn inside(root: &str, path: &str) -> bool {
     path == root || path.starts_with(&format!("{}/", root.trim_end_matches('/')))
 }
 
@@ -89,7 +89,7 @@ fn home() -> String {
     std::env::var("HOME").unwrap_or_default()
 }
 
-fn expand(p: &str) -> String {
+pub(crate) fn expand(p: &str) -> String {
     if p == "~" {
         home()
     } else if let Some(rest) = p.strip_prefix("~/") {
@@ -99,7 +99,7 @@ fn expand(p: &str) -> String {
     }
 }
 
-fn abs(cwd: &str, p: &str) -> String {
+pub(crate) fn abs(cwd: &str, p: &str) -> String {
     if p.starts_with('/') {
         p.to_string()
     } else {
@@ -123,7 +123,7 @@ fn project_root(entries: &[Entry], cwd: &str) -> Option<String> {
     best
 }
 
-fn word_stays_inside(root: &str, cwd: &str, word: &str) -> bool {
+pub(crate) fn word_stays_inside(root: &str, cwd: &str, word: &str) -> bool {
     if word.contains('$') || word.contains('`') {
         return false;
     }
@@ -147,7 +147,7 @@ fn word_stays_inside(root: &str, cwd: &str, word: &str) -> bool {
     true
 }
 
-fn bash_stays_inside(root: &str, cwd: &str, command: &str) -> bool {
+pub(crate) fn bash_stays_inside(root: &str, cwd: &str, command: &str) -> bool {
     let mut words: Vec<String> = vec![];
     for seg in shell_segments(&strip_safe_redirects(command)) {
         match shlex::split(&seg) {
@@ -161,7 +161,7 @@ fn bash_stays_inside(root: &str, cwd: &str, command: &str) -> bool {
     words.iter().all(|w| word_stays_inside(root, cwd, w))
 }
 
-fn tool_paths(ti: &Value) -> Vec<String> {
+pub(crate) fn tool_paths(ti: &Value) -> Vec<String> {
     let mut out = vec![];
     for key in PATH_INPUT_KEYS {
         if let Some(s) = ti
@@ -186,7 +186,7 @@ fn tool_paths(ti: &Value) -> Vec<String> {
     out
 }
 
-fn edit_target_ok(root: &str, cwd: &str, paths: &[String]) -> bool {
+pub(crate) fn edit_target_ok(root: &str, cwd: &str, paths: &[String]) -> bool {
     if paths.is_empty() {
         return false;
     }
@@ -208,8 +208,10 @@ fn edit_target_ok(root: &str, cwd: &str, paths: &[String]) -> bool {
 
 /// What the compiled auto rules say about a tool call: refuse, allow, or nothing.
 pub fn auto_decision(
+    p: &Paths,
     guard: &Value,
     agent: &str,
+    session: &str,
     tool: &str,
     input: &Value,
     cwd: &str,
@@ -239,9 +241,9 @@ pub fn auto_decision(
     if kind == "Edit" {
         return match &root {
             Some(r) if edits && edit_target_ok(r, cwd, &tool_paths(input)) => Some(
-                AutoDecision::Allow("project file edits".into(), Some(r.clone())),
+                AutoDecision::Allow("project file edits".into(), Some(r.clone()), false),
             ),
-            _ => None,
+            _ => crate::trust::decision(p, guard, agent, session, tool, input, cwd),
         };
     }
     if let (Some(r), false) = (&root, project_rules.is_empty()) {
@@ -263,10 +265,13 @@ pub fn auto_decision(
                 .all(|p| word_stays_inside(r, cwd, p))
         };
         if let (Some(hit), true) = (guard_allows(&all, tool, input, cwd), stays) {
-            return Some(AutoDecision::Allow(hit, Some(r.clone())));
+            return Some(AutoDecision::Allow(hit, Some(r.clone()), false));
         }
     }
-    guard_allows(&free_rules, tool, input, cwd).map(|hit| AutoDecision::Allow(hit, root))
+    match guard_allows(&free_rules, tool, input, cwd) {
+        Some(hit) => Some(AutoDecision::Allow(hit, root, false)),
+        None => crate::trust::decision(p, guard, agent, session, tool, input, cwd),
+    }
 }
 
 pub fn log_path(p: &Paths) -> std::path::PathBuf {

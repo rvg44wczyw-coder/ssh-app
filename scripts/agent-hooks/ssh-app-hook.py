@@ -190,16 +190,30 @@ def verify_decision(req, raw):
         return None
     message = "SSH_APP_APPROVAL_V1:%s:%s:%s:%d:%s" % (
         req["id"], req["command_sha256"], req["nonce"], dts, "true" if approved else "false")
+    if not ssh_verify(message.encode("utf-8"), sig):
+        return None
+    if approved and isinstance(dec.get("trust"), dict):
+        try:
+            store_trust(req, dec["trust"], dts)
+        except Exception:
+            pass
+    return approved
+
+
+def ssh_verify(message, sig):
+    """True when `sig` is the paired phone key's SSHSIG over `message` (bytes)."""
+    keygen = keygen_path()
+    if not keygen or not allowed_signers_trusted():
+        return False
     sigfile = os.path.join(RUN, ".sig-%s" % os.urandom(8).hex())
     try:
         write_new(sigfile, sig.encode("utf-8", "replace"))
         proc = subprocess.run(
             [keygen, "-Y", "verify", "-f", ALLOWED, "-I", PRINCIPAL, "-n", NAMESPACE, "-s", sigfile],
-            input=message.encode("utf-8"), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            timeout=5)
-        return approved if proc.returncode == 0 else None
+            input=message, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+        return proc.returncode == 0
     except Exception:
-        return None
+        return False
     finally:
         unlink(sigfile)
 
@@ -693,7 +707,7 @@ def edit_target_ok(root, cwd, paths):
     return True
 
 
-def auto_decision(guard, agent, tool, tool_input, cwd):
+def auto_decision(guard, agent, session, tool, tool_input, cwd):
     """("deny", rule) | ("allow", rule, root) | None for a tool call, from the compiled auto rules."""
     entries = auto_entries(guard, agent)
     if not entries:
@@ -715,7 +729,7 @@ def auto_decision(guard, agent, tool, tool_input, cwd):
     if kind == "Edit":
         if edits and root and edit_target_ok(root, cwd, tool_paths(ti)):
             return ("allow", "project file edits", root)
-        return None
+        return trust_decision(guard, agent, session, tool, tool_input, cwd)
     if root is not None and project_rules:
         hit = guard_allows(project_rules + free_rules, tool, tool_input, cwd)
         stays = (bash_stays_inside(root, cwd, tool_command(ti)) if kind == "Bash"
@@ -726,6 +740,162 @@ def auto_decision(guard, agent, tool, tool_input, cwd):
     hit = guard_allows(free_rules, tool, tool_input, cwd)
     if hit is not None:
         return ("allow", hit, root)
+    return trust_decision(guard, agent, session, tool, tool_input, cwd)
+
+
+TRUST = os.path.join(RUN, "trust")
+TRUST_MAX = 50
+TRUST_HARD_CAP = 86400
+
+
+def trust_cap(guard):
+    n = guard.get("trust_max_secs")
+    return n if isinstance(n, int) and not isinstance(n, bool) and 60 <= n <= TRUST_HARD_CAP else TRUST_HARD_CAP
+
+
+def trust_message(t):
+    """SSH_APP_TRUST_V1 plus the fields, each as `<utf8 length>:<bytes>\n`, so no split between
+    fields can collide with another and no approval can be mistaken for a trust."""
+    fields = [t["id"], t["nonce"], str(t["ts"]), str(t["expires"]), t["agent"], t["session"], t["root"],
+              "true" if t["edits"] else "false", hashlib.sha256("\n".join(t["rules"]).encode("utf-8")).hexdigest()]
+    out = b"SSH_APP_TRUST_V1:"
+    for f in fields:
+        raw = f.encode("utf-8")
+        out += b"%d:" % len(raw) + raw + b"\n"
+    return out
+
+
+def trust_rules_ok(rules):
+    if not isinstance(rules, list) or not 0 < len(rules) <= 60:
+        return False
+    for r in rules:
+        if not isinstance(r, str) or not 0 < len(r) <= 400:
+            return False
+        m = RULE_RE.match(r.strip())
+        if not m or (tool_kind(m.group(1)) == "Bash" and not m.group(2)):
+            return False
+    return True
+
+
+def read_trust_blob(path):
+    raw = read_small(path, 20000)
+    if raw is None:
+        return None
+    try:
+        t = json.loads(raw.decode("utf-8"))
+    except Exception:
+        return None
+    if not isinstance(t, dict):
+        return None
+    need = {"id": str, "nonce": str, "agent": str, "session": str, "root": str, "signature": str}
+    for k, typ in need.items():
+        if not isinstance(t.get(k), typ):
+            return None
+    for k in ("ts", "expires"):
+        if not isinstance(t.get(k), int) or isinstance(t.get(k), bool):
+            return None
+    if not isinstance(t.get("edits"), bool) or not trust_rules_ok(t.get("rules")):
+        return None
+    if not ID_RE.match(t["id"]) or not t["root"].startswith("/") or not t["session"]:
+        return None
+    return t
+
+
+def trust_valid(t, guard):
+    """Signature, expiry and cap; the host clock decides."""
+    now = int(time.time())
+    if not (t["ts"] < t["expires"] and now < t["expires"] and t["expires"] - t["ts"] <= trust_cap(guard)):
+        return False
+    return len(t["signature"]) <= MAX_SIG and ssh_verify(trust_message(t), t["signature"])
+
+
+def store_trust(req, t, dts):
+    guard = load_guard()
+    blob = {"v": 1, "id": req["id"], "nonce": req["nonce"], "ts": dts, "expires": t.get("expires"),
+            "agent": req["agent"], "session": req["session"], "root": t.get("root"),
+            "edits": t.get("edits"), "rules": t.get("rules"), "signature": t.get("signature")}
+    if t.get("agent") != req["agent"] or t.get("session") != req["session"] or not req["session"]:
+        return
+    path_ok = os.path.join(TRUST, ".tmp-" + os.urandom(8).hex())
+    try:
+        os.makedirs(TRUST, mode=0o700, exist_ok=True)
+        if not private_dir(TRUST):
+            return
+        data = json.dumps(blob).encode("utf-8")
+        write_new(path_ok, data)
+        parsed = read_trust_blob(path_ok)
+        if parsed is None or not trust_valid(parsed, guard):
+            return
+        sweep_trusts(guard)
+        if len([n for n in os.listdir(TRUST) if n.endswith(".json")]) >= TRUST_MAX:
+            return
+        os.rename(path_ok, os.path.join(TRUST, req["id"] + ".json"))
+    except OSError:
+        pass
+    finally:
+        unlink(path_ok)
+
+
+def sweep_trusts(guard):
+    """Deletes expired and unreadable trust files; returns the valid ones (id -> blob)."""
+    out = {}
+    try:
+        names = sorted(os.listdir(TRUST))[:TRUST_MAX * 2]
+    except OSError:
+        return out
+    now = int(time.time())
+    for name in names:
+        path = os.path.join(TRUST, name)
+        if not name.endswith(".json") or name.startswith("."):
+            continue
+        t = read_trust_blob(path)
+        if t is None or t["expires"] <= now or name != t["id"] + ".json":
+            unlink(path)
+            continue
+        out[t["id"]] = t
+    return out
+
+
+def drop_trusts(agent, session):
+    """A trust ends with the agent session it was given for."""
+    for t in sweep_trusts({}).values():
+        if t["agent"] == agent and t["session"] == session:
+            unlink(os.path.join(TRUST, t["id"] + ".json"))
+
+
+def project_listed(guard, root):
+    """The trust's root must still be a project of the policy."""
+    auto = guard.get("auto")
+    projects = auto.get("projects") if isinstance(auto, dict) else None
+    if not isinstance(projects, list):
+        return False
+    want = real(root)
+    return any(isinstance(p, dict) and isinstance(p.get("root"), str) and real(p["root"]) == want
+               for p in projects[:60])
+
+
+def trust_decision(guard, agent, session, tool, tool_input, cwd):
+    """("allow", reason, root, id) when a signed, unexpired trust of this agent session covers the call."""
+    if not session or not cwd or not os.path.isdir(TRUST) or not private_dir(TRUST):
+        return None
+    ti = tool_input if isinstance(tool_input, dict) else {}
+    here = real(cwd)
+    kind = tool_kind(tool)
+    for t in sweep_trusts(guard).values():
+        if t["agent"] != agent or t["session"] != session:
+            continue
+        root = real(t["root"])
+        if not here or not root or not inside(root, here) or not project_listed(guard, t["root"]):
+            continue
+        if kind == "Edit":
+            ok = t["edits"] and edit_target_ok(root, cwd, tool_paths(ti))
+            hit = "project file edits"
+        else:
+            hit = guard_allows(t["rules"], tool, tool_input, cwd)
+            ok = hit is not None and (bash_stays_inside(root, cwd, tool_command(ti)) if kind == "Bash"
+                                      else paths_stay_inside(root, cwd, tool_paths(ti)))
+        if ok and trust_valid(t, guard):
+            return ("allow", "trusted %s: %s" % (t["id"][:8], hit), root, t["id"])
     return None
 
 
@@ -993,6 +1163,8 @@ def main():
 
     if event in ("SessionStart", "SessionEnd"):
         register_session(agent, event, session, cwd)
+        if event == "SessionEnd" and session:
+            drop_trusts(agent, session)
         text = guard_text((as_dict(load_guard().get("context"))).get("SessionStart"))
         if event == "SessionStart" and text and agent == "claude":
             sys.stdout.write(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart",
@@ -1023,7 +1195,7 @@ def main():
             reason = "Blocked by a host guard rule: " + clean(hit, 120)
             sys.stdout.write(json.dumps(deny_output(agent, event, reason)))
             return 0
-        auto = auto_decision(guard, agent, tool, tool_input, cwd)
+        auto = auto_decision(guard, agent, session, tool, tool_input, cwd)
         if auto is not None and auto[0] == "deny":
             auto_log(agent, session, tool, summary, "deny", auto[1], None)
             sys.stdout.write(json.dumps(deny_output(agent, event, "Blocked by an auto-approval category: " + clean(auto[1], 120))))
@@ -1044,7 +1216,7 @@ def main():
             elif auto is not None:
                 out = allow_output(agent, event, "Allowed automatically: " + clean(auto[1], 120))
                 if out is not None:
-                    auto_log(agent, session, tool, summary, "allow", auto[1], auto[2])
+                    auto_log(agent, session, tool, summary, "trusted" if len(auto) > 3 else "allow", auto[1], auto[2])
                     sys.stdout.write(json.dumps(out))
                     return 0
         # Antigravity's own allow list (permissions.allow in its settings): a plain command on it runs
@@ -1237,6 +1409,18 @@ def pending_items(now):
     return items[:MAX_LIST]
 
 
+def trust_items():
+    guard = load_guard()
+    items = []
+    for t in sweep_trusts(guard).values():
+        if trust_valid(t, guard):
+            items.append({"id": t["id"], "agent": clean(t["agent"], 40), "session": clean(t["session"], 80),
+                          "root": clean(t["root"], 300), "expires": t["expires"], "edits": t["edits"],
+                          "rules": [clean(r, 120) for r in t["rules"][:12]]})
+    items.sort(key=lambda i: i["expires"])
+    return items[:TRUST_MAX]
+
+
 def auto_log_items():
     raw = read_small(AUTOLOG, AUTOLOG_MAX * 2)
     items = []
@@ -1267,6 +1451,12 @@ def ctl(sub):
         return reply({"host_time": now, "items": list_sessions()})
     if sub == "auto-log":
         return reply({"host_time": now, "items": auto_log_items()})
+    if sub == "trusts":
+        return reply({"host_time": now, "items": trust_items()})
+    if sub == "revoke-all":
+        for tid in list(sweep_trusts({})):
+            unlink(os.path.join(TRUST, tid + ".json"))
+        return reply({"ok": True})
     if sub == "list":
         return reply({"host_time": now, "items": pending_items(now)})
     if sub == "wait":
@@ -1286,6 +1476,9 @@ def ctl(sub):
     rid = body.get("id")
     if not isinstance(rid, str) or not ID_RE.match(rid):
         return reply({"ok": False, "error": "invalid id"})
+    if sub == "revoke":
+        unlink(os.path.join(TRUST, rid + ".json"))
+        return reply({"ok": True})
     req = load_pending(rid + ".json", now)
     if sub == "ack":
         if req and req["kind"] == "notify":
@@ -1301,7 +1494,11 @@ def ctl(sub):
         try:
             if len([n for n in os.listdir(DECISIONS) if n.startswith(rid + ".")]) >= MAX_DECISIONS_PER_ID:
                 return reply({"ok": False, "error": "too many decisions for this request"})
-            data = json.dumps({"v": 1, "id": rid, "approved": approved, "ts": dts, "signature": sig})
+            decision = {"v": 1, "id": rid, "approved": approved, "ts": dts, "signature": sig}
+            trust = body.get("trust")
+            if approved and isinstance(trust, dict) and len(json.dumps(trust)) <= 12000:
+                decision["trust"] = trust  # verified (and stored) by the waiting hook, not here
+            data = json.dumps(decision)
             final = os.path.join(DECISIONS, "%s.%s.json" % (rid, os.urandom(8).hex()))
             tmp = os.path.join(DECISIONS, ".tmp-%s" % os.urandom(8).hex())
             write_new(tmp, data.encode("utf-8"))

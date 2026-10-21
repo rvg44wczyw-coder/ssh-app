@@ -268,10 +268,6 @@ pub fn verify_decision(p: &Paths, req: &Value, raw: &[u8]) -> Option<bool> {
     if !(req_ts <= dts && dts <= now() && dts - req_ts <= MAX_AGE) {
         return None;
     }
-    let keygen = keygen_path()?;
-    if !allowed_signers_trusted(p) {
-        return None;
-    }
     let message = format!(
         "SSH_APP_APPROVAL_V1:{}:{}:{}:{}:{}",
         req["id"].as_str()?,
@@ -280,19 +276,37 @@ pub fn verify_decision(p: &Paths, req: &Value, raw: &[u8]) -> Option<bool> {
         dts,
         if approved { "true" } else { "false" }
     );
+    if !ssh_verify(p, message.as_bytes(), sig) {
+        return None;
+    }
+    if approved {
+        if let Some(t) = dec.get("trust").filter(|t| t.is_object()) {
+            crate::trust::store_trust(p, req, t, dts);
+        }
+    }
+    Some(approved)
+}
+
+/// Whether `sig` is the paired phone key's SSHSIG over `message`.
+pub fn ssh_verify(p: &Paths, message: &[u8], sig: &str) -> bool {
+    let Some(keygen) = keygen_path() else {
+        return false;
+    };
+    if !allowed_signers_trusted(p) {
+        return false;
+    }
     let sigfile = p.run.join(format!(".sig-{}", rand_hex(8)));
-    write_new(&sigfile, sig.as_bytes()).ok()?;
+    if write_new(&sigfile, sig.as_bytes()).is_err() {
+        return false;
+    }
     let mut cmd = Command::new(keygen);
     cmd.args(["-Y", "verify", "-f"])
         .arg(&p.allowed)
         .args(["-I", PRINCIPAL, "-n", NAMESPACE, "-s"])
         .arg(&sigfile);
-    let result = run_with_input(cmd, message.as_bytes(), Duration::from_secs(5));
+    let result = run_with_input(cmd, message, Duration::from_secs(5));
     unlink(&sigfile);
-    match result {
-        Some((Some(0), _)) => Some(approved),
-        _ => None,
-    }
+    matches!(result, Some((Some(0), _)))
 }
 
 pub struct Base<'a> {

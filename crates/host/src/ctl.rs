@@ -147,6 +147,11 @@ pub fn run(p: &Paths, args: &[String]) -> Value {
     match sub {
         "sessions" => return json!({"host_time": t, "items": list_sessions(p)}),
         "auto-log" => return json!({"host_time": t, "items": crate::auto::log_items(p)}),
+        "trusts" => return json!({"host_time": t, "items": crate::trust::items(p)}),
+        "revoke-all" => {
+            crate::trust::revoke_all(p);
+            return json!({"ok": true});
+        }
         "list" => return json!({"host_time": t, "items": pending_items(p, t)}),
         "wait" => {
             // Long poll: answers as soon as the set of pending ids differs from the ids the app
@@ -174,6 +179,10 @@ pub fn run(p: &Paths, args: &[String]) -> Value {
     else {
         return error("invalid id");
     };
+    if sub == "revoke" {
+        crate::trust::revoke(p, rid);
+        return json!({"ok": true});
+    }
     let req = load_pending(p, &format!("{rid}.json"), t);
     match sub {
         "ack" => {
@@ -211,7 +220,14 @@ fn decide(p: &Paths, rid: &str, body: &Value, req: Option<&Value>) -> Value {
     if existing >= MAX_DECISIONS_PER_ID {
         return error("too many decisions for this request");
     }
-    let data = json!({"v": 1, "id": rid, "approved": approved, "ts": dts, "signature": sig});
+    let mut data = json!({"v": 1, "id": rid, "approved": approved, "ts": dts, "signature": sig});
+    // A trust block is verified (and stored) by the waiting hook, not here.
+    if let Some(trust) = body
+        .get("trust")
+        .filter(|t| approved && t.is_object() && t.to_string().len() <= 12000)
+    {
+        data["trust"] = trust.clone();
+    }
     let final_path = p.decisions.join(format!("{rid}.{}.json", rand_hex(8)));
     let tmp = p.decisions.join(format!(".tmp-{}", rand_hex(8)));
     if write_new(&tmp, data.to_string().as_bytes()).is_err()

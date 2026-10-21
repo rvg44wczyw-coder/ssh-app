@@ -79,6 +79,119 @@ impl SshSessionHandle {
         parse_ctl_result(&out)
     }
 
+    /// Approves request `id` and, in the same signed step, trusts `category_ids` in the policy's
+    /// project that contains the request's folder, for this agent session, for `trust_secs`
+    /// (capped by the policy). Refused unless every category covers the approved command.
+    pub async fn approve_with_trust(
+        &self,
+        id: String,
+        category_ids: Vec<String>,
+        trust_secs: u32,
+    ) -> Result<(), SshCoreError> {
+        use crate::approval_queue::{
+            build_decide_command_with_trust, parse_ctl_result, sign_approval_sshsig,
+        };
+        let err = |reason: &str| SshCoreError::ApprovalVerificationError {
+            reason: reason.to_string(),
+        };
+        let list = self.list_pending_approvals().await?;
+        let item = list
+            .items
+            .iter()
+            .find(|i| i.id == id && i.kind == crate::approval_queue::ApprovalKind::Approval)
+            .filter(|i| i.expires_sec > list.host_time_sec)
+            .ok_or_else(|| err("the request is gone or has expired"))?;
+        if item.session.is_empty() {
+            return Err(err("this agent has no session to bind a trust to"));
+        }
+        let guard = self.read_host_guard().await?;
+        let offer = crate::auto_approval::auto_trust_offer(
+            guard.auto.clone(),
+            item.tool.clone(),
+            item.command.clone(),
+            item.cwd.clone(),
+        )
+        .ok_or_else(|| err("nothing can be trusted for this request"))?;
+        if category_ids.is_empty() || category_ids.iter().any(|c| !offer.categories.contains(c)) {
+            return Err(err("a category does not cover the approved command"));
+        }
+        let secs = u64::from(trust_secs.clamp(60, offer.max_secs));
+        let trusted = crate::auto_approval::auto_trust_rules(category_ids)?;
+        let ts = list.host_time_sec.max(item.timestamp_sec);
+        let expires = ts + secs;
+        let key = zeroize::Zeroizing::new(read_ok(&self.config).private_key_pem.clone());
+        let approval = crate::approval::create_canonical_signing_bytes(
+            item.id.clone(),
+            item.command_sha256.clone(),
+            item.nonce.clone(),
+            ts,
+            true,
+        );
+        let signature = sign_approval_sshsig((*key).clone(), approval)?;
+        let trust_bytes = crate::auto_approval::create_trust_signing_bytes(
+            item.id.clone(),
+            item.nonce.clone(),
+            ts,
+            expires,
+            item.agent.clone(),
+            item.session.clone(),
+            offer.project_root.clone(),
+            trusted.edits,
+            trusted.rules.clone(),
+        );
+        let trust_signature = sign_approval_sshsig((*key).clone(), trust_bytes)?;
+        let trust = serde_json::json!({
+            "expires": expires, "agent": item.agent, "session": item.session,
+            "root": offer.project_root, "edits": trusted.edits, "rules": trusted.rules,
+            "signature": trust_signature,
+        });
+        let out = self
+            .execute_command_on_active_session(build_decide_command_with_trust(
+                &item.id,
+                true,
+                ts,
+                &signature,
+                Some(trust),
+            )?)
+            .await?;
+        parse_ctl_result(&out)
+    }
+
+    /// Active temporary trusts on the host.
+    pub async fn list_trusts(&self) -> Result<Vec<crate::auto_approval::AutoTrust>, SshCoreError> {
+        use crate::approval_queue::{build_ctl_command, CtlSubcommand};
+        let out = self
+            .execute_command_on_active_session(build_ctl_command(CtlSubcommand::Trusts))
+            .await?;
+        Ok(crate::auto_approval::parse_trusts(&out))
+    }
+
+    pub async fn revoke_trust(&self, id: String) -> Result<(), SshCoreError> {
+        let out = self
+            .execute_command_on_active_session(crate::approval_queue::build_revoke_command(&id)?)
+            .await?;
+        crate::approval_queue::parse_ctl_result(&out)
+    }
+
+    pub async fn revoke_all_trusts(&self) -> Result<(), SshCoreError> {
+        use crate::approval_queue::{build_ctl_command, CtlSubcommand};
+        let out = self
+            .execute_command_on_active_session(build_ctl_command(CtlSubcommand::RevokeAll))
+            .await?;
+        crate::approval_queue::parse_ctl_result(&out)
+    }
+
+    /// The last automatic decisions of the hook (newest last).
+    pub async fn read_auto_log(
+        &self,
+    ) -> Result<Vec<crate::auto_approval::AutoLogEntry>, SshCoreError> {
+        use crate::approval_queue::{build_ctl_command, CtlSubcommand};
+        let out = self
+            .execute_command_on_active_session(build_ctl_command(CtlSubcommand::AutoLog))
+            .await?;
+        Ok(crate::auto_approval::parse_auto_log(&out))
+    }
+
     /// Dismisses an informational notice on the host.
     pub async fn acknowledge_notification(&self, id: String) -> Result<(), SshCoreError> {
         let cmd = crate::approval_queue::build_ack_command(&id)?;

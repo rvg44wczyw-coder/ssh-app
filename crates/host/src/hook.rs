@@ -274,6 +274,9 @@ pub fn run(p: &Paths, args: &[String]) -> i32 {
     }
     if event == "SessionStart" || event == "SessionEnd" {
         register_session(p, agent, event, &call.session, &call.cwd);
+        if event == "SessionEnd" && !call.session.is_empty() {
+            crate::trust::drop_for_session(p, agent, &call.session);
+        }
         if event == "SessionStart" {
             context_reply(p, "SessionStart", "SessionStart", agent);
         }
@@ -346,7 +349,15 @@ fn permission(p: &Paths, agent: &str, event: &str, call: &Call, base: &Base, too
         emit(&deny_output(agent, event, &reason));
         return;
     }
-    let auto = auto_decision(&guard, agent, &call.tool, &call.input, &call.cwd);
+    let auto = auto_decision(
+        p,
+        &guard,
+        agent,
+        &call.session,
+        &call.tool,
+        &call.input,
+        &call.cwd,
+    );
     if let Some(AutoDecision::Deny(rule)) = &auto {
         crate::auto::log(p, base, "deny", rule, None);
         let reason = format!("Blocked by an auto-approval category: {}", clean(rule, 120));
@@ -365,10 +376,11 @@ fn permission(p: &Paths, agent: &str, event: &str, call: &Call, base: &Base, too
             emit(&out);
             return;
         }
-    } else if let Some(AutoDecision::Allow(rule, root)) = &auto {
+    } else if let Some(AutoDecision::Allow(rule, root, trusted)) = &auto {
         let reason = format!("Allowed automatically: {}", clean(rule, 120));
         if let Some(out) = allow_output(agent, event, &reason) {
-            crate::auto::log(p, base, "allow", rule, root.as_deref());
+            let how = if *trusted { "trusted" } else { "allow" };
+            crate::auto::log(p, base, how, rule, root.as_deref());
             emit(&out);
             return;
         }

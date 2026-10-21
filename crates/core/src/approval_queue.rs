@@ -65,6 +65,9 @@ pub struct ApprovalStatus {
 pub(crate) enum CtlSubcommand {
     List,
     Status,
+    Trusts,
+    RevokeAll,
+    AutoLog,
 }
 
 /// `true` for a 32-character lowercase-hex id.
@@ -98,6 +101,9 @@ pub(crate) fn build_ctl_command(sub: CtlSubcommand) -> String {
     let name = match sub {
         CtlSubcommand::List => "list",
         CtlSubcommand::Status => "status",
+        CtlSubcommand::Trusts => "trusts",
+        CtlSubcommand::RevokeAll => "revoke-all",
+        CtlSubcommand::AutoLog => "auto-log",
     };
     format!("sh -c {}", shell_quote(&format!("{CTL} {name}")))
 }
@@ -114,14 +120,38 @@ pub(crate) fn build_decide_command(
     ts: u64,
     signature: &str,
 ) -> Result<String, SshCoreError> {
+    build_decide_command_with_trust(id, approved, ts, signature, None)
+}
+
+pub(crate) fn build_decide_command_with_trust(
+    id: &str,
+    approved: bool,
+    ts: u64,
+    signature: &str,
+    trust: Option<Value>,
+) -> Result<String, SshCoreError> {
     if !is_valid_id(id) {
         return Err(SshCoreError::ApprovalVerificationError {
             reason: "invalid approval id".to_string(),
         });
     }
-    let json = serde_json::json!({"v": 1, "id": id, "approved": approved, "ts": ts, "signature": signature})
-        .to_string();
-    Ok(build_ctl_stdin_command("decide", &json))
+    let mut body = serde_json::json!({"v": 1, "id": id, "approved": approved, "ts": ts, "signature": signature});
+    if let Some(t) = trust {
+        body["trust"] = t;
+    }
+    Ok(build_ctl_stdin_command("decide", &body.to_string()))
+}
+
+pub(crate) fn build_revoke_command(id: &str) -> Result<String, SshCoreError> {
+    if !is_valid_id(id) {
+        return Err(SshCoreError::ApprovalVerificationError {
+            reason: "invalid trust id".to_string(),
+        });
+    }
+    Ok(build_ctl_stdin_command(
+        "revoke",
+        &serde_json::json!({ "id": id }).to_string(),
+    ))
 }
 
 pub(crate) fn build_ack_command(id: &str) -> Result<String, SshCoreError> {
