@@ -14,6 +14,8 @@ DEVICE_ID ?= $(shell xcrun devicectl list devices 2>/dev/null | grep -E "iPhone|
 .PHONY: help iphone iphone-full xcframework relay-config ios-build ios-install ios-launch test lint clean tmux-dump
 
 # Куда tmux-dump складывает снимки панелей (вне репозитория).
+# TMUX_DUMP_FLAGS=-e сохраняет цвета и стили (escape-последовательности) для разбора разметки.
+TMUX_DUMP_FLAGS ?=
 TMUX_DUMP_DIR ?= $(or $(TMPDIR),/tmp)/ssh-app-tmux-dump
 
 help:
@@ -102,6 +104,6 @@ tmux-dump:
 	@tmux list-panes -a -F '#{pane_id}|#{session_name}|#{window_index}|#{pane_index}|#{pane_current_command}|#{pane_width}x#{pane_height}' | \
 	while IFS='|' read -r id sess win pane cmd size; do \
 		f="$(TMUX_DUMP_DIR)/$$(printf '%s' "$$sess" | tr -c 'A-Za-z0-9._-' '_')_$$win.$$pane.txt"; \
-		tmux capture-pane -p -J -S - -t "$$id" > "$$f" 2>/dev/null || continue; \
+		tmux capture-pane -p -J $(TMUX_DUMP_FLAGS) -S - -t "$$id" > "$$f" 2>/dev/null || continue; \
 		printf '%-28s %-10s %-8s %6s строк, рамок-таблиц: %s -> %s\n' "$$sess:$$win.$$pane" "$$cmd" "$$size" "$$(wc -l < "$$f" | tr -d ' ')" "$$(grep -c '┌' "$$f")" "$$f"; \
 	done
