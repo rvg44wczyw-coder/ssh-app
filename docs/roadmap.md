@@ -39,6 +39,7 @@
 | **M36: Native macOS Terminal User Interface (TUI)** | Desktop-class terminal UI in pure Rust (`crates/tui` with `ratatui` + `crossterm`), 3-pane keyboard layout (`hjkl`), floating approval modals, Docker manager, and sub-millisecond rendering in Alacritty/Ghostty/Terminal.app (`docs/features/47-macos-desktop-architecture-and-ui.md`) | Spec written | `doc-dev`, `rust-core-dev`, `rev`, `hacker` |
 | **M37: Apple Shortcuts & App Intents Automation** | Siri voice commands (*"Hey Siri, run tests with Claude"*), iOS 18 Control Center widgets, Lock Screen actions, and Shortcuts parametric workflows (`docs/features/48-apple-shortcuts-and-app-intents.md`) | Spec written | `doc-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker` |
 | **M38: Zellij Terminal Multiplexer Support** | Zellij as a third `MultiplexerKind` (attach, detach, kill, list only; no feed) (auto-detect, session attach/create/kill, KDL layouts) for modern Rust/Go environments (`docs/features/49-zellij-multiplexer-support.md`) | Spec written | `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker` |
+| **M39: Auto-approval by command category** | Command categories (read-only, git, Rust, Python, Go, Node, Swift, make, Docker, network, installs) with Ask/Auto/Block per agent, presets (Cautious, Developer, Trusted project, Lockdown), trusted folders, audit log; compiled into the host guard (`docs/features/50-auto-approval-categories.md`) | Spec written; phase 0 (allow semantics fix) done | `doc-dev`, `rev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `hacker` |
 
 ---
 
@@ -293,6 +294,12 @@
 - **Scope**: Universal `MultiplexerKind` trait supporting both `tmux` and `zellij` (auto-detect, session attach/create/kill, KDL layouts) for modern Rust/Go environments, dynamic PTY resizing, and native TrueColor.
 - **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
 - **Status**: Spec reviewed and corrected (`rev` + `hacker`, 2026-10-20), implementation pending. Scope cut to attach/detach only (milestone A).
+
+### Feature 50 / M39: Auto-approval by command category (`docs/features/50-auto-approval-categories.md`)
+- **Doc**: `docs/features/50-auto-approval-categories.md`
+- **Scope**: categories with levels per agent, presets, trusted folders for commands that run project code, audit log; enforced by the existing host guard (feature 19).
+- **Roles**: `doc-dev`, `rev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `hacker`
+- **Status**: Spec written (2026-10-21). Phase 0 done: guard `allow` now needs every part of a shell command covered (`docs/security-findings/2026-10-21-guard-allow-compound-commands.md`).
 
 ## Plan limits (2026-10-18)
 - Claude: real 5h/7d percentages come only from the `statusLine` JSON (`rate_limits`). The hook script has a `claude statusline` mode (wrapper that records them under `~/.ssh-app/run/limits/<hash of CLAUDE_CONFIG_DIR>.json` and runs the user's previous status line); installed per profile from the Hooks screen ("Plan limits"), so the personal profile (`~/.claude-personal`) is covered by its own config dir. The usage probe shows them in the strip (`5h 42% 7d 18%`).
