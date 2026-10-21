@@ -860,3 +860,21 @@ fn box_lines_without_a_closing_edge_are_left_alone() {
         .collect();
     assert_eq!(box_tables_to_markdown(&lines), lines);
 }
+
+#[test]
+fn a_real_claude_table_with_a_centered_header_becomes_rows() {
+    let raw = include_str!("../../tests/data/claude_box_table.txt");
+    let lines: Vec<String> = raw.lines().map(String::from).collect();
+    let md = box_tables_to_markdown(&lines);
+    assert_eq!(md[0], "  | Файл | Куда разбит |");
+    assert_eq!(md[1], "  | --- | --- |");
+    assert!(
+        md[2].starts_with("  | screen.rs | prompt, text"),
+        "{}",
+        md[2]
+    );
+    assert!(
+        md.iter().all(|l| !l.contains(['┌', '├', '└', '│'])),
+        "{md:?}"
+    );
+}

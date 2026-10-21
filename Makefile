@@ -11,7 +11,10 @@ APP_PATH := $(DERIVED_DATA)/Build/Products/$(CONFIGURATION)-iphoneos/$(SCHEME).a
 # Auto-detect the first connected physical iOS device (arm64) if DEVICE_ID is not passed
 DEVICE_ID ?= $(shell xcrun devicectl list devices 2>/dev/null | grep -E "iPhone|00008130" | head -n 1 | grep -oE "[0-9A-F]{8}-[0-9A-F]{16}")
 
-.PHONY: help iphone iphone-full xcframework relay-config ios-build ios-install ios-launch test lint clean
+.PHONY: help iphone iphone-full xcframework relay-config ios-build ios-install ios-launch test lint clean tmux-dump
+
+# Куда tmux-dump складывает снимки панелей (вне репозитория).
+TMUX_DUMP_DIR ?= $(or $(TMPDIR),/tmp)/ssh-app-tmux-dump
 
 help:
 	@echo "Доступные команды:"
@@ -23,6 +26,7 @@ help:
 	@echo "  make ios-launch    — Запустить установленное приложение на подключенном iPhone"
 	@echo "  make test          — Запустить тесты Rust Core и Swift Bridge"
 	@echo "  make lint          — Проверить форматирование и Clippy в Rust Core"
+	@echo "  make tmux-dump     — Только читать tmux: сохранить скроллбэк всех панелей в $(TMUX_DUMP_DIR)"
 	@echo "  make clean         — Очистить DerivedData"
 
 xcframework:
@@ -87,3 +91,17 @@ lint:
 
 clean:
 	rm -rf $(DERIVED_DATA)
+
+# Читает (и только читает) tmux сервера из $TMUX / по умолчанию: список панелей и полный скроллбэк
+# каждой (`capture-pane -p -J -S -`) в файл. Ничего не отправляет в панели и не меняет сервер.
+# Нужен для сверки парсера ленты с настоящим экраном агента.
+tmux-dump:
+	@command -v tmux >/dev/null || { echo "tmux не найден"; exit 1; }
+	@tmux has-session 2>/dev/null || { echo "tmux-сервер не запущен"; exit 1; }
+	@mkdir -p "$(TMUX_DUMP_DIR)" && chmod 700 "$(TMUX_DUMP_DIR)"
+	@tmux list-panes -a -F '#{pane_id}|#{session_name}|#{window_index}|#{pane_index}|#{pane_current_command}|#{pane_width}x#{pane_height}' | \
+	while IFS='|' read -r id sess win pane cmd size; do \
+		f="$(TMUX_DUMP_DIR)/$$(printf '%s' "$$sess" | tr -c 'A-Za-z0-9._-' '_')_$$win.$$pane.txt"; \
+		tmux capture-pane -p -J -S - -t "$$id" > "$$f" 2>/dev/null || continue; \
+		printf '%-28s %-10s %-8s %6s строк, рамок-таблиц: %s -> %s\n' "$$sess:$$win.$$pane" "$$cmd" "$$size" "$$(wc -l < "$$f" | tr -d ' ')" "$$(grep -c '┌' "$$f")" "$$f"; \
+	done
