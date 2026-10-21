@@ -878,3 +878,50 @@ fn a_real_claude_table_with_a_centered_header_becomes_rows() {
         "{md:?}"
     );
 }
+
+#[test]
+fn an_agy_pipe_table_with_wrapped_cells_becomes_rows() {
+    let lines: Vec<String> = [
+        "   Name       | What is it        | Verdict",
+        "--------------|-------------------|--------",
+        "   Blink      | Mosh, nice and    | Beat it:",
+        "              | fast              | battery",
+        "   Termius    | Cross-platform    | Beat it: privacy",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+    assert_eq!(
+        pipe_tables_to_markdown(&lines),
+        vec![
+            "   | Name | What is it | Verdict |",
+            "   | --- | --- | --- |",
+            "   | Blink | Mosh, nice and fast | Beat it: battery |",
+            "   | Termius | Cross-platform | Beat it: privacy |",
+        ]
+    );
+}
+
+#[test]
+fn text_with_a_pipe_but_no_rule_is_not_a_table() {
+    let lines: Vec<String> = ["a | b", "plain"].iter().map(|s| s.to_string()).collect();
+    assert_eq!(pipe_tables_to_markdown(&lines), lines);
+}
+
+#[test]
+fn a_real_agy_table_has_one_row_per_competitor() {
+    let raw = include_str!("../../tests/data/agy_pipe_table.txt");
+    let lines: Vec<String> = raw.lines().map(String::from).collect();
+    let md = pipe_tables_to_markdown(&lines);
+    assert!(md[0].contains("| Конкурент |"), "{}", md[0]);
+    assert_eq!(md[1].matches("---").count(), 4);
+    assert!(md[2].contains("| Blink Shell (iOS/iPadOS) |"), "{}", md[2]);
+    assert!(
+        md[2].contains("VS Code web"),
+        "wrapped cell lines are joined"
+    );
+    assert!(
+        md.len() >= 5 && md.iter().all(|l| l.matches('|').count() == 5),
+        "{md:#?}"
+    );
+}

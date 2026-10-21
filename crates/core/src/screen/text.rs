@@ -5,7 +5,7 @@ use super::*;
 /// continuation, not a list item, table row, heading or code.
 pub(super) fn reflow(lines: &[String]) -> String {
     let width = lines.iter().map(|l| l.chars().count()).max().unwrap_or(0);
-    let converted = box_tables_to_markdown(lines);
+    let converted = pipe_tables_to_markdown(&box_tables_to_markdown(lines));
     let lines = &converted[..];
     let mut out: Vec<String> = Vec::new();
     let mut prev_wrapped = false;
@@ -196,6 +196,66 @@ pub(super) fn box_tables_to_markdown(lines: &[String]) -> Vec<String> {
             out.push(md(row));
         }
         i = j + 1;
+    }
+    out
+}
+
+/// agy draws a table with pipes but without outer ones: a header line, a `----|----` rule, then
+/// rows whose long cells wrap over several lines (a continuation line has an empty first cell).
+/// Joins each row into one Markdown row (`| a | b |`), so the app renders a table.
+pub(super) fn pipe_tables_to_markdown(lines: &[String]) -> Vec<String> {
+    fn cells(l: &str) -> Vec<String> {
+        l.trim().split('|').map(|c| c.trim().to_string()).collect()
+    }
+    fn is_rule(l: &str) -> bool {
+        let t = l.trim();
+        t.contains('|') && t.contains('-') && t.chars().all(|c| matches!(c, '-' | '|' | ':' | ' '))
+    }
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < lines.len() {
+        let is_head = lines[i].matches('|').count() >= 1
+            && !lines[i].trim_start().starts_with('|')
+            && i + 1 < lines.len()
+            && is_rule(&lines[i + 1])
+            && cells(&lines[i]).len() == cells(&lines[i + 1]).len();
+        if !is_head {
+            out.push(lines[i].clone());
+            i += 1;
+            continue;
+        }
+        let lead: String = lines[i].chars().take_while(|c| c.is_whitespace()).collect();
+        let head = cells(&lines[i]);
+        let n = head.len();
+        let mut rows: Vec<Vec<String>> = Vec::new();
+        let mut j = i + 2;
+        while j < lines.len() && lines[j].contains('|') && !lines[j].trim().is_empty() {
+            let c = cells(&lines[j]);
+            if c.len() != n {
+                break;
+            }
+            match rows.last_mut() {
+                Some(prev) if c[0].is_empty() => {
+                    for (cell, more) in prev.iter_mut().zip(c) {
+                        if !more.is_empty() {
+                            if !cell.is_empty() {
+                                cell.push(' ');
+                            }
+                            cell.push_str(&more);
+                        }
+                    }
+                }
+                _ => rows.push(c),
+            }
+            j += 1;
+        }
+        let md = |c: &[String]| format!("{lead}| {} |", c.join(" | "));
+        out.push(md(&head));
+        out.push(format!("{lead}|{}", " --- |".repeat(n)));
+        for r in &rows {
+            out.push(md(r));
+        }
+        i = j;
     }
     out
 }
