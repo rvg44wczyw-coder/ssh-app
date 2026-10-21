@@ -1,0 +1,25 @@
+@startuml 09-prompt-answer
+!include style.iuml
+title Вопрос агента: карточка и ответ клавишами
+
+participant "Агент (TUI в tmux)" as A
+participant "parse_prompt" as P
+participant "FeedPromptCard" as C
+participant "ViewModel" as VM
+actor "Пользователь" as U
+
+A -> A : рисует меню:\n  1. Yes\n❯ 2. Always\n  3. Type something.\n↑/↓ Navigate · Enter to select
+VM -> P : parse_screen_feed(кадр)
+P --> VM : ScreenPrompt(options, selected = 1)
+VM --> C : screenPrompt
+U -> C : нажал «Yes» (индекс 0)
+C -> VM : answerPrompt(index = 0, toggle = false)
+VM -> A : ↑ (delta = 0 - 1 = -1 раз)
+VM -> A : (пауза 120 мс) Enter — отдельной записью
+VM -> VM : сбросить контрольную сумму,\nперечитать экран
+U -> C : «Type something.» -> поле ввода
+C -> VM : answerPrompt(index = 2, text)
+VM -> A : ↓ ↓ -> курсор на пункте
+VM -> A : (200 мс) текст (переводы строк -> пробелы)
+VM -> A : (250 мс) Enter
+@enduml

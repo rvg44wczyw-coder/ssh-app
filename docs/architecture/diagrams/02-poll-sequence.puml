@@ -1,0 +1,41 @@
+@startuml 02-poll-sequence
+!include style.iuml
+title Один цикл обновления ленты (reloadFromScreen)
+
+participant "Лента\n(StructuredTranscriptView)" as View
+participant "TerminalSessionViewModel" as VM
+participant "SshSessionHandle\n(Rust)" as H
+participant "Хост: tmux" as T
+participant "Парсер\nparse_screen_feed" as P
+participant "merge_thinking" as M
+
+loop каждые 3 с (5 / 10 с, пока ничего не меняется)
+  View -> VM : reloadTranscriptQuietly()
+  VM -> H : captureSessionScreen(session, knownSum)
+  H -> T : tmux capture-pane -p -J -S - ; cksum
+  T --> H : "SAME sum" или "SUM sum" + текст
+  H --> VM : ScreenCapture(checksum, text?)
+  alt текст не изменился (SAME)
+    VM --> View : false (ничего не перерисовывать)
+  else экран изменился
+    loop до 3 раз, пауза 350 мс
+      VM -> H : captureSessionScreen(knownSum = предыдущая)
+      note right: ждём два одинаковых кадра подряд —\nагент перерисовывает хвост экрана
+    end
+    VM -> P : parseScreenFeed(text)
+    P --> VM : ScreenFeed(dialect, turns, status, draft, prompt)
+    alt dialect == Unknown
+      VM --> View : nil -> запасной путь: файл сессии
+    else распознано
+      opt появились новые ходы или прошло 15 с
+        VM -> H : detectSessionTranscriptPath + readRemoteTranscript
+        H --> VM : ходы из файла
+        VM -> VM : transcriptMatchesScreen(file, screen)
+      end
+      VM -> M : mergeThinking(screen, file)
+      M --> VM : ходы экрана + мышление и полные аргументы из файла
+      VM --> View : transcriptTurns, screenPrompt,\nscreenStatus, screenDraft
+    end
+  end
+end
+@enduml

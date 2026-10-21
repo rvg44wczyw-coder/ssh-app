@@ -1,0 +1,37 @@
+@startuml 10-sources-map
+!include style.iuml
+title Откуда можно взять содержимое чата
+
+rectangle "Агент (Claude Code / agy)" as agent {
+  rectangle "TUI в tmux-панели" as tui
+  rectangle "Файл сессии JSONL" as file
+  rectangle "Хуки (stdin JSON)" as hooks
+  rectangle "Headless: --print\n--output-format stream-json" as headless
+  rectangle "Официальный remote-control\n(через облако вендора)" as rc
+  rectangle "Телеметрия (OpenTelemetry)\nи statusline JSON" as otel
+}
+rectangle "tmux" as tmux {
+  rectangle "capture-pane -p -J\n(текст)" as cap
+  rectangle "capture-pane -e\n(текст + SGR-стили)" as cape
+  rectangle "pipe-pane / control mode -C\n(сырой поток байт)" as stream
+}
+rectangle "Приложение" as app {
+  rectangle "A. Парсер экрана\n(сейчас)" as A
+  rectangle "B. Парсер файла\n(сейчас, мышление/аргументы)" as B
+  rectangle "C. Парсер экрана со стилями" as C
+  rectangle "D. Эмулятор терминала на хосте\n(vt100 над потоком)" as D
+  rectangle "E. События хуков" as E
+  rectangle "F. Свой headless-процесс\nвместо TUI" as F
+}
+tui --> cap
+tui --> cape
+tui --> stream
+cap --> A
+cape --> C
+stream --> D
+file --> B
+hooks --> E
+headless --> F
+rc ..> F : другой канал
+otel ..> E
+@enduml

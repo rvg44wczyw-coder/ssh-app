@@ -1,0 +1,46 @@
+@startuml 05-agy-lines
+!include style.iuml
+title agy(): как классифицируется очередная строка
+
+start
+:взять строку l;
+if (пустая?) then (да)
+  :пропустить;
+  stop
+endif
+switch (начало строки)
+case ( "Antigravity CLI 1" / ▄▀ )
+  :баннер -> System «Antigravity CLI»;
+case ( ряд ──────  )
+  :пропустить;
+case ( "──── Conversation compacted" )
+  :System «Conversation compacted»;
+case ( "> " )
+  :ввод пользователя + продолжения -> User;
+case ( "○ " )
+  :мышление (краткое) -> Assistant.thinking;
+case ( "● " или "… " )
+  :сводка вызова, склеить перенесённые строки;
+  :«Bash(ls)» -> имя+аргументы;\n«Ran (ls)» / «Explored 2 files (a, b)» -> по « (»;
+  :tool(name, args, None);
+case ( "⚠ " )
+  :System (заголовок = текст, тело = результат);
+case ( "┃" )
+  :уведомление -> System «Notice»;
+case ( "⎿" )
+  :System «Note»;
+case ( "▾ / ▸ Thought for…" )
+  :System «Thought for 25s»\n(раскрытое мышление потом убирает merge);
+case ( отступ >= 2 )
+  :текст ответа: абзацы, ряд из символов ─ превращается в горизонтальную линию Markdown;\nreflow (в том числе таблицы с чертами без внешних рамок);
+case ( иное )
+  :other[]\n-> System «Terminal output»;
+endswitch
+stop
+
+note right
+  Предобработка: join_thought_wraps — строки раскрытого
+  мышления, перенесённые агентом в колонку 0, возвращаются
+  к строке выше.
+end note
+@enduml

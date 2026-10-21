@@ -1,0 +1,59 @@
+@startuml 08-types
+!include style.iuml
+title Типы результата (UniFFI-записи)
+
+class ScreenFeed {
+  dialect: ScreenDialect
+  turns: Vec<TranscriptTurn>
+  status: Option<String>
+  draft: Option<String>
+  prompt: Option<ScreenPrompt>
+}
+enum ScreenDialect {
+  Claude
+  Agy
+  Unknown
+}
+class ScreenPrompt {
+  title: Option<String>
+  detail: String
+  question: String
+  options: Vec<PromptOption>
+  selected: u32
+  multi: bool
+}
+class PromptOption {
+  number: u32
+  label: String
+  description: String
+  checked: bool
+}
+class TranscriptTurn {
+  id: "scr<N>"
+  step_index
+  turn_type: User, Assistant или System
+  content: Option<String>   (Markdown)
+  thinking: Option<String>
+  tool_calls: Vec<TranscriptToolCall>
+  status
+  label: Option<String>
+}
+class TranscriptToolCall {
+  call_id
+  tool_name
+  arguments_summary
+  full_arguments_json: Option
+  result: Option<String>
+  is_error
+  status: Running или Done
+}
+ScreenFeed *-- ScreenDialect
+ScreenFeed *-- "0..*" TranscriptTurn
+ScreenFeed *-- "0..1" ScreenPrompt
+ScreenPrompt *-- "1..*" PromptOption
+TranscriptTurn *-- "0..*" TranscriptToolCall
+note bottom of TranscriptTurn
+  Тот же тип, что у парсера файла (transcript/*):
+  лента не знает, откуда пришли ходы.
+end note
+@enduml

@@ -1,0 +1,36 @@
+@startuml 03-parse-pipeline
+!include style.iuml
+title parse_screen_feed: конвейер разбора кадра
+
+start
+:text (сырой захват tmux);
+:strip_ansi_codes — вычистить escape-последовательности\nи управляющие символы;
+:разбить на строки, обрезать хвостовые пробелы,\nотбросить пустые строки в конце;
+:detect(lines) -> ScreenDialect;
+note right
+  по маркерам и «подвалу» (footer):
+  ⏵⏵ / shift+tab -> Claude
+  "? for shortcuts" / " · Gemini " -> agy
+  ⏺ ❯ ✻ -> Claude;  ○ ● "Antigravity CLI" -> agy
+  счёт: Claude >= agy -> Claude
+end note
+:parse_prompt(lines);
+if (меню с вопросом\nна экране?) then (да)
+  :отрезать меню от строк -> prompt;
+  :draft = None;
+else (нет)
+  :split_footer — два горизонтальных ряда ────\nрядом (<= 8 строк): поле ввода;
+  :draft = текст поля\n(без подсказок is_box_hint);
+  :отрезать подвал;
+endif
+:take_status — строка со спиннером\n(✶ Thinking… (12s)) -> status;
+if (dialect?) then (Claude)
+  :claude(lines, builder);
+elseif (Agy)
+  :join_thought_wraps -> agy(lines, builder);
+else (Unknown)
+  :один свёрнутый ход\n«Terminal output»\n(последние 300 строк);
+endif
+:ScreenFeed{dialect, turns, status, draft, prompt};
+stop
+@enduml

@@ -1,0 +1,33 @@
+@startuml 01-context
+!include style.iuml
+title Где живёт парсер: общая схема
+
+rectangle "iPhone" as phone {
+  rectangle "SwiftUI\nStructuredTranscriptView\nFeedTextView (рендер)" as ui
+  rectangle "TerminalSessionViewModel\n(опрос, склейка, ввод)" as vm
+  rectangle "SshCoreBridge (UniFFI)" as bridge
+  rectangle "Rust-ядро ssh-core\nscreen/*  — парсер экрана\ntranscript/* — парсер файла" as core
+}
+
+rectangle "MacBook (хост по SSH / Tailscale)" as host {
+  rectangle "tmux-сессия вкладки\n(панель с агентом)" as tmux
+  rectangle "Агент\nClaude Code / agy" as agent
+  rectangle "Файл сессии (JSONL)\n~/.claude/projects/.../*.jsonl\n~/.gemini/antigravity-cli/brain/<id>/\n.system_generated/logs/transcript.jsonl" as file
+  rectangle "Хуки агента\n~/.ssh-app/run/sessions/*.json" as hooks
+}
+
+ui --> vm : turns, prompt,\nstatus, draft
+vm --> bridge
+bridge --> core
+vm ..> tmux : (1) capture-pane -p -J -S -\nчерез SSH exec
+vm ..> file : (2) tail -n 500 файла\n(мышление, полные аргументы)
+agent --> tmux : рисует TUI
+agent --> file : пишет историю
+agent --> hooks : SessionStart: id сессии,\nимя tmux-сессии
+hooks ..> file : «какой файл мой»
+
+note bottom of core
+  Чистые функции: текст -> типизированные ходы.
+  Ни сети, ни tmux, ни состояния между вызовами.
+end note
+@enduml

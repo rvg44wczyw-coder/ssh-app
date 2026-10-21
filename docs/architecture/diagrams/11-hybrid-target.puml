@@ -1,0 +1,18 @@
+@startuml 11-hybrid-target
+!include style.iuml
+title Рекомендуемая цель: слои с запасными путями
+
+rectangle "Лента (UI)" as ui
+rectangle "Единая модель ходов\nTranscriptTurn (Markdown + стили)" as model
+rectangle "Слой 1: файл сессии\n(полный Markdown, мышление, аргументы)" as L1
+rectangle "Слой 2: экран со стилями (capture-pane -e)\n(живой хвост, меню, спиннер, ввод)" as L2
+rectangle "Слой 3: экран без стилей\n(запасной, как сейчас)" as L3
+rectangle "События хуков\n(approval, Stop, Notification)" as H
+
+ui --> model
+model --> L1 : основа истории
+model --> L2 : то, чего ещё нет в файле
+model --> L3 : если стили недоступны
+H ..> ui : мгновенные карточки,\nпуши
+L1 ..> L2 : сопоставление по тексту\n(merge_thinking)
+@enduml

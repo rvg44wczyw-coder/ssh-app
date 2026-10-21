@@ -1,0 +1,25 @@
+skinparam shadowing false
+skinparam defaultFontName Helvetica
+skinparam defaultFontSize 13
+skinparam roundCorner 8
+skinparam ArrowColor #444444
+skinparam BackgroundColor white
+skinparam rectangle {
+  BackgroundColor #F4F7FB
+  BorderColor #5B7BA6
+}
+skinparam activity {
+  BackgroundColor #F4F7FB
+  BorderColor #5B7BA6
+  DiamondBackgroundColor #FFF4D6
+  DiamondBorderColor #C9A227
+}
+skinparam sequence {
+  ParticipantBackgroundColor #F4F7FB
+  ParticipantBorderColor #5B7BA6
+  LifeLineBorderColor #999999
+}
+skinparam note {
+  BackgroundColor #FFFBE6
+  BorderColor #C9A227
+}

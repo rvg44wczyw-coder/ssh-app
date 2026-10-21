@@ -1,0 +1,38 @@
+@startuml 04-claude-lines
+!include style.iuml
+title claude(): как классифицируется очередная строка
+
+start
+:взять строку l (i-я);
+if (пустая?) then (да)
+  :пропустить;
+  stop
+endif
+switch (начало строки)
+case ( "▐▛" "▝▜" "Claude Code v" )
+  :баннер запуска: строки до пустой\n-> System «Claude Code»;
+case ( "❯ " )
+  :ввод пользователя: строка + продолжения\n(отступ >= 2, до пустой) -> reflow -> User;
+case ( "! " )
+  :shell-команда пользователя -> User\n+ результат ⎿ -> System «Command output»;
+case ( "✻ " )
+  :итог хода «Churned for 2m 32s · done…»\n-> System «Worked for 2m 32s»;
+case ( "⏺ " или «бегущий» вызов\nс отступом 2 и ⎿ ниже )
+  if (tool_head: «Имя(» — имя с заглавной,\nбез пробелов?) then (да)
+    :аргументы: следующие строки с отступом >= 2\n(склейка; слово, разорванное терминалом,\nскленивается без пробела — hard_wrapped);
+    :результат: take_result (строки ⎿ и глубже);
+    :tool(name, args, result)\n«Running…» -> status Running;
+  else (нет, это текст)
+    :абзацы ответа: строки с отступом >= 2,\nпустая строка внутри ответа делит абзацы;
+    :reflow каждого абзаца (склейка переносов,\nтаблицы, списки);
+    :Assistant-текст;
+  endif
+case ( "Searched for…", "Read N files…" (ctrl+o to expand) )
+  :свёрнутая группа -> tool(summary, "", None);
+case ( "⎿" без вызова )
+  :заметка -> System «Note»\n(«Allowed by auto mode classifier» отбрасывается);
+case ( иное )
+  :в корзину other[]\n(позже — System «Terminal output»);
+endswitch
+stop
+@enduml
