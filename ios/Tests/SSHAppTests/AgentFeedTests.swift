@@ -357,6 +357,19 @@ final class TerminalPasteTests: XCTestCase {
         // raw HTML and links are only text: nothing here can become markup
         XCTAssertEqual(ReportBlock.parse("<script>alert(1)</script>"), [.paragraph("<script>alert(1)</script>")])
     }
+
+    func testADockerIntentNamesOneContainerExactly() {
+        func c(_ id: String, _ name: String) -> DockerContainerInfo {
+            DockerContainerInfo(id: id, name: name, image: "img", state: .running, statusText: "Up", createdAt: "", ports: "", unhealthy: false)
+        }
+        let list = [c("a1", "db"), c("b2", "db-replica"), c("c3", "Web")]
+        XCTAssertEqual(DockerIntentMatch.container(named: "db", in: list)?.id, "a1")
+        XCTAssertEqual(DockerIntentMatch.container(named: "  db \n", in: list)?.id, "a1")
+        XCTAssertNil(DockerIntentMatch.container(named: "d", in: list))          // a prefix is not a name
+        XCTAssertNil(DockerIntentMatch.container(named: "web", in: list))        // case matters
+        XCTAssertNil(DockerIntentMatch.container(named: "", in: list))
+        XCTAssertNil(DockerIntentMatch.container(named: "db", in: list + [c("d4", "db")]))   // twice: refuse
+    }
 }
 
 

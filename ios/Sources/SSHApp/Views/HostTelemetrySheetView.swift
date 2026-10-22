@@ -629,6 +629,10 @@ private struct DockerLogTarget: Identifiable {
 }
 
 /// The last lines of a container's log; Fetch Fresh asks again, Copy puts the text on the clipboard.
+enum DockerLogFollow {
+    static let intervalSeconds = 3.0
+}
+
 struct DockerLogsSheet: View {
     @ObservedObject var viewModel: TerminalSessionViewModel
     let container: DockerContainerInfo
@@ -636,18 +640,28 @@ struct DockerLogsSheet: View {
     @State private var text = ""
     @State private var loading = false
     @State private var error: String?
+    @State private var follow = false
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                Text(error ?? (text.isEmpty && !loading ? "No log lines." : text))
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundColor(error == nil ? .primary : .orange)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(12)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(error ?? (text.isEmpty && !loading ? "No log lines." : text))
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundColor(error == nil ? .primary : .orange)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(12)
+                        Color.clear.frame(height: 1).id("end")
+                    }
+                }
+                .onChange(of: text) { _, _ in
+                    if follow { proxy.scrollTo("end", anchor: .bottom) }
+                }
             }
-            .overlay { if loading { ProgressView() } }
+            .overlay { if loading && !follow { ProgressView() } }
             .navigationTitle("Logs: \(container.name)")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -657,8 +671,19 @@ struct DockerLogsSheet: View {
                         .disabled(text.isEmpty).accessibilityLabel("Copy all")
                 }
                 ToolbarItem(placement: .bottomBar) { Button("Fetch fresh") { Task { await load() } }.disabled(loading) }
+                ToolbarItem(placement: .bottomBar) { Toggle("Live", isOn: $follow) }
             }
             .task { await load() }
+            // Live: fetches again every few seconds while the sheet is open and the app is in front;
+            // the loop ends with the view, the toggle or the background, so nothing runs unseen.
+            .task(id: "\(follow)|\(scenePhase == .active)") {
+                guard follow, scenePhase == .active else { return }
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(DockerLogFollow.intervalSeconds))
+                    if Task.isCancelled { break }
+                    await load()
+                }
+            }
         }
     }
 

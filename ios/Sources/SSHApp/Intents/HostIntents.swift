@@ -213,6 +213,50 @@ struct RunAgentTaskIntent: AppIntent {
     }
 }
 
+/// Which container a spoken or typed name means: an exact name, and only one. Nothing is guessed,
+/// because the next step restarts it.
+enum DockerIntentMatch {
+    static func container(named name: String, in containers: [DockerContainerInfo]) -> DockerContainerInfo? {
+        let wanted = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !wanted.isEmpty else { return nil }
+        let hits = containers.filter { $0.name == wanted }
+        return hits.count == 1 ? hits[0] : nil
+    }
+}
+
+/// Restarts one container by its exact name, after the user confirms. It changes a running
+/// service, so the phone must be unlocked on this device (not just reachable) and the
+/// confirmation names the container and the server.
+struct RestartDockerContainerIntent: AppIntent {
+    static var title: LocalizedStringResource = "Restart Docker container"
+    static var description = IntentDescription("Restarts a container on one of your servers, after you confirm.")
+    static var authenticationPolicy: IntentAuthenticationPolicy = .requiresLocalDeviceAuthentication
+
+    @Parameter(title: "Server") var server: ServerEntity
+    @Parameter(title: "Container name") var containerName: String
+
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        let target = try await MainActor.run { try IntentTarget.resolve(serverId: server.id) }
+        let listing = try await withIntentBudget {
+            parseDockerList(output: try await executeRemoteCommand(config: target.config, command: dockerListCommand()))
+        }
+        guard listing.dockerAvailable else {
+            throw IntentFailure.notStarted(listing.errorMessage ?? "Docker is not available on the host")
+        }
+        guard let found = DockerIntentMatch.container(named: containerName, in: listing.containers) else {
+            throw IntentFailure.notStarted("there is no single container named \"\(containerName)\" on \(target.server.name)")
+        }
+        try await requestConfirmation(result: .result(dialog: "Restart \(found.name) on \(target.server.name)?"))
+        let command: String
+        do { command = try dockerActionCommand(action: .restart, containerId: found.id) }
+        catch { throw IntentFailure.notStarted(error.localizedDescription) }
+        let out = try await withIntentBudget { try await executeRemoteCommand(config: target.config, command: command) }
+        do { try parseDockerAction(output: out) }
+        catch { throw IntentFailure.notStarted(error.localizedDescription) }
+        return .result(dialog: "\(found.name) restarted on \(target.server.name).")
+    }
+}
+
 struct SSHAppShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
         AppShortcut(
