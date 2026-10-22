@@ -1,6 +1,6 @@
 # Feature 50: Auto-approval by command category (configurable, with presets)
 
-Status: spec (2026-10-21), owner decisions on file edits, per-project policy and temporary trust applied (§10); not yet reviewed (`rev` next). Builds on `19-hooks-templates-and-host-guard.md` (host guard
+Status: implemented and reviewed (2026-10-21; §12 review, §13 implementation and security review); device run pending. Builds on `19-hooks-templates-and-host-guard.md` (host guard
 rules enforced by the hook), `25-host-hook.md` (approval flow) and `docs/security-findings/2026-10-21-guard-allow-compound-commands.md`
 (the allow semantics this feature relies on; fixed first).
 
