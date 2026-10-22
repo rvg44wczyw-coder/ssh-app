@@ -52,7 +52,7 @@ ssh-app/
 
 ## Deployment target
 
-iOS 27 (owner's decision, 2026-10-22; the phone runs 27): `IPHONEOS_DEPLOYMENT_TARGET = 27.0` in the Xcode project, `.iOS("27.0")` in both `Package.swift` files, and the same value in `the Rust builds (`scripts/build-xcframework.sh` exports it; Rust and the app must agree). Newer APIs may be used without `@available` guards.
+iOS 27 (owner's decision, 2026-10-22; the phone runs 27): `IPHONEOS_DEPLOYMENT_TARGET = 27.0` in the Xcode project, `.iOS("27.0")` in both `Package.swift` files, and the same value for the Rust builds (`scripts/build-xcframework.sh` exports it; Rust and the app must agree). Newer APIs may be used without `@available` guards.
 
 ## Payments (switched off)
 
