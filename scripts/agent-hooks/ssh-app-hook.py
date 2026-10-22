@@ -720,8 +720,49 @@ def edit_target_ok(root, cwd, paths):
     return True
 
 
+HEREDOC_OPEN = re.compile(r'"\$\(cat <<([\'"])([A-Za-z_][A-Za-z0-9_]*)\1\n')
+COMMIT_MESSAGE_HEAD = re.compile(r"^\s*git\s(?:.*\s)?(?:commit|tag)\s(?:.*\s)?(?:-[A-Za-z]*m\s|--message[=\s])$")
+
+
+def inert_commit_messages(command):
+    """`git commit -m "$(cat <<'EOF' ... EOF\n)"` is how agents write a long message. With a quoted
+    delimiter the body is never expanded or run, and it is only the value of -m / --message of a
+    git commit or tag: it is replaced by a placeholder, so the lines of the message are not taken
+    for commands. Anything else (another command that would run the text, a different shape) stays
+    as it is and is judged as typed."""
+    out, i = [], 0
+    while True:
+        m = HEREDOC_OPEN.search(command, i)
+        if not m:
+            out.append(command[i:])
+            return "".join(out)
+        head = "".join(out) + command[i:m.start()]
+        last = re.split(r"\n|;|&&|\|\||\||&", head)[-1]
+        end = "\n" + m.group(2) + "\n"
+        k = command.find(end, m.end() - 1)
+        close = k + len(end) if k >= 0 else -1
+        if COMMIT_MESSAGE_HEAD.match(last) and close >= 0 and command.startswith(')"', close):
+            out.append(command[i:m.start()] + '"MSG"')
+            i = close + 2
+        else:
+            out.append(command[i:m.end()])
+            i = m.end()
+
+
+def with_inert_messages(tool, tool_input):
+    """The tool input with the commit messages of its command made inert (a copy)."""
+    if tool_kind(tool) != "Bash" or not isinstance(tool_input, dict):
+        return tool_input
+    ti = dict(tool_input)
+    for key in ("command",) + ANTIGRAVITY_CMD_KEYS[:4]:
+        if isinstance(ti.get(key), str):
+            ti[key] = inert_commit_messages(ti[key])
+    return ti
+
+
 def auto_decision(guard, agent, session, tool, tool_input, cwd):
     """("deny", rule) | ("allow", rule, root) | None for a tool call, from the compiled auto rules."""
+    tool_input = with_inert_messages(tool, tool_input)
     entries = auto_entries(guard, agent)
     if not entries:
         return None

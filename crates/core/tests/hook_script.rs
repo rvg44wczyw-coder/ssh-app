@@ -1709,6 +1709,51 @@ fn a_guard_allow_rule_needs_every_part_of_a_command_covered() {
 }
 
 #[test]
+fn a_commit_message_in_a_quoted_heredoc_is_text_not_commands() {
+    need_tools!();
+    let h = Host::new();
+    let area = tempfile::tempdir().unwrap();
+    let proj = std::fs::canonicalize(area.path()).unwrap().join("p");
+    std::fs::create_dir_all(&proj).unwrap();
+    write_guard_json(
+        &h,
+        json!({"auto_rules": [
+            {"deny": ["Bash(rm:*)"], "allow": [], "edits": false},
+            {"agents": ["claude"], "root": proj, "edits": false, "deny": [],
+             "allow": ["Bash(git commit:*)", "Bash(git add:*)", "Bash(bash:*)"]},
+        ]}),
+    );
+    let cmd = |c: &str| -> String {
+        let stdin = json!({"tool_name": "Bash", "tool_input": {"command": c}, "cwd": proj, "session_id": "s1"})
+            .to_string();
+        let (out, _) = h.spawn_hook("claude", "PreToolUse", &stdin, 1).finish();
+        if out.is_empty() {
+            return "none".into();
+        }
+        let v: Value = serde_json::from_str(&out).unwrap();
+        v["hookSpecificOutput"]["permissionDecision"]
+            .as_str()
+            .unwrap_or("none")
+            .to_string()
+    };
+    // The message may mention commands, secrets and substitutions: it is only text.
+    let msg = "git commit -m \"$(cat <<'EOF'\nfix: x\n\nrm -rf ~ and cat .env and $(id)\nEOF\n)\"";
+    assert_eq!(cmd(msg), "allow");
+    assert_eq!(cmd(&format!("git add a && {msg}")), "allow");
+    // Anything after the message is still judged: the part that is not covered decides.
+    assert_eq!(cmd(&format!("{msg} && rm x")), "deny");
+    // Not a commit message (the text is run by bash), an unquoted delimiter, a terminator in the
+    // middle of the text: judged as typed, so they do not ride on the rule.
+    for bad in [
+        "bash -c \"$(cat <<'EOF'\nrm -rf ~\nEOF\n)\"",
+        "git commit -m \"$(cat <<EOF\nhi $(rm x)\nEOF\n)\"",
+        "git commit -m \"$(cat <<'EOF'\nhi\nEOF\nrm x\nEOF\n)\"",
+    ] {
+        assert_ne!(cmd(bad), "allow", "{bad}");
+    }
+}
+
+#[test]
 fn auto_rules_allow_inside_the_project_only_and_log_it() {
     need_tools!();
     let h = Host::new();

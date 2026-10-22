@@ -255,6 +255,76 @@ pub(crate) fn edit_target_ok(root: &str, cwd: &str, paths: &[String]) -> bool {
     true
 }
 
+/// `git commit -m "$(cat <<'EOF' ... EOF\n)"` is how agents write a long message. With a quoted
+/// delimiter the body is never expanded or run, and it is only the value of -m / --message of a
+/// git commit or tag: it is replaced by a placeholder, so the lines of the message are not taken
+/// for commands. Anything else (another command that would run the text, a different shape) stays
+/// as it is and is judged as typed.
+pub(crate) fn inert_commit_messages(command: &str) -> String {
+    use std::sync::OnceLock;
+    static OPEN: OnceLock<regex::Regex> = OnceLock::new();
+    static HEAD: OnceLock<regex::Regex> = OnceLock::new();
+    static SPLIT: OnceLock<regex::Regex> = OnceLock::new();
+    let open = OPEN.get_or_init(|| {
+        regex::Regex::new(r#""\$\(cat <<(['"])([A-Za-z_][A-Za-z0-9_]*)(['"])\n"#)
+            .expect("static pattern")
+    });
+    let head_re = HEAD.get_or_init(|| {
+        regex::Regex::new(
+            r"^\s*git\s(?:.*\s)?(?:commit|tag)\s(?:.*\s)?(?:-[A-Za-z]*m\s|--message[=\s])$",
+        )
+        .expect("static pattern")
+    });
+    let split =
+        SPLIT.get_or_init(|| regex::Regex::new(r"\n|;|&&|\|\||\||&").expect("static pattern"));
+    let mut out = String::new();
+    let mut i = 0;
+    while i <= command.len() {
+        let Some(m) = open.captures_at(command, i) else {
+            break;
+        };
+        let whole = m.get(0).expect("group 0");
+        // the same quote on both sides of the delimiter
+        let quotes_match = m.get(1).map(|q| q.as_str()) == m.get(3).map(|q| q.as_str());
+        let delim = m.get(2).map_or("", |d| d.as_str());
+        let head = format!("{out}{}", &command[i..whole.start()]);
+        let last = split.split(&head).last().unwrap_or("");
+        let end = format!("\n{delim}\n");
+        let found = command[whole.end() - 1..].find(&end);
+        let close = found.map(|k| whole.end() - 1 + k + end.len());
+        match close {
+            Some(c)
+                if quotes_match && head_re.is_match(last) && command[c..].starts_with(")\"") =>
+            {
+                out.push_str(&command[i..whole.start()]);
+                out.push_str("\"MSG\"");
+                i = c + 2;
+            }
+            _ => {
+                out.push_str(&command[i..whole.end()]);
+                i = whole.end();
+            }
+        }
+    }
+    out.push_str(&command[i.min(command.len())..]);
+    out
+}
+
+/// The tool input with the commit messages of its command made inert (a copy).
+fn with_inert_messages(tool: &str, input: &Value) -> Value {
+    let mut copy = input.clone();
+    if tool_kind(tool) == "Bash" {
+        if let Some(map) = copy.as_object_mut() {
+            for key in std::iter::once("command").chain(ANTIGRAVITY_CMD_KEYS[..4].iter().copied()) {
+                if let Some(Value::String(s)) = map.get_mut(key) {
+                    *s = inert_commit_messages(s);
+                }
+            }
+        }
+    }
+    copy
+}
+
 /// What the compiled auto rules say about a tool call: refuse, allow, or nothing.
 pub fn auto_decision(
     p: &Paths,
@@ -269,6 +339,7 @@ pub fn auto_decision(
     if entries.is_empty() {
         return None;
     }
+    let input = &with_inert_messages(tool, input);
     for e in &entries {
         if let Some(hit) = guard_match(&e.deny, tool, input, cwd) {
             return Some(AutoDecision::Deny(hit));
