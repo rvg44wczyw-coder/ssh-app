@@ -137,6 +137,8 @@ impl Host {
             // reach that server (see AGENTS.md, test isolation).
             .env_remove("TMUX")
             .env_remove("TMUX_PANE")
+            .env_remove("ZELLIJ")
+            .env_remove("ZELLIJ_SESSION_NAME")
             .env("SSH_APP_HOOK_TIMEOUT", timeout.to_string())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -144,7 +146,21 @@ impl Host {
         c
     }
     fn spawn_hook(&self, agent: &str, event: &str, stdin: &str, timeout: u32) -> Hook {
-        let mut child = self.cmd(&[agent, event], timeout).spawn().unwrap();
+        self.spawn_hook_env(agent, event, stdin, timeout, &[])
+    }
+    fn spawn_hook_env(
+        &self,
+        agent: &str,
+        event: &str,
+        stdin: &str,
+        timeout: u32,
+        env: &[(&str, &str)],
+    ) -> Hook {
+        let mut child = self
+            .cmd(&[agent, event], timeout)
+            .envs(env.iter().copied())
+            .spawn()
+            .unwrap();
         child
             .stdin
             .take()
@@ -1347,6 +1363,40 @@ fn the_first_event_of_any_kind_registers_the_session() {
     assert_eq!(items.len(), 1, "{l}");
     assert_eq!(items[0]["session"], "agy-1");
     assert_eq!(items[0]["agent"], "antigravity");
+}
+
+#[test]
+fn a_zellij_session_name_is_registered_in_the_same_field_and_tmux_wins() {
+    need_tools!();
+    let h = Host::new();
+    let start = |id: &str| {
+        json!({"session_id": id, "cwd": "/work/proj", "hook_event_name": "SessionStart"})
+            .to_string()
+    };
+    let zellij = [("ZELLIJ", "0"), ("ZELLIJ_SESSION_NAME", "zt-feed")];
+    let _ = h
+        .spawn_hook_env("claude", "SessionStart", &start("z-1"), 1, &zellij)
+        .finish();
+    // A name Zellij would not accept, or no ZELLIJ marker, registers nothing.
+    let bad = [("ZELLIJ", "0"), ("ZELLIJ_SESSION_NAME", "a b;rm")];
+    let _ = h
+        .spawn_hook_env("claude", "SessionStart", &start("z-2"), 1, &bad)
+        .finish();
+    let unmarked = [("ZELLIJ_SESSION_NAME", "zt-feed")];
+    let _ = h
+        .spawn_hook_env("claude", "SessionStart", &start("z-3"), 1, &unmarked)
+        .finish();
+    let l = h.ctl("sessions", "");
+    let items = l["items"].as_array().unwrap();
+    let name_of = |s: &str| {
+        items
+            .iter()
+            .find(|i| i["session"] == s)
+            .map(|i| i["tmux"].clone())
+    };
+    assert_eq!(name_of("z-1"), Some(json!("zt-feed")), "{l}");
+    assert_eq!(name_of("z-2"), Some(json!("")), "{l}");
+    assert_eq!(name_of("z-3"), Some(json!("")), "{l}");
 }
 
 #[test]

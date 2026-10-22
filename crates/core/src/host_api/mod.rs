@@ -3,6 +3,7 @@
 //! exec primitive (`SshSessionHandle::exec_with_timeout`); the pure parts live in their own modules.
 
 use crate::error::SshCoreError;
+use crate::multiplexer::MultiplexerKind;
 use crate::session::{read_ok, SshSessionHandle};
 use crate::transport::DEFAULT_EXEC_TIMEOUT;
 use std::sync::Arc;
@@ -86,13 +87,12 @@ impl SshSessionHandle {
     }
 }
 
-/// `$1` is a validated tmux session name. Prints one path or nothing.
-const SESSION_TRANSCRIPT_SCRIPT: &str = r#"PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"; export PATH
-pid=$(tmux display-message -p -t "=$1:" '#{pane_pid}' 2>/dev/null)
-case "$pid" in ""|*[!0-9]*) exit 0;; esac
-found=$(ps -Ao pid=,ppid=,args= 2>/dev/null | awk -v root="$pid" '
+/// The part of the transcript detection after the pane's processes are known: `$roots` (space
+/// separated pids; see `zellij_feed::roots_prefix`) are the processes the walk may start from.
+/// `$1` is a validated session name. Prints one path or nothing.
+pub(crate) const SESSION_TRANSCRIPT_BODY: &str = r#"found=$(ps -Ao pid=,ppid=,args= 2>/dev/null | awk -v roots=" $roots " '
   { id=$1; par=$2; $1=""; $2=""; sub(/^[ \t]+/, ""); pp[id]=par; cmd[id]=$0 }
-  END { for (p in pp) { q=p; d=0; while (q != "" && q != 0 && d < 40) { if (q == root) {
+  END { for (p in pp) { q=p; d=0; while (q != "" && q != 0 && d < 40) { if (index(roots, " " q " ")) {
       c=cmd[p]; n=split(c, w, " ")
       for (i=1; i<=n && i<=4; i++) {
         b=w[i]; sub(/.*\//, "", b); sub(/\.(js|mjs|py)$/, "", b); b=tolower(b)

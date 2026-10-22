@@ -54,23 +54,82 @@ pub fn asks(screen: &str) -> bool {
     count >= 2 && reached_one && tail <= 5
 }
 
-/// The visible text of the active pane of a tmux session, when there is one.
-pub fn capture(tmux: &str) -> Option<String> {
-    if tmux.is_empty() || tmux.contains(['\n', '\0']) {
+/// The visible text of the active pane of a session: tmux's, else the focused pane of a Zellij
+/// session of that name, when there is one.
+pub fn capture(name: &str) -> Option<String> {
+    if name.is_empty() || name.contains(['\n', '\0']) {
         return None;
     }
     let mut cmd = Command::new("tmux");
-    cmd.args(["capture-pane", "-p", "-t", &format!("={tmux}:")]);
+    cmd.args(["capture-pane", "-p", "-t", &format!("={name}:")]);
     cmd.env_remove("TMUX").env_remove("TMUX_PANE");
+    match run_with_input(cmd, b"", Duration::from_secs(3)) {
+        Some((Some(0), out)) => Some(String::from_utf8_lossy(&out).into_owned()),
+        _ => capture_zellij(name),
+    }
+}
+
+/// The focused terminal pane in the table of `zellij action list-panes -s`: the first
+/// `terminal_N` row whose third-from-last token (`FOCUSED FLOATING EXITED`) is `true`.
+pub fn focused_terminal_pane(table: &str) -> Option<u32> {
+    table.lines().find_map(|line| {
+        let tokens: Vec<&str> = line.split_whitespace().collect();
+        let id = tokens.first()?.strip_prefix("terminal_")?;
+        if tokens.len() < 4 || tokens[tokens.len() - 3] != "true" {
+            return None;
+        }
+        id.parse().ok()
+    })
+}
+
+fn zellij(name: &str, args: &[&str]) -> Option<String> {
+    let mut cmd = Command::new("zellij");
+    cmd.args(["--session", name, "action"]).args(args);
+    cmd.env_remove("ZELLIJ")
+        .env_remove("ZELLIJ_SESSION_NAME")
+        .env_remove("TMUX")
+        .env_remove("TMUX_PANE");
     match run_with_input(cmd, b"", Duration::from_secs(3)) {
         Some((Some(0), out)) => Some(String::from_utf8_lossy(&out).into_owned()),
         _ => None,
     }
 }
 
+fn capture_zellij(name: &str) -> Option<String> {
+    // The same name rules as the app's attach: nothing else is ever put in the argv.
+    if name.is_empty()
+        || name.len() > 64
+        || !name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        return None;
+    }
+    let pane = focused_terminal_pane(&zellij(name, &["list-panes", "-s"])?)?;
+    zellij(
+        name,
+        &["dump-screen", "--pane-id", &format!("terminal_{pane}")],
+    )
+}
+
 #[cfg(test)]
 mod tests {
-    use super::asks;
+    use super::{asks, focused_terminal_pane};
+
+    #[test]
+    fn the_focused_terminal_pane_is_read_from_the_table() {
+        let t = "PANE_ID  TYPE  TITLE  FOCUSED  FLOATING  EXITED\n\
+                 plugin_3  plugin  Setup Wizard (Step 1/1)  true  true  false\n\
+                 terminal_0  terminal  Pane #1  false  false  false\n\
+                 terminal_4  terminal  My pane  true  false  false\n";
+        assert_eq!(focused_terminal_pane(t), Some(4));
+        assert_eq!(focused_terminal_pane("terminal_1 true\n"), None);
+        assert_eq!(
+            focused_terminal_pane("terminal_x terminal t true false false\n"),
+            None
+        );
+        assert_eq!(focused_terminal_pane(""), None);
+    }
 
     #[test]
     fn menu_with_hint_asks() {

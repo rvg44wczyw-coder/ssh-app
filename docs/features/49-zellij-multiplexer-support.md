@@ -97,7 +97,7 @@ Checked on **Zellij 0.45.1** against a private socket folder, from outside the s
 
 ### Facts used
 
-- **The pane**: `zellij --session NAME action list-panes` prints a table; the last three tokens of a row are `FOCUSED FLOATING EXITED` and the first is the pane id (`terminal_N` / `plugin_N`). The tab's **focused terminal pane** is the first `terminal_N` row whose third-from-last token is `true`. (A focused plugin pane, such as the status bar wizard, does not hide it.) This is the equivalent of tmux's active pane.
+- **The pane**: `zellij --session NAME action list-panes -s` prints a table (without `-s` there are no state columns); the last three tokens of a row are `FOCUSED FLOATING EXITED` and the first is the pane id (`terminal_N` / `plugin_N`). The tab's **focused terminal pane** is the first `terminal_N` row whose third-from-last token is `true`. (A focused plugin pane, such as the status bar wizard, does not hide it.) This is the equivalent of tmux's active pane.
 - **The screen**: `zellij --session NAME action dump-screen --pane-id terminal_N --full --ansi` prints that pane with scrollback and styles, like `tmux capture-pane -e -p -J -S -`. If `--ansi` is refused by an older release the call is repeated once without it.
 - **Keys** need nothing new: the phone types through its own PTY, so answers, Enter and Ctrl-C already work.
 - **No pane pid exists.** The agent in the pane is found by the environment all its processes carry, `ZELLIJ_SESSION_NAME=<name>` and `ZELLIJ_PANE_ID=<n>`. macOS: `ps -Eww -Ao pid=,command=`; Linux: `/proc/<pid>/environ` (**not tried on Linux yet**). A SIP-protected system binary hides its environment, a node/python agent does not (checked with a `node` process). The scan runs on the host and prints pids only.

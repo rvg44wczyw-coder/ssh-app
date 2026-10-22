@@ -4,7 +4,8 @@
 //! the tab was started: the user may start `claude` by hand, or leave it and be back in the shell.
 
 use crate::error::SshCoreError;
-use crate::tmux::{shell_quote, validate_session_name};
+use crate::multiplexer::MultiplexerKind;
+use crate::tmux::shell_quote;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
 pub enum PaneKind {
@@ -32,20 +33,35 @@ impl PaneContext {
     }
 }
 
-const PANE_SCRIPT: &str = r#"PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"; export PATH
-pid=$(tmux display-message -p -t "=$1:" '#{pane_pid}' 2>/dev/null)
-case "$pid" in ""|*[!0-9]*) printf 'PC_STATUS=no_session\n'; exit 0;; esac
-printf 'PC_STATUS=ok\n'
-ps -Ao pid=,ppid=,args= 2>/dev/null | awk -v root="$pid" '
+/// The part after `$roots` is known (see `zellij_feed::roots_prefix`): lists the commands of the
+/// processes that descend from one of them.
+const PANE_BODY: &str = r#"printf 'PC_STATUS=ok\n'
+ps -Ao pid=,ppid=,args= 2>/dev/null | awk -v roots=" $roots " '
   { id=$1; par=$2; $1=""; $2=""; sub(/^[ \t]+/, ""); pp[id]=par; cmd[id]=substr($0, 1, 300) }
-  END { for (p in pp) { q=p; d=0; while (q != "" && q != 0 && d < 40) { if (q == root) { print "PC_PROC=" cmd[p]; break } q=pp[q]; d++ } } }' | head -n 80
+  END { for (p in pp) { q=p; d=0; while (q != "" && q != 0 && d < 40) { if (index(roots, " " q " ")) { print "PC_PROC=" cmd[p]; break } q=pp[q]; d++ } } }' | head -n 80
 exit 0"#;
 
+/// The script body for tests that run the pane walk against a real server.
+#[cfg(test)]
+pub(crate) const PANE_BODY_FOR_TESTS: &str = PANE_BODY;
+
 pub fn build_pane_context_command(session_name: &str) -> Result<String, SshCoreError> {
-    validate_session_name(session_name)?;
+    build_pane_context_command_in(MultiplexerKind::Tmux, session_name)
+}
+
+/// Like `build_pane_context_command`, for the program the tab runs in.
+pub fn build_pane_context_command_in(
+    kind: MultiplexerKind,
+    session_name: &str,
+) -> Result<String, SshCoreError> {
+    let program = crate::zellij_feed::mux_arg(kind, session_name)?;
+    let script = format!(
+        "{}{PANE_BODY}",
+        crate::zellij_feed::roots_prefix("printf 'PC_STATUS=no_session\\n';")
+    );
     Ok(crate::hostprobe::login_sh_script(
-        PANE_SCRIPT,
-        &[shell_quote(session_name.trim())],
+        &script,
+        &[shell_quote(session_name.trim()), program.to_string()],
         8,
     ))
 }

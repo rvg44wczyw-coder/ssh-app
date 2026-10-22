@@ -8,7 +8,17 @@ impl SshSessionHandle {
         &self,
         session_name: String,
     ) -> Result<crate::pane_context::PaneContext, SshCoreError> {
-        let cmd = crate::pane_context::build_pane_context_command(&session_name)?;
+        self.detect_pane_context_in(session_name, crate::multiplexer::MultiplexerKind::Tmux)
+            .await
+    }
+
+    /// Like `detect_pane_context`, for a tab running in tmux or Zellij.
+    pub async fn detect_pane_context_in(
+        &self,
+        session_name: String,
+        kind: crate::multiplexer::MultiplexerKind,
+    ) -> Result<crate::pane_context::PaneContext, SshCoreError> {
+        let cmd = crate::pane_context::build_pane_context_command_in(kind, &session_name)?;
         let out = self.execute_command_on_active_session(cmd).await?;
         Ok(crate::pane_context::parse_pane_context(&out))
     }
