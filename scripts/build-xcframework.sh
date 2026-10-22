@@ -54,7 +54,7 @@ cargo run -p ssh-core --bin uniffi-bindgen --features cli -- \
 echo "=== 3. Compiling Rust static libraries for Apple targets ==="
 # Same minimum as the app (IPHONEOS_DEPLOYMENT_TARGET in the Xcode project); otherwise the C
 # objects are built for the SDK's newest iOS and the linker warns about every one of them.
-export IPHONEOS_DEPLOYMENT_TARGET=17.0
+export IPHONEOS_DEPLOYMENT_TARGET=27.0
 cargo build -p ssh-core --release --target aarch64-apple-ios
 cargo build -p ssh-core --release --target aarch64-apple-ios-sim
 unset IPHONEOS_DEPLOYMENT_TARGET

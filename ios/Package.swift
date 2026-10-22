@@ -4,7 +4,7 @@ import PackageDescription
 let package = Package(
     name: "SSHApp",
     platforms: [
-        .iOS(.v17),
+        .iOS("27.0"),
         .macOS(.v14)
     ],
     products: [

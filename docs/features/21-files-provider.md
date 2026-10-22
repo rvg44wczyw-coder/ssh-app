@@ -14,7 +14,7 @@ in the system **Files** app as a location; folders open, files download on deman
 saved to the phone or shared to any app.
 
 In scope (stage 1): read-only browsing and download of regular files through an `NSFileProviderReplicatedExtension`
-(iOS 17 is already the deployment target). Stage 2: upload, create folder, rename, delete.
+(the deployment target is iOS 27 since 2026-10-22). Stage 2: upload, create folder, rename, delete.
 Stage 3: favourite folders per server (e.g. `~/Terminals`), a "Save to Files" action in the in-app browser.
 Out of scope: background sync, offline pinning of whole trees, push-driven change notifications (polling on open only),
 folder archives (`tar`) - later.

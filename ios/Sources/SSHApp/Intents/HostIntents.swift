@@ -246,7 +246,7 @@ struct RestartDockerContainerIntent: AppIntent {
         guard let found = DockerIntentMatch.container(named: containerName, in: listing.containers) else {
             throw IntentFailure.notStarted("there is no single container named \"\(containerName)\" on \(target.server.name)")
         }
-        try await requestConfirmation(result: .result(dialog: "Restart \(found.name) on \(target.server.name)?"))
+        try await requestConfirmation(actionName: .continue, dialog: "Restart \(found.name) on \(target.server.name)?")
         let command: String
         do { command = try dockerActionCommand(action: .restart, containerId: found.id) }
         catch { throw IntentFailure.notStarted(error.localizedDescription) }

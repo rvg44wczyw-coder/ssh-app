@@ -50,6 +50,10 @@ ssh-app/
    - Sensitive memory zeroized on drop (`zeroize`).
    - Host key verification to prevent MITM.
 
+## Deployment target
+
+iOS 27 (owner's decision, 2026-10-22; the phone runs 27): `IPHONEOS_DEPLOYMENT_TARGET = 27.0` in the Xcode project, `.iOS("27.0")` in both `Package.swift` files, and the same value in `the Rust builds (`scripts/build-xcframework.sh` exports it; Rust and the app must agree). Newer APIs may be used without `@available` guards.
+
 ## Payments (switched off)
 
 StoreKit 2 Pro subscription (weekly/monthly/yearly) and lifetime purchase are implemented but **disabled**: the `PAYMENTS` compilation condition is not set, so the app is free with no limits. Do not remove the code and do not enable it without the owner's word. Spec and open items: `docs/features/18-payments.md` (M20 in `docs/roadmap.md`). Keep it in mind when touching session/server creation, Settings and the project's build settings.
