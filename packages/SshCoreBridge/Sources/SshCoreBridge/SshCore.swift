@@ -4422,6 +4422,64 @@ public func FfiConverterTypeAiRiskAssessment_lower(_ value: AiRiskAssessment) ->
 }
 
 
+public struct AppConfigRoot: Equatable, Hashable {
+    public var version: UInt32
+    public var docker: DockerModuleConfig
+    public var uploads: UploadsModuleConfig
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(version: UInt32, docker: DockerModuleConfig, uploads: UploadsModuleConfig) {
+        self.version = version
+        self.docker = docker
+        self.uploads = uploads
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension AppConfigRoot: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAppConfigRoot: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AppConfigRoot {
+        return
+            try AppConfigRoot(
+                version: FfiConverterUInt32.read(from: &buf), 
+                docker: FfiConverterTypeDockerModuleConfig.read(from: &buf), 
+                uploads: FfiConverterTypeUploadsModuleConfig.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AppConfigRoot, into buf: inout [UInt8]) {
+        FfiConverterUInt32.write(value.version, into: &buf)
+        FfiConverterTypeDockerModuleConfig.write(value.docker, into: &buf)
+        FfiConverterTypeUploadsModuleConfig.write(value.uploads, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAppConfigRoot_lift(_ buf: RustBuffer) throws -> AppConfigRoot {
+    return try FfiConverterTypeAppConfigRoot.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAppConfigRoot_lower(_ value: AppConfigRoot) -> RustBuffer {
+    return FfiConverterTypeAppConfigRoot.lower(value)
+}
+
+
 public struct ApprovalList: Equatable, Hashable {
     /**
      * The host's clock; the decision timestamp and the countdown are derived from it.
@@ -5584,6 +5642,66 @@ public func FfiConverterTypeCommandAnalysis_lower(_ value: CommandAnalysis) -> R
 }
 
 
+public struct ConfigImport: Equatable, Hashable {
+    public var config: AppConfigRoot
+    /**
+     * Things the user should be told: a security switch that was kept as it is.
+     */
+    public var notes: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(config: AppConfigRoot, 
+        /**
+         * Things the user should be told: a security switch that was kept as it is.
+         */notes: [String]) {
+        self.config = config
+        self.notes = notes
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ConfigImport: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeConfigImport: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ConfigImport {
+        return
+            try ConfigImport(
+                config: FfiConverterTypeAppConfigRoot.read(from: &buf), 
+                notes: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ConfigImport, into buf: inout [UInt8]) {
+        FfiConverterTypeAppConfigRoot.write(value.config, into: &buf)
+        FfiConverterSequenceString.write(value.notes, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeConfigImport_lift(_ buf: RustBuffer) throws -> ConfigImport {
+    return try FfiConverterTypeConfigImport.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeConfigImport_lower(_ value: ConfigImport) -> RustBuffer {
+    return FfiConverterTypeConfigImport.lower(value)
+}
+
+
 public struct DockerContainerInfo: Equatable, Hashable {
     public var id: String
     public var name: String
@@ -5793,6 +5911,72 @@ public func FfiConverterTypeDockerContainersSnapshot_lift(_ buf: RustBuffer) thr
 #endif
 public func FfiConverterTypeDockerContainersSnapshot_lower(_ value: DockerContainersSnapshot) -> RustBuffer {
     return FfiConverterTypeDockerContainersSnapshot.lower(value)
+}
+
+
+public struct DockerModuleConfig: Equatable, Hashable {
+    /**
+     * Lines of a container log fetched (50..=1000).
+     */
+    public var logTailLines: UInt32
+    /**
+     * Seconds between refreshes of the container list while it is open; 0 = only when asked.
+     */
+    public var autoRefreshSecs: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Lines of a container log fetched (50..=1000).
+         */logTailLines: UInt32, 
+        /**
+         * Seconds between refreshes of the container list while it is open; 0 = only when asked.
+         */autoRefreshSecs: UInt32) {
+        self.logTailLines = logTailLines
+        self.autoRefreshSecs = autoRefreshSecs
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension DockerModuleConfig: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeDockerModuleConfig: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> DockerModuleConfig {
+        return
+            try DockerModuleConfig(
+                logTailLines: FfiConverterUInt32.read(from: &buf), 
+                autoRefreshSecs: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: DockerModuleConfig, into buf: inout [UInt8]) {
+        FfiConverterUInt32.write(value.logTailLines, into: &buf)
+        FfiConverterUInt32.write(value.autoRefreshSecs, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDockerModuleConfig_lift(_ buf: RustBuffer) throws -> DockerModuleConfig {
+    return try FfiConverterTypeDockerModuleConfig.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDockerModuleConfig_lower(_ value: DockerModuleConfig) -> RustBuffer {
+    return FfiConverterTypeDockerModuleConfig.lower(value)
 }
 
 
@@ -10798,6 +10982,84 @@ public func FfiConverterTypeTransferResult_lift(_ buf: RustBuffer) throws -> Tra
 #endif
 public func FfiConverterTypeTransferResult_lower(_ value: TransferResult) -> RustBuffer {
     return FfiConverterTypeTransferResult.lower(value)
+}
+
+
+public struct UploadsModuleConfig: Equatable, Hashable {
+    /**
+     * Longest side of a picture sent to the host, in pixels (256..=4096).
+     */
+    public var maxDimension: UInt32
+    /**
+     * JPEG quality in percent (30..=100).
+     */
+    public var jpegQualityPercent: UInt32
+    /**
+     * Remove location and device data from pictures before they leave the phone. Security
+     * switch: an import can never turn it off.
+     */
+    public var stripMetadata: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Longest side of a picture sent to the host, in pixels (256..=4096).
+         */maxDimension: UInt32, 
+        /**
+         * JPEG quality in percent (30..=100).
+         */jpegQualityPercent: UInt32, 
+        /**
+         * Remove location and device data from pictures before they leave the phone. Security
+         * switch: an import can never turn it off.
+         */stripMetadata: Bool) {
+        self.maxDimension = maxDimension
+        self.jpegQualityPercent = jpegQualityPercent
+        self.stripMetadata = stripMetadata
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension UploadsModuleConfig: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeUploadsModuleConfig: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> UploadsModuleConfig {
+        return
+            try UploadsModuleConfig(
+                maxDimension: FfiConverterUInt32.read(from: &buf), 
+                jpegQualityPercent: FfiConverterUInt32.read(from: &buf), 
+                stripMetadata: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: UploadsModuleConfig, into buf: inout [UInt8]) {
+        FfiConverterUInt32.write(value.maxDimension, into: &buf)
+        FfiConverterUInt32.write(value.jpegQualityPercent, into: &buf)
+        FfiConverterBool.write(value.stripMetadata, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeUploadsModuleConfig_lift(_ buf: RustBuffer) throws -> UploadsModuleConfig {
+    return try FfiConverterTypeUploadsModuleConfig.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeUploadsModuleConfig_lower(_ value: UploadsModuleConfig) -> RustBuffer {
+    return FfiConverterTypeUploadsModuleConfig.lower(value)
 }
 
 
@@ -17180,6 +17442,79 @@ public func createTrustSigningBytes(id: String, nonce: String, ts: UInt64, expir
 })
 }
 /**
+ * The default document.
+ */
+public func defaultAppConfig() -> AppConfigRoot  {
+    return try!  FfiConverterTypeAppConfigRoot_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_default_app_config(uniffiCallStatus
+    )
+})
+}
+/**
+ * The file the user can keep: `{"config": {...}, "sha256": "..."}`. The checksum detects damage;
+ * it is not a signature, and nobody should read it as one. The document holds no keys or
+ * secrets by construction (the schema has no such field).
+ */
+public func exportAppConfig(config: AppConfigRoot)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_export_app_config(
+        FfiConverterTypeAppConfigRoot_lower(config),uniffiCallStatus
+    )
+})
+}
+/**
+ * Reads an exported file against the current document. The whole file is refused (the error
+ * names the key) for: size, syntax, unknown keys, a wrong checksum, a wrong type or an
+ * out-of-range value. Security switches are never loosened: they stay as they are and a note says
+ * so.
+ */
+public func importAppConfig(current: AppConfigRoot, fileJson: String)throws  -> ConfigImport  {
+    return try  FfiConverterTypeConfigImport_lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_import_app_config(
+        FfiConverterTypeAppConfigRoot_lower(current),
+        FfiConverterString.lower(fileJson),uniffiCallStatus
+    )
+})
+}
+/**
+ * Reads the app's own stored document. Damage or a stranger's edit falls back to the defaults
+ * (the app keeps working) rather than failing to start.
+ */
+public func loadAppConfig(storedJson: String) -> AppConfigRoot  {
+    return try!  FfiConverterTypeAppConfigRoot_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_load_app_config(
+        FfiConverterString.lower(storedJson),uniffiCallStatus
+    )
+})
+}
+/**
+ * One module back to its defaults, the rest untouched (`docker` or `uploads`).
+ */
+public func resetAppConfigModule(config: AppConfigRoot, module: String)throws  -> AppConfigRoot  {
+    return try  FfiConverterTypeAppConfigRoot_lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_reset_app_config_module(
+        FfiConverterTypeAppConfigRoot_lower(config),
+        FfiConverterString.lower(module),uniffiCallStatus
+    )
+})
+}
+/**
+ * The document as the app stores it.
+ */
+public func saveAppConfig(config: AppConfigRoot)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_save_app_config(
+        FfiConverterTypeAppConfigRoot_lower(config),uniffiCallStatus
+    )
+})
+}
+/**
  * The shell in a container: bash when it has one, else sh. The pane stays open with the exit
  * code when the container stops, until Enter is pressed. No `--privileged`, no `--user`.
  */
@@ -18254,6 +18589,24 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_create_trust_signing_bytes() != 55888) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_default_app_config() != 60224) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_export_app_config() != 40273) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_import_app_config() != 12829) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_load_app_config() != 410) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_reset_app_config_module() != 12430) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_save_app_config() != 58695) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_build_docker_exec_command() != 56686) {

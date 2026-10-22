@@ -470,6 +470,7 @@ struct DockerSection: View {
     @State private var message: String?
     @State private var pending: (action: DockerAction, container: DockerContainerInfo)?
     @State private var logsFor: DockerContainerInfo?
+    @Environment(\.scenePhase) private var scenePhase
 
     private var handle: SshSessionHandle? { viewModel.state == .connected ? viewModel.sessionHandle : nil }
 
@@ -498,6 +499,14 @@ struct DockerSection: View {
         }
         .padding(14)
         .background(Color.appSecondaryBackground, in: RoundedRectangle(cornerRadius: 12))
+        .task(id: snapshot != nil) {
+            // The list refreshes itself only while it is open, the sheet is up and the app is active.
+            while snapshot != nil, !Task.isCancelled {
+                let secs = AppConfigStore.current().docker.autoRefreshSecs
+                try? await Task.sleep(nanoseconds: UInt64(secs == 0 ? 5 : secs) * 1_000_000_000)
+                if secs > 0, !Task.isCancelled, !loading, busyId == nil, pending == nil, scenePhase == .active { await load() }
+            }
+        }
         .confirmationDialog(
             pending.map { "\(Self.verb($0.action)) \($0.container.name)?" } ?? "",
             isPresented: Binding(get: { pending != nil }, set: { if !$0 { pending = nil } }),
@@ -657,7 +666,7 @@ struct DockerLogsSheet: View {
         guard let handle = viewModel.sessionHandle, viewModel.state == .connected else { error = "Not connected."; return }
         loading = true; error = nil
         defer { loading = false }
-        do { text = try await handle.fetchDockerLogs(containerId: container.id, tailLines: 200) }
+        do { text = try await handle.fetchDockerLogs(containerId: container.id, tailLines: AppConfigStore.current().docker.logTailLines) }
         catch { self.error = error.localizedDescription }
     }
 }

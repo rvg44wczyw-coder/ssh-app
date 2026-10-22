@@ -8,6 +8,7 @@ pub mod approval_queue;
 pub mod auto_approval;
 pub mod buffer;
 pub mod config;
+pub mod config_engine;
 pub mod docker;
 pub mod error;
 pub mod file_browser;

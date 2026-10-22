@@ -4,7 +4,7 @@
 - **Target Release**: Milestone 35 (Deep Configurability & Power-User Controls)
 - **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
 - **Hacker Gate**: Yes (config validation, path overrides, privilege boundaries, secret sanitization)
-- **Status**: Reviewed and corrected (`rev` + `hacker`, 2026-10-20); implementation pending. A module's settings are added together with its feature (section 6).
+- **Status**: Reviewed and corrected (`rev` + `hacker`, 2026-10-20); first slice built 2026-10-22 (`crates/core/src/config_engine.rs`: Docker and Uploads modules, versioned JSON, export/import with checksum, per-module reset; Settings → Modules & backup). Other modules are added with their features. A module's settings are added together with its feature (section 6).
 
 ---
 

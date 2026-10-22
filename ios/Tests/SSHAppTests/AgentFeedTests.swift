@@ -225,4 +225,36 @@ final class TerminalPasteTests: XCTestCase {
         XCTAssertEqual(back.sessionName, "docker-a-b-abcdef")
         XCTAssertThrowsError(try buildDockerExecCommand(containerId: "a; reboot"))
     }
+
+    // MARK: Module settings (feature 46)
+
+    @MainActor
+    func testSettingsAreStoredAndAFailedImportChangesNothing() throws {
+        let key = AppConfigStore.storageKey
+        let before = UserDefaults.standard.string(forKey: key)
+        defer { UserDefaults.standard.set(before, forKey: key) }
+        let store = AppConfigStore.shared
+        store.replace(defaultAppConfig())
+        store.update { $0.docker.logTailLines = 400 }
+        XCTAssertEqual(AppConfigStore.current().docker.logTailLines, 400)
+        XCTAssertThrowsError(try importAppConfig(current: store.config, fileJson: "{\"config\":{\"version\":1,\"docker\":{\"log_tail_lines\":9}}}"))
+        XCTAssertEqual(store.config.docker.logTailLines, 400)
+        let file = try exportAppConfig(config: store.config)
+        let back = try importAppConfig(current: defaultAppConfig(), fileJson: file)
+        XCTAssertEqual(back.config.docker.logTailLines, 400)
+        store.replace(defaultAppConfig())
+        XCTAssertEqual(AppConfigStore.current(), defaultAppConfig())
+    }
+
+    @MainActor
+    func testPictureSettingsReachThePreflight() throws {
+        let key = AppConfigStore.storageKey
+        let before = UserDefaults.standard.string(forKey: key)
+        defer { UserDefaults.standard.set(before, forKey: key) }
+        AppConfigStore.shared.replace(defaultAppConfig())
+        AppConfigStore.shared.update { $0.uploads.maxDimension = 256 }
+        let r = try ImagePreflight.process(makeImage(width: 1000, height: 500, type: .png, gps: false))
+        XCTAssertEqual(max(r.width, r.height), 256)
+        AppConfigStore.shared.replace(defaultAppConfig())
+    }
 }

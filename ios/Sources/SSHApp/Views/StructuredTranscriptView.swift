@@ -954,7 +954,9 @@ enum ImagePreflight {
 
     enum Failure: Error { case notAnImage, encodeFailed }
 
-    static func process(_ input: Data, maxSide: Int = ImagePreflight.maxSide) throws -> Result {
+    static func process(_ input: Data, maxSide: Int? = nil) throws -> Result {
+        let settings = AppConfigStore.current().uploads
+        let maxSide = maxSide ?? Int(settings.maxDimension)
         guard let source = CGImageSourceCreateWithData(input as CFData, nil),
               CGImageSourceGetCount(source) > 0 else { throw Failure.notAnImage }
         let isPNG = (CGImageSourceGetType(source) as String?) == UTType.png.identifier
@@ -971,8 +973,14 @@ enum ImagePreflight {
         guard let dest = CGImageDestinationCreateWithData(out, type.identifier as CFString, 1, nil) else {
             throw Failure.encodeFailed
         }
-        // No properties dictionary is copied from the source: nothing but pixels is written.
-        let props: [CFString: Any] = isPNG ? [:] : [kCGImageDestinationLossyCompressionQuality: 0.85]
+        // With metadata removal on (the default, and the only thing an import can set) no properties
+        // of the source are copied: nothing but pixels is written.
+        var props: [CFString: Any] = [:]
+        if !settings.stripMetadata,
+           let original = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] {
+            props = original
+        }
+        if !isPNG { props[kCGImageDestinationLossyCompressionQuality] = Double(settings.jpegQualityPercent) / 100 }
         CGImageDestinationAddImage(dest, image, props as CFDictionary)
         guard CGImageDestinationFinalize(dest) else { throw Failure.encodeFailed }
         return Result(data: out as Data, ext: isPNG ? "png" : "jpg", width: image.width, height: image.height)
