@@ -6,6 +6,14 @@ pub enum SshCoreError {
     #[error("Failed to parse private key: {reason}")]
     KeyParseError { reason: String },
 
+    /// The key file is encrypted and no passphrase was given.
+    #[error("The key is protected by a passphrase")]
+    KeyPassphraseRequired,
+
+    /// The passphrase did not decrypt the key.
+    #[error("The passphrase does not match the key")]
+    KeyPassphraseWrong,
+
     #[error("Invalid session name '{name}': {reason}")]
     InvalidSessionName { name: String, reason: String },
 
