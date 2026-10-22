@@ -1,4 +1,5 @@
 import XCTest
+import WebKit
 import ImageIO
 import UniformTypeIdentifiers
 import UIKit
@@ -293,5 +294,66 @@ final class TerminalPasteTests: XCTestCase {
         }
         let turns = [turn(.assistant, block, "1"), turn(.assistant, block, "2"), turn(.user, block, "3")]
         XCTAssertEqual(StructuredTranscriptView.collectArtifacts(turns).count, 1)
+    }
+
+    /// Real WebKit (the simulator's), the page and settings of the viewer: every diagram family draws
+    /// under the policy, and a hostile label does not run.
+    @MainActor
+    func testMermaidDrawsInWebKitUnderThePolicy() async throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Resources/Mermaid/mermaid.min.js")
+        let js = try String(contentsOf: url, encoding: .utf8)
+        let sources = [
+            "flowchart TD\n A-->B",
+            "sequenceDiagram\n A->>B: hi",
+            "stateDiagram-v2\n [*]-->S",
+            "erDiagram\n A ||--o{ B : has",
+            "xychart-beta\n x-axis [a,b]\n bar [1,2]",
+            "flowchart TD\n A[\"<img src=x onerror=document.title='pwned'>\"]",
+        ]
+        for (n, source) in sources.enumerated() {
+            let probe = WebProbe()
+            let result = await probe.run(ArtifactPage.mermaid(source: source, mermaidJS: js, dark: n % 2 == 0))
+            XCTAssertEqual(result.ok, true, "source \(n): \(result.text)")
+            XCTAssertNotEqual(result.title, "pwned")
+        }
+    }
+}
+
+
+/// Loads a page in a web view set up like the viewer's and reports what the page posted.
+@MainActor
+private final class WebProbe: NSObject, WKScriptMessageHandler {
+    private var cont: CheckedContinuation<(ok: Bool, text: String, title: String), Never>?
+    private var web: WKWebView?
+
+    func run(_ html: String) async -> (ok: Bool, text: String, title: String) {
+        await withCheckedContinuation { c in
+            cont = c
+            let config = WKWebViewConfiguration()
+            config.websiteDataStore = .nonPersistent()
+            config.userContentController.add(self, name: "done")
+            let w = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 600), configuration: config)
+            web = w
+            w.loadHTMLString(html, baseURL: nil)
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 20_000_000_000)
+                self.finish(false, "timeout")
+            }
+        }
+    }
+
+    private func finish(_ ok: Bool, _ text: String) {
+        guard let c = cont else { return }
+        cont = nil
+        let title = web?.title ?? ""
+        web?.configuration.userContentController.removeScriptMessageHandler(forName: "done")
+        c.resume(returning: (ok, text, title))
+    }
+
+    func userContentController(_ c: WKUserContentController, didReceive m: WKScriptMessage) {
+        let body = m.body as? [String: Any]
+        finish(body?["ok"] as? Bool == true, body?["error"] as? String ?? "")
     }
 }
