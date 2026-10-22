@@ -360,7 +360,7 @@ final class TerminalPasteTests: XCTestCase {
 
     func testADockerIntentNamesOneContainerExactly() {
         func c(_ id: String, _ name: String) -> DockerContainerInfo {
-            DockerContainerInfo(id: id, name: name, image: "img", state: .running, statusText: "Up", createdAt: "", ports: "", unhealthy: false)
+            DockerContainerInfo(id: id, name: name, image: "img", state: .running, statusText: "Up", createdAt: "", ports: "", unhealthy: false, project: nil, service: nil, scope: "", restartable: true)
         }
         let list = [c("a1", "db"), c("b2", "db-replica"), c("c3", "Web")]
         XCTAssertEqual(DockerIntentMatch.container(named: "db", in: list)?.id, "a1")

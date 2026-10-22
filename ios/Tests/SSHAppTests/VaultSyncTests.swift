@@ -121,3 +121,86 @@ final class HostScreensTests: XCTestCase {
         XCTAssertEqual(parseDockerList(output: "").unavailable, nil)
     }
 }
+
+final class ContainersScreenTests: XCTestCase {
+    private func info(_ id: String, project: String? = nil, scope: String = "", restartable: Bool = true) -> DockerContainerInfo {
+        DockerContainerInfo(id: id, name: id, image: "img", state: .running, statusText: "Up", createdAt: "", ports: "",
+                            unhealthy: false, project: project, service: nil, scope: scope, restartable: restartable)
+    }
+
+    func testEnginesGroupByComposeProjectWithLooseContainersLast() {
+        let groups = ContainerGroup.make([info("a1", project: "shop"), info("b1"), info("a2", project: "shop"), info("c1", project: "blog")], runtime: .podman)
+        XCTAssertEqual(groups.map(\.title), ["blog", "shop", "Not in a stack"])
+        XCTAssertEqual(groups[1].items.map(\.id), ["a1", "a2"])
+        XCTAssertNotNil(groups[1].project)
+        XCTAssertNil(groups[2].project, "loose containers have no stack actions")
+    }
+
+    func testOnlyLooseContainersAreOneListWithoutAHeader() {
+        let groups = ContainerGroup.make([info("x1"), info("x2")], runtime: .docker)
+        XCTAssertEqual(groups.count, 1)
+        XCTAssertEqual(groups[0].title, "")
+    }
+
+    func testKubernetesGroupsByNamespaceAndIncusIsOneList() {
+        let pods = [info("b/p1", scope: "b"), info("a/p2", scope: "a"), info("a/p3", scope: "a")]
+        XCTAssertEqual(ContainerGroup.make(pods, runtime: .kubernetes).map(\.title), ["a", "b"])
+        XCTAssertNil(ContainerGroup.make(pods, runtime: .kubernetes)[0].project, "no stack actions on a namespace")
+        XCTAssertEqual(ContainerGroup.make(pods, runtime: .incus).count, 1)
+    }
+
+    func testCapabilitiesDecideWhatIsOffered() {
+        XCTAssertFalse(runtimeCaps(runtime: .kubernetes).startStop)
+        XCTAssertFalse(runtimeCaps(runtime: .kubernetes).stats)
+        XCTAssertTrue(runtimeCaps(runtime: .podman).stats)
+        XCTAssertFalse(runtimeCaps(runtime: .incus).groups)
+    }
+
+    func testEveryReasonHasWordsForEveryRuntime() {
+        let runtimes: [ContainerRuntime] = [.docker, .podman, .nerdctl, .kubernetes, .incus, .lxd]
+        let reasons: [DockerUnavailable] = [.notInstalled, .noPermission, .daemonDown, .unexpected, .noCluster]
+        for r in runtimes {
+            for why in reasons {
+                let c = ContainerUnavailableView.content(r, why, noRuntimeAtAll: false)
+                XCTAssertFalse(c.title.isEmpty); XCTAssertFalse(c.body.isEmpty); XCTAssertNotNil(c.fix)
+            }
+        }
+        XCTAssertTrue(ContainerUnavailableView.content(.kubernetes, .daemonDown, noRuntimeAtAll: false).title.contains("cluster"))
+        XCTAssertTrue(ContainerUnavailableView.content(.docker, .notInstalled, noRuntimeAtAll: true).title.contains("No container runtime"))
+        XCTAssertTrue(ContainerUnavailableView.content(.incus, .noPermission, noRuntimeAtAll: false).body.contains("Incus"))
+    }
+
+    func testAStackMessageSaysWhatIsDoneFailedAndNotStarted() {
+        let names = ["a": "web", "b": "db", "c": "cache"]
+        let partial = StackOutcome(done: ["a"], failedId: "b", failedReason: "no such container", notStarted: ["c"], unknown: false)
+        let text = StackMessage.text(partial, names: names)
+        XCTAssertTrue(text.contains("Done: 1") && text.contains("Failed: db (no such container)") && text.contains("Not started: cache"))
+        let cut = StackOutcome(done: ["a"], failedId: nil, failedReason: nil, notStarted: ["b"], unknown: true)
+        XCTAssertTrue(StackMessage.text(cut, names: names).contains("may be partly done"))
+        let ok = StackOutcome(done: ["a", "b"], failedId: nil, failedReason: nil, notStarted: [], unknown: false)
+        XCTAssertEqual(StackMessage.text(ok, names: names), "Done: 2.")
+    }
+
+    func testRuntimeChoiceAndVerificationArePerServer() {
+        let server = UUID(), other = UUID()
+        ContainerRuntimePrefs.choose(.podman, server: server)
+        XCTAssertEqual(ContainerRuntimePrefs.chosen(server: server), .podman)
+        XCTAssertNil(ContainerRuntimePrefs.chosen(server: other))
+        XCTAssertTrue(ContainerRuntimePrefs.isVerified(.docker, server: server), "Docker is the one seen on a real host")
+        XCTAssertFalse(ContainerRuntimePrefs.isVerified(.podman, server: server))
+        ContainerRuntimePrefs.markVerified(.podman, server: server)
+        XCTAssertTrue(ContainerRuntimePrefs.isVerified(.podman, server: server))
+        XCTAssertFalse(ContainerRuntimePrefs.isVerified(.podman, server: other))
+        for r in [ContainerRuntime.docker, .podman, .nerdctl, .kubernetes, .incus, .lxd] {
+            XCTAssertEqual(ContainerRuntimePrefs.parse(ContainerRuntimePrefs.name(r)), r)
+        }
+    }
+
+    func testTheCoreBuildsShellAndSessionNamesPerRuntime() throws {
+        let pod = try buildRuntimeExecCommand(runtime: .kubernetes, containerId: "app/api-7d9")
+        XCTAssertTrue(pod.contains("kubectl exec -it -n 'app' 'api-7d9'"))
+        XCTAssertThrowsError(try buildRuntimeExecCommand(runtime: .kubernetes, containerId: "app/api; id"))
+        let name = try runtimeSessionName(runtime: .podman, containerName: "web", containerId: "3f2a9c1d77")
+        XCTAssertTrue(name.hasPrefix("podman-web-"))
+    }
+}

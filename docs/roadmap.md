@@ -263,6 +263,13 @@
 - **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
 - **Status**: Spec reviewed and corrected (`rev`, 2026-10-20; binding corrections at the end of the spec), implementation pending.
 
+### Feature 51: Container Runtimes Beyond Docker (`docs/features/51-container-runtimes.md`)
+- **Doc**: `docs/features/51-container-runtimes.md`
+- **Scope**: Podman and nerdctl next to Docker, Compose stacks (grouped by project, host-side start/stop/restart of a whole stack), Kubernetes pods through `kubectl` (list, logs, shell, restart only for pods a controller recreates), Incus/LXD instances; a runtime picker, per-reason messages when a runtime is unavailable, quick-menu tiles for Host monitor, Processes, Containers and Host helper as separate screens.
+- **Roles**: `doc-dev`, `rev`, `rust-core-dev`, `rev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
+- **Hacker Gate**: Completed (`docs/security-findings/2026-10-22-container-runtimes-core.md`, two rounds, clean)
+- **Status**: Implemented (2026-10-22); Rust and the app build and test green in the simulator. Only Docker has been seen on a real host: the other runtimes are built on documented formats and carry an "unverified" tag until confirmed. Apple `container` is deferred until a recorded sample exists.
+
 ### Feature 46 / M35: Modular Configuration Engine & Granular Subsystem Settings (`docs/features/46-modular-configuration-and-power-settings.md`)
 - **Doc**: `docs/features/46-modular-configuration-and-power-settings.md`
 - **Scope**: Universal configuration engine in Rust Core & Swift SettingsStore: granular controls for Docker (custom sockets, shells, log bounds), Uploads (compression, dimensions, TTL, EXIF), Live Activities (throttling, Face ID), Voice (locales, custom lexicon), Mermaid (themes, line caps), Keyboard (remapping, debounce), Vault (sync toggles), Mesh (turn limits, leases), and Core SSH (grace periods, timeouts, TrueColor). Clean JSON Export/Import and per-module Reset.

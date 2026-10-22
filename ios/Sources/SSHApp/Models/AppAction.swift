@@ -39,7 +39,7 @@ public enum AppAction: String, CaseIterable, Identifiable, Sendable {
         case .fileBrowser: return "Files"
         case .telemetry: return "Host monitor"
         case .processes: return "Processes"
-        case .docker: return "Docker"
+        case .docker: return "Containers"
         case .hostHelper: return "Host helper"
         case .webPreview: return "Web preview"
         case .diffViewer: return "Git log & changes"
@@ -122,7 +122,7 @@ public enum AppAction: String, CaseIterable, Identifiable, Sendable {
         case .processes:
             return "Running agents, local models and build tools on the host, with a way to stop one."
         case .docker:
-            return "Containers on the host: status, logs, restart, and a shell inside a container."
+            return "Containers on the host (Docker, Podman, Compose stacks, Kubernetes pods, Incus): status, logs, restart, and a shell inside one."
         case .hostHelper:
             return "The ssh-app-host helper on the host: install, update and the agent watch."
         case .webPreview:

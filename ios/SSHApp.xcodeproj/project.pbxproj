@@ -45,6 +45,7 @@
 		AA9F0004 /* QuickMenuOrderGrid.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB9F0004 /* QuickMenuOrderGrid.swift */; };
 		AA000019 /* ApprovalBannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000019 /* ApprovalBannerView.swift */; };
 		AA000054 /* GitLogSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000054 /* GitLogSheetView.swift */; };
+		AA9F0063 /* ContainersScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB9F0063 /* ContainersScreen.swift */; };
 		AA9F0062 /* VaultSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB9F0062 /* VaultSync.swift */; };
 		AA9F0060 /* ArtifactViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB9F0060 /* ArtifactViews.swift */; };
 		AA9F0061 /* mermaid.min.js in Resources */ = {isa = PBXBuildFile; fileRef = BB9F0061 /* mermaid.min.js */; };
@@ -114,6 +115,7 @@
 		BB000000 /* SSHApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SSHApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		BB000001 /* SSHApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/SSHApp.swift; sourceTree = "<group>"; };
 		BB000002 /* SessionModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models/SessionModel.swift; sourceTree = "<group>"; };
+		BB9F0063 /* ContainersScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/ContainersScreen.swift; sourceTree = "<group>"; };
 		BB9F0062 /* VaultSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/VaultSync.swift; sourceTree = "<group>"; };
 		BB000003 /* KeychainManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/KeychainManager.swift; sourceTree = "<group>"; };
 		BB000004 /* NetworkMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/NetworkMonitor.swift; sourceTree = "<group>"; };
@@ -346,6 +348,7 @@
 				BB000002 /* SessionModel.swift */,
 				BB000003 /* KeychainManager.swift */,
 				BB9F0062 /* VaultSync.swift */,
+				BB9F0063 /* ContainersScreen.swift */,
 				BB000004 /* NetworkMonitor.swift */,
 				BB000005 /* TerminalSessionViewModel.swift */,
 				BB000006 /* ColorExtensions.swift */,
@@ -586,6 +589,7 @@
 				AA000002 /* SessionModel.swift in Sources */,
 				AA000003 /* KeychainManager.swift in Sources */,
 				AA9F0062 /* VaultSync.swift in Sources */,
+				AA9F0063 /* ContainersScreen.swift in Sources */,
 				AA000004 /* NetworkMonitor.swift in Sources */,
 				AA000005 /* TerminalSessionViewModel.swift in Sources */,
 				AA000006 /* ColorExtensions.swift in Sources */,
