@@ -21,9 +21,7 @@ zj_roots() {
   if [ -d /proc/self ]; then
     for d in /proc/[0-9]*; do
       [ -r "$d/environ" ] || continue
-      env_text=$(tr '\0' '\n' < "$d/environ" 2>/dev/null) || continue
-      printf '%s\n' "$env_text" | grep -Fxq "ZELLIJ_SESSION_NAME=$1" || continue
-      printf '%s\n' "$env_text" | grep -Fxq "ZELLIJ_PANE_ID=$2" && echo "${d#/proc/}"
+      if tr '\0' '\n' < "$d/environ" 2>/dev/null | awk -v s="ZELLIJ_SESSION_NAME=$1" -v p="ZELLIJ_PANE_ID=$2" '$0 == s { a = 1 } $0 == p { b = 1 } END { exit !(a && b) }'; then echo "${d#/proc/}"; fi
     done
   else
     ps -Eww -Ao pid=,command= 2>/dev/null | awk -v s="ZELLIJ_SESSION_NAME=$1" -v p="ZELLIJ_PANE_ID=$2" '{ a = 0; b = 0; for (i = 2; i <= NF; i++) { if ($i == s) a = 1; if ($i == p) b = 1 } if (a && b) print $1 }'

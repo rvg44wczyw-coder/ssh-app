@@ -82,9 +82,10 @@ pub fn focused_terminal_pane(table: &str) -> Option<u32> {
     })
 }
 
-fn zellij(name: &str, args: &[&str]) -> Option<String> {
+fn zellij(name: &str, args: &[&str], env: &[(&str, &str)]) -> Option<String> {
     let mut cmd = Command::new("zellij");
     cmd.args(["--session", name, "action"]).args(args);
+    cmd.envs(env.iter().copied());
     cmd.env_remove("ZELLIJ")
         .env_remove("ZELLIJ_SESSION_NAME")
         .env_remove("TMUX")
@@ -96,6 +97,11 @@ fn zellij(name: &str, args: &[&str]) -> Option<String> {
 }
 
 fn capture_zellij(name: &str) -> Option<String> {
+    capture_zellij_with(name, &[])
+}
+
+/// `env` is for tests: a private socket folder keeps them away from the developer's sessions.
+fn capture_zellij_with(name: &str, env: &[(&str, &str)]) -> Option<String> {
     // The same name rules as the app's attach: nothing else is ever put in the argv.
     if name.is_empty()
         || name.len() > 64
@@ -105,10 +111,11 @@ fn capture_zellij(name: &str) -> Option<String> {
     {
         return None;
     }
-    let pane = focused_terminal_pane(&zellij(name, &["list-panes", "-s"])?)?;
+    let pane = focused_terminal_pane(&zellij(name, &["list-panes", "-s"], env)?)?;
     zellij(
         name,
         &["dump-screen", "--pane-id", &format!("terminal_{pane}")],
+        env,
     )
 }
 
@@ -147,5 +154,86 @@ mod tests {
     #[test]
     fn list_not_starting_at_one_does_not_ask() {
         assert!(!asks("x\n  2. Beta\n  3. Gamma\n\n ↑/↓ Navigate\n"));
+    }
+
+    /// Against the real `zellij` when the machine has one, in a private socket folder.
+    #[test]
+    fn the_zellij_capture_reads_the_focused_pane_of_a_private_server() {
+        use std::process::Command;
+        if Command::new("zellij").arg("--version").output().is_err() {
+            eprintln!("SKIP: zellij is not installed");
+            return;
+        }
+        let dir = std::path::PathBuf::from(format!("/tmp/zs-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        std::fs::set_permissions(&dir, std::os::unix::fs::PermissionsExt::from_mode(0o700))
+            .expect("chmod");
+        let d = dir.to_string_lossy().into_owned();
+        let env = [
+            ("ZELLIJ_SOCKET_DIR", d.as_str()),
+            ("XDG_RUNTIME_DIR", d.as_str()),
+            ("SHELL", "/bin/sh"),
+        ];
+        struct Cleanup(std::path::PathBuf, String);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = Command::new("zellij")
+                    .args(["kill-all-sessions", "-y"])
+                    .env("ZELLIJ_SOCKET_DIR", &self.1)
+                    .env("XDG_RUNTIME_DIR", &self.1)
+                    .env_remove("ZELLIJ")
+                    .env_remove("ZELLIJ_SESSION_NAME")
+                    .output();
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let _cleanup = Cleanup(dir.clone(), d.clone());
+        let run = |args: &[&str]| {
+            Command::new("zellij")
+                .args(args)
+                .envs(env)
+                .env_remove("ZELLIJ")
+                .env_remove("ZELLIJ_SESSION_NAME")
+                .env_remove("TMUX")
+                .output()
+                .expect("zellij")
+        };
+        assert!(run(&["attach", "--create-background", "sw-one"])
+            .status
+            .success());
+        let end = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        let mut pane = None;
+        while std::time::Instant::now() < end && pane.is_none() {
+            pane = super::zellij("sw-one", &["list-panes", "-s"], &env)
+                .and_then(|t| focused_terminal_pane(&t));
+            std::thread::sleep(std::time::Duration::from_millis(250));
+        }
+        let pane = pane.expect("a focused terminal pane");
+        run(&[
+            "--session",
+            "sw-one",
+            "action",
+            "write-chars",
+            "--pane-id",
+            &format!("terminal_{pane}"),
+            "echo sw-marker-7",
+        ]);
+        run(&[
+            "--session",
+            "sw-one",
+            "action",
+            "send-keys",
+            "--pane-id",
+            &format!("terminal_{pane}"),
+            "Enter",
+        ]);
+        let mut seen = String::new();
+        while std::time::Instant::now() < end && !seen.contains("sw-marker-7") {
+            seen = super::capture_zellij_with("sw-one", &env).unwrap_or_default();
+            std::thread::sleep(std::time::Duration::from_millis(250));
+        }
+        assert!(seen.contains("sw-marker-7"), "{seen:?}");
+        assert!(super::capture_zellij_with("sw-none", &env).is_none());
+        assert!(super::capture_zellij_with("a b", &env).is_none());
     }
 }
