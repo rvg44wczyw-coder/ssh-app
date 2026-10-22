@@ -223,3 +223,18 @@ stateDiagram-v2
 ## Review (`rev`, 2026-10-20) - applied
 
 Folded in above: Claude Code and Ollama first, agy after a live test; `@path` verified live; no cleanup daemon (prune on connect); the Ollama path written down; behaviour without the helper.
+
+## Current state and plan (`doc-dev`, 2026-10-22)
+
+Part of this feature already exists since feature 31 §10 (the paperclip in the feed): `upload_attachment` (any file, up to 200 MB, a new channel of the tab's SSH session, `.part` then move, mode 0600, folder 0700, name reduced to `[A-Za-z0-9._-]`), the choice "keep permanently (`~/.ssh-app/inbox`) or temporary (`$TMPDIR/ssh-app-<uid>`)", and the returned path put into the message. **That transport replaces the separate `upload-image` helper command, the `uploads/` folder, the hash name and the prune-on-connect of sections 1.2, 2.1-2.2, 3 and 5**: nothing new runs on the host, a host without the helper works, and the system empties the temporary folder. Sections 2.3 and 4 stay as the shape of the UI.
+
+Live check (2026-10-22, `claude -p`, Haiku, claude-personal): a 32x32 red PNG referred to as `@/abs/path.png` was read and described correctly ("Red"). `@<absolute path>` is therefore the form for Claude Code. agy and Ollama are still unverified.
+
+What is missing, in order:
+
+1. **Pre-flight processing of photos (privacy first).** Today the raw file goes to the host with its GPS and device metadata. Before sending, every photo picked from the library, camera or clipboard is decoded and re-encoded on the phone: metadata dropped, longest side clamped to 2048 px, HEIC/HEIF converted to JPEG (PNG stays PNG, screenshots are sharp text). Videos and files are not touched. The re-encoded copy is what is uploaded; a failure to decode sends nothing and says so.
+2. **Sources.** Besides the photo picker: the system clipboard (paste image) and the camera.
+3. **Composer chips with thumbnails**: state (uploading, ready, failed), tap to remove, cancel an upload in flight. The path is added to the message only when the upload is ready, as `@<path>` when the tab runs Claude Code and as the bare path otherwise.
+4. **Later, each after its own live test**: agy (how it receives an image is unknown), Ollama multimodal (host-side call to `127.0.0.1:11434`).
+
+Tests: the processing is a pure function (`ImagePreflight`) tested in `ios/Tests` with a generated JPEG that carries GPS EXIF (must be gone), an oversized image (clamped), a HEIC-less PNG (unchanged format), garbage bytes (error). No new Rust code in step 1-3.
