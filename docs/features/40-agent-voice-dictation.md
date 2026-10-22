@@ -4,7 +4,7 @@
 - **Target Release**: Milestone 29 (Mobile Ergonomics & Natural Language Steering)
 - **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
 - **Hacker Gate**: Yes (audio privacy, local on-device speech processing, microphone entitlement, prompt injection prevention)
-- **Status**: Reviewed: fix the normalizer and the fallback (`rev`, 2026-10-20; see the last section).
+- **Status**: Superseded 2026-10-22. Decision: use the iOS keyboard's own dictation in the composer (system component, nothing to build); no custom recorder and no `SFSpeechRecognizer`. The privacy promise "audio never leaves the device" is dropped: on-device or not is the system's choice per language. The technical-word normalizer of section 2 is NOT built: the problems it solves (`auth . rs`, `dash dash force`) were assumed, not measured. Revisit only if dictation on a real device damages file names or flags; the rule table below is the starting point.
 
 ---
 
