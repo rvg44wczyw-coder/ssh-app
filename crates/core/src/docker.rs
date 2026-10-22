@@ -90,6 +90,8 @@ pub struct DockerContainersSnapshot {
     pub containers: Vec<DockerContainerInfo>,
     /// How many there were before the list was cut to the display limit.
     pub total: u32,
+    /// Lines of the host's answer that could not be read as an entry (shown, never silent).
+    pub unreadable: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
@@ -250,6 +252,7 @@ pub fn parse_docker_list(output: String) -> DockerContainersSnapshot {
         unavailable: Some(why),
         containers: vec![],
         total: 0,
+        unreadable: 0,
     };
     if output.lines().any(|l| l.trim() == "DOCKER_NOT_INSTALLED") {
         return none(
@@ -315,6 +318,7 @@ pub fn parse_docker_list(output: String) -> DockerContainersSnapshot {
         error_message: None,
         unavailable: None,
         total: containers.len() as u32,
+        unreadable: other.len() as u32,
         containers,
     }
 }
