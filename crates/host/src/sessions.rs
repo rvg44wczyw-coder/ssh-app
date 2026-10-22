@@ -18,9 +18,31 @@ fn session_file(p: &Paths, agent: &str, session: &str) -> PathBuf {
     p.sessions.join(format!("{}.json", &digest[..32]))
 }
 
+/// The name Zellij gives to the session of this process (`ZELLIJ` and `ZELLIJ_SESSION_NAME` are
+/// set in every pane), or empty when it is not in one or the name has characters Zellij refuses.
+pub fn zellij_name(zellij: Option<&str>, name: Option<&str>) -> String {
+    match (zellij, name) {
+        (Some(_), Some(n))
+            if !n.is_empty()
+                && !n.starts_with('-')
+                && n.len() <= 64
+                && n.chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') =>
+        {
+            n.to_string()
+        }
+        _ => String::new(),
+    }
+}
+
+/// The multiplexer session the agent runs in: tmux's, else Zellij's, else empty. The registry keeps
+/// it in one field either way; tmux wins when both are set.
 fn tmux_session_name() -> String {
     if std::env::var_os("TMUX").is_none_or(|v| v.is_empty()) {
-        return String::new();
+        return zellij_name(
+            std::env::var("ZELLIJ").ok().as_deref(),
+            std::env::var("ZELLIJ_SESSION_NAME").ok().as_deref(),
+        );
     }
     let mut cmd = Command::new("tmux");
     cmd.args(["display-message", "-p", "#{session_name}"]);
@@ -114,4 +136,26 @@ pub fn list_sessions(p: &Paths) -> Vec<Value> {
         }
     }
     items
+}
+
+#[cfg(test)]
+mod tests {
+    use super::zellij_name;
+
+    #[test]
+    fn the_zellij_name_needs_the_marker_and_an_allowed_name() {
+        assert_eq!(
+            zellij_name(Some("0"), Some("claude-code_1")),
+            "claude-code_1"
+        );
+        assert_eq!(zellij_name(None, Some("claude")), "");
+        assert_eq!(zellij_name(Some("0"), None), "");
+        assert_eq!(zellij_name(Some("0"), Some("")), "");
+        assert_eq!(zellij_name(Some("0"), Some("a b")), "");
+        assert_eq!(zellij_name(Some("0"), Some("-x")), "");
+        assert_eq!(zellij_name(Some("0"), Some("--help")), "");
+        assert_eq!(zellij_name(Some("0"), Some("a;rm")), "");
+        assert_eq!(zellij_name(Some("0"), Some(&"x".repeat(65))), "");
+        assert_eq!(zellij_name(Some("0"), Some("к")), "");
+    }
 }

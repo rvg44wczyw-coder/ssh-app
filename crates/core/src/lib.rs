@@ -47,6 +47,7 @@ pub(crate) mod transport;
 pub mod usage;
 pub mod windows_install;
 pub mod wsl;
+pub mod zellij_feed;
 
 pub use agents::{
     agent_config_dir_env, agent_hook_script, agent_hooks_config_path, agent_hooks_installed,

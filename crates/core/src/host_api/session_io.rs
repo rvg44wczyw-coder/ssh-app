@@ -10,6 +10,22 @@ impl SshSessionHandle {
         session_name: String,
         command: String,
     ) -> Result<(), SshCoreError> {
+        self.restart_session_command_in(session_name, command, MultiplexerKind::Tmux)
+            .await
+    }
+
+    /// Like `restart_session_command`; only tmux can respawn a pane, so Zellij is `Unsupported`.
+    pub async fn restart_session_command_in(
+        &self,
+        session_name: String,
+        command: String,
+        kind: MultiplexerKind,
+    ) -> Result<(), SshCoreError> {
+        if kind != MultiplexerKind::Tmux {
+            return Err(SshCoreError::Unsupported {
+                reason: "Restarting the agent needs tmux".to_string(),
+            });
+        }
         crate::tmux::validate_session_name(&session_name)?;
         if command.trim().is_empty() || command.len() > 8000 || command.contains('\0') {
             return Err(SshCoreError::InvalidInput {

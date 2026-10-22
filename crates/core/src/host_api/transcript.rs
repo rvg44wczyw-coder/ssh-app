@@ -83,15 +83,31 @@ impl SshSessionHandle {
         session_name: String,
         known_sum: Option<String>,
     ) -> Result<ScreenCapture, SshCoreError> {
-        crate::tmux::validate_session_name(&session_name)?;
+        self.capture_session_screen_in(session_name, known_sum, MultiplexerKind::Tmux)
+            .await
+    }
+
+    /// Like `capture_session_screen`, for a tab running in tmux or Zellij (the focused pane).
+    pub async fn capture_session_screen_in(
+        &self,
+        session_name: String,
+        known_sum: Option<String>,
+        kind: MultiplexerKind,
+    ) -> Result<ScreenCapture, SshCoreError> {
+        let program = crate::zellij_feed::mux_arg(kind, &session_name)?;
         let known = known_sum.unwrap_or_default();
         if !known.chars().all(|c| c.is_ascii_digit()) {
             return Err(SshCoreError::InvalidInput {
                 reason: "Invalid checksum".to_string(),
             });
         }
+        let body = if program == "zellij" {
+            crate::zellij_feed::zellij_capture_script()
+        } else {
+            CAPTURE_SCREEN_SCRIPT.to_string()
+        };
         let script = crate::hostprobe::login_sh_script(
-            CAPTURE_SCREEN_SCRIPT,
+            &body,
             &[
                 crate::tmux::shell_quote(session_name.trim()),
                 crate::tmux::shell_quote(&known),
@@ -127,10 +143,26 @@ impl SshSessionHandle {
         &self,
         session_name: String,
     ) -> Result<Option<String>, SshCoreError> {
-        crate::tmux::validate_session_name(&session_name)?;
+        self.detect_session_transcript_path_in(session_name, MultiplexerKind::Tmux)
+            .await
+    }
+
+    /// Like `detect_session_transcript_path`, for a tab running in tmux or Zellij.
+    pub async fn detect_session_transcript_path_in(
+        &self,
+        session_name: String,
+        kind: MultiplexerKind,
+    ) -> Result<Option<String>, SshCoreError> {
+        let program = crate::zellij_feed::mux_arg(kind, &session_name)?;
         let script = crate::hostprobe::login_sh_script(
-            SESSION_TRANSCRIPT_SCRIPT,
-            &[crate::tmux::shell_quote(session_name.trim())],
+            &format!(
+                "{}{SESSION_TRANSCRIPT_BODY}",
+                crate::zellij_feed::roots_prefix("")
+            ),
+            &[
+                crate::tmux::shell_quote(session_name.trim()),
+                program.to_string(),
+            ],
             10,
         );
         let output = self.execute_command_on_active_session(script).await?;

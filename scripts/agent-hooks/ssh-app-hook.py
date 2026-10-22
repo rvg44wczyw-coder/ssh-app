@@ -1036,9 +1036,20 @@ def session_file(agent, session):
     return os.path.join(SESSIONS, hashlib.sha256(("%s\0%s" % (agent, session)).encode("utf-8")).hexdigest()[:32] + ".json")
 
 
+def zellij_session_name():
+    """The Zellij session this process runs in (Zellij sets ZELLIJ and ZELLIJ_SESSION_NAME in every
+    pane), or "" when it is not in one or the name has characters Zellij does not allow."""
+    name = os.environ.get("ZELLIJ_SESSION_NAME", "")
+    if "ZELLIJ" in os.environ and 0 < len(name) <= 64 and name[0] != "-" and all(c.isascii() and (c.isalnum() or c in "_-") for c in name):
+        return name
+    return ""
+
+
 def tmux_session_name():
+    """The multiplexer session the agent runs in: tmux's, else Zellij's, else "". The registry keeps
+    it in one field either way; tmux wins when both are set."""
     if not os.environ.get("TMUX"):
-        return ""
+        return zellij_session_name()
     try:
         out = subprocess.run(["tmux", "display-message", "-p", "#{session_name}"], capture_output=True,
                              timeout=3, text=True)

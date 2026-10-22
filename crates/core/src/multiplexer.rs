@@ -200,10 +200,19 @@ impl MultiplexerKind {
         }
     }
 
-    /// Whether the agent feed, screen watch and key injection can work: they need tmux's
-    /// `capture-pane` and `send-keys`. Everything that needs them checks this and shows why it is off.
+    /// Whether the agent feed and screen watch can work: they need a screen dump of the focused
+    /// pane, which tmux (`capture-pane`) and Zellij (`dump-screen`) have. Everything that needs
+    /// it checks this and shows why it is off.
     pub fn supports_screen_access(self) -> bool {
-        matches!(self, MultiplexerKind::Tmux)
+        matches!(self, MultiplexerKind::Tmux | MultiplexerKind::Zellij)
+    }
+
+    /// The name rules of the program that will receive the name.
+    pub(crate) fn validate_name(self, name: &str) -> Result<(), SshCoreError> {
+        match self {
+            MultiplexerKind::Zellij => validate_zellij_name(name),
+            _ => validate_session_name(name),
+        }
     }
 }
 
@@ -338,7 +347,7 @@ mod tests {
             Err(SshCoreError::Unsupported { .. })
         ));
         assert!(MultiplexerKind::Tmux.supports_screen_access());
-        assert!(!MultiplexerKind::Zellij.supports_screen_access());
+        assert!(MultiplexerKind::Zellij.supports_screen_access());
         assert!(!MultiplexerKind::WindowsMux.supports_screen_access());
     }
 
