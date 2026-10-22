@@ -26,12 +26,28 @@ struct Sshd {
     /// Private tmux socket directory: the tests must never touch the developer's real tmux
     /// server (a test-started server would hand its fake `HOME` to every later session).
     tmux_tmp: PathBuf,
+    /// Private Zellij socket directory (same rule: never the developer's sessions).
+    zellij_tmp: PathBuf,
     port: u16,
     private_key: String,
     _dir: tempfile::TempDir,
 }
 
 impl Sshd {
+    /// `zellij` against this server's private socket folder, and nothing else.
+    fn zellij(&self) -> Command {
+        let mut c = Command::new("zellij");
+        c.env_remove("ZELLIJ")
+            .env_remove("ZELLIJ_SESSION_NAME")
+            .env_remove("TMUX")
+            .env_remove("TMUX_PANE")
+            .env("HOME", &self.home)
+            .env("SHELL", "/bin/sh")
+            .env("ZELLIJ_SOCKET_DIR", &self.zellij_tmp)
+            .env("XDG_RUNTIME_DIR", &self.zellij_tmp);
+        c
+    }
+
     /// `tmux` against this server's private socket, and nothing else.
     ///
     /// `$TMUX` (set whenever the tests run inside a tmux pane, e.g. an agent session) outranks
@@ -62,6 +78,17 @@ impl Sshd {
 
 impl Drop for Sshd {
     fn drop(&mut self) {
+        // The tests' own Zellij servers (private socket dir), if any.
+        let _ = Command::new("zellij")
+            .args(["kill-all-sessions", "-y"])
+            .env("ZELLIJ_SOCKET_DIR", &self.zellij_tmp)
+            .env("XDG_RUNTIME_DIR", &self.zellij_tmp)
+            .env_remove("ZELLIJ")
+            .env_remove("ZELLIJ_SESSION_NAME")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+        let _ = std::fs::remove_dir_all(&self.zellij_tmp);
         // The tests' own tmux server (private socket dir); don't leave it behind.
         let _ = self
             .tmux()
@@ -122,18 +149,27 @@ fn start_sshd() -> Option<Sshd> {
     // A short path: tmux socket paths are limited to ~100 characters.
     let tmux_tmp = std::env::temp_dir().join(format!("ssh-app-itest-tmux-{port}"));
     std::fs::create_dir_all(&tmux_tmp).ok()?;
+    let zellij_tmp = std::env::temp_dir().join(format!("ssh-app-itest-zj-{port}"));
+    std::fs::create_dir_all(&zellij_tmp).ok()?;
+    std::fs::set_permissions(
+        &zellij_tmp,
+        std::os::unix::fs::PermissionsExt::from_mode(0o700),
+    )
+    .ok()?;
     let cfg = dir.path().join("sshd_config");
     std::fs::write(
         &cfg,
         format!(
             "Port {port}\nListenAddress 127.0.0.1\nHostKey {}\nAuthorizedKeysFile {}\n\
              PidFile {}\nUsePAM no\nStrictModes no\nPubkeyAuthentication yes\n\
-             PasswordAuthentication no\nKbdInteractiveAuthentication no\nSetEnv HOME={} TMUX_TMPDIR={}\n",
+             PasswordAuthentication no\nKbdInteractiveAuthentication no\nSetEnv HOME={} TMUX_TMPDIR={} ZELLIJ_SOCKET_DIR={} XDG_RUNTIME_DIR={}\n",
             host_key.display(),
             authorized.display(),
             dir.path().join("sshd.pid").display(),
             home.display(),
-            tmux_tmp.display()
+            tmux_tmp.display(),
+            zellij_tmp.display(),
+            zellij_tmp.display()
         ),
     )
     .ok()?;
@@ -152,6 +188,7 @@ fn start_sshd() -> Option<Sshd> {
                 child,
                 home,
                 tmux_tmp,
+                zellij_tmp,
                 port,
                 private_key: keys.private_key_openssh,
                 _dir: dir,
@@ -1362,6 +1399,129 @@ fn host_key_is_pinned_and_a_changed_key_is_refused() {
             _ => std::thread::sleep(Duration::from_millis(50)),
         }
     }
+}
+
+#[test]
+fn the_zellij_feed_reads_the_focused_pane_through_the_session_handle() {
+    if !have("zellij") {
+        eprintln!("SKIP: zellij unavailable");
+        return;
+    }
+    let Some(server) = start_sshd() else {
+        eprintln!("SKIP: sshd/ssh-keygen/tmux unavailable");
+        return;
+    };
+    let handle = connect(&server);
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    assert!(server
+        .zellij()
+        .args(["attach", "--create-background", "lb-zj"])
+        .status()
+        .unwrap()
+        .success());
+    // The focused terminal pane exists a moment after the session does.
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let mut pane = String::new();
+    while Instant::now() < deadline && pane.is_empty() {
+        let out = server
+            .zellij()
+            .args(["--session", "lb-zj", "action", "list-panes", "-s"])
+            .output()
+            .unwrap();
+        pane = String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .find_map(|l| {
+                let t: Vec<&str> = l.split_whitespace().collect();
+                (t.len() >= 4 && t[0].starts_with("terminal_") && t[t.len() - 3] == "true")
+                    .then(|| t[0].to_string())
+            })
+            .unwrap_or_default();
+        std::thread::sleep(Duration::from_millis(250));
+    }
+    assert!(!pane.is_empty(), "no focused terminal pane");
+    let _ = server
+        .zellij()
+        .args([
+            "--session",
+            "lb-zj",
+            "action",
+            "write-chars",
+            "--pane-id",
+            &pane,
+            "echo lb-marker-9",
+        ])
+        .status();
+    let _ = server
+        .zellij()
+        .args([
+            "--session",
+            "lb-zj",
+            "action",
+            "send-keys",
+            "--pane-id",
+            &pane,
+            "Enter",
+        ])
+        .status();
+    rt.block_on(async {
+        let kind = ssh_core::multiplexer::MultiplexerKind::Zellij;
+        let mut first = None;
+        let end = Instant::now() + Duration::from_secs(20);
+        while Instant::now() < end {
+            let cap = handle
+                .capture_session_screen_in("lb-zj".into(), None, kind)
+                .await
+                .unwrap();
+            if cap
+                .text
+                .as_deref()
+                .is_some_and(|t| t.contains("lb-marker-9"))
+            {
+                first = Some(cap);
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+        let first = first.expect("the typed line never showed in the capture");
+        let again = handle
+            .capture_session_screen_in("lb-zj".into(), Some(first.checksum.clone()), kind)
+            .await
+            .unwrap();
+        assert!(again.text.is_none() && again.checksum == first.checksum);
+        // A name that is no session, and a name Zellij would refuse, are errors; tmux is not asked.
+        assert!(handle
+            .capture_session_screen_in("lb-none".into(), None, kind)
+            .await
+            .is_err());
+        assert!(handle
+            .capture_session_screen_in("a b".into(), None, kind)
+            .await
+            .is_err());
+        // No agent runs in the pane: a shell, not an error.
+        let ctx = handle
+            .detect_pane_context_in("lb-zj".into(), kind)
+            .await
+            .unwrap();
+        assert_eq!(ctx.kind, ssh_core::pane_context::PaneKind::Shell);
+        assert_eq!(
+            handle
+                .detect_session_transcript_path_in("lb-zj".into(), kind)
+                .await
+                .unwrap(),
+            None
+        );
+        // Restarting a pane has no Zellij form.
+        assert!(matches!(
+            handle
+                .restart_session_command_in("lb-zj".into(), "claude".into(), kind)
+                .await,
+            Err(ssh_core::SshCoreError::Unsupported { .. })
+        ));
+    });
+    handle.disconnect();
 }
 
 #[test]
