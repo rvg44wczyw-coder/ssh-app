@@ -93,28 +93,57 @@ Security (hacker gate): no user text reaches the Zellij argv except the validate
 
 ## Milestone B design (2026-10-22): the agent feed on Zellij
 
-Checked on **Zellij 0.45.1** against a private socket folder, from outside the session:
+Checked on **Zellij 0.45.1** against a private socket folder, from outside the session. Needs a Zellij with `action list-panes` and `dump-screen --pane-id`; the version comes from the probe of milestone A, **0.45 is the minimum until older releases are checked**. Below it, or when the probe has no version, the feed is unavailable and the tab stays a terminal (the session strip says why).
 
-- Screen: `zellij --session NAME action dump-screen --full --ansi` prints the **focused** pane with scrollback and styles (like `tmux capture-pane -e -p -J -S -`). If a plugin pane has focus the dump is empty; the feed then shows nothing new and the terminal stays usable. `--pane-id` exists but the feed follows focus, like the user.
-- Keys: the phone already types through its own PTY, not through `send-keys`, so answering prompts, Enter and Ctrl-C need nothing new.
-- No pane pid exists (`list-panes --json` has `pane_command` and `pane_cwd` only). An agent in a pane is found instead by the environment every process in a Zellij pane carries: `ZELLIJ_SESSION_NAME=<name>` (and `ZELLIJ_PANE_ID`). `ps -Eww` (macOS) / `ps eww` (Linux) show it for the user's own processes; a SIP-protected system binary hides its environment, a node/python agent does not (checked).
+### Facts used
+
+- **The pane**: `zellij --session NAME action list-panes` prints a table; the last three tokens of a row are `FOCUSED FLOATING EXITED` and the first is the pane id (`terminal_N` / `plugin_N`). The tab's **focused terminal pane** is the first `terminal_N` row whose third-from-last token is `true`. (A focused plugin pane, such as the status bar wizard, does not hide it.) This is the equivalent of tmux's active pane.
+- **The screen**: `zellij --session NAME action dump-screen --pane-id terminal_N --full --ansi` prints that pane with scrollback and styles, like `tmux capture-pane -e -p -J -S -`. If `--ansi` is refused by an older release the call is repeated once without it.
+- **Keys** need nothing new: the phone types through its own PTY, so answers, Enter and Ctrl-C already work.
+- **No pane pid exists.** The agent in the pane is found by the environment all its processes carry, `ZELLIJ_SESSION_NAME=<name>` and `ZELLIJ_PANE_ID=<n>`. macOS: `ps -Eww -Ao pid=,command=`; Linux: `/proc/<pid>/environ` (**not tried on Linux yet**). A SIP-protected system binary hides its environment, a node/python agent does not (checked with a `node` process). The scan runs on the host and prints pids only.
+- **An unknown session name** makes Zellij print `Session 'x' not found. The following sessions are active: ...` to stderr and exit 1; it creates nothing. stderr is discarded so other session names never reach the app.
+
+### Interface (`crates/core`, exposed over UniFFI)
+
+```rust
+// host_api, on SshSessionHandle; the old tmux-only methods stay and call these with Tmux.
+pub async fn capture_session_screen_in(&self, session_name: String, known_sum: Option<String>, kind: MultiplexerKind) -> Result<ScreenCapture, SshCoreError>;
+pub async fn detect_pane_context_in(&self, session_name: String, kind: MultiplexerKind) -> Result<PaneContext, SshCoreError>;
+pub async fn detect_session_transcript_path_in(&self, session_name: String, kind: MultiplexerKind) -> Result<Option<String>, SshCoreError>;
+// WindowsMux -> SshCoreError::Unsupported; names are validated per kind (tmux rules / validate_zellij_name).
+// restart_session_command for Zellij -> SshCoreError::Unsupported (no respawn-pane equivalent).
+```
+
+`MultiplexerKind::supports_screen_access()` becomes true for `Tmux` and `Zellij`.
 
 ### What changes
 
 | Part | Change |
 | :--- | :--- |
-| Screen capture (`host_api`) | `capture_session_screen_in(name, known_sum, kind)`; tmux unchanged; Zellij runs the dump above, same checksum/`SAME` protocol, same 3 MB bound. |
-| Pane context and transcript detection | `detect_pane_context_in` / `detect_session_transcript_path_in(name, kind)`: for Zellij the root set of processes is "those whose environment has `ZELLIJ_SESSION_NAME=<name>`" instead of "children of `pane_pid`"; the rest of the script (agent recognition, cwd, session file) is shared. |
-| Hook registry (Python hook and Rust port, `sessions.rs`) | The `tmux` field is the multiplexer session name: when `$TMUX` is empty and `$ZELLIJ` is set it holds `$ZELLIJ_SESSION_NAME`. A tmux and a Zellij session with the same name share a key; both are the same user's, and the app names its tabs uniquely per server. |
-| Host screen watch (`screenwatch::capture`) | tries tmux, then Zellij's dump for the same name. |
-| iOS | `isTerminalOnly` goes away for Zellij; chat mode is allowed; the calls pass `multiplexer`. Restart-agent (`respawn-pane`) has no Zellij form: typed `Unsupported`, the button is hidden. |
+| Screen capture | as above; same checksum / `SAME` protocol and the 3 MB bound. |
+| Pane context and transcript detection | the roots of the process walk are "the pids whose environment has this session name and pane id" instead of "the pane pid"; the agent recognition, folder and session file logic is shared with tmux. For the transcript the hook registry stays first (exact session id), the process scan second. |
+| Hook registry (Python hook and Rust port) | the `tmux` field is the multiplexer session name: when `$TMUX` is empty and `$ZELLIJ` is set it holds `$ZELLIJ_SESSION_NAME` (cleaned like the tmux name). |
+| Host screen watch | `screenwatch::capture` tries tmux, then the Zellij dump of the focused pane for the same name. |
+| iOS | `isTerminalOnly` is true only while the feed is unavailable (Zellij below the minimum version); chat mode and the feed work on Zellij; the calls pass `multiplexer`. The "Restart agent" action is hidden for Zellij tabs. |
+
+### Named tradeoffs
+
+- The environment scan is a trick, not an API: it needs `ps` to show the environment. It is used because nothing else tells which process runs in a Zellij pane; the registry stays the first source for the transcript, so a host where the scan fails still gets the exact file for any agent with hooks.
+- A shared `tmux` field means a tmux and a Zellij session with the same name on one host share a registry key. The app names its tabs uniquely per server and both sessions belong to the same user, so the worst case is a card for the other of the user's own sessions. A separate `mux` field would touch every reader and was not worth it.
 
 ### Security (hacker gate)
 
 | Threat | Mitigation |
 | :--- | :--- |
-| Name injection into the dump/scan command | Same `validate_zellij_name` as attach; the name reaches the shell single-quoted and the awk program as a `-v` variable, never inside the program text. |
-| Environment of other processes leaks | The scan runs on the host and only pids and a yes/no match leave awk; no environment text is printed or sent. |
-| A hostile process fakes `ZELLIJ_SESSION_NAME` | It is the same user's process on the user's own host; the worst case is that the feed shows another of the user's agents. Accepted, as the tmux pane-pid walk has the same trust. |
+| Name injection into the dump/scan commands | `validate_zellij_name`; the name reaches the shell single-quoted and awk only as a `-v` variable. |
+| Environment of other processes leaks | Only pids and match results leave awk; no environment text is printed or sent. |
+| A process fakes `ZELLIJ_SESSION_NAME` | Same user, same host; the worst case is another of the user's agents in the feed. |
+| Other session names leak through Zellij's error text | stderr is discarded. |
 | Screen text is untrusted | Bounded and parsed exactly like tmux's capture. |
 | Tests touching the developer's Zellij | Private `ZELLIJ_SOCKET_DIR`/`XDG_RUNTIME_DIR`/`HOME`, `ZELLIJ`, `ZELLIJ_SESSION_NAME` removed. |
+
+### Tests
+
+1. Unit: the focused-pane awk on fixture tables (plugin focused, two terminals, floating, none); script text for both kinds; name validation per kind; `WindowsMux` and restart give `Unsupported`; the registry name rule (tmux wins, then Zellij, else empty) in Python and Rust.
+2. Loopback with a real private Zellij (skipped where `zellij` is missing): type a line, the capture returns it and answers `SAME` the second time; the pane context finds a fake agent (a `node` script named `claude`) in the focused pane and not one in another session; an unknown session is an error and creates nothing.
+3. Swift: the view model passes the multiplexer; a Zellij tab can switch to chat mode when the feed is available.
