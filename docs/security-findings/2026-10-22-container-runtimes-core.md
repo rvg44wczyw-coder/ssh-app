@@ -57,6 +57,23 @@ the script are ignored; bidi overrides and ANSI/OSC sequences are stripped by `c
 whole line (fixed in review) holds against a marker inside a JSON field; no identifier that passes a
 validator contains anything but `[A-Za-z0-9._/-]`.
 
+## Round 2 (after the fix `c6c2b6f`)
+
+Re-attacked with the same scratch crate against the fixed branch.
+
+- Attack 1 (separator in a label) and attack 2 (newline plus forged line), now fed as the runtime emits
+  them with the JSON-escaped labels: all three containers listed (`evil`, `evil2`, `ok`), nothing hidden,
+  nothing forged, `unreadable = 0`. **Fixed.**
+- Out of the threat model, shown for honesty: a host that does *not* escape (already fully hostile, it
+  controls the whole answer) can still plant an entry; there is no defence against a host that lies
+  about everything, and the phone's actions on a planted id go to a validated id only.
+- **New finding R2-1, DoS, Low:** the new duplicate-id check was `containers.iter().any(..)` per line,
+  quadratic: 60,000 lines took 2.9 s and 300,000 lines took **243 s**. The exec channel keeps at most 4 MB
+  (about 27,000 such lines, around 0.6 s), so the real ceiling was low, but it was a free CPU cost for a
+  host with many containers. Fixed with a `HashSet` (300,000 lines now 0.24 s, 60,000 lines 46 ms), with a
+  regression test `a_huge_list_is_read_in_linear_time`.
+- Duplicate ids: 20,000 identical lines give 1 shown and 19,999 counted unreadable in 13 ms.
+
 ## Verdict
 
-Findings (highest severity Medium): 1 and 2 to fix before merge.
+Findings (highest severity Medium), all fixed in round 1 and 2; re-attack clean.

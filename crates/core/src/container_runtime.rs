@@ -399,6 +399,7 @@ fn parse_family_line(line: &str) -> Option<DockerContainerInfo> {
 
 fn parse_family_list(runtime: ContainerRuntime, output: &str) -> DockerContainersSnapshot {
     let mut containers: Vec<DockerContainerInfo> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
     let mut other = Vec::new();
     for line in output.lines().filter(|l| !l.trim().is_empty()) {
         if line.trim() == "RUNTIME_NOT_INSTALLED" {
@@ -406,7 +407,7 @@ fn parse_family_list(runtime: ContainerRuntime, output: &str) -> DockerContainer
         }
         match parse_family_line(line) {
             // The first entry of an id wins; a repeat is not shown as a second container.
-            Some(info) if containers.iter().any(|c| c.id == info.id) => other.push(line.trim()),
+            Some(info) if !seen.insert(info.id.clone()) => other.push(line.trim()),
             Some(info) => containers.push(info),
             None => other.push(line.trim()),
         }
@@ -1750,5 +1751,16 @@ mod tests {
             "web,RUNNING,CONTAINER\nbroken,line\n".into(),
         );
         assert_eq!((s.containers.len(), s.unreadable), (1, 1));
+    }
+
+    #[test]
+    fn a_huge_list_is_read_in_linear_time() {
+        let started = std::time::Instant::now();
+        let lines: String = (0..60_000)
+            .map(|i| fam3(&format!("id{i:07}"), "c", "p") + "\n")
+            .collect();
+        let s = parse_container_list(ContainerRuntime::Podman, lines);
+        assert_eq!(s.total, 60_000);
+        assert!(started.elapsed().as_secs() < 5, "{:?}", started.elapsed());
     }
 }
