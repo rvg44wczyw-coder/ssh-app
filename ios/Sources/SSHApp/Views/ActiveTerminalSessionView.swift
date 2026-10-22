@@ -165,6 +165,7 @@ struct ActiveTerminalSessionView: View {
                     menuScope: viewModel.session.serverId?.uuidString ?? "",
                     menuReady: viewModel.state == .connected && viewModel.sessionHandle != nil,
                     onPaste: { viewModel.pasteHandler?() },
+                    onPasteText: { viewModel.pasteTextHandler?($0) },
                     loadModels: { agent in
                         guard let handle = viewModel.sessionHandle, viewModel.state == .connected,
                             let pin = await viewModel.helperPin()

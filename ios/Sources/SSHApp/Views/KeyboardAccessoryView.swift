@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -16,6 +17,8 @@ public struct KeyboardAccessoryView: View {
     public let menuReady: Bool
     /// Pastes the clipboard through the terminal (bracketed paste when the program wants it).
     public let onPaste: (() -> Void)?
+    /// Text from the system paste button (one tap, no permission prompt).
+    public let onPasteText: ((String) -> Void)?
     public let loadModels: ((String) async -> [(id: String, label: String)])?
     @State private var models: [(id: String, label: String)] = []
     @State private var modelsLoading = false
@@ -31,12 +34,14 @@ public struct KeyboardAccessoryView: View {
         menuScope: String = "",
         menuReady: Bool = true,
         onPaste: (() -> Void)? = nil,
+        onPasteText: ((String) -> Void)? = nil,
         loadModels: ((String) async -> [(id: String, label: String)])? = nil
     ) {
         self.menuAgent = menuAgent
         self.menuScope = menuScope
         self.menuReady = menuReady
         self.onPaste = onPaste
+        self.onPasteText = onPasteText
         self.loadModels = loadModels
         self.onSendBytes = onSendBytes
         self.onAiAssistantTap = onAiAssistantTap
@@ -49,6 +54,13 @@ public struct KeyboardAccessoryView: View {
     public var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
+                if let onPasteText {
+                    SystemPasteButton(onText: { text in
+                        triggerHaptic()
+                        onPasteText(text)
+                    })
+                    .frame(width: 44, height: 34)
+                }
                 if let onAiTap = onAiAssistantTap {
                     AccessoryButton(label: "sf:wand.and.stars") {
                         triggerHaptic()
@@ -205,5 +217,63 @@ struct AccessoryButton<MenuContent: View>: View {
 extension AccessoryButton where MenuContent == EmptyView {
     init(label: String, action: @escaping () -> Void) {
         self.init(label: label, action: action, menu: { EmptyView() })
+    }
+}
+
+
+/// The system's own paste button (`UIPasteControl`): one tap pastes, and because the user's tap is
+/// the permission, iOS shows no "Allow Paste" banner. Text arrives through `paste(itemProviders:)`;
+/// the pasteboard is never read by the app.
+struct SystemPasteButton: UIViewRepresentable {
+    let onText: (String) -> Void
+
+    func makeUIView(context: Context) -> UIPasteControl {
+        let config = UIPasteControl.Configuration()
+        config.baseBackgroundColor = UIColor(Color.appTertiaryBackground)
+        config.baseForegroundColor = .label
+        config.cornerStyle = .medium
+        config.displayMode = .iconOnly
+        let control = UIPasteControl(configuration: config)
+        control.target = context.coordinator.target
+        return control
+    }
+
+    func updateUIView(_ control: UIPasteControl, context: Context) {
+        context.coordinator.target.onText = onText
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(onText: onText) }
+
+    final class Coordinator {
+        let target: PasteTarget
+        init(onText: @escaping (String) -> Void) {
+            target = PasteTarget()
+            target.onText = onText
+        }
+    }
+
+    /// Receives what the paste control pastes; accepts plain text only.
+    final class PasteTarget: UIView {
+        var onText: ((String) -> Void)?
+
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            pasteConfiguration = UIPasteConfiguration(acceptableTypeIdentifiers: [UTType.plainText.identifier])
+        }
+        required init?(coder: NSCoder) { nil }
+
+        override func canPaste(_ itemProviders: [NSItemProvider]) -> Bool {
+            itemProviders.contains { $0.canLoadObject(ofClass: NSString.self) }
+        }
+
+        override func paste(itemProviders: [NSItemProvider]) {
+            for provider in itemProviders where provider.canLoadObject(ofClass: NSString.self) {
+                _ = provider.loadObject(ofClass: NSString.self) { [weak self] object, _ in
+                    guard let text = object as? String else { return }
+                    DispatchQueue.main.async { self?.onText?(text) }
+                }
+                return
+            }
+        }
     }
 }

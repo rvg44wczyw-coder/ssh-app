@@ -270,6 +270,7 @@ public struct TerminalContainerView: UIViewRepresentable {
         }
 
         viewModel.pasteHandler = { [weak coordinator = context.coordinator] in coordinator?.pasteClipboard() }
+        viewModel.pasteTextHandler = { [weak coordinator = context.coordinator] in coordinator?.paste($0) }
 
         print("[TerminalView \(viewModel.instanceId)] makeUIView created for session '\(viewModel.session.title)'")
 
@@ -402,7 +403,12 @@ public struct TerminalContainerView: UIViewRepresentable {
         /// program asked for it (Claude Code does), so several lines arrive as one input and not
         /// as one Enter per line; plain text with Enter for line breaks otherwise.
         func pasteClipboard() {
-            guard let raw = UIPasteboard.general.string, !raw.isEmpty else { return }
+            guard let raw = UIPasteboard.general.string else { return }
+            paste(raw)
+        }
+
+        func paste(_ raw: String) {
+            guard !raw.isEmpty else { return }
             let bracketed = terminalView?.getTerminal().bracketedPasteMode == true
             viewModel.sendInput(Data(TerminalPaste.bytes(raw, bracketed: bracketed)))
         }

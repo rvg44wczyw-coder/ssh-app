@@ -319,6 +319,19 @@ final class TerminalPasteTests: XCTestCase {
             XCTAssertNotEqual(result.title, "pwned")
         }
     }
+
+    @MainActor
+    func testTheSystemPasteTargetTakesTextAndNothingElse() async {
+        let target = SystemPasteButton.PasteTarget()
+        var got: [String] = []
+        target.onText = { got.append($0) }
+        let text = NSItemProvider(object: "echo hi\nsecond" as NSString)
+        XCTAssertTrue(target.canPaste([text]))
+        target.paste(itemProviders: [text])
+        try? await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(got, ["echo hi\nsecond"])
+        XCTAssertFalse(target.canPaste([NSItemProvider(object: UIImage())]))
+    }
 }
 
 
