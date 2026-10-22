@@ -212,7 +212,7 @@ enum FeedHighlightStore {
     private static var cache: [String: [HighlightedLine]] = [:]
 
     private static func key(_ lang: String, _ code: String, _ dark: Bool) -> String {
-        "\(dark ? "d" : "l")|\(lang)|\(code.hashValue)"
+        "\(dark ? "d" : "l")|\(SyntaxSettings.theme.rawValue)|\(lang)|\(code.hashValue)"
     }
 
     static func lookup(_ lang: String, _ code: String, dark: Bool) -> [HighlightedLine]? {

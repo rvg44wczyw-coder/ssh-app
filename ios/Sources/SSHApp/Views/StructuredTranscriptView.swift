@@ -23,6 +23,8 @@ public struct StructuredTranscriptView: View {
     @State private var scrollToken = 0
     @State private var findToken = 0
     @State private var highlightVersion = 0
+    @AppStorage(SyntaxSettings.themeKey) private var syntaxTheme = SyntaxTheme.auto.rawValue
+    @AppStorage(SyntaxSettings.enabledKey) private var syntaxOn = true
     @Environment(\.colorScheme) private var colorScheme
     @State private var editorExpanded = false
     @FocusState private var inputFocused: Bool
@@ -183,7 +185,7 @@ public struct StructuredTranscriptView: View {
                     presentation: look
                 )
                 .background(Color.appBackground)
-                .task(id: "\(viewModel.transcriptTurns.count)|\(viewModel.transcriptTurns.last?.content?.count ?? 0)|\(colorScheme == .dark)") {
+                .task(id: "\(viewModel.transcriptTurns.count)|\(viewModel.transcriptTurns.last?.content?.count ?? 0)|\(colorScheme == .dark)|\(syntaxTheme)|\(syntaxOn)") {
                     if await FeedHighlightStore.prefetch(viewModel.transcriptTurns, dark: colorScheme == .dark) {
                         highlightVersion += 1
                     }
