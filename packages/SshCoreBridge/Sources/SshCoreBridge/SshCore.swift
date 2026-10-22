@@ -8626,6 +8626,72 @@ public func FfiConverterTypeHostUsageReport_lower(_ value: HostUsageReport) -> R
 
 
 /**
+ * What `import_private_key` hands back: the key in the unencrypted form the Keychain stores (the
+ * Keychain item is the protection) and what the UI shows.
+ */
+public struct ImportedKey: Equatable, Hashable {
+    public var privateKeyOpenssh: String
+    public var publicKeyOpenssh: String
+    public var fingerprintSha256: String
+    public var wasEncrypted: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(privateKeyOpenssh: String, publicKeyOpenssh: String, fingerprintSha256: String, wasEncrypted: Bool) {
+        self.privateKeyOpenssh = privateKeyOpenssh
+        self.publicKeyOpenssh = publicKeyOpenssh
+        self.fingerprintSha256 = fingerprintSha256
+        self.wasEncrypted = wasEncrypted
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ImportedKey: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeImportedKey: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ImportedKey {
+        return
+            try ImportedKey(
+                privateKeyOpenssh: FfiConverterString.read(from: &buf), 
+                publicKeyOpenssh: FfiConverterString.read(from: &buf), 
+                fingerprintSha256: FfiConverterString.read(from: &buf), 
+                wasEncrypted: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ImportedKey, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.privateKeyOpenssh, into: &buf)
+        FfiConverterString.write(value.publicKeyOpenssh, into: &buf)
+        FfiConverterString.write(value.fingerprintSha256, into: &buf)
+        FfiConverterBool.write(value.wasEncrypted, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeImportedKey_lift(_ buf: RustBuffer) throws -> ImportedKey {
+    return try FfiConverterTypeImportedKey.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeImportedKey_lower(_ value: ImportedKey) -> RustBuffer {
+    return FfiConverterTypeImportedKey.lower(value)
+}
+
+
+/**
  * A rule found in the file that cannot be written back (shown escaped so a newline is visible).
  */
 public struct InvalidPermissionRule: Equatable, Hashable {
@@ -11316,6 +11382,134 @@ public func FfiConverterTypeUsageWindow_lift(_ buf: RustBuffer) throws -> UsageW
 #endif
 public func FfiConverterTypeUsageWindow_lower(_ value: UsageWindow) -> RustBuffer {
     return FfiConverterTypeUsageWindow.lower(value)
+}
+
+
+public struct VaultEntry: Equatable, Hashable {
+    public var id: String
+    public var updatedAtMs: UInt64
+    public var deleted: Bool
+    public var payload: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, updatedAtMs: UInt64, deleted: Bool, payload: String) {
+        self.id = id
+        self.updatedAtMs = updatedAtMs
+        self.deleted = deleted
+        self.payload = payload
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension VaultEntry: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeVaultEntry: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> VaultEntry {
+        return
+            try VaultEntry(
+                id: FfiConverterString.read(from: &buf), 
+                updatedAtMs: FfiConverterUInt64.read(from: &buf), 
+                deleted: FfiConverterBool.read(from: &buf), 
+                payload: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: VaultEntry, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterUInt64.write(value.updatedAtMs, into: &buf)
+        FfiConverterBool.write(value.deleted, into: &buf)
+        FfiConverterString.write(value.payload, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeVaultEntry_lift(_ buf: RustBuffer) throws -> VaultEntry {
+    return try FfiConverterTypeVaultEntry.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeVaultEntry_lower(_ value: VaultEntry) -> RustBuffer {
+    return FfiConverterTypeVaultEntry.lower(value)
+}
+
+
+public struct VaultMerge: Equatable, Hashable {
+    /**
+     * The converged list, ordered by id, tombstones included until they expire.
+     */
+    public var merged: [VaultEntry]
+    /**
+     * Ids whose winning copy came from the other side and differs from the local one.
+     */
+    public var takenFromRemote: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The converged list, ordered by id, tombstones included until they expire.
+         */merged: [VaultEntry], 
+        /**
+         * Ids whose winning copy came from the other side and differs from the local one.
+         */takenFromRemote: [String]) {
+        self.merged = merged
+        self.takenFromRemote = takenFromRemote
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension VaultMerge: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeVaultMerge: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> VaultMerge {
+        return
+            try VaultMerge(
+                merged: FfiConverterSequenceTypeVaultEntry.read(from: &buf), 
+                takenFromRemote: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: VaultMerge, into buf: inout [UInt8]) {
+        FfiConverterSequenceTypeVaultEntry.write(value.merged, into: &buf)
+        FfiConverterSequenceString.write(value.takenFromRemote, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeVaultMerge_lift(_ buf: RustBuffer) throws -> VaultMerge {
+    return try FfiConverterTypeVaultMerge.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeVaultMerge_lower(_ value: VaultMerge) -> RustBuffer {
+    return FfiConverterTypeVaultMerge.lower(value)
 }
 
 
@@ -14349,6 +14543,14 @@ enum SshCoreError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
     )
     case KeyParseError(reason: String
     )
+    /**
+     * The key file is encrypted and no passphrase was given.
+     */
+    case KeyPassphraseRequired
+    /**
+     * The passphrase did not decrypt the key.
+     */
+    case KeyPassphraseWrong
     case InvalidSessionName(name: String, reason: String
     )
     case ConnectionError(reason: String
@@ -14435,79 +14637,81 @@ public struct FfiConverterTypeSshCoreError: FfiConverterRustBuffer {
         case 2: return .KeyParseError(
             reason: try FfiConverterString.read(from: &buf)
             )
-        case 3: return .InvalidSessionName(
+        case 3: return .KeyPassphraseRequired
+        case 4: return .KeyPassphraseWrong
+        case 5: return .InvalidSessionName(
             name: try FfiConverterString.read(from: &buf), 
             reason: try FfiConverterString.read(from: &buf)
             )
-        case 4: return .ConnectionError(
+        case 6: return .ConnectionError(
             reason: try FfiConverterString.read(from: &buf)
             )
-        case 5: return .HostKeyChanged(
+        case 7: return .HostKeyChanged(
             host: try FfiConverterString.read(from: &buf), 
             expected: try FfiConverterString.read(from: &buf), 
             actual: try FfiConverterString.read(from: &buf)
             )
-        case 6: return .AuthenticationError(
+        case 8: return .AuthenticationError(
             username: try FfiConverterString.read(from: &buf), 
             reason: try FfiConverterString.read(from: &buf)
             )
-        case 7: return .ChannelError(
+        case 9: return .ChannelError(
             reason: try FfiConverterString.read(from: &buf)
             )
-        case 8: return .IoError(
+        case 10: return .IoError(
             reason: try FfiConverterString.read(from: &buf)
             )
-        case 9: return .InvalidInput(
+        case 11: return .InvalidInput(
             reason: try FfiConverterString.read(from: &buf)
             )
-        case 10: return .AlreadyConnected
-        case 11: return .NotConnected
-        case 12: return .Timeout
-        case 13: return .ApprovalVerificationError(
+        case 12: return .AlreadyConnected
+        case 13: return .NotConnected
+        case 14: return .Timeout
+        case 15: return .ApprovalVerificationError(
             reason: try FfiConverterString.read(from: &buf)
             )
-        case 14: return .InvalidApprovalPayload(
+        case 16: return .InvalidApprovalPayload(
             reason: try FfiConverterString.read(from: &buf)
             )
-        case 15: return .PortForwardFailed(
+        case 17: return .PortForwardFailed(
             reason: try FfiConverterString.read(from: &buf)
             )
-        case 16: return .LocalPortInUse(
+        case 18: return .LocalPortInUse(
             port: try FfiConverterUInt16.read(from: &buf)
             )
-        case 17: return .RemotePortRefused(
+        case 19: return .RemotePortRefused(
             port: try FfiConverterUInt16.read(from: &buf)
             )
-        case 18: return .AiAssistantError(
+        case 20: return .AiAssistantError(
             reason: try FfiConverterString.read(from: &buf)
             )
-        case 19: return .AiResponseParseError(
+        case 21: return .AiResponseParseError(
             reason: try FfiConverterString.read(from: &buf)
             )
-        case 20: return .TranscriptError(
+        case 22: return .TranscriptError(
             reason: try FfiConverterString.read(from: &buf)
             )
-        case 21: return .TranscriptTooLarge(
+        case 23: return .TranscriptTooLarge(
             bytes: try FfiConverterUInt64.read(from: &buf)
             )
-        case 22: return .InvalidTranscriptPath(
+        case 24: return .InvalidTranscriptPath(
             path: try FfiConverterString.read(from: &buf), 
             reason: try FfiConverterString.read(from: &buf)
             )
-        case 23: return .FileNotFound(
+        case 25: return .FileNotFound(
             path: try FfiConverterString.read(from: &buf)
             )
-        case 24: return .NotARegularFile(
+        case 26: return .NotARegularFile(
             path: try FfiConverterString.read(from: &buf)
             )
-        case 25: return .AlreadyExists(
+        case 27: return .AlreadyExists(
             path: try FfiConverterString.read(from: &buf)
             )
-        case 26: return .TooLarge(
+        case 28: return .TooLarge(
             limit: try FfiConverterUInt64.read(from: &buf)
             )
-        case 27: return .Cancelled
-        case 28: return .Unsupported(
+        case 29: return .Cancelled
+        case 30: return .Unsupported(
             reason: try FfiConverterString.read(from: &buf)
             )
 
@@ -14532,134 +14736,142 @@ public struct FfiConverterTypeSshCoreError: FfiConverterRustBuffer {
             FfiConverterString.write(reason, into: &buf)
             
         
-        case let .InvalidSessionName(name,reason):
+        case .KeyPassphraseRequired:
             writeInt(&buf, Int32(3))
+        
+        
+        case .KeyPassphraseWrong:
+            writeInt(&buf, Int32(4))
+        
+        
+        case let .InvalidSessionName(name,reason):
+            writeInt(&buf, Int32(5))
             FfiConverterString.write(name, into: &buf)
             FfiConverterString.write(reason, into: &buf)
             
         
         case let .ConnectionError(reason):
-            writeInt(&buf, Int32(4))
+            writeInt(&buf, Int32(6))
             FfiConverterString.write(reason, into: &buf)
             
         
         case let .HostKeyChanged(host,expected,actual):
-            writeInt(&buf, Int32(5))
+            writeInt(&buf, Int32(7))
             FfiConverterString.write(host, into: &buf)
             FfiConverterString.write(expected, into: &buf)
             FfiConverterString.write(actual, into: &buf)
             
         
         case let .AuthenticationError(username,reason):
-            writeInt(&buf, Int32(6))
+            writeInt(&buf, Int32(8))
             FfiConverterString.write(username, into: &buf)
             FfiConverterString.write(reason, into: &buf)
             
         
         case let .ChannelError(reason):
-            writeInt(&buf, Int32(7))
-            FfiConverterString.write(reason, into: &buf)
-            
-        
-        case let .IoError(reason):
-            writeInt(&buf, Int32(8))
-            FfiConverterString.write(reason, into: &buf)
-            
-        
-        case let .InvalidInput(reason):
             writeInt(&buf, Int32(9))
             FfiConverterString.write(reason, into: &buf)
             
         
-        case .AlreadyConnected:
+        case let .IoError(reason):
             writeInt(&buf, Int32(10))
+            FfiConverterString.write(reason, into: &buf)
+            
         
-        
-        case .NotConnected:
+        case let .InvalidInput(reason):
             writeInt(&buf, Int32(11))
+            FfiConverterString.write(reason, into: &buf)
+            
         
-        
-        case .Timeout:
+        case .AlreadyConnected:
             writeInt(&buf, Int32(12))
         
         
-        case let .ApprovalVerificationError(reason):
+        case .NotConnected:
             writeInt(&buf, Int32(13))
-            FfiConverterString.write(reason, into: &buf)
-            
         
-        case let .InvalidApprovalPayload(reason):
+        
+        case .Timeout:
             writeInt(&buf, Int32(14))
-            FfiConverterString.write(reason, into: &buf)
-            
         
-        case let .PortForwardFailed(reason):
+        
+        case let .ApprovalVerificationError(reason):
             writeInt(&buf, Int32(15))
             FfiConverterString.write(reason, into: &buf)
             
         
-        case let .LocalPortInUse(port):
+        case let .InvalidApprovalPayload(reason):
             writeInt(&buf, Int32(16))
+            FfiConverterString.write(reason, into: &buf)
+            
+        
+        case let .PortForwardFailed(reason):
+            writeInt(&buf, Int32(17))
+            FfiConverterString.write(reason, into: &buf)
+            
+        
+        case let .LocalPortInUse(port):
+            writeInt(&buf, Int32(18))
             FfiConverterUInt16.write(port, into: &buf)
             
         
         case let .RemotePortRefused(port):
-            writeInt(&buf, Int32(17))
+            writeInt(&buf, Int32(19))
             FfiConverterUInt16.write(port, into: &buf)
             
         
         case let .AiAssistantError(reason):
-            writeInt(&buf, Int32(18))
-            FfiConverterString.write(reason, into: &buf)
-            
-        
-        case let .AiResponseParseError(reason):
-            writeInt(&buf, Int32(19))
-            FfiConverterString.write(reason, into: &buf)
-            
-        
-        case let .TranscriptError(reason):
             writeInt(&buf, Int32(20))
             FfiConverterString.write(reason, into: &buf)
             
         
-        case let .TranscriptTooLarge(bytes):
+        case let .AiResponseParseError(reason):
             writeInt(&buf, Int32(21))
+            FfiConverterString.write(reason, into: &buf)
+            
+        
+        case let .TranscriptError(reason):
+            writeInt(&buf, Int32(22))
+            FfiConverterString.write(reason, into: &buf)
+            
+        
+        case let .TranscriptTooLarge(bytes):
+            writeInt(&buf, Int32(23))
             FfiConverterUInt64.write(bytes, into: &buf)
             
         
         case let .InvalidTranscriptPath(path,reason):
-            writeInt(&buf, Int32(22))
+            writeInt(&buf, Int32(24))
             FfiConverterString.write(path, into: &buf)
             FfiConverterString.write(reason, into: &buf)
             
         
         case let .FileNotFound(path):
-            writeInt(&buf, Int32(23))
-            FfiConverterString.write(path, into: &buf)
-            
-        
-        case let .NotARegularFile(path):
-            writeInt(&buf, Int32(24))
-            FfiConverterString.write(path, into: &buf)
-            
-        
-        case let .AlreadyExists(path):
             writeInt(&buf, Int32(25))
             FfiConverterString.write(path, into: &buf)
             
         
-        case let .TooLarge(limit):
+        case let .NotARegularFile(path):
             writeInt(&buf, Int32(26))
+            FfiConverterString.write(path, into: &buf)
+            
+        
+        case let .AlreadyExists(path):
+            writeInt(&buf, Int32(27))
+            FfiConverterString.write(path, into: &buf)
+            
+        
+        case let .TooLarge(limit):
+            writeInt(&buf, Int32(28))
             FfiConverterUInt64.write(limit, into: &buf)
             
         
         case .Cancelled:
-            writeInt(&buf, Int32(27))
+            writeInt(&buf, Int32(29))
         
         
         case let .Unsupported(reason):
-            writeInt(&buf, Int32(28))
+            writeInt(&buf, Int32(30))
             FfiConverterString.write(reason, into: &buf)
             
         }
@@ -15668,6 +15880,30 @@ fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterString.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionData: FfiConverterRustBuffer {
+    typealias SwiftType = Data?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterData.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterData.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -17043,6 +17279,31 @@ fileprivate struct FfiConverterSequenceTypeTranscriptTurn: FfiConverterRustBuffe
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeVaultEntry: FfiConverterRustBuffer {
+    typealias SwiftType = [VaultEntry]
+
+    public static func write(_ value: [VaultEntry], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeVaultEntry.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [VaultEntry] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [VaultEntry]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeVaultEntry.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeWslSnippet: FfiConverterRustBuffer {
     typealias SwiftType = [WslSnippet]
 
@@ -18133,6 +18394,31 @@ public func derivePublicKey(privateKeyOpenssh: String)throws  -> String  {
 })
 }
 /**
+ * Imports an OpenSSH private key, decrypting it with `passphrase` when it is protected. Only
+ * Ed25519 is accepted: that is what the connection path signs with. The passphrase is wiped when
+ * this returns.
+ */
+public func importPrivateKey(armoredKey: String, passphrase: Data?)throws  -> ImportedKey  {
+    return try  FfiConverterTypeImportedKey_lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_import_private_key(
+        FfiConverterString.lower(armoredKey),
+        FfiConverterOptionData.lower(passphrase),uniffiCallStatus
+    )
+})
+}
+/**
+ * Whether the armored key needs a passphrase, without trying to decrypt it.
+ */
+public func privateKeyNeedsPassphrase(armoredKey: String)throws  -> Bool  {
+    return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_private_key_needs_passphrase(
+        FfiConverterString.lower(armoredKey),uniffiCallStatus
+    )
+})
+}
+/**
  * The multiplexer to use on a host: the preference when that program exists, else the other
  * one; tmux when neither was found (the existing fallback to a plain shell then applies).
  */
@@ -18693,6 +18979,19 @@ public func bundledHostHelperSizeFor(target: HostTarget) -> UInt64  {
 })
 }
 /**
+ * Merges `remote` into `local`. Entries that are malformed or beyond the limits are ignored.
+ */
+public func mergeVault(local: [VaultEntry], remote: [VaultEntry], nowMs: UInt64) -> VaultMerge  {
+    return try!  FfiConverterTypeVaultMerge_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_merge_vault(
+        FfiConverterSequenceTypeVaultEntry.lower(local),
+        FfiConverterSequenceTypeVaultEntry.lower(remote),
+        FfiConverterUInt64.lower(nowMs),uniffiCallStatus
+    )
+})
+}
+/**
  * Setup text for a Windows PC used directly (no WSL2): OpenSSH Server with `cmd.exe` as the SSH
  * shell, the app's key in the right file for the account type, Tailscale.
  */
@@ -18998,6 +19297,12 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_func_derive_public_key() != 26782) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_func_import_private_key() != 1183) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_private_key_needs_passphrase() != 80) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_func_choose_multiplexer() != 40078) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -19125,6 +19430,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_bundled_host_helper_size_for() != 50266) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_merge_vault() != 1108) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_windows_setup_snippets() != 26455) {
