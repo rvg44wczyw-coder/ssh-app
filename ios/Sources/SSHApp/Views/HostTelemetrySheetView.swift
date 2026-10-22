@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import SshCoreBridge
 
 public struct HostTelemetrySheetView: View {
@@ -69,6 +70,7 @@ public struct HostTelemetrySheetView: View {
                         hostSummaryCard(snap)
                         resourceGaugesGrid(snap)
                         processMonitorSection(snap)
+                        DockerSection(viewModel: viewModel, closeSheet: closeSheet)
                         HostHelperCard(viewModel: viewModel)
                     } else if viewModel.isTelemetryLoading {
                         VStack(spacing: 12) {
@@ -446,5 +448,216 @@ public struct HostTelemetrySheetView: View {
             .background(color.opacity(0.2))
             .foregroundColor(color)
             .cornerRadius(4)
+    }
+}
+
+
+extension Notification.Name {
+    /// Posted by the Docker section: open a tab with a shell in a container (userInfo: title, sessionName, command).
+    static let openDockerTab = Notification.Name("ssh-app.open-docker-tab")
+}
+
+/// Docker containers of the host (feature 45). Nothing is asked of the host until the user opens
+/// the section; Restart and Stop name the container and ask first.
+struct DockerSection: View {
+    @ObservedObject var viewModel: TerminalSessionViewModel
+    var closeSheet: () -> Void
+
+    @State private var snapshot: DockerContainersSnapshot?
+    @State private var stats: [String: DockerContainerStats] = [:]
+    @State private var loading = false
+    @State private var busyId: String?
+    @State private var message: String?
+    @State private var pending: (action: DockerAction, container: DockerContainerInfo)?
+    @State private var logsFor: DockerContainerInfo?
+
+    private var handle: SshSessionHandle? { viewModel.state == .connected ? viewModel.sessionHandle : nil }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Label("Docker containers", systemImage: "shippingbox.fill").font(.headline)
+                Spacer()
+                Button(snapshot == nil ? "Show" : "Refresh") { Task { await load() } }
+                    .disabled(loading || handle == nil)
+            }
+            if loading { ProgressView().controlSize(.small) }
+            if let message { Text(message).font(.caption).foregroundColor(.orange) }
+            if let snap = snapshot {
+                if let err = snap.errorMessage {
+                    Text(err).font(.caption).foregroundColor(.secondary)
+                } else if snap.containers.isEmpty {
+                    Text("No containers.").font(.caption).foregroundColor(.secondary)
+                }
+                ForEach(snap.containers, id: \.id) { c in card(c) }
+                if snap.dockerAvailable {
+                    Text("Membership in the docker group is root on the host. A shell inside a container is not covered by the hook guard.")
+                        .font(.caption2).foregroundColor(.secondary)
+                }
+            }
+        }
+        .padding(14)
+        .background(Color.appSecondaryBackground, in: RoundedRectangle(cornerRadius: 12))
+        .confirmationDialog(
+            pending.map { "\(Self.verb($0.action)) \($0.container.name)?" } ?? "",
+            isPresented: Binding(get: { pending != nil }, set: { if !$0 { pending = nil } }),
+            titleVisibility: .visible
+        ) {
+            if let p = pending {
+                Button(Self.verb(p.action), role: .destructive) { Task { await run(p.action, p.container) } }
+            }
+            Button("Cancel", role: .cancel) { pending = nil }
+        } message: {
+            Text("It may be a database or a service other people use.")
+        }
+        .sheet(item: Binding(get: { logsFor.map { DockerLogTarget(container: $0) } }, set: { if $0 == nil { logsFor = nil } })) { target in
+            DockerLogsSheet(viewModel: viewModel, container: target.container)
+        }
+    }
+
+    private static func verb(_ a: DockerAction) -> String {
+        switch a {
+        case .start: return "Start"
+        case .stop: return "Stop"
+        case .restart: return "Restart"
+        }
+    }
+
+    private func color(_ s: ContainerState) -> Color {
+        switch s {
+        case .running: return .green
+        case .exited, .dead: return .red
+        case .paused, .restarting: return .orange
+        case .unknown: return .secondary
+        }
+    }
+
+    private func card(_ c: DockerContainerInfo) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Image(systemName: c.state == .unknown ? "circle" : "circle.fill").font(.system(size: 9)).foregroundColor(color(c.state))
+                Text(c.name).font(.system(size: 14, weight: .semibold, design: .monospaced)).lineLimit(1)
+                if c.unhealthy { Text("unhealthy").font(.caption2).padding(.horizontal, 5).background(Color.orange.opacity(0.3), in: Capsule()) }
+                Spacer()
+                Text(c.statusText).font(.caption).foregroundColor(.secondary).lineLimit(1)
+            }
+            Text(c.image + (c.ports.isEmpty ? "" : "  \(c.ports)")).font(.caption).foregroundColor(.secondary).lineLimit(1)
+            if let s = stats[c.id] {
+                Text(statsLine(s)).font(.caption2).foregroundColor(.secondary)
+            }
+            HStack(spacing: 8) {
+                if c.state == .running || c.state == .restarting || c.state == .paused {
+                    action("Restart", "arrow.clockwise") { pending = (.restart, c) }
+                    action("Stop", "stop.fill") { pending = (.stop, c) }
+                } else {
+                    action("Start", "play.fill") { Task { await run(.start, c) } }
+                }
+                action("Logs", "doc.text") { logsFor = c }
+                action("Terminal", "terminal") { openTerminal(c) }
+                if c.state == .running { action("Stats", "gauge") { Task { await loadStats(c) } } }
+            }
+            .disabled(busyId == c.id)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func statsLine(_ s: DockerContainerStats) -> String {
+        let mb = { (b: UInt64) in "\(b / (1024 * 1024)) MB" }
+        let mem = s.memoryUsageBytes.map { u in "RAM \(mb(u))" + (s.memoryLimitBytes.map { " / \(mb($0))" } ?? "") } ?? "RAM --"
+        let cpu = s.cpuPercentage.map { String(format: "CPU %.1f%%", $0) } ?? "CPU --"
+        return mem + "   " + cpu
+    }
+
+    private func action(_ title: String, _ icon: String, _ run: @escaping () -> Void) -> some View {
+        Button(action: run) { Label(title, systemImage: icon).font(.caption).labelStyle(.titleAndIcon) }
+            .buttonStyle(.bordered).controlSize(.mini)
+    }
+
+    private func load() async {
+        guard let handle else { return }
+        loading = true; message = nil
+        defer { loading = false }
+        do { snapshot = try await handle.fetchDockerContainers() }
+        catch { message = error.localizedDescription }
+    }
+
+    private func loadStats(_ c: DockerContainerInfo) async {
+        guard let handle else { return }
+        busyId = c.id; defer { busyId = nil }
+        if let s = try? await handle.fetchDockerStats(containerId: c.id) { stats[c.id] = s }
+    }
+
+    private func run(_ action: DockerAction, _ c: DockerContainerInfo) async {
+        guard let handle else { return }
+        busyId = c.id; message = nil
+        defer { busyId = nil }
+        do {
+            try await handle.dockerContainerAction(action: action, containerId: c.id)
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            await load()
+        } catch {
+            UINotificationFeedbackGenerator().notificationOccurred(.error)
+            message = error.localizedDescription
+        }
+    }
+
+    private func openTerminal(_ c: DockerContainerInfo) {
+        do {
+            let command = try buildDockerExecCommand(containerId: c.id)
+            let name = try dockerSessionName(containerName: c.name, containerId: c.id)
+            NotificationCenter.default.post(name: .openDockerTab, object: nil,
+                                            userInfo: ["title": "[docker] \(c.name)", "sessionName": name, "command": command])
+            closeSheet()
+        } catch {
+            message = error.localizedDescription
+        }
+    }
+}
+
+private struct DockerLogTarget: Identifiable {
+    let container: DockerContainerInfo
+    var id: String { container.id }
+}
+
+/// The last lines of a container's log; Fetch Fresh asks again, Copy puts the text on the clipboard.
+struct DockerLogsSheet: View {
+    @ObservedObject var viewModel: TerminalSessionViewModel
+    let container: DockerContainerInfo
+    @Environment(\.dismiss) private var dismiss
+    @State private var text = ""
+    @State private var loading = false
+    @State private var error: String?
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                Text(error ?? (text.isEmpty && !loading ? "No log lines." : text))
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(error == nil ? .primary : .orange)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(12)
+            }
+            .overlay { if loading { ProgressView() } }
+            .navigationTitle("Logs: \(container.name)")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) { Button("Close") { dismiss() } }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { UIPasteboard.general.string = text } label: { Image(systemName: "doc.on.doc") }
+                        .disabled(text.isEmpty).accessibilityLabel("Copy all")
+                }
+                ToolbarItem(placement: .bottomBar) { Button("Fetch fresh") { Task { await load() } }.disabled(loading) }
+            }
+            .task { await load() }
+        }
+    }
+
+    private func load() async {
+        guard let handle = viewModel.sessionHandle, viewModel.state == .connected else { error = "Not connected."; return }
+        loading = true; error = nil
+        defer { loading = false }
+        do { text = try await handle.fetchDockerLogs(containerId: container.id, tailLines: 200) }
+        catch { self.error = error.localizedDescription }
     }
 }

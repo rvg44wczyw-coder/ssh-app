@@ -305,3 +305,13 @@ On the app's home dashboard, container sessions sit side-by-side with AI agent a
 ## Review (`rev`, 2026-10-20) - applied
 
 All items are folded into sections 2, 3, 5 and 6 above: state from the `State` field, optional separate stats call, confirmation for Restart/Stop, short id suffix in tmux names, CLI instead of a socket client, plain statement about the `docker` group and the guard.
+
+## Built 2026-10-22
+
+- `crates/core/src/docker.rs`: identifier check `[A-Za-z0-9][A-Za-z0-9_.-]{1,127}` (the only variable text in any command, always single-quoted), `State` field over `Status` text, unhealthy badge, listing capped at 200, names and image scrubbed of escape sequences, `docker stats` parsed in SI and IEC units, actions (start, stop, restart) confirmed by a `DOCKER_OK` line, logs `--tail` 200 (max 1000) cut at 1 MB with the truncation line, session names `docker-<slug>-<6 of the id>` (`a.b` and `a-b` never collide), the exec command (bash or sh, exit code shown, waits for Enter, no `--privileged`, no `--user`). Everything runs through the user's login shell under a host-side watchdog; trouble (no docker, daemon down, no permission) is a message, not an error.
+- `SshSessionHandle`: `fetch_docker_containers`, `fetch_docker_stats`, `docker_container_action`, `fetch_docker_logs`.
+- iOS: a "Docker containers" section in the Host Monitor sheet (loaded only when opened; Restart and Stop name the container and ask first; Logs sheet with Copy and Fetch fresh; Stats on demand; Terminal opens a new tab `[docker] <name>` of the new type `dockerContainer`, icon `shippingbox.fill`, in its own tmux session). The docker-group-is-root note is shown under the list.
+- Tests: 9 Rust tests (one runs the exec command for real against a container that does not exist; one lists the real docker of the machine read-only and skips without a daemon) and 1 Swift test. The developer's containers are never started, stopped or restarted by a test.
+- Not done: the helper path `ssh-app-host docker-list` (the shell fallback is used everywhere), the Live Follow toggle of the logs sheet, the Siri/Shortcuts "restart container" intent (needs a container picker in feature 48), a card on the home screen with a live preview (the tab appears with the other tabs). Not tried on a device.
+
+Security (hacker gate): no free text reaches a command except the validated identifier; no privileged exec; output scrubbed before display; log size and container count bounded; a restart or stop always shows a confirmation naming the container. Nothing found.

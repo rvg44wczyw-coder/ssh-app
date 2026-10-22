@@ -193,6 +193,27 @@ public final class TerminalTabsManager: ObservableObject {
         return newSession
     }
 
+    /// A tab with a shell inside a container: its own tmux session (name from the core, so two
+    /// containers never share one) running the `docker exec` command the core built.
+    public func addDockerSession(title: String, sessionName: String, command: String, serverId: UUID?) -> TabSession {
+        if let existing = sessions.first(where: { $0.sessionName == sessionName && $0.serverId == serverId }) {
+            selectedSessionId = existing.id
+            return existing
+        }
+        let newSession = TabSession(
+            title: title,
+            agentType: .dockerContainer,
+            sessionName: sessionName,
+            command: command,
+            serverId: serverId
+        )
+        sessions.append(newSession)
+        registerSession(newSession)
+        selectedSessionId = newSession.id
+        saveSessions()
+        return newSession
+    }
+
     /// Opens a new tab that auto-starts `profile` (compiled `command`) inside its own tmux session.
     public func addAgentSession(
         profile: SavedAgentProfile,

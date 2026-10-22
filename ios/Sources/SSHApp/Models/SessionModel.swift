@@ -5,6 +5,8 @@ public enum AgentType: String, CaseIterable, Identifiable, Codable, Sendable {
     case antigravity = "Google Antigravity"
     case localLlm = "Local LLM (Ollama)"
     case customShell = "Custom Shell"
+    /// A shell inside a Docker container on the host (feature 45).
+    case dockerContainer = "Docker container"
 
     public var id: String { rawValue }
 
@@ -14,6 +16,7 @@ public enum AgentType: String, CaseIterable, Identifiable, Codable, Sendable {
         case .antigravity: return "antigravity"
         case .localLlm: return "ollama"
         case .customShell: return "shell"
+        case .dockerContainer: return "docker"
         }
     }
 
@@ -23,6 +26,7 @@ public enum AgentType: String, CaseIterable, Identifiable, Codable, Sendable {
         case .antigravity: return "sparkles"
         case .localLlm: return "cpu"
         case .customShell: return "terminal"
+        case .dockerContainer: return "shippingbox.fill"
         }
     }
 
@@ -31,7 +35,7 @@ public enum AgentType: String, CaseIterable, Identifiable, Codable, Sendable {
         case .claudeCode: return "claude"
         case .antigravity: return "agy"
         case .localLlm: return "ollama run llama3"
-        case .customShell: return nil
+        case .customShell, .dockerContainer: return nil
         }
     }
 }

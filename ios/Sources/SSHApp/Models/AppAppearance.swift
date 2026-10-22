@@ -418,7 +418,7 @@ public enum SchemeSlot: String, CaseIterable, Identifiable {
         switch type {
         case .claudeCode: return .claude
         case .antigravity: return .antigravity
-        case .localLlm, .customShell: return .shell
+        case .localLlm, .customShell, .dockerContainer: return .shell
         }
     }
 

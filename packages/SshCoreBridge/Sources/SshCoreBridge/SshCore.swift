@@ -567,6 +567,22 @@ fileprivate struct FfiConverterInt64: FfiConverterPrimitive {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterFloat: FfiConverterPrimitive {
+    typealias FfiType = Float
+    typealias SwiftType = Float
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Float {
+        return try lift(readFloat(&buf))
+    }
+
+    public static func write(_ value: Float, into buf: inout [UInt8]) {
+        writeFloat(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterDouble: FfiConverterPrimitive {
     typealias FfiType = Double
     typealias SwiftType = Double
@@ -1404,6 +1420,29 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func waitPendingApprovals(knownIds: [String]) async throws  -> ApprovalList
     
     /**
+     * Starts, stops or restarts a container. The app asks the user first (it may be a production
+     * database); the core refuses an identifier that is not a plain name or id.
+     */
+    func dockerContainerAction(action: DockerAction, containerId: String) async throws 
+    
+    /**
+     * Containers on the host through its `docker` CLI. Trouble (not installed, daemon down, no
+     * permission) is a snapshot with `docker_available == false` and a message, not an error.
+     */
+    func fetchDockerContainers() async throws  -> DockerContainersSnapshot
+    
+    /**
+     * The last lines of a container's log (at most 1000, 200 when 0), cleaned of escape
+     * sequences and cut at 1 MB.
+     */
+    func fetchDockerLogs(containerId: String, tailLines: UInt32) async throws  -> String
+    
+    /**
+     * Memory and CPU of one container: a separate, slower call (`docker stats` takes 1-2 s).
+     */
+    func fetchDockerStats(containerId: String) async throws  -> DockerContainerStats
+    
+    /**
      * Puts the chosen hunks in the index (or takes them out again with `unstage`); the working
      * tree is not touched.
      */
@@ -2180,6 +2219,85 @@ open func waitPendingApprovals(knownIds: [String])async throws  -> ApprovalList 
             completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
             freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
             liftFunc: FfiConverterTypeApprovalList_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Starts, stops or restarts a container. The app asks the user first (it may be a production
+     * database); the core refuses an identifier that is not a plain name or id.
+     */
+open func dockerContainerAction(action: DockerAction, containerId: String)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_docker_container_action(
+                        self.uniffiCloneHandle(),FfiConverterTypeDockerAction_lower(action),FfiConverterString.lower(containerId)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_void,
+            completeFunc: ffi_ssh_core_rust_future_complete_void,
+            freeFunc: ffi_ssh_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Containers on the host through its `docker` CLI. Trouble (not installed, daemon down, no
+     * permission) is a snapshot with `docker_available == false` and a message, not an error.
+     */
+open func fetchDockerContainers()async throws  -> DockerContainersSnapshot  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_fetch_docker_containers(
+                        self.uniffiCloneHandle()
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeDockerContainersSnapshot_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * The last lines of a container's log (at most 1000, 200 when 0), cleaned of escape
+     * sequences and cut at 1 MB.
+     */
+open func fetchDockerLogs(containerId: String, tailLines: UInt32)async throws  -> String  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_fetch_docker_logs(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(containerId),FfiConverterUInt32.lower(tailLines)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterString.lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Memory and CPU of one container: a separate, slower call (`docker stats` takes 1-2 s).
+     */
+open func fetchDockerStats(containerId: String)async throws  -> DockerContainerStats  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_fetch_docker_stats(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(containerId)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeDockerContainerStats_lift,
             errorHandler: FfiConverterTypeSshCoreError_lift
         )
 }
@@ -5463,6 +5581,218 @@ public func FfiConverterTypeCommandAnalysis_lift(_ buf: RustBuffer) throws -> Co
 #endif
 public func FfiConverterTypeCommandAnalysis_lower(_ value: CommandAnalysis) -> RustBuffer {
     return FfiConverterTypeCommandAnalysis.lower(value)
+}
+
+
+public struct DockerContainerInfo: Equatable, Hashable {
+    public var id: String
+    public var name: String
+    public var image: String
+    public var state: ContainerState
+    /**
+     * "Up 4 hours", "Exited (1) 10m ago": for display only.
+     */
+    public var statusText: String
+    public var createdAt: String
+    public var ports: String
+    /**
+     * A badge only, from the health check; it never changes `state`.
+     */
+    public var unhealthy: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, name: String, image: String, state: ContainerState, 
+        /**
+         * "Up 4 hours", "Exited (1) 10m ago": for display only.
+         */statusText: String, createdAt: String, ports: String, 
+        /**
+         * A badge only, from the health check; it never changes `state`.
+         */unhealthy: Bool) {
+        self.id = id
+        self.name = name
+        self.image = image
+        self.state = state
+        self.statusText = statusText
+        self.createdAt = createdAt
+        self.ports = ports
+        self.unhealthy = unhealthy
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension DockerContainerInfo: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeDockerContainerInfo: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> DockerContainerInfo {
+        return
+            try DockerContainerInfo(
+                id: FfiConverterString.read(from: &buf), 
+                name: FfiConverterString.read(from: &buf), 
+                image: FfiConverterString.read(from: &buf), 
+                state: FfiConverterTypeContainerState.read(from: &buf), 
+                statusText: FfiConverterString.read(from: &buf), 
+                createdAt: FfiConverterString.read(from: &buf), 
+                ports: FfiConverterString.read(from: &buf), 
+                unhealthy: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: DockerContainerInfo, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.name, into: &buf)
+        FfiConverterString.write(value.image, into: &buf)
+        FfiConverterTypeContainerState.write(value.state, into: &buf)
+        FfiConverterString.write(value.statusText, into: &buf)
+        FfiConverterString.write(value.createdAt, into: &buf)
+        FfiConverterString.write(value.ports, into: &buf)
+        FfiConverterBool.write(value.unhealthy, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDockerContainerInfo_lift(_ buf: RustBuffer) throws -> DockerContainerInfo {
+    return try FfiConverterTypeDockerContainerInfo.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDockerContainerInfo_lower(_ value: DockerContainerInfo) -> RustBuffer {
+    return FfiConverterTypeDockerContainerInfo.lower(value)
+}
+
+
+public struct DockerContainerStats: Equatable, Hashable {
+    public var memoryUsageBytes: UInt64?
+    public var memoryLimitBytes: UInt64?
+    public var cpuPercentage: Float?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(memoryUsageBytes: UInt64?, memoryLimitBytes: UInt64?, cpuPercentage: Float?) {
+        self.memoryUsageBytes = memoryUsageBytes
+        self.memoryLimitBytes = memoryLimitBytes
+        self.cpuPercentage = cpuPercentage
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension DockerContainerStats: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeDockerContainerStats: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> DockerContainerStats {
+        return
+            try DockerContainerStats(
+                memoryUsageBytes: FfiConverterOptionUInt64.read(from: &buf), 
+                memoryLimitBytes: FfiConverterOptionUInt64.read(from: &buf), 
+                cpuPercentage: FfiConverterOptionFloat.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: DockerContainerStats, into buf: inout [UInt8]) {
+        FfiConverterOptionUInt64.write(value.memoryUsageBytes, into: &buf)
+        FfiConverterOptionUInt64.write(value.memoryLimitBytes, into: &buf)
+        FfiConverterOptionFloat.write(value.cpuPercentage, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDockerContainerStats_lift(_ buf: RustBuffer) throws -> DockerContainerStats {
+    return try FfiConverterTypeDockerContainerStats.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDockerContainerStats_lower(_ value: DockerContainerStats) -> RustBuffer {
+    return FfiConverterTypeDockerContainerStats.lower(value)
+}
+
+
+public struct DockerContainersSnapshot: Equatable, Hashable {
+    public var dockerAvailable: Bool
+    /**
+     * Why there are no containers (not installed, daemon down, no permission), or `None`.
+     */
+    public var errorMessage: String?
+    public var containers: [DockerContainerInfo]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(dockerAvailable: Bool, 
+        /**
+         * Why there are no containers (not installed, daemon down, no permission), or `None`.
+         */errorMessage: String?, containers: [DockerContainerInfo]) {
+        self.dockerAvailable = dockerAvailable
+        self.errorMessage = errorMessage
+        self.containers = containers
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension DockerContainersSnapshot: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeDockerContainersSnapshot: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> DockerContainersSnapshot {
+        return
+            try DockerContainersSnapshot(
+                dockerAvailable: FfiConverterBool.read(from: &buf), 
+                errorMessage: FfiConverterOptionString.read(from: &buf), 
+                containers: FfiConverterSequenceTypeDockerContainerInfo.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: DockerContainersSnapshot, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.dockerAvailable, into: &buf)
+        FfiConverterOptionString.write(value.errorMessage, into: &buf)
+        FfiConverterSequenceTypeDockerContainerInfo.write(value.containers, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDockerContainersSnapshot_lift(_ buf: RustBuffer) throws -> DockerContainersSnapshot {
+    return try FfiConverterTypeDockerContainersSnapshot.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDockerContainersSnapshot_lower(_ value: DockerContainersSnapshot) -> RustBuffer {
+    return FfiConverterTypeDockerContainersSnapshot.lower(value)
 }
 
 
@@ -11149,6 +11479,173 @@ public func FfiConverterTypeChatRole_lower(_ value: ChatRole) -> RustBuffer {
 
 
 
+public enum ContainerState: Equatable, Hashable {
+    
+    case running
+    case exited
+    case paused
+    case restarting
+    case dead
+    case unknown
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension ContainerState: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeContainerState: FfiConverterRustBuffer {
+    typealias SwiftType = ContainerState
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ContainerState {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .running
+        
+        case 2: return .exited
+        
+        case 3: return .paused
+        
+        case 4: return .restarting
+        
+        case 5: return .dead
+        
+        case 6: return .unknown
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: ContainerState, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .running:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .exited:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .paused:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .restarting:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .dead:
+            writeInt(&buf, Int32(5))
+        
+        
+        case .unknown:
+            writeInt(&buf, Int32(6))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeContainerState_lift(_ buf: RustBuffer) throws -> ContainerState {
+    return try FfiConverterTypeContainerState.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeContainerState_lower(_ value: ContainerState) -> RustBuffer {
+    return FfiConverterTypeContainerState.lower(value)
+}
+
+
+
+
+public enum DockerAction: Equatable, Hashable {
+    
+    case start
+    case stop
+    case restart
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension DockerAction: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeDockerAction: FfiConverterRustBuffer {
+    typealias SwiftType = DockerAction
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> DockerAction {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .start
+        
+        case 2: return .stop
+        
+        case 3: return .restart
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: DockerAction, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .start:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .stop:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .restart:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDockerAction_lift(_ buf: RustBuffer) throws -> DockerAction {
+    return try FfiConverterTypeDockerAction.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDockerAction_lower(_ value: DockerAction) -> RustBuffer {
+    return FfiConverterTypeDockerAction.lower(value)
+}
+
+
+
+
 public enum FindingLevel: Equatable, Hashable {
     
     /**
@@ -14582,6 +15079,30 @@ fileprivate struct FfiConverterOptionUInt64: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionFloat: FfiConverterRustBuffer {
+    typealias SwiftType = Float?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterFloat.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterFloat.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionBool: FfiConverterRustBuffer {
     typealias SwiftType = Bool?
 
@@ -15189,6 +15710,31 @@ fileprivate struct FfiConverterSequenceTypeChatMessage: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeChatMessage.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeDockerContainerInfo: FfiConverterRustBuffer {
+    typealias SwiftType = [DockerContainerInfo]
+
+    public static func write(_ value: [DockerContainerInfo], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeDockerContainerInfo.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [DockerContainerInfo] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [DockerContainerInfo]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeDockerContainerInfo.read(from: &buf))
         }
         return seq
     }
@@ -16634,6 +17180,123 @@ public func createTrustSigningBytes(id: String, nonce: String, ts: UInt64, expir
 })
 }
 /**
+ * The shell in a container: bash when it has one, else sh. The pane stays open with the exit
+ * code when the container stops, until Enter is pressed. No `--privileged`, no `--user`.
+ */
+public func buildDockerExecCommand(containerId: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_build_docker_exec_command(
+        FfiConverterString.lower(containerId),uniffiCallStatus
+    )
+})
+}
+/**
+ * Makes the log text safe to show: no escape sequences or control characters, cut at 1 MB.
+ */
+public func cleanDockerLogs(output: String) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_clean_docker_logs(
+        FfiConverterString.lower(output),uniffiCallStatus
+    )
+})
+}
+public func dockerActionCommand(action: DockerAction, containerId: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_docker_action_command(
+        FfiConverterTypeDockerAction_lower(action),
+        FfiConverterString.lower(containerId),uniffiCallStatus
+    )
+})
+}
+/**
+ * All containers, one JSON object per line, or one of the marker lines parsed below.
+ */
+public func dockerListCommand() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_docker_list_command(uniffiCallStatus
+    )
+})
+}
+public func dockerLogsCommand(containerId: String, tailLines: UInt32)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_docker_logs_command(
+        FfiConverterString.lower(containerId),
+        FfiConverterUInt32.lower(tailLines),uniffiCallStatus
+    )
+})
+}
+/**
+ * The tmux session that keeps a container shell alive: `docker-<name>-<first 6 of the id>`. The
+ * id suffix keeps `a.b` and `a-b` apart after the dots are turned into dashes.
+ */
+public func dockerSessionName(containerName: String, containerId: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_docker_session_name(
+        FfiConverterString.lower(containerName),
+        FfiConverterString.lower(containerId),uniffiCallStatus
+    )
+})
+}
+public func dockerStatsCommand(containerId: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_docker_stats_command(
+        FfiConverterString.lower(containerId),uniffiCallStatus
+    )
+})
+}
+/**
+ * Reads the output of `docker_action_command`: `Ok` when the host confirmed, else the (cleaned)
+ * first line of what docker said.
+ */
+public func parseDockerAction(output: String)throws   {try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_parse_docker_action(
+        FfiConverterString.lower(output),uniffiCallStatus
+    )
+}
+}
+/**
+ * Reads the output of `docker_list_command`.
+ */
+public func parseDockerList(output: String) -> DockerContainersSnapshot  {
+    return try!  FfiConverterTypeDockerContainersSnapshot_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_parse_docker_list(
+        FfiConverterString.lower(output),uniffiCallStatus
+    )
+})
+}
+/**
+ * Reads the output of `docker_stats_command` (one JSON object).
+ */
+public func parseDockerStats(output: String) -> DockerContainerStats  {
+    return try!  FfiConverterTypeDockerContainerStats_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_parse_docker_stats(
+        FfiConverterString.lower(output),uniffiCallStatus
+    )
+})
+}
+/**
+ * A container id (hex) or name: `[A-Za-z0-9][A-Za-z0-9_.-]{1,127}`. Nothing else ever reaches a
+ * command line.
+ */
+public func validateContainerIdentifier(id: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_validate_container_identifier(
+        FfiConverterString.lower(id),uniffiCallStatus
+    )
+})
+}
+/**
  * A path or file name for the screen: bidi / zero-width / control characters become a visible
  * marker. The raw string stays the one used for navigation.
  */
@@ -17593,6 +18256,39 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_func_create_trust_signing_bytes() != 55888) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_func_build_docker_exec_command() != 56686) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_clean_docker_logs() != 50209) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_docker_action_command() != 23499) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_docker_list_command() != 42757) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_docker_logs_command() != 42688) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_docker_session_name() != 21665) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_docker_stats_command() != 13105) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_parse_docker_action() != 14379) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_parse_docker_list() != 4741) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_parse_docker_stats() != 29049) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_validate_container_identifier() != 29809) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_func_display_safe_text() != 44786) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -17876,6 +18572,18 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_wait_pending_approvals() != 65435) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_docker_container_action() != 42207) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_fetch_docker_containers() != 11873) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_fetch_docker_logs() != 48143) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_fetch_docker_stats() != 21791) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_apply_git_hunks() != 27098) {

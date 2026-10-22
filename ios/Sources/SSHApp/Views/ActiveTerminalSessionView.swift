@@ -19,7 +19,7 @@ struct ActiveTerminalSessionView: View {
         case .claudeCode: return "claude"
         case .antigravity: return "antigravity"
         case .localLlm: return "ollama"
-        case .customShell: return detectedMenuAgent
+        case .customShell, .dockerContainer: return detectedMenuAgent
         }
     }
 

@@ -638,6 +638,15 @@ public struct MainTerminalView: View {
                 let tab = tabsManager.addWorktreeSession(title: title, path: path, serverId: serverId)
                 ensureSessionStarted(for: tab.id)
             }
+            .onReceive(NotificationCenter.default.publisher(for: .openDockerTab)) { note in
+                guard let title = note.userInfo?["title"] as? String,
+                      let name = note.userInfo?["sessionName"] as? String,
+                      let command = note.userInfo?["command"] as? String else { return }
+                let serverId = tabsManager.activeSession?.serverId
+                let tab = tabsManager.addDockerSession(title: title, sessionName: name, command: command, serverId: serverId)
+                showHome = false
+                ensureSessionStarted(for: tab.id)
+            }
             .onAppear {
                 ensureSessionStarted(for: tabsManager.selectedSessionId)
                 checkStartupServersIfMultiple()

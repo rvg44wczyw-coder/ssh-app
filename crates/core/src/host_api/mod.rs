@@ -310,6 +310,7 @@ pub(crate) fn parse_attachment_path(out: &str) -> Option<String> {
 }
 
 mod approvals;
+mod docker_ops;
 mod git;
 mod helper_install;
 mod hooks;

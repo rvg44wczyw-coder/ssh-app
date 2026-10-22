@@ -211,4 +211,18 @@ final class TerminalPasteTests: XCTestCase {
         XCTAssertFalse(extractSnippetPlaceholders(command: "ls {{dir}}").isEmpty)
         XCTAssertTrue(extractSnippetPlaceholders(command: "ls -la").isEmpty)
     }
+
+    // MARK: Docker (feature 45)
+
+    func testDockerTabsHaveTheirOwnTypeAndSurviveSaving() throws {
+        let command = try buildDockerExecCommand(containerId: "postgres-db")
+        let name = try dockerSessionName(containerName: "a.b", containerId: "abcdef123456")
+        let tab = TabSession(title: "[docker] a.b", agentType: .dockerContainer, sessionName: name, command: command)
+        let back = try JSONDecoder().decode(TabSession.self, from: JSONEncoder().encode(tab))
+        XCTAssertEqual(back.agentType, .dockerContainer)
+        XCTAssertEqual(back.agentType.iconName, "shippingbox.fill")
+        XCTAssertNil(back.agentType.defaultCommand)
+        XCTAssertEqual(back.sessionName, "docker-a-b-abcdef")
+        XCTAssertThrowsError(try buildDockerExecCommand(containerId: "a; reboot"))
+    }
 }

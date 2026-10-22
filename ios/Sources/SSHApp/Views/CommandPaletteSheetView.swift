@@ -21,7 +21,7 @@ enum PaletteAgent: String, CaseIterable, Identifiable {
         case .claudeCode: self = .claude
         case .antigravity: self = .antigravity
         case .localLlm: self = .ollama
-        case .customShell: self = .claude
+        case .customShell, .dockerContainer: self = .claude
         }
     }
 
