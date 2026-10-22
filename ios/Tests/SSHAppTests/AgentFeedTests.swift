@@ -332,6 +332,31 @@ final class TerminalPasteTests: XCTestCase {
         XCTAssertEqual(got, ["echo hi\nsecond"])
         XCTAssertFalse(target.canPaste([NSItemProvider(object: UIImage())]))
     }
+
+    func testAReportIsSplitIntoBlocks() {
+        let md = "# Title\n\nSome *text*\ncontinues.\n\n- one\n  - nested\n1. first\n\n> quoted\n\n```swift\nlet x = 1\n```\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n---\n"
+        let blocks = ReportBlock.parse(md)
+        XCTAssertEqual(blocks, [
+            .heading(level: 1, text: "Title"),
+            .paragraph("Some *text* continues."),
+            .bullet(text: "one", depth: 0),
+            .bullet(text: "nested", depth: 1),
+            .numbered(text: "first", number: "1", depth: 0),
+            .quote("quoted"),
+            .code("let x = 1"),
+            .table(["| a | b |", "|---|---|", "| 1 | 2 |"]),
+            .rule,
+        ])
+    }
+
+    func testAnUnclosedFenceAndHugeReportsAreBounded() {
+        XCTAssertEqual(ReportBlock.parse("```\nlet y = 2"), [.code("let y = 2")])
+        let huge = (0..<5000).map { "- item \($0)" }.joined(separator: "\n")
+        XCTAssertEqual(ReportBlock.parse(huge).count, ReportBlock.maxBlocks)
+        XCTAssertEqual(ReportBlock.parse(""), [])
+        // raw HTML and links are only text: nothing here can become markup
+        XCTAssertEqual(ReportBlock.parse("<script>alert(1)</script>"), [.paragraph("<script>alert(1)</script>")])
+    }
 }
 
 

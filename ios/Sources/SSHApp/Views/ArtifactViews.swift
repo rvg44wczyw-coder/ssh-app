@@ -201,18 +201,8 @@ struct ArtifactViewerSheet: View {
         case .html:
             ArtifactWebView(html: ArtifactPage.html(snippet: artifact.content, dark: dark), javaScript: false, handle: handle)
         case .markdown:
-            ScrollView {
-                Text(markdown)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding()
-                    .textSelection(.enabled)
-            }
+            ReportView(blocks: ReportBlock.parse(artifact.content))
         }
-    }
-
-    private var markdown: AttributedString {
-        let opts = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-        return (try? AttributedString(markdown: artifact.content, options: opts)) ?? AttributedString(artifact.content)
     }
 
     private var largeNotice: some View {
@@ -292,3 +282,132 @@ struct ArtifactListSheet: View {
 }
 
 extension ExtractedArtifact: Identifiable {}
+
+
+/// A Markdown report as blocks the viewer draws natively (no web view, no HTML, no images, links are
+/// never opened). Block structure only; inline styles are left to `AttributedString`.
+enum ReportBlock: Equatable {
+    case heading(level: Int, text: String)
+    case paragraph(String)
+    case bullet(text: String, depth: Int)
+    case numbered(text: String, number: String, depth: Int)
+    case quote(String)
+    case code(String)
+    case table([String])
+    case rule
+
+    /// At most this many blocks are drawn; the rest of a very long report is cut.
+    static let maxBlocks = 2000
+
+    static func parse(_ text: String) -> [ReportBlock] {
+        var out: [ReportBlock] = []
+        var paragraph: [String] = []
+        var table: [String] = []
+        var code: [String]?
+        var fence = ""
+        func emit(_ block: ReportBlock) {
+            flush()
+            out.append(block)
+        }
+        func flush() {
+            if !paragraph.isEmpty { out.append(.paragraph(paragraph.joined(separator: " "))); paragraph = [] }
+            if !table.isEmpty { out.append(.table(table)); table = [] }
+        }
+        for raw in text.components(separatedBy: "\n") {
+            if out.count >= maxBlocks { break }
+            let line = raw.replacingOccurrences(of: "\r", with: "")
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if code != nil {
+                if trimmed.hasPrefix(fence) && trimmed.allSatisfy({ $0 == fence.first }) {
+                    out.append(.code((code ?? []).joined(separator: "\n")))
+                    code = nil
+                } else {
+                    code?.append(line)
+                }
+                continue
+            }
+            if let marker = ["```", "~~~"].first(where: { trimmed.hasPrefix($0) }) {
+                flush()
+                fence = String(trimmed.prefix(while: { $0 == marker.first }))
+                code = []
+                continue
+            }
+            if trimmed.isEmpty { flush(); continue }
+            if trimmed.hasPrefix("|") { if !paragraph.isEmpty { flush() }; table.append(trimmed); continue }
+            let hashes = trimmed.prefix(while: { $0 == "#" }).count
+            if (1...6).contains(hashes), trimmed.dropFirst(hashes).first == " " {
+                emit(.heading(level: hashes, text: trimmed.dropFirst(hashes).trimmingCharacters(in: .whitespaces)))
+            } else if trimmed.count >= 3, trimmed.allSatisfy({ $0 == "-" }) || trimmed.allSatisfy({ $0 == "*" }) || trimmed.allSatisfy({ $0 == "_" }) {
+                emit(.rule)
+            } else if trimmed.hasPrefix("> ") || trimmed == ">" {
+                emit(.quote(String(trimmed.dropFirst(1)).trimmingCharacters(in: .whitespaces)))
+            } else if let bullet = ["- ", "* ", "+ "].first(where: { trimmed.hasPrefix($0) }) {
+                let depth = (line.prefix(while: { $0 == " " || $0 == "\t" }).count) / 2
+                emit(.bullet(text: String(trimmed.dropFirst(bullet.count)), depth: min(depth, 4)))
+            } else if let dot = trimmed.firstIndex(where: { $0 == "." || $0 == ")" }),
+                      dot != trimmed.startIndex, trimmed[..<dot].allSatisfy(\.isNumber), trimmed[..<dot].count <= 3,
+                      trimmed[trimmed.index(after: dot)...].first == " " {
+                let depth = (line.prefix(while: { $0 == " " || $0 == "\t" }).count) / 2
+                emit(.numbered(text: String(trimmed[trimmed.index(after: dot)...]).trimmingCharacters(in: .whitespaces),
+                                     number: String(trimmed[..<dot]), depth: min(depth, 4)))
+            } else {
+                if !table.isEmpty { out.append(.table(table)); table = [] }
+                paragraph.append(trimmed)
+            }
+        }
+        if let open = code { out.append(.code(open.joined(separator: "\n"))) }   // unclosed: shown as it is
+        flush()
+        return Array(out.prefix(maxBlocks))
+    }
+}
+
+struct ReportView: View {
+    let blocks: [ReportBlock]
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 10) {
+                ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in row(block) }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding()
+            .textSelection(.enabled)
+        }
+    }
+
+    private func inline(_ s: String) -> Text { Text(FeedMarkdown.inline(s)) }
+
+    @ViewBuilder private func row(_ block: ReportBlock) -> some View {
+        switch block {
+        case .heading(let level, let text):
+            inline(text).font(level == 1 ? .title2.bold() : level == 2 ? .title3.bold() : .headline)
+        case .paragraph(let text):
+            inline(text)
+        case .bullet(let text, let depth):
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text("\u{2022}")
+                inline(text)
+            }.padding(.leading, CGFloat(depth) * 16)
+        case .numbered(let text, let number, let depth):
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text("\(number).").monospacedDigit()
+                inline(text)
+            }.padding(.leading, CGFloat(depth) * 16)
+        case .quote(let text):
+            inline(text).foregroundStyle(.secondary)
+                .padding(.leading, 10)
+                .overlay(alignment: .leading) { Rectangle().fill(Color.secondary.opacity(0.5)).frame(width: 3) }
+        case .code(let code):
+            ScrollView(.horizontal, showsIndicators: false) {
+                Text(code).font(.system(size: 13, design: .monospaced)).padding(8)
+            }
+            .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
+        case .table(let rows):
+            ScrollView(.horizontal, showsIndicators: false) {
+                Text(rows.joined(separator: "\n")).font(.system(size: 12, design: .monospaced))
+            }
+        case .rule:
+            Divider()
+        }
+    }
+}
