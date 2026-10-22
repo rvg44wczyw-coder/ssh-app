@@ -126,9 +126,7 @@ struct SessionStatusLine: View {
         let git = viewModel.gitContext
         let showsUsage = SessionUsageItems.hasContent(usage)
         return HStack(spacing: 8) {
-            if viewModel.isTerminalOnly {
-                Text("Zellij: terminal only").foregroundColor(.secondary)
-            } else if !showsUsage {
+            if !showsUsage {
                 Text(viewModel.feedAgentName).foregroundColor(.secondary)
             }
             if git.isGit, let branch = gitNamesFull ? git.branch : git.shortBranch {

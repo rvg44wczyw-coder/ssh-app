@@ -28,7 +28,7 @@ Zellij provides:
    - kill: `zellij kill-session <name>` / `delete-session <name>` (with `--force` only where supported).
 4. **Resize** is the SSH `window_change`; Zellij reacts to `SIGWINCH`. TrueColor works natively.
 
-**Milestone B: feed parity.** Zellij 0.45 gained `action dump-screen`, `send-keys`, `write-chars`, `paste`, `list-panes --json`, so the condition set for B is met. Design in the last section. Status: in work 2026-10-22.
+**Milestone B: feed parity.** Zellij 0.45 gained `action dump-screen`, `send-keys`, `write-chars`, `paste`, `list-panes --json`, so the condition set for B is met. Design in the last section. Built 2026-10-22 (see "Built, milestone B" at the end).
 
 ### 1.3 Out of Scope
 - Re-implementing the Zellij server in Rust Core (we manage the remote `zellij` binary over SSH, exactly as we manage `tmux`).
@@ -93,7 +93,7 @@ Security (hacker gate): no user text reaches the Zellij argv except the validate
 
 ## Milestone B design (2026-10-22): the agent feed on Zellij
 
-Checked on **Zellij 0.45.1** against a private socket folder, from outside the session. Needs a Zellij with `action list-panes` and `dump-screen --pane-id`; the version comes from the probe of milestone A, **0.45 is the minimum until older releases are checked**. Below it, or when the probe has no version, the feed is unavailable and the tab stays a terminal (the session strip says why).
+Checked on **Zellij 0.45.1** against a private socket folder, from outside the session. Needs a Zellij with `action list-panes` and `dump-screen --pane-id`; the version comes from the probe of milestone A, **0.45 is the minimum until older releases are checked**. The app does not receive the version from the probe, so there is no version gate: on an older release the pane cannot be read, the screen-based feed finds nothing and the feed falls back to the agent's session file, exactly as for a tmux tab whose pane shows no agent.
 
 ### Facts used
 
@@ -124,7 +124,7 @@ pub async fn detect_session_transcript_path_in(&self, session_name: String, kind
 | Pane context and transcript detection | the roots of the process walk are "the pids whose environment has this session name and pane id" instead of "the pane pid"; the agent recognition, folder and session file logic is shared with tmux. For the transcript the hook registry stays first (exact session id), the process scan second. |
 | Hook registry (Python hook and Rust port) | the `tmux` field is the multiplexer session name: when `$TMUX` is empty and `$ZELLIJ` is set it holds `$ZELLIJ_SESSION_NAME` (cleaned like the tmux name). |
 | Host screen watch | `screenwatch::capture` tries tmux, then the Zellij dump of the focused pane for the same name. |
-| iOS | `isTerminalOnly` is true only while the feed is unavailable (Zellij below the minimum version); chat mode and the feed work on Zellij; the calls pass `multiplexer`. The "Restart agent" action is hidden for Zellij tabs. |
+| iOS | `isTerminalOnly` and the "Zellij: terminal only" label are gone; chat mode and the feed work on Zellij; every call passes `multiplexer`. "Restart" on a Zellij tab explains that restarting needs tmux (the core answers `Unsupported`). |
 
 ### Named tradeoffs
 
@@ -147,3 +147,12 @@ pub async fn detect_session_transcript_path_in(&self, session_name: String, kind
 1. Unit: the focused-pane awk on fixture tables (plugin focused, two terminals, floating, none); script text for both kinds; name validation per kind; `WindowsMux` and restart give `Unsupported`; the registry name rule (tmux wins, then Zellij, else empty) in Python and Rust.
 2. Loopback with a real private Zellij (skipped where `zellij` is missing): type a line, the capture returns it and answers `SAME` the second time; the pane context finds a fake agent (a `node` script named `claude`) in the focused pane and not one in another session; an unknown session is an error and creates nothing.
 3. Swift: the view model passes the multiplexer; a Zellij tab can switch to chat mode when the feed is available.
+
+## Built, milestone B (2026-10-22)
+
+- Core: `crates/core/src/zellij_feed.rs` (focused-pane and process-scan shell pieces, capture script), `capture_session_screen_in`, `detect_pane_context_in`, `detect_session_transcript_path_in`, `restart_session_command_in`; `supports_screen_access()` is true for Zellij.
+- Host: hook script and `sessions.rs` register the Zellij session name in the `tmux` field (tmux wins; names `[A-Za-z0-9_-]`, 1-64, no leading `-`); `screenwatch::capture` falls back to the focused pane of a Zellij session.
+- iOS: all feed calls pass the tab's multiplexer; a Zellij tab can use chat mode; Restart is explained, not offered.
+- Tests: unit tests of the shell pieces and the awk rule, the scripts against a real Zellij in a private socket folder (typed line, `SAME`, unknown session, fake agent found in the focused pane), the host's own capture against a private server, hook registration in both implementations, and an end-to-end test through `SshSessionHandle` on the loopback sshd. Swift: 83 tests pass.
+- Security (`hacker`, `docs/security-findings/2026-10-22-zellij-feed-milestone-b.md`): two Low findings; the leading-dash one is fixed, the other (a same-user process can imitate the environment tokens in its arguments on macOS) is a known limitation.
+- Not done: the Linux `/proc` branch was only syntax-checked (`sh`, `dash`, `bash`); nothing was run on a device or over real SSH to a Zellij host from the phone; a Zellij older than 0.45 is untested.

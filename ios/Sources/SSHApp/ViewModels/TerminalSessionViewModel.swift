@@ -17,7 +17,6 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     /// What keeps this tab alive on the host. Zellij tabs are terminal only: the agent feed and
     /// everything else that reads the screen or sends keys needs tmux.
     @Published public private(set) var multiplexer: MultiplexerKind = .tmux
-    public var isTerminalOnly: Bool { multiplexer == .zellij }
     /// Counted up by the session menu's "Find in feed"; the feed opens its search when it changes.
     @Published public var feedFindRequests = 0
     private var watchedSum: String? = nil
@@ -286,7 +285,7 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     /// would send `!cmd` to a shell, where `!` is history expansion (it re-runs an earlier command).
     public func currentPaneContext() async -> PaneContext {
         guard let handle = handle, state == .connected else { return PaneContext(kind: .unknown, agent: "") }
-        return (try? await handle.detectPaneContext(sessionName: session.sessionName))
+        return (try? await handle.detectPaneContextIn(sessionName: session.sessionName, kind: multiplexer))
             ?? PaneContext(kind: .unknown, agent: "")
     }
 
@@ -308,11 +307,6 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     }
 
     public func toggleChatMode() {
-        if isTerminalOnly {
-            // The feed reads the agent's screen with tmux; Zellij tabs stay terminals.
-            isChatMode = false
-            return
-        }
         isChatMode.toggle()
         if isChatMode && transcriptTurns.isEmpty {
             loadTranscript()
@@ -332,7 +326,7 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
             }
             do {
                 // This tab's own agent, found from its tmux session; never "the newest on the host".
-                let path = try await handle.detectSessionTranscriptPath(sessionName: session.sessionName)
+                let path = try await handle.detectSessionTranscriptPathIn(sessionName: session.sessionName, kind: multiplexer)
                 if path != self.activeTranscriptPath {
                     self.activeTranscriptPath = path
                     self.transcriptTurns = []
@@ -401,7 +395,7 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         sendInput(Data([0x1b]))
         try? await Task.sleep(for: .milliseconds(450))
         var boxText = ""
-        if let cap = try? await handle.captureSessionScreen(sessionName: session.sessionName, knownSum: nil),
+        if let cap = try? await handle.captureSessionScreenIn(sessionName: session.sessionName, knownSum: nil, kind: multiplexer),
            let screen = cap.text {
             let feed = parseScreenFeed(text: screen)
             if feed.prompt != nil { return false }
@@ -445,7 +439,7 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     /// feed is not open). Its own checksum: it never disturbs the feed's reading.
     public func watchPromptOnce() async {
         guard let handle = handle, state == .connected else { return }
-        guard let cap = try? await handle.captureSessionScreen(sessionName: session.sessionName, knownSum: watchedSum),
+        guard let cap = try? await handle.captureSessionScreenIn(sessionName: session.sessionName, knownSum: watchedSum, kind: multiplexer),
               let text = cap.text else { return }
         watchedSum = cap.checksum
         let feed = parseScreenFeed(text: text)
@@ -458,7 +452,7 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     /// turns shown changed / did not.
     private func reloadFromScreen() async -> Bool? {
         guard let handle = handle, state == .connected else { return nil }
-        guard let first = try? await handle.captureSessionScreen(sessionName: session.sessionName, knownSum: lastScreenSum)
+        guard let first = try? await handle.captureSessionScreenIn(sessionName: session.sessionName, knownSum: lastScreenSum, kind: multiplexer)
         else { return nil }
         guard var text = first.text else { return false }   // the same screen as before
         // The agent redraws its last lines while it writes (spinner, a result coming in, a reply
@@ -467,7 +461,7 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         var cap = first
         for _ in 0..<3 {
             try? await Task.sleep(for: .milliseconds(350))
-            guard let again = try? await handle.captureSessionScreen(sessionName: session.sessionName, knownSum: cap.checksum),
+            guard let again = try? await handle.captureSessionScreenIn(sessionName: session.sessionName, knownSum: cap.checksum, kind: multiplexer),
                   let newer = again.text else { break }   // unchanged: the frame is stable
             cap = again
             text = newer
@@ -549,7 +543,7 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     /// the feed starts over from the new screen.
     public func restartAgent(command: String) async throws {
         guard let handle, state == .connected else { throw SshCoreError.NotConnected }
-        try await handle.restartSessionCommand(sessionName: session.sessionName, command: command)
+        try await handle.restartSessionCommandIn(sessionName: session.sessionName, command: command, kind: multiplexer)
         lastScreenSum = nil
         watchedSum = nil
         screenPrompt = nil
@@ -597,7 +591,7 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         // not jump in later (and shift the text) when the 15 s refresh comes.
         if !force, let last = lastThinkingRead, Date().timeIntervalSince(last) < 15 { return thinkingTurns }
         lastThinkingRead = Date()
-        if let found = try? await handle.detectSessionTranscriptPath(sessionName: session.sessionName),
+        if let found = try? await handle.detectSessionTranscriptPathIn(sessionName: session.sessionName, kind: multiplexer),
            let turns = try? await handle.readRemoteTranscript(remotePath: found) {
             // The same agent may also run in this folder elsewhere (the laptop): a file whose
             // conversation is not the one on the screen is not used.
@@ -621,7 +615,7 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         if lastTranscriptDetect == nil || Date().timeIntervalSince(lastTranscriptDetect!) >= 20 {
             lastTranscriptDetect = Date()
             // A failed lookup (outer nil) keeps what is shown; "no agent" (inner nil) clears it.
-            if let found = try? await handle.detectSessionTranscriptPath(sessionName: session.sessionName),
+            if let found = try? await handle.detectSessionTranscriptPathIn(sessionName: session.sessionName, kind: multiplexer),
                found != activeTranscriptPath {
                 activeTranscriptPath = found
                 transcriptTurns = []

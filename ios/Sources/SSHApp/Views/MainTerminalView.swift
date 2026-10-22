@@ -174,6 +174,15 @@ public struct MainTerminalView: View {
         }
     }
 
+    /// Zellij cannot respawn a pane, so only tmux tabs offer the restart.
+    private func requestRestart(_ id: UUID) {
+        if tabsManager.viewModel(for: id)?.multiplexer == .zellij {
+            restartError = "Restarting the agent needs tmux. Close this tab and start it again from its profile."
+        } else {
+            restartTarget = id
+        }
+    }
+
     private func restart(_ id: UUID, continuing: Bool) {
         restartTarget = nil
         guard let tab = tabsManager.sessions.first(where: { $0.id == id }),
@@ -404,7 +413,7 @@ public struct MainTerminalView: View {
                     isChatMode: { tabsManager.viewModel(for: $0.id)?.isChatMode == true },
                     attention: { attention(for: $0) },
                     requestSymbol: { requestSymbol(for: $0) },
-                    onRestart: { restartTarget = $0 },
+                    onRestart: { requestRestart($0) },
                     onSessionAction: { runSessionAction($0, $1) },
                     onSetScheme: { tabsManager.setSessionScheme(id: $0, schemeId: $1) },
                     assistants: assistants.withHistory(in: serversManager.profiles.map(\.id)),
@@ -451,7 +460,7 @@ public struct MainTerminalView: View {
                     },
                     isChatMode: { tabsManager.viewModel(for: $0.id)?.isChatMode == true },
                     attention: { attention(for: $0) },
-                    onRestart: { restartTarget = $0 },
+                    onRestart: { requestRestart($0) },
                     onSessionAction: { runSessionAction($0, $1) },
                     onSetScheme: { tabsManager.setSessionScheme(id: $0, schemeId: $1) }
                 )
