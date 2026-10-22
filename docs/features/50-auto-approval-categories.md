@@ -358,6 +358,6 @@ argument always asks.
 Fixed 2026-10-22: the form agents use for a long commit message, `git commit -m "$(cat <<'EOF' ... EOF\n)"`, is no longer
 asked about every time. A quoted delimiter means the body is never expanded or run, and it must be the value of `-m` /
 `--message` of a `git commit` or `git tag`; the body is then replaced by a placeholder before every rule is applied (deny,
-sensitive-path check, boundary, allow), in the Python hook and the Rust port. The rest of the command is judged as usual.
+sensitive-path check, boundary, allow), in the Python hook, the Rust port and the category check behind the trust offer on the approval card (`auto_categories_for_call`). The rest of the command is judged as usual.
 An unquoted delimiter, a terminator line in the middle of the text, `bash -c "$(cat <<'EOF' ...)"` or any other command
 stay as typed. `cargo`/`make`/`npm` running project code cannot be fixed by parsing: it is what a trusted project is for.
