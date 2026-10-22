@@ -248,14 +248,17 @@ pub fn run(p: &Paths, args: &[String]) -> i32 {
         .take(MAX_STDIN + 1)
         .read_to_end(&mut raw);
     let too_big = raw.len() as u64 > MAX_STDIN;
-    let data = if too_big {
-        json!({})
+    let parsed = if too_big {
+        None
     } else {
         serde_json::from_slice::<Value>(&raw)
             .ok()
             .filter(Value::is_object)
-            .unwrap_or_else(|| json!({}))
     };
+    // Unreadable (too large, not JSON, not an object): a permission request is refused, since the
+    // phone would only see a blank one.
+    let unreadable = parsed.is_none();
+    let data = parsed.unwrap_or_else(|| json!({}));
     let Some(call) = parse_call(agent, &data) else {
         return 0;
     };
@@ -288,7 +291,7 @@ pub fn run(p: &Paths, args: &[String]) -> i32 {
         return 0;
     }
     if event == "PermissionRequest" || event == "PreToolUse" {
-        permission(p, agent, event, &call, &base, too_big);
+        permission(p, agent, event, &call, &base, too_big, unreadable);
         return 0;
     }
     // Stop: the user may have asked for one more round (once per stop; the flag below is what
@@ -319,7 +322,23 @@ pub fn run(p: &Paths, args: &[String]) -> i32 {
     0
 }
 
-fn permission(p: &Paths, agent: &str, event: &str, call: &Call, base: &Base, too_big: bool) {
+fn permission(
+    p: &Paths,
+    agent: &str,
+    event: &str,
+    call: &Call,
+    base: &Base,
+    too_big: bool,
+    unreadable: bool,
+) {
+    if unreadable && !too_big {
+        emit(&deny_output(
+            agent,
+            event,
+            "Blocked: the hook payload could not be read",
+        ));
+        return;
+    }
     let guard = load_guard(p);
     crate::queue::set_guard_wait(&guard);
     let (deny, ask, allow) = (

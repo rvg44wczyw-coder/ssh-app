@@ -1709,6 +1709,26 @@ fn a_guard_allow_rule_needs_every_part_of_a_command_covered() {
 }
 
 #[test]
+fn an_unreadable_permission_payload_is_refused_not_sent_to_the_phone_blank() {
+    need_tools!();
+    let h = Host::new();
+    for garbage in ["", "not json", "[1,2]", "{\"tool_name\": "] {
+        let (out, _) = h.spawn_hook("claude", "PreToolUse", garbage, 1).finish();
+        let v: Value = serde_json::from_str(&out)
+            .unwrap_or_else(|_| panic!("no reply for {garbage:?}: {out:?}"));
+        assert_eq!(
+            v["hookSpecificOutput"]["permissionDecision"], "deny",
+            "{garbage:?}"
+        );
+    }
+    // Passive events stay silent: they never ask the phone anything.
+    let (out, _) = h
+        .spawn_hook("claude", "Notification", "not json", 1)
+        .finish();
+    assert!(out.trim().is_empty(), "{out:?}");
+}
+
+#[test]
 fn a_commit_message_in_a_quoted_heredoc_is_text_not_commands() {
     need_tools!();
     let h = Host::new();

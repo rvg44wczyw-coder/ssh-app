@@ -1170,10 +1170,13 @@ def main():
         return ctl(event)
     if agent == "claude" and event == "statusline":
         return statusline(sys.argv[3] if len(sys.argv) > 3 else "")
+    garbled = False
     try:
-        data = as_dict(json.load(sys.stdin))
+        loaded = json.load(sys.stdin)
+        garbled = not isinstance(loaded, dict)
+        data = as_dict(loaded)
     except Exception:
-        data = {}
+        data, garbled = {}, True
 
     if agent in CLAUDE_STYLE:  # Codex and Qwen Code use Claude's payload and PermissionRequest reply
         tool = str(data.get("tool_name", ""))
@@ -1238,6 +1241,11 @@ def main():
         return 0
 
     if event in ("PermissionRequest", "PreToolUse"):
+        if garbled:
+            # Not JSON (or not an object): the phone would be asked about a blank request that
+            # stands for the real tool call. Nothing legitimate sends this: fail closed.
+            sys.stdout.write(json.dumps(deny_output(agent, event, "Blocked: the hook payload could not be read")))
+            return 0
         guard = load_guard()
         wait = guard.get("approval_wait_secs")
         if ("SSH_APP_HOOK_TIMEOUT" not in os.environ and isinstance(wait, int)

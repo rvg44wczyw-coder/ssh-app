@@ -87,3 +87,7 @@ Code analysis only: race between preview and install (item 6), iOS views.
 ## 5. Verdict
 
 Findings, highest severity **Medium**; all but item 6 fixed and re-verified (see section 4). Original assessment: (items 1–2 are the ones worth fixing before relying on the host check; items 3–5 are data-loss/correctness edge cases that preview/backup soften). No injection, privilege escalation or secret disclosure found in the launch command, hook planning or preview.
+
+## Update 2026-10-22
+
+Item 6 (read to write window) is closed: `write_remote_config` receives what the caller read, and the host script compares it with the file before the move (`CONFIG_CHANGED`, nothing written); test in `host_api/tests.rs`.

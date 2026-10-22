@@ -28,3 +28,7 @@ single instance by `flock`; no shell, no file writes beyond the socket and lock;
 ## 3. Verdict
 
 Findings (highest severity Low); the fixable one is fixed.
+
+## Update 2026-10-22
+
+Finding 3 (slow subscriber) is fixed: every connection has a 10 s write timeout (`bounded_writer`), so a subscriber that never reads loses its connection instead of holding its writer thread. Finding 2 stays accepted: a lease that a same-user process renews is the lease working as designed, and the agent has no mutating method.

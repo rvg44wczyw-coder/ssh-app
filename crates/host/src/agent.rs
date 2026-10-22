@@ -204,8 +204,21 @@ fn reply(out: &Mutex<UnixStream>, v: &Value) -> bool {
         .unwrap_or(false)
 }
 
+/// How long a write to a client may block. A subscriber that never reads would otherwise hold
+/// its writer thread (and the lock the replies share) for good; with this the write fails, the
+/// thread ends and the connection is dropped.
+const WRITE_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// The write half of a connection, with the write timeout set (the timeout belongs to the socket,
+/// so the reading half has it too, which only matters for writes).
+fn bounded_writer(stream: &UnixStream) -> Option<UnixStream> {
+    let writer = stream.try_clone().ok()?;
+    writer.set_write_timeout(Some(WRITE_TIMEOUT)).ok()?;
+    Some(writer)
+}
+
 fn serve(p: Arc<Paths>, shared: Arc<Mutex<Shared>>, build: Arc<String>, stream: UnixStream) {
-    let Ok(writer) = stream.try_clone() else {
+    let Some(writer) = bounded_writer(&stream) else {
         return;
     };
     let out = Arc::new(Mutex::new(writer));
@@ -599,6 +612,13 @@ pub fn run(p: Paths, lease_secs: i64, sink: &dyn EventSink) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_client_that_never_reads_cannot_hold_a_writer_for_ever() {
+        let (a, _b) = UnixStream::pair().unwrap();
+        let w = bounded_writer(&a).unwrap();
+        assert_eq!(w.write_timeout().unwrap(), Some(WRITE_TIMEOUT));
+    }
 
     fn entry(state: &'static str) -> Entry {
         Entry {
