@@ -1525,6 +1525,54 @@ fn the_zellij_feed_reads_the_focused_pane_through_the_session_handle() {
 }
 
 #[test]
+fn the_container_runtime_calls_go_through_the_session_handle() {
+    use ssh_core::container_runtime::ContainerRuntime;
+    let Some(server) = start_sshd() else {
+        eprintln!("SKIP: sshd/ssh-keygen/tmux unavailable");
+        return;
+    };
+    let handle = connect(&server);
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    rt.block_on(async {
+        // Read-only: asks which runtimes this machine has, then lists with the first one that
+        // answers. Nothing is started, stopped or deleted.
+        let found = handle.probe_container_runtimes().await.unwrap();
+        for runtime in [ContainerRuntime::Podman, ContainerRuntime::Incus] {
+            if !found.contains(&runtime) {
+                // Not installed: said so as a reason, not as an error.
+                let snap = handle.fetch_runtime_containers(runtime).await.unwrap();
+                assert!(!snap.docker_available && snap.unavailable.is_some());
+            }
+        }
+        // Names that are not names never reach the host.
+        assert!(handle
+            .fetch_runtime_logs(ContainerRuntime::Kubernetes, "a; id".into(), 10)
+            .await
+            .is_err());
+        assert!(handle
+            .runtime_stack_action(
+                ContainerRuntime::Docker,
+                ssh_core::docker::DockerAction::Restart,
+                vec!["ok1".into(), "x;y".into()],
+            )
+            .await
+            .is_err());
+        if found.contains(&ContainerRuntime::Docker) {
+            let snap = handle
+                .fetch_runtime_containers(ContainerRuntime::Docker)
+                .await
+                .unwrap();
+            // Either the daemon answered or the reason is one of the known ones.
+            assert!(snap.docker_available || snap.unavailable.is_some());
+        }
+    });
+    handle.disconnect();
+}
+
+#[test]
 fn transcript_detection_runs_through_the_login_shell_with_its_argument() {
     let Some(server) = start_sshd() else {
         eprintln!("SKIP: sshd/ssh-keygen/tmux unavailable");
