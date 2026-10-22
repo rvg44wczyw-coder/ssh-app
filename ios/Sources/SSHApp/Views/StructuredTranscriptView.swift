@@ -38,6 +38,8 @@ public struct StructuredTranscriptView: View {
     @State private var pendingFiles: [URL] = []
     @State private var askKeep = false
     @State private var pendingClipboard = false
+    @State private var showCamera = false
+    @State private var pendingCamera: [Data] = []
     @State private var syncTask: Task<Void, Never>?
     @State private var adopting = false
 
@@ -248,6 +250,9 @@ public struct StructuredTranscriptView: View {
                     Menu {
                         Button { showPhotoPicker = true } label: { Label("Photos & videos", systemImage: "photo.on.rectangle") }
                         Button { showFileImporter = true } label: { Label("Files", systemImage: "folder") }
+                        if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                            Button { showCamera = true } label: { Label("Take photo", systemImage: "camera") }
+                        }
                         if UIPasteboard.general.hasImages {
                             Button { pendingClipboard = true; askKeep = true } label: { Label("Paste image", systemImage: "doc.on.clipboard") }
                         }
@@ -321,6 +326,12 @@ public struct StructuredTranscriptView: View {
             pendingPhotos += items
             askKeep = true
         }
+        .fullScreenCover(isPresented: $showCamera) {
+            CameraPicker { data in
+                if let data { pendingCamera.append(data); askKeep = true }
+            }
+            .ignoresSafeArea()
+        }
         .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
             guard case .success(let urls) = result else { return }
             pendingFiles += urls
@@ -329,7 +340,7 @@ public struct StructuredTranscriptView: View {
         .confirmationDialog("Keep on the host?", isPresented: $askKeep, titleVisibility: .visible) {
             Button("Keep permanently") { sendPending(permanent: true) }
             Button("Temporary") { sendPending(permanent: false) }
-            Button("Cancel", role: .cancel) { pendingPhotos = []; pendingFiles = []; pendingClipboard = false }
+            Button("Cancel", role: .cancel) { pendingPhotos = []; pendingFiles = []; pendingClipboard = false; pendingCamera = [] }
         } message: {
             Text("Permanent: ~/.ssh-app/inbox, stays until you delete it. Temporary: the host's temp folder, which the system empties.")
         }
@@ -358,9 +369,22 @@ public struct StructuredTranscriptView: View {
 
     private func uploadChip(_ u: FeedUpload) -> some View {
         HStack(spacing: 5) {
-            switch u.state {
-            case .sending: ProgressView().controlSize(.mini)
-            case .failed: Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.orange)
+            if let thumb = u.thumbnail {
+                Image(uiImage: thumb)
+                    .resizable().scaledToFill()
+                    .frame(width: 28, height: 28)
+                    .clipShape(RoundedRectangle(cornerRadius: 5))
+                    .overlay {
+                        switch u.state {
+                        case .sending: ProgressView().controlSize(.mini).padding(3).background(.ultraThinMaterial, in: Circle())
+                        case .failed: Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.orange)
+                        }
+                    }
+            } else {
+                switch u.state {
+                case .sending: ProgressView().controlSize(.mini)
+                case .failed: Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.orange)
+                }
             }
             Text(u.failure.map { "\(u.name): \($0)" } ?? u.name)
                 .font(.system(size: 11, design: .monospaced))
@@ -379,6 +403,9 @@ public struct StructuredTranscriptView: View {
         pendingPhotos = []
         pendingFiles = []
         pendingClipboard = false
+        let shots = pendingCamera
+        pendingCamera = []
+        for data in shots { Task { await attachCameraShot(data, permanent: permanent) } }
         if clip { Task { await attachClipboardImage(permanent: permanent) } }
         for item in photos { Task { await attachPhoto(item, permanent: permanent) } }
         for url in files { Task { await attachFile(url, permanent: permanent) } }
@@ -419,6 +446,27 @@ public struct StructuredTranscriptView: View {
         await send(id, url: url, name: url.lastPathComponent, permanent: permanent)
     }
 
+    /// A photo just taken, processed like a picked one.
+    private func attachCameraShot(_ data: Data, permanent: Bool) async {
+        let id = UUID()
+        uploads.append(FeedUpload(id: id, name: "camera"))
+        guard let r = try? ImagePreflight.process(data) else {
+            fail(id, "not a readable image")
+            return
+        }
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let file = dir.appendingPathComponent("camera.\(r.ext)")
+        do {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            try r.data.write(to: file, options: .atomic)
+        } catch {
+            fail(id, error.localizedDescription)
+            return
+        }
+        defer { try? FileManager.default.removeItem(at: dir) }
+        await send(id, url: file, name: file.lastPathComponent, permanent: permanent, isImage: true)
+    }
+
     /// A picture from the system clipboard, processed like a picked one.
     private func attachClipboardImage(permanent: Bool) async {
         let id = UUID()
@@ -443,6 +491,9 @@ public struct StructuredTranscriptView: View {
     }
 
     private func send(_ id: UUID, url: URL, name: String, permanent: Bool, isImage: Bool = false) async {
+        if isImage, let i = uploads.firstIndex(where: { $0.id == id }) {
+            uploads[i].thumbnail = ImagePreflight.thumbnail(of: url)
+        }
         do {
             let path = try await viewModel.uploadAttachment(url, name: name, permanent: permanent)
             uploads.removeAll { $0.id == id }
@@ -853,6 +904,7 @@ struct FeedUpload: Identifiable {
     var name: String
     var state: State = .sending
     var failure: String?
+    var thumbnail: UIImage?
 }
 
 /// A photo, video or file taken from the picker, copied to a temporary file the core can read.
@@ -921,8 +973,54 @@ enum ImagePreflight {
         return file
     }
 
+    /// A small picture for the chip in the composer.
+    static func thumbnail(of url: URL, side: Int = 96) -> UIImage? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: side,
+        ]
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary).map { UIImage(cgImage: $0) }
+    }
+
     static func isImage(_ url: URL) -> Bool {
         guard let t = UTType(filenameExtension: url.pathExtension) else { return false }
         return t.conforms(to: .image)
+    }
+}
+
+/// The system camera. The photo is handed over as JPEG data and goes through `ImagePreflight` like
+/// any other picture; nothing is written to the photo library.
+struct CameraPicker: UIViewControllerRepresentable {
+    let onDone: (Data?) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ controller: UIImagePickerController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        let parent: CameraPicker
+        init(_ parent: CameraPicker) { self.parent = parent }
+
+        func imagePickerController(_ picker: UIImagePickerController,
+                                   didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+            let data = (info[.originalImage] as? UIImage)?.jpegData(compressionQuality: 0.9)
+            parent.onDone(data)
+            parent.dismiss()
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            parent.onDone(nil)
+            parent.dismiss()
+        }
     }
 }
