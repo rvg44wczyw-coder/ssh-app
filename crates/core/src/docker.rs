@@ -8,11 +8,11 @@ use crate::tmux::shell_quote;
 use serde_json::Value;
 
 /// Containers listed at most (a host with thousands is not a phone's business).
-const MAX_CONTAINERS: usize = 200;
+pub(crate) const MAX_CONTAINERS: usize = 200;
 /// Log output kept (the host also cuts it).
-const LOG_MAX_BYTES: usize = 1024 * 1024;
-const LOG_DEFAULT_TAIL: u32 = 200;
-const LOG_MAX_TAIL: u32 = 1000;
+pub(crate) const LOG_MAX_BYTES: usize = 1024 * 1024;
+pub(crate) const LOG_DEFAULT_TAIL: u32 = 200;
+pub(crate) const LOG_MAX_TAIL: u32 = 1000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
 pub enum ContainerState {
@@ -51,6 +51,15 @@ pub struct DockerContainerInfo {
     pub ports: String,
     /// A badge only, from the health check; it never changes `state`.
     pub unhealthy: bool,
+    /// Compose project this container belongs to (feature 51), `None` when it is not in one.
+    pub project: Option<String>,
+    /// Compose service name.
+    pub service: Option<String>,
+    /// Kubernetes namespace; empty for engines and Incus.
+    pub scope: String,
+    /// A restart is possible and safe: always for engines and Incus, for a pod only with an owner
+    /// that recreates it.
+    pub restartable: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
@@ -67,6 +76,8 @@ pub enum DockerUnavailable {
     NoPermission,
     DaemonDown,
     Unexpected,
+    /// `kubectl` has no cluster selected on the host.
+    NoCluster,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
@@ -77,6 +88,8 @@ pub struct DockerContainersSnapshot {
     /// The same reason as a value, `None` when Docker answered.
     pub unavailable: Option<DockerUnavailable>,
     pub containers: Vec<DockerContainerInfo>,
+    /// How many there were before the list was cut to the display limit.
+    pub total: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
@@ -86,7 +99,7 @@ pub enum DockerAction {
     Restart,
 }
 
-fn invalid(reason: &str) -> SshCoreError {
+pub(crate) fn invalid(reason: &str) -> SshCoreError {
     SshCoreError::InvalidInput {
         reason: reason.to_string(),
     }
@@ -108,11 +121,11 @@ pub fn validate_container_identifier(id: String) -> Result<String, SshCoreError>
     }
 }
 
-const DOCKER_PATH: &str = "export PATH=\"/usr/local/bin:/opt/homebrew/bin:/Applications/Docker.app/Contents/Resources/bin:$HOME/.docker/bin:$PATH\"";
+pub(crate) const DOCKER_PATH: &str = "export PATH=\"/usr/local/bin:/opt/homebrew/bin:/Applications/Docker.app/Contents/Resources/bin:$HOME/.docker/bin:$PATH\"";
 
 /// Runs `body` (a POSIX script that uses `docker`) the way the app runs everything on the host:
 /// the user's login shell for PATH, a host-side watchdog, stderr merged into stdout.
-fn docker_script(body: &str, secs: u32) -> String {
+pub(crate) fn docker_script(body: &str, secs: u32) -> String {
     crate::hostprobe::login_sh_script(&format!("{DOCKER_PATH}; {body}"), &[], secs)
 }
 
@@ -216,7 +229,7 @@ pub fn docker_session_name(
     Ok(name)
 }
 
-fn clean(s: &str, max: usize) -> String {
+pub(crate) fn clean(s: &str, max: usize) -> String {
     crate::transcript::strip_ansi_codes(s.to_string())
         .chars()
         .filter(|c| !c.is_control())
@@ -224,7 +237,7 @@ fn clean(s: &str, max: usize) -> String {
         .collect()
 }
 
-fn str_of(v: &Value, key: &str) -> String {
+pub(crate) fn str_of(v: &Value, key: &str) -> String {
     v.get(key).and_then(Value::as_str).unwrap_or("").to_string()
 }
 
@@ -236,6 +249,7 @@ pub fn parse_docker_list(output: String) -> DockerContainersSnapshot {
         error_message: Some(msg.to_string()),
         unavailable: Some(why),
         containers: vec![],
+        total: 0,
     };
     if output.lines().any(|l| l.trim() == "DOCKER_NOT_INSTALLED") {
         return none(
@@ -267,6 +281,10 @@ pub fn parse_docker_list(output: String) -> DockerContainersSnapshot {
                     ports: clean(&str_of(&v, "Ports"), 200),
                     unhealthy: health.eq_ignore_ascii_case("unhealthy")
                         || status.contains("(unhealthy)"),
+                    project: None,
+                    service: None,
+                    scope: String::new(),
+                    restartable: true,
                 });
             }
             _ => other.push(line),
@@ -296,12 +314,13 @@ pub fn parse_docker_list(output: String) -> DockerContainersSnapshot {
         docker_available: true,
         error_message: None,
         unavailable: None,
+        total: containers.len() as u32,
         containers,
     }
 }
 
 /// "142MiB", "3.9GiB", "1.5kB", "0B" to bytes (docker prints both SI and IEC units).
-fn parse_size(s: &str) -> Option<u64> {
+pub(crate) fn parse_size(s: &str) -> Option<u64> {
     let s = s.trim();
     let split = s.find(|c: char| c.is_ascii_alphabetic())?;
     let (num, unit) = s.split_at(split);

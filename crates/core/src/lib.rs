@@ -10,6 +10,7 @@ pub mod auto_approval;
 pub mod buffer;
 pub mod config;
 pub mod config_engine;
+pub mod container_runtime;
 pub mod docker;
 pub mod error;
 pub mod file_browser;
