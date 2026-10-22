@@ -1370,6 +1370,11 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func detectPaneContext(sessionName: String) async throws  -> PaneContext
     
     /**
+     * Like `detect_pane_context`, for a tab running in tmux or Zellij.
+     */
+    func detectPaneContextIn(sessionName: String, kind: MultiplexerKind) async throws  -> PaneContext
+    
+    /**
      * Creates the host queue directories and trusts this device's key for approvals.
      */
     func installApprovalKey() async throws 
@@ -1706,6 +1711,11 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func restartSessionCommand(sessionName: String, command: String) async throws 
     
     /**
+     * Like `restart_session_command`; only tmux can respawn a pane, so Zellij is `Unsupported`.
+     */
+    func restartSessionCommandIn(sessionName: String, command: String, kind: MultiplexerKind) async throws 
+    
+    /**
      * Sends a file picked on the phone (photo, video, any file) to the host over a new channel
      * of this session: `permanent` keeps it in `~/.ssh-app/inbox/<id>-<name>`, otherwise it goes
      * to a private folder in the host's temp directory (`$TMPDIR` or `/tmp`, which the system
@@ -1787,6 +1797,11 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func captureSessionScreen(sessionName: String, knownSum: String?) async throws  -> ScreenCapture
     
     /**
+     * Like `capture_session_screen`, for a tab running in tmux or Zellij (the focused pane).
+     */
+    func captureSessionScreenIn(sessionName: String, knownSum: String?, kind: MultiplexerKind) async throws  -> ScreenCapture
+    
+    /**
      * Automatically detects the path of the active agent transcript on the remote host.
      */
     func detectActiveTranscriptPath(baseDir: String?) async throws  -> String?
@@ -1798,6 +1813,11 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
      * newest transcript on the host", which belongs to some other tab.
      */
     func detectSessionTranscriptPath(sessionName: String) async throws  -> String?
+    
+    /**
+     * Like `detect_session_transcript_path`, for a tab running in tmux or Zellij.
+     */
+    func detectSessionTranscriptPathIn(sessionName: String, kind: MultiplexerKind) async throws  -> String?
     
     /**
      * Reads recent commands from the remote host's shell history (`~/.zsh_history` / `~/.bash_history`)
@@ -2023,6 +2043,25 @@ open func detectPaneContext(sessionName: String)async throws  -> PaneContext  {
             rustFutureFunc: {
                 uniffi_ssh_core_fn_method_sshsessionhandle_detect_pane_context(
                         self.uniffiCloneHandle(),FfiConverterString.lower(sessionName)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypePaneContext_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Like `detect_pane_context`, for a tab running in tmux or Zellij.
+     */
+open func detectPaneContextIn(sessionName: String, kind: MultiplexerKind)async throws  -> PaneContext  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_detect_pane_context_in(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(sessionName),FfiConverterTypeMultiplexerKind_lower(kind)
                 )
             },
             pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
@@ -3189,6 +3228,25 @@ open func restartSessionCommand(sessionName: String, command: String)async throw
 }
     
     /**
+     * Like `restart_session_command`; only tmux can respawn a pane, so Zellij is `Unsupported`.
+     */
+open func restartSessionCommandIn(sessionName: String, command: String, kind: MultiplexerKind)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_restart_session_command_in(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(sessionName),FfiConverterString.lower(command),FfiConverterTypeMultiplexerKind_lower(kind)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_void,
+            completeFunc: ffi_ssh_core_rust_future_complete_void,
+            freeFunc: ffi_ssh_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
      * Sends a file picked on the phone (photo, video, any file) to the host over a new channel
      * of this session: `permanent` keeps it in `~/.ssh-app/inbox/<id>-<name>`, otherwise it goes
      * to a private folder in the host's temp directory (`$TMPDIR` or `/tmp`, which the system
@@ -3452,6 +3510,25 @@ open func captureSessionScreen(sessionName: String, knownSum: String?)async thro
 }
     
     /**
+     * Like `capture_session_screen`, for a tab running in tmux or Zellij (the focused pane).
+     */
+open func captureSessionScreenIn(sessionName: String, knownSum: String?, kind: MultiplexerKind)async throws  -> ScreenCapture  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_capture_session_screen_in(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(sessionName),FfiConverterOptionString.lower(knownSum),FfiConverterTypeMultiplexerKind_lower(kind)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeScreenCapture_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
      * Automatically detects the path of the active agent transcript on the remote host.
      */
 open func detectActiveTranscriptPath(baseDir: String?)async throws  -> String?  {
@@ -3482,6 +3559,25 @@ open func detectSessionTranscriptPath(sessionName: String)async throws  -> Strin
             rustFutureFunc: {
                 uniffi_ssh_core_fn_method_sshsessionhandle_detect_session_transcript_path(
                         self.uniffiCloneHandle(),FfiConverterString.lower(sessionName)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterOptionString.lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Like `detect_session_transcript_path`, for a tab running in tmux or Zellij.
+     */
+open func detectSessionTranscriptPathIn(sessionName: String, kind: MultiplexerKind)async throws  -> String?  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_detect_session_transcript_path_in(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(sessionName),FfiConverterTypeMultiplexerKind_lower(kind)
                 )
             },
             pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
@@ -19100,6 +19196,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_detect_pane_context() != 23180) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_detect_pane_context_in() != 50956) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_install_approval_key() != 10310) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -19277,6 +19376,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_restart_session_command() != 5817) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_restart_session_command_in() != 15919) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_upload_attachment() != 9795) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -19316,10 +19418,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_capture_session_screen() != 27434) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_capture_session_screen_in() != 4601) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_detect_active_transcript_path() != 64654) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_detect_session_transcript_path() != 7976) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_detect_session_transcript_path_in() != 40827) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_fetch_remote_shell_history() != 36502) {
