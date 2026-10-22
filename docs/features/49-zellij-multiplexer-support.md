@@ -28,7 +28,7 @@ Zellij provides:
    - kill: `zellij kill-session <name>` / `delete-session <name>` (with `--force` only where supported).
 4. **Resize** is the SSH `window_change`; Zellij reacts to `SIGWINCH`. TrueColor works natively.
 
-**Milestone B: feed parity**, only if Zellij gains a scriptable way to dump a pane's text and send keys. Not scheduled. The earlier estimate covered milestone A only.
+**Milestone B: feed parity.** Zellij 0.45 gained `action dump-screen`, `send-keys`, `write-chars`, `paste`, `list-panes --json`, so the condition set for B is met. Design in the last section. Status: in work 2026-10-22.
 
 ### 1.3 Out of Scope
 - Re-implementing the Zellij server in Rust Core (we manage the remote `zellij` binary over SSH, exactly as we manage `tmux`).
@@ -89,3 +89,32 @@ CLI checked against **Zellij 0.45.1** on a private socket folder: `attach --crea
 - Not tried on a device or with a Zellij server over real SSH (only the builders and a local server).
 
 Security (hacker gate): no user text reaches the Zellij argv except the validated name; no layout or plugin option is ever built; the only quoting of free text is the initial command (single-quoted, escaped, run by the user's login shell like tmux's); tests never touch the developer's Zellij. Nothing found.
+
+
+## Milestone B design (2026-10-22): the agent feed on Zellij
+
+Checked on **Zellij 0.45.1** against a private socket folder, from outside the session:
+
+- Screen: `zellij --session NAME action dump-screen --full --ansi` prints the **focused** pane with scrollback and styles (like `tmux capture-pane -e -p -J -S -`). If a plugin pane has focus the dump is empty; the feed then shows nothing new and the terminal stays usable. `--pane-id` exists but the feed follows focus, like the user.
+- Keys: the phone already types through its own PTY, not through `send-keys`, so answering prompts, Enter and Ctrl-C need nothing new.
+- No pane pid exists (`list-panes --json` has `pane_command` and `pane_cwd` only). An agent in a pane is found instead by the environment every process in a Zellij pane carries: `ZELLIJ_SESSION_NAME=<name>` (and `ZELLIJ_PANE_ID`). `ps -Eww` (macOS) / `ps eww` (Linux) show it for the user's own processes; a SIP-protected system binary hides its environment, a node/python agent does not (checked).
+
+### What changes
+
+| Part | Change |
+| :--- | :--- |
+| Screen capture (`host_api`) | `capture_session_screen_in(name, known_sum, kind)`; tmux unchanged; Zellij runs the dump above, same checksum/`SAME` protocol, same 3 MB bound. |
+| Pane context and transcript detection | `detect_pane_context_in` / `detect_session_transcript_path_in(name, kind)`: for Zellij the root set of processes is "those whose environment has `ZELLIJ_SESSION_NAME=<name>`" instead of "children of `pane_pid`"; the rest of the script (agent recognition, cwd, session file) is shared. |
+| Hook registry (Python hook and Rust port, `sessions.rs`) | The `tmux` field is the multiplexer session name: when `$TMUX` is empty and `$ZELLIJ` is set it holds `$ZELLIJ_SESSION_NAME`. A tmux and a Zellij session with the same name share a key; both are the same user's, and the app names its tabs uniquely per server. |
+| Host screen watch (`screenwatch::capture`) | tries tmux, then Zellij's dump for the same name. |
+| iOS | `isTerminalOnly` goes away for Zellij; chat mode is allowed; the calls pass `multiplexer`. Restart-agent (`respawn-pane`) has no Zellij form: typed `Unsupported`, the button is hidden. |
+
+### Security (hacker gate)
+
+| Threat | Mitigation |
+| :--- | :--- |
+| Name injection into the dump/scan command | Same `validate_zellij_name` as attach; the name reaches the shell single-quoted and the awk program as a `-v` variable, never inside the program text. |
+| Environment of other processes leaks | The scan runs on the host and only pids and a yes/no match leave awk; no environment text is printed or sent. |
+| A hostile process fakes `ZELLIJ_SESSION_NAME` | It is the same user's process on the user's own host; the worst case is that the feed shows another of the user's agents. Accepted, as the tmux pane-pid walk has the same trust. |
+| Screen text is untrusted | Bounded and parsed exactly like tmux's capture. |
+| Tests touching the developer's Zellij | Private `ZELLIJ_SOCKET_DIR`/`XDG_RUNTIME_DIR`/`HOME`, `ZELLIJ`, `ZELLIJ_SESSION_NAME` removed. |
