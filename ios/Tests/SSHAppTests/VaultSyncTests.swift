@@ -98,3 +98,26 @@ final class KeyImportTests: XCTestCase {
         XCTAssertThrowsError(try importPrivateKey(armoredKey: "garbage", passphrase: nil))
     }
 }
+
+final class HostScreensTests: XCTestCase {
+    func testHostScreensAreOwnQuickMenuTilesThatNeedAConnection() {
+        for a in [AppAction.telemetry, .processes, .docker, .hostHelper] {
+            XCTAssertTrue(a.requiresConnection)
+            XCTAssertTrue(a.canHide)
+            XCTAssertFalse(a.isSessionAction)
+        }
+        // An order saved before these tiles existed still lists them, at the end.
+        let old = QuickMenuPrefs.raw(from: [.settings, .telemetry])
+        let order = QuickMenuPrefs.ordered(from: old)
+        XCTAssertEqual(Array(order.prefix(2)), [.settings, .telemetry])
+        XCTAssertTrue(order.contains(.docker) && order.contains(.processes) && order.contains(.hostHelper))
+    }
+
+    func testEachUnavailableReasonHasItsOwnWording() {
+        let snap = parseDockerList(output: "DOCKER_NOT_INSTALLED\n")
+        XCTAssertEqual(snap.unavailable, .notInstalled)
+        XCTAssertEqual(parseDockerList(output: "permission denied while trying to connect to the Docker daemon socket").unavailable, .noPermission)
+        XCTAssertEqual(parseDockerList(output: "Cannot connect to the Docker daemon. Is the docker daemon running?").unavailable, .daemonDown)
+        XCTAssertEqual(parseDockerList(output: "").unavailable, nil)
+    }
+}

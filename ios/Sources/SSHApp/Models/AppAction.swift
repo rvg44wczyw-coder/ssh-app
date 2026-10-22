@@ -14,6 +14,9 @@ public enum AppAction: String, CaseIterable, Identifiable, Sendable {
     case agentProfiles
     case fileBrowser
     case telemetry
+    case processes
+    case docker
+    case hostHelper
     case webPreview
     case diffViewer
     case publicKey
@@ -35,6 +38,9 @@ public enum AppAction: String, CaseIterable, Identifiable, Sendable {
         case .agentProfiles: return "Agents"
         case .fileBrowser: return "Files"
         case .telemetry: return "Host monitor"
+        case .processes: return "Processes"
+        case .docker: return "Docker"
+        case .hostHelper: return "Host helper"
         case .webPreview: return "Web preview"
         case .diffViewer: return "Git log & changes"
         case .publicKey: return "Public key"
@@ -55,6 +61,9 @@ public enum AppAction: String, CaseIterable, Identifiable, Sendable {
         case .agentProfiles: return "play.rectangle.on.rectangle.fill"
         case .fileBrowser: return "folder.fill"
         case .telemetry: return "gauge.with.dots.needle.33percent"
+        case .processes: return "list.bullet.rectangle"
+        case .docker: return "shippingbox.fill"
+        case .hostHelper: return "wrench.and.screwdriver"
         case .webPreview: return "globe"
         case .diffViewer: return "clock.arrow.circlepath"
         case .publicKey: return keyVisible ? "key.fill" : "key"
@@ -75,6 +84,9 @@ public enum AppAction: String, CaseIterable, Identifiable, Sendable {
         case .agentProfiles: return .mint
         case .fileBrowser: return .yellow
         case .telemetry: return .green
+        case .processes: return .orange
+        case .docker: return .blue
+        case .hostHelper: return .gray
         case .webPreview: return .cyan
         case .diffViewer: return .pink
         case .publicKey: return .teal
@@ -106,7 +118,13 @@ public enum AppAction: String, CaseIterable, Identifiable, Sendable {
         case .fileBrowser:
             return "Browse the host's folders, preview files, and insert a path into the terminal."
         case .telemetry:
-            return "CPU, memory, disk and running agent processes on the host."
+            return "CPU, memory, disk and battery of the host."
+        case .processes:
+            return "Running agents, local models and build tools on the host, with a way to stop one."
+        case .docker:
+            return "Containers on the host: status, logs, restart, and a shell inside a container."
+        case .hostHelper:
+            return "The ssh-app-host helper on the host: install, update and the agent watch."
         case .webPreview:
             return "Open a dev server running on the host (localhost ports) inside the app."
         case .diffViewer:
@@ -129,7 +147,7 @@ public enum AppAction: String, CaseIterable, Identifiable, Sendable {
     /// Needs a live connection to the active host (shown disabled otherwise, never hidden).
     public var requiresConnection: Bool {
         switch self {
-        case .chatToggle, .feedFind, .feedRefresh, .aiAssistant, .snippets, .commands, .sessionPermissions, .agentProfiles, .fileBrowser, .telemetry, .webPreview, .diffViewer:
+        case .chatToggle, .feedFind, .feedRefresh, .aiAssistant, .snippets, .commands, .sessionPermissions, .agentProfiles, .fileBrowser, .telemetry, .processes, .docker, .hostHelper, .webPreview, .diffViewer:
             return true
         case .tmuxSessions, .publicKey, .settings:
             return false

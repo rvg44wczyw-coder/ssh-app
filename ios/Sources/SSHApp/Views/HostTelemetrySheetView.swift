@@ -2,8 +2,26 @@ import SwiftUI
 import UIKit
 import SshCoreBridge
 
+/// One screen per quick-menu tile: the host's numbers, its processes, Docker, the helper.
+public enum HostScreen: String {
+    case host, processes, docker, helper
+
+    var title: String {
+        switch self {
+        case .host: return "Host monitor"
+        case .processes: return "Processes"
+        case .docker: return "Docker"
+        case .helper: return "Host helper"
+        }
+    }
+
+    /// Reads the telemetry snapshot (and refreshes it while open).
+    var usesTelemetry: Bool { self == .host || self == .processes }
+}
+
 public struct HostTelemetrySheetView: View {
     @ObservedObject var viewModel: TerminalSessionViewModel
+    public var screen: HostScreen = .host
     public var onClose: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
 
@@ -17,8 +35,9 @@ public struct HostTelemetrySheetView: View {
 
     private let filters = ["All", "AI Agents", "Local LLM", "Build", "Runtime"]
 
-    public init(viewModel: TerminalSessionViewModel, onClose: (() -> Void)? = nil) {
+    public init(viewModel: TerminalSessionViewModel, screen: HostScreen = .host, onClose: (() -> Void)? = nil) {
         self.viewModel = viewModel
+        self.screen = screen
         self.onClose = onClose
     }
 
@@ -47,64 +66,22 @@ public struct HostTelemetrySheetView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
-                    if let error = viewModel.telemetryError {
-                        HStack(spacing: 8) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundColor(.yellow)
-                            Text(error)
-                                .font(.caption)
-                                .foregroundColor(.white)
-                            Spacer()
-                        }
-                        .padding(12)
-                        .background(Color.red.opacity(0.25))
-                        .cornerRadius(10)
-                    }
-
-                    if let snap = viewModel.telemetrySnapshot {
-                        if let t = viewModel.telemetryUpdatedAt {
-                            Text("Updated \(t.formatted(date: .omitted, time: .standard))" + (refreshSeconds > 0 ? " · every \(refreshSeconds) s" : " · auto-refresh off"))
-                                .font(.caption2).foregroundColor(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .trailing)
-                        }
-                        hostSummaryCard(snap)
-                        resourceGaugesGrid(snap)
-                        processMonitorSection(snap)
-                        DockerSection(viewModel: viewModel, closeSheet: closeSheet)
+                    switch screen {
+                    case .docker:
+                        DockerSection(viewModel: viewModel, closeSheet: closeSheet, autoLoad: true)
+                    case .helper:
                         HostHelperCard(viewModel: viewModel)
-                    } else if viewModel.isTelemetryLoading {
-                        VStack(spacing: 12) {
-                            ProgressView()
-                                .scaleEffect(1.1)
-                            Text("Collecting remote host telemetry...")
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 60)
-                    } else {
-                        VStack(spacing: 12) {
-                            Image(systemName: "gauge.with.dots.needle.33percent")
-                                .font(.system(size: 40))
-                                .foregroundColor(.secondary)
-                            Text("No Telemetry Snapshot")
-                                .font(.headline)
-                            Button("Refresh Now") {
-                                viewModel.refreshHostTelemetry()
-                            }
-                            .buttonStyle(.borderedProminent)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 50)
+                    case .host, .processes:
+                        telemetryContent
                     }
                 }
                 .padding(16)
             }
             .background(Color.appBackground.ignoresSafeArea())
-            .navigationTitle("Host Monitor")
+            .navigationTitle(screen.title)
             .task(id: refreshSeconds) {
                 // Cancelled when the sheet goes away or the interval changes.
-                guard refreshSeconds > 0 else { return }
+                guard screen.usesTelemetry, refreshSeconds > 0 else { return }
                 while !Task.isCancelled {
                     try? await Task.sleep(nanoseconds: UInt64(refreshSeconds) * 1_000_000_000)
                     if Task.isCancelled { break }
@@ -120,6 +97,7 @@ public struct HostTelemetrySheetView: View {
                         closeSheet()
                     }
                 }
+                if screen.usesTelemetry {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         Picker("Auto-refresh", selection: $refreshSeconds) {
@@ -145,6 +123,7 @@ public struct HostTelemetrySheetView: View {
                     }
                     .accessibilityLabel("Refresh Telemetry")
                 }
+                }
             }
             .alert(
                 "Force Kill Process?",
@@ -165,8 +144,63 @@ public struct HostTelemetrySheetView: View {
                 Text("Immediately terminate '\(proc.name)' (PID \(proc.pid)) with SIGKILL? Unsaved state in this process may be lost.")
             }
             .onAppear {
-                viewModel.refreshHostTelemetry()
+                if screen.usesTelemetry { viewModel.refreshHostTelemetry() }
             }
+        }
+    }
+
+    @ViewBuilder
+    private var telemetryContent: some View {
+        if let error = viewModel.telemetryError {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundColor(.yellow)
+                Text(error)
+                    .font(.caption)
+                    .foregroundColor(.white)
+                Spacer()
+            }
+            .padding(12)
+            .background(Color.red.opacity(0.25))
+            .cornerRadius(10)
+        }
+
+        if let snap = viewModel.telemetrySnapshot {
+            if let t = viewModel.telemetryUpdatedAt {
+                Text("Updated \(t.formatted(date: .omitted, time: .standard))" + (refreshSeconds > 0 ? " · every \(refreshSeconds) s" : " · auto-refresh off"))
+                    .font(.caption2).foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+            if screen == .host {
+                hostSummaryCard(snap)
+                resourceGaugesGrid(snap)
+            } else {
+                processMonitorSection(snap)
+            }
+        } else if viewModel.isTelemetryLoading {
+            VStack(spacing: 12) {
+                ProgressView()
+                    .scaleEffect(1.1)
+                Text("Collecting remote host telemetry...")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 60)
+        } else {
+            VStack(spacing: 12) {
+                Image(systemName: "gauge.with.dots.needle.33percent")
+                    .font(.system(size: 40))
+                    .foregroundColor(.secondary)
+                Text("No Telemetry Snapshot")
+                    .font(.headline)
+                Button("Refresh Now") {
+                    viewModel.refreshHostTelemetry()
+                }
+                .buttonStyle(.borderedProminent)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 50)
         }
     }
 
@@ -462,6 +496,8 @@ extension Notification.Name {
 struct DockerSection: View {
     @ObservedObject var viewModel: TerminalSessionViewModel
     var closeSheet: () -> Void
+    /// The Docker screen asks for the list as it opens; nothing is asked of a host before that.
+    var autoLoad = false
 
     @State private var snapshot: DockerContainersSnapshot?
     @State private var stats: [String: DockerContainerStats] = [:]
@@ -483,10 +519,16 @@ struct DockerSection: View {
                     .disabled(loading || handle == nil)
             }
             if loading { ProgressView().controlSize(.small) }
+            if handle == nil, snapshot == nil {
+                Text("Not connected to the host. Docker is read from the host once the tab is connected.")
+                    .font(.caption).foregroundColor(.secondary)
+            }
             if let message { Text(message).font(.caption).foregroundColor(.orange) }
             if let snap = snapshot {
-                if let err = snap.errorMessage {
-                    Text(err).font(.caption).foregroundColor(.secondary)
+                if let why = snap.unavailable {
+                    DockerUnavailableView(reason: why) {
+                        Task { await load() }
+                    }
                 } else if snap.containers.isEmpty {
                     Text("No containers.").font(.caption).foregroundColor(.secondary)
                 }
@@ -499,6 +541,9 @@ struct DockerSection: View {
         }
         .padding(14)
         .background(Color.appSecondaryBackground, in: RoundedRectangle(cornerRadius: 12))
+        .task {
+            if autoLoad, snapshot == nil, handle != nil { await load() }
+        }
         .task(id: snapshot != nil) {
             // The list refreshes itself only while it is open, the sheet is up and the app is active.
             while snapshot != nil, !Task.isCancelled {
@@ -620,6 +665,49 @@ struct DockerSection: View {
         } catch {
             message = error.localizedDescription
         }
+    }
+}
+
+/// Docker cannot be used on this host: what is wrong, and the way out, worded for each cause.
+struct DockerUnavailableView: View {
+    let reason: DockerUnavailable
+    var retry: () -> Void
+
+    private var content: (icon: String, title: String, body: String, fix: String?) {
+        switch reason {
+        case .notInstalled:
+            return ("shippingbox", "Docker is not installed",
+                    "There is no docker command on this host, so there is nothing to list.",
+                    "Install Docker Desktop, OrbStack or Colima on a Mac, or docker.io / docker-ce on Linux.")
+        case .daemonDown:
+            return ("poweroff", "Docker is not running",
+                    "The docker command is there, but its engine does not answer.",
+                    "Start Docker Desktop / OrbStack / Colima on the host (Linux: sudo systemctl start docker), then try again.")
+        case .noPermission:
+            return ("lock.shield", "No permission to use Docker",
+                    "The login user of this host may not talk to the Docker engine.",
+                    "Linux: sudo usermod -aG docker $USER, then sign in again. Being in the docker group is root-equivalent, so it is not done for you.")
+        case .unexpected:
+            return ("questionmark.circle", "Docker did not answer as expected",
+                    "The host replied with something this app cannot read as a container list.",
+                    "Run docker ps on the host to see what it says, then try again.")
+        }
+    }
+
+    var body: some View {
+        let c = content
+        VStack(spacing: 8) {
+            Image(systemName: c.icon).font(.system(size: 30)).foregroundColor(.secondary)
+            Text(c.title).font(.headline)
+            Text(c.body).font(.caption).foregroundColor(.secondary).multilineTextAlignment(.center)
+            if let fix = c.fix {
+                Text(fix).font(.caption).multilineTextAlignment(.center)
+            }
+            Button("Try again", action: retry).buttonStyle(.bordered).controlSize(.small)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 10)
+        .accessibilityElement(children: .combine)
     }
 }
 

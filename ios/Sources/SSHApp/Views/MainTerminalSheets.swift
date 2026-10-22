@@ -2,6 +2,15 @@ import SwiftUI
 import SshCoreBridge
 
 extension MainTerminalView {
+    func hostScreen(for sheet: ActiveModalSheet) -> HostScreen {
+        switch sheet {
+        case .processes: return .processes
+        case .docker: return .docker
+        case .hostHelper: return .helper
+        default: return .host
+        }
+    }
+
     /// Content of the modal sheet picked in `activeSheet`.
     @ViewBuilder
     func sheetContent(_ sheet: ActiveModalSheet) -> some View {
@@ -78,9 +87,9 @@ extension MainTerminalView {
                     activeSheet = nil
                 }
             }
-        case .telemetry:
+        case .telemetry, .processes, .docker, .hostHelper:
             if let activeVM = tabsManager.activeViewModel {
-                HostTelemetrySheetView(viewModel: activeVM) {
+                HostTelemetrySheetView(viewModel: activeVM, screen: hostScreen(for: sheet)) {
                     activeSheet = nil
                 }
             }

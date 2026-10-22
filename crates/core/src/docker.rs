@@ -60,11 +60,22 @@ pub struct DockerContainerStats {
     pub cpu_percentage: Option<f32>,
 }
 
+/// Why Docker cannot be used on the host; the app words the explanation and the way out for each.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum DockerUnavailable {
+    NotInstalled,
+    NoPermission,
+    DaemonDown,
+    Unexpected,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct DockerContainersSnapshot {
     pub docker_available: bool,
     /// Why there are no containers (not installed, daemon down, no permission), or `None`.
     pub error_message: Option<String>,
+    /// The same reason as a value, `None` when Docker answered.
+    pub unavailable: Option<DockerUnavailable>,
     pub containers: Vec<DockerContainerInfo>,
 }
 
@@ -220,13 +231,17 @@ fn str_of(v: &Value, key: &str) -> String {
 /// Reads the output of `docker_list_command`.
 #[uniffi::export]
 pub fn parse_docker_list(output: String) -> DockerContainersSnapshot {
-    let none = |msg: &str| DockerContainersSnapshot {
+    let none = |why: DockerUnavailable, msg: &str| DockerContainersSnapshot {
         docker_available: false,
         error_message: Some(msg.to_string()),
+        unavailable: Some(why),
         containers: vec![],
     };
     if output.lines().any(|l| l.trim() == "DOCKER_NOT_INSTALLED") {
-        return none("Docker is not installed on this host");
+        return none(
+            DockerUnavailable::NotInstalled,
+            "Docker is not installed on this host",
+        );
     }
     let mut containers = Vec::new();
     let mut other: Vec<&str> = Vec::new();
@@ -260,18 +275,27 @@ pub fn parse_docker_list(output: String) -> DockerContainersSnapshot {
     if containers.is_empty() && !other.is_empty() {
         let text = other.join(" ");
         let low = text.to_ascii_lowercase();
-        let msg = if low.contains("permission denied") {
-            "No permission to use Docker (the user is not in the docker group)"
+        return if low.contains("permission denied") {
+            none(
+                DockerUnavailable::NoPermission,
+                "No permission to use Docker (the user is not in the docker group)",
+            )
         } else if low.contains("cannot connect") || low.contains("is the docker daemon running") {
-            "The Docker daemon is not running"
+            none(
+                DockerUnavailable::DaemonDown,
+                "The Docker daemon is not running",
+            )
         } else {
-            "Docker did not answer as expected"
+            none(
+                DockerUnavailable::Unexpected,
+                "Docker did not answer as expected",
+            )
         };
-        return none(msg);
     }
     DockerContainersSnapshot {
         docker_available: true,
         error_message: None,
+        unavailable: None,
         containers,
     }
 }
@@ -441,12 +465,15 @@ mod tests {
     #[test]
     fn docker_trouble_is_reported_in_words() {
         let p = parse_docker_list("DOCKER_NOT_INSTALLED\n".into());
+        assert_eq!(p.unavailable, Some(DockerUnavailable::NotInstalled));
         assert!(!p.docker_available && p.error_message.unwrap().contains("not installed"));
         let p = parse_docker_list(
             "permission denied while trying to connect to the Docker daemon socket".into(),
         );
+        assert_eq!(p.unavailable, Some(DockerUnavailable::NoPermission));
         assert!(p.error_message.unwrap().contains("permission"));
         let p = parse_docker_list("Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?".into());
+        assert_eq!(p.unavailable, Some(DockerUnavailable::DaemonDown));
         assert!(p.error_message.unwrap().contains("daemon"));
         let p = parse_docker_list(String::new());
         assert!(p.docker_available && p.containers.is_empty());

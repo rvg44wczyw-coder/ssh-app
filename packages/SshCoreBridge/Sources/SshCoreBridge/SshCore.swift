@@ -5952,6 +5952,10 @@ public struct DockerContainersSnapshot: Equatable, Hashable {
      * Why there are no containers (not installed, daemon down, no permission), or `None`.
      */
     public var errorMessage: String?
+    /**
+     * The same reason as a value, `None` when Docker answered.
+     */
+    public var unavailable: DockerUnavailable?
     public var containers: [DockerContainerInfo]
 
     // Default memberwise initializers are never public by default, so we
@@ -5959,9 +5963,13 @@ public struct DockerContainersSnapshot: Equatable, Hashable {
     public init(dockerAvailable: Bool, 
         /**
          * Why there are no containers (not installed, daemon down, no permission), or `None`.
-         */errorMessage: String?, containers: [DockerContainerInfo]) {
+         */errorMessage: String?, 
+        /**
+         * The same reason as a value, `None` when Docker answered.
+         */unavailable: DockerUnavailable?, containers: [DockerContainerInfo]) {
         self.dockerAvailable = dockerAvailable
         self.errorMessage = errorMessage
+        self.unavailable = unavailable
         self.containers = containers
     }
 
@@ -5983,6 +5991,7 @@ public struct FfiConverterTypeDockerContainersSnapshot: FfiConverterRustBuffer {
             try DockerContainersSnapshot(
                 dockerAvailable: FfiConverterBool.read(from: &buf), 
                 errorMessage: FfiConverterOptionString.read(from: &buf), 
+                unavailable: FfiConverterOptionTypeDockerUnavailable.read(from: &buf), 
                 containers: FfiConverterSequenceTypeDockerContainerInfo.read(from: &buf)
         )
     }
@@ -5990,6 +5999,7 @@ public struct FfiConverterTypeDockerContainersSnapshot: FfiConverterRustBuffer {
     public static func write(_ value: DockerContainersSnapshot, into buf: inout [UInt8]) {
         FfiConverterBool.write(value.dockerAvailable, into: &buf)
         FfiConverterOptionString.write(value.errorMessage, into: &buf)
+        FfiConverterOptionTypeDockerUnavailable.write(value.unavailable, into: &buf)
         FfiConverterSequenceTypeDockerContainerInfo.write(value.containers, into: &buf)
     }
 }
@@ -12364,6 +12374,89 @@ public func FfiConverterTypeDockerAction_lower(_ value: DockerAction) -> RustBuf
 
 
 
+/**
+ * Why Docker cannot be used on the host; the app words the explanation and the way out for each.
+ */
+
+public enum DockerUnavailable: Equatable, Hashable {
+    
+    case notInstalled
+    case noPermission
+    case daemonDown
+    case unexpected
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension DockerUnavailable: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeDockerUnavailable: FfiConverterRustBuffer {
+    typealias SwiftType = DockerUnavailable
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> DockerUnavailable {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .notInstalled
+        
+        case 2: return .noPermission
+        
+        case 3: return .daemonDown
+        
+        case 4: return .unexpected
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: DockerUnavailable, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .notInstalled:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .noPermission:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .daemonDown:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .unexpected:
+            writeInt(&buf, Int32(4))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDockerUnavailable_lift(_ buf: RustBuffer) throws -> DockerUnavailable {
+    return try FfiConverterTypeDockerUnavailable.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDockerUnavailable_lower(_ value: DockerUnavailable) -> RustBuffer {
+    return FfiConverterTypeDockerUnavailable.lower(value)
+}
+
+
+
 
 public enum FindingLevel: Equatable, Hashable {
     
@@ -16072,6 +16165,30 @@ fileprivate struct FfiConverterOptionTypeScreenPrompt: FfiConverterRustBuffer {
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterTypeScreenPrompt.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeDockerUnavailable: FfiConverterRustBuffer {
+    typealias SwiftType = DockerUnavailable?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeDockerUnavailable.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeDockerUnavailable.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }

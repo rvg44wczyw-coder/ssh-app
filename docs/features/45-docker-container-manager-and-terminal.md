@@ -318,3 +318,7 @@ All items are folded into sections 2, 3, 5 and 6 above: state from the `State` f
 - Not done: a card on the home screen with a live preview (the tab appears with the other tabs). Not tried on a device.
 
 Security (hacker gate): no free text reaches a command except the validated identifier; no privileged exec; output scrubbed before display; log size and container count bounded; a restart or stop always shows a confirmation naming the container. Nothing found.
+
+## Own screens and "Docker unavailable" (2026-10-22)
+
+The host monitor is split into four screens, each its own quick-menu tile (hideable, reorderable): **Host monitor** (summary, gauges), **Processes**, **Docker**, **Host helper**. The Docker screen asks the host for the list as it opens and not before. When Docker cannot be used the core says why as a value (`DockerUnavailable`: `NotInstalled`, `DaemonDown`, `NoPermission`, `Unexpected`) and the screen shows a message for each cause with the way out (install; start Docker Desktop / OrbStack / Colima or `systemctl start docker`; add the user to the `docker` group, which is root-equivalent and therefore never done for the user; run `docker ps` on the host) and a Try again button. Without a connection the screen says the tab is not connected. An SSH failure while asking shows the error under the title.
