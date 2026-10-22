@@ -526,9 +526,14 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
 
     /// Sends a picked file to the host's inbox; returns its path there.
     /// `permanent`: kept in the host's `~/.ssh-app/inbox`; otherwise in its temp folder.
-    public func uploadAttachment(_ url: URL, name: String, permanent: Bool) async throws -> String {
+    public func uploadAttachment(_ url: URL, name: String, permanent: Bool, uploadId: String) async throws -> String {
         guard let handle, state == .connected else { throw SshCoreError.NotConnected }
-        return try await handle.uploadAttachment(srcLocalPath: url.path, fileName: name, permanent: permanent)
+        return try await handle.uploadAttachment(srcLocalPath: url.path, fileName: name, permanent: permanent, uploadId: uploadId)
+    }
+
+    /// Stops an upload on its way; the host keeps nothing of it.
+    public func cancelUpload(uploadId: String) {
+        handle?.cancelUpload(uploadId: uploadId)
     }
 
     /// Moves between the tabs of a multi-question form (Left / Right), so earlier answers can be changed.

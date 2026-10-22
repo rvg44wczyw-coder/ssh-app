@@ -8,7 +8,7 @@ fn attachment_command_stores_the_stdin_bytes() {
     std::fs::create_dir_all(&home).unwrap();
     let mut child = std::process::Command::new("sh")
         .arg("-c")
-        .arg(attachment_command("0a1b2c3d-photo.png", true))
+        .arg(attachment_command("0a1b2c3d-photo.png", true, 8))
         .env("HOME", &home)
         .env_remove("TMUX")
         .stdin(std::process::Stdio::piped())
@@ -33,7 +33,7 @@ fn attachment_command_stores_the_stdin_bytes() {
     std::fs::create_dir_all(&tmp).unwrap();
     let mut child = std::process::Command::new("sh")
         .arg("-c")
-        .arg(attachment_command("0a1b2c3e-new.png", false))
+        .arg(attachment_command("0a1b2c3e-new.png", false, 7))
         .env("HOME", &home)
         .env("TMPDIR", format!("{}/", tmp.display()))
         .env_remove("TMUX")
@@ -69,7 +69,7 @@ fn attachment_command_stores_the_stdin_bytes() {
     std::os::unix::fs::symlink(&evil, &link).unwrap();
     let refused = std::process::Command::new("sh")
         .arg("-c")
-        .arg(attachment_command("x-y.png", false))
+        .arg(attachment_command("x-y.png", false, 0))
         .env("HOME", &home)
         .env("TMPDIR", &tmp)
         .env_remove("TMUX")
@@ -78,6 +78,43 @@ fn attachment_command_stores_the_stdin_bytes() {
         .unwrap();
     assert!(!refused.status.success());
     assert_eq!(std::fs::read_dir(&evil).unwrap().count(), 0);
+    std::fs::remove_dir_all(&home).unwrap();
+}
+
+#[test]
+fn a_cut_upload_leaves_no_file() {
+    use std::io::Write;
+    let home = std::env::temp_dir().join(format!("att-cut-{}", rand::random::<u64>()));
+    std::fs::create_dir_all(&home).unwrap();
+    let mut child = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(attachment_command("0a1b2c3f-cut.png", true, 100))
+        .env("HOME", &home)
+        .env_remove("TMUX")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    // 10 of 100 bytes, then the channel closes (cancelled, or the network went away)
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"0123456789")
+        .unwrap();
+    let out = child.wait_with_output().unwrap();
+    assert!(!out.status.success());
+    assert_eq!(
+        parse_attachment_path(&String::from_utf8_lossy(&out.stdout)),
+        None
+    );
+    assert_eq!(
+        std::fs::read_dir(home.join(".ssh-app/inbox"))
+            .unwrap()
+            .count(),
+        0,
+        "neither the file nor its .part may stay"
+    );
     std::fs::remove_dir_all(&home).unwrap();
 }
 
@@ -97,9 +134,9 @@ fn attachment_names_are_safe() {
 
 #[test]
 fn attachment_command_and_path_parsing() {
-    assert!(attachment_command("a-b.png", true).contains(".ssh-app/inbox"));
-    assert!(attachment_command("a-b.png", false).contains("ssh-app-$(id -u)"));
-    let c = attachment_command("0a1b2c3d-photo.png", true);
+    assert!(attachment_command("a-b.png", true, 1).contains(".ssh-app/inbox"));
+    assert!(attachment_command("a-b.png", false, 1).contains("ssh-app-$(id -u)"));
+    let c = attachment_command("0a1b2c3d-photo.png", true, 1);
     assert!(c.starts_with("sh -c '"));
     assert!(c.contains("0a1b2c3d-photo.png"));
     assert!(!c.contains("'0a1b"));

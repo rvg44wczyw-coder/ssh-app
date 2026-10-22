@@ -241,7 +241,7 @@ pub(crate) async fn exec_start(
 
 /// Closes the channel if the read is abandoned (the caller's future was dropped, e.g. the user
 /// pressed Stop): without it the remote command keeps running with nobody listening.
-struct CloseOnDrop(Option<russh::Channel<client::Msg>>);
+pub(crate) struct CloseOnDrop(pub(crate) Option<russh::Channel<client::Msg>>);
 
 impl Drop for CloseOnDrop {
     fn drop(&mut self) {

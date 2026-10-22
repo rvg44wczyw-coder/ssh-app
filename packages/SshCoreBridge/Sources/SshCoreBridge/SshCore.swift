@@ -1643,6 +1643,11 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func queryHostOllama(model: String, systemPrompt: String, userPrompt: String) async throws  -> AiCommandSuggestion
     
     /**
+     * Stops the upload started with this id (also one that has not begun yet).
+     */
+    func cancelUpload(uploadId: String) 
+    
+    /**
      * Models the agent can be switched to, from the pinned helper on the host (`claude`,
      * `antigravity` or `ollama`). Empty when the helper is not installed or knows none; for
      * Claude the built-in aliases are returned then.
@@ -1667,8 +1672,10 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
      * to a private folder in the host's temp directory (`$TMPDIR` or `/tmp`, which the system
      * empties). Mode 0600, folder 0700. Returns the absolute path on the host, to put in a message to the agent.
      * The name is reduced to `[A-Za-z0-9._-]`; at most `ATTACHMENT_MAX_BYTES`.
+     * `upload_id` is chosen by the caller; `cancel_upload` with the same id stops the transfer
+     * (error `Cancelled`) and the host keeps nothing of it.
      */
-    func uploadAttachment(srcLocalPath: String, fileName: String, permanent: Bool) async throws  -> String
+    func uploadAttachment(srcLocalPath: String, fileName: String, permanent: Bool, uploadId: String) async throws  -> String
     
     /**
      * Subscribes to live state changes of the agent sessions. One exec channel stays open (the
@@ -2991,6 +2998,18 @@ open func queryHostOllama(model: String, systemPrompt: String, userPrompt: Strin
 }
     
     /**
+     * Stops the upload started with this id (also one that has not begun yet).
+     */
+open func cancelUpload(uploadId: String)  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_method_sshsessionhandle_cancel_upload(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(uploadId),uniffiCallStatus
+    )
+}
+}
+    
+    /**
      * Models the agent can be switched to, from the pinned helper on the host (`claude`,
      * `antigravity` or `ollama`). Empty when the helper is not installed or knows none; for
      * Claude the built-in aliases are returned then.
@@ -3057,13 +3076,15 @@ open func restartSessionCommand(sessionName: String, command: String)async throw
      * to a private folder in the host's temp directory (`$TMPDIR` or `/tmp`, which the system
      * empties). Mode 0600, folder 0700. Returns the absolute path on the host, to put in a message to the agent.
      * The name is reduced to `[A-Za-z0-9._-]`; at most `ATTACHMENT_MAX_BYTES`.
+     * `upload_id` is chosen by the caller; `cancel_upload` with the same id stops the transfer
+     * (error `Cancelled`) and the host keeps nothing of it.
      */
-open func uploadAttachment(srcLocalPath: String, fileName: String, permanent: Bool)async throws  -> String  {
+open func uploadAttachment(srcLocalPath: String, fileName: String, permanent: Bool, uploadId: String)async throws  -> String  {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_ssh_core_fn_method_sshsessionhandle_upload_attachment(
-                        self.uniffiCloneHandle(),FfiConverterString.lower(srcLocalPath),FfiConverterString.lower(fileName),FfiConverterBool.lower(permanent)
+                        self.uniffiCloneHandle(),FfiConverterString.lower(srcLocalPath),FfiConverterString.lower(fileName),FfiConverterBool.lower(permanent),FfiConverterString.lower(uploadId)
                 )
             },
             pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
@@ -17741,6 +17762,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_query_host_ollama() != 49127) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_cancel_upload() != 38808) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_fetch_agent_models() != 20677) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -17750,7 +17774,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_restart_session_command() != 5817) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_ssh_core_checksum_method_sshsessionhandle_upload_attachment() != 44020) {
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_upload_attachment() != 9795) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_watch_host_agent() != 12850) {

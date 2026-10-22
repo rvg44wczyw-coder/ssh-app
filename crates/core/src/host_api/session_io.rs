@@ -39,11 +39,14 @@ impl SshSessionHandle {
     /// to a private folder in the host's temp directory (`$TMPDIR` or `/tmp`, which the system
     /// empties). Mode 0600, folder 0700. Returns the absolute path on the host, to put in a message to the agent.
     /// The name is reduced to `[A-Za-z0-9._-]`; at most `ATTACHMENT_MAX_BYTES`.
+    /// `upload_id` is chosen by the caller; `cancel_upload` with the same id stops the transfer
+    /// (error `Cancelled`) and the host keeps nothing of it.
     pub async fn upload_attachment(
         &self,
         src_local_path: String,
         file_name: String,
         permanent: bool,
+        upload_id: String,
     ) -> Result<String, SshCoreError> {
         use tokio::io::AsyncReadExt;
         let io = |e: std::io::Error| SshCoreError::IoError {
@@ -65,16 +68,33 @@ impl SshSessionHandle {
             rand::random::<u32>(),
             attachment_name(&file_name)
         );
-        let channel = self
-            .exec_open(&attachment_command(&stored, permanent))
-            .await?;
+        let cancel = self
+            .upload_cancels
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .entry(upload_id.clone())
+            .or_default()
+            .clone();
+        let _registered = UploadRegistration {
+            map: Arc::clone(&self.upload_cancels),
+            id: upload_id,
+        };
+        // Closed if this future is dropped (the user cancelled): the host then discards the part.
+        let mut guard = crate::transport::CloseOnDrop(Some(
+            self.exec_open(&attachment_command(&stored, permanent, meta.len()))
+                .await?,
+        ));
         let mut file = tokio::fs::File::open(&src_local_path).await.map_err(io)?;
         let mut buf = vec![0u8; 32 * 1024];
         loop {
+            if cancel.load(std::sync::atomic::Ordering::SeqCst) {
+                return Err(SshCoreError::Cancelled);
+            }
             let n = file.read(&mut buf).await.map_err(io)?;
             if n == 0 {
                 break;
             }
+            let channel = guard.0.as_ref().ok_or(SshCoreError::NotConnected)?;
             channel
                 .data(&buf[..n])
                 .await
@@ -82,6 +102,7 @@ impl SshSessionHandle {
                     reason: format!("Could not send the file: {e}"),
                 })?;
         }
+        let channel = guard.0.take().ok_or(SshCoreError::NotConnected)?;
         let _ = channel.eof().await;
         let out = crate::transport::collect_output(channel, Duration::from_secs(120)).await?;
         let text = out.text();
@@ -91,6 +112,16 @@ impl SshSessionHandle {
                 reason: "The host did not store the file".to_string(),
             }),
         }
+    }
+
+    /// Stops the upload started with this id (also one that has not begun yet).
+    pub fn cancel_upload(&self, upload_id: String) {
+        self.upload_cancels
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .entry(upload_id)
+            .or_default()
+            .store(true, std::sync::atomic::Ordering::SeqCst);
     }
 
     /// Asks the host to send one test notification through the relay.
@@ -219,5 +250,22 @@ impl SshSessionHandle {
             listener.on_closed();
         });
         Ok(watch)
+    }
+}
+
+/// Takes the upload's entry out of the table when the upload ends, however it ends.
+struct UploadRegistration {
+    map: Arc<
+        std::sync::Mutex<std::collections::HashMap<String, Arc<std::sync::atomic::AtomicBool>>>,
+    >,
+    id: String,
+}
+
+impl Drop for UploadRegistration {
+    fn drop(&mut self) {
+        self.map
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&self.id);
     }
 }

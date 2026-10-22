@@ -1169,6 +1169,87 @@ fn agent_permissions_and_hook_settings_against_loopback_sshd() {
 }
 
 #[test]
+fn an_upload_is_stored_whole_and_a_cancelled_one_leaves_nothing() {
+    let Some(server) = start_sshd() else {
+        eprintln!("SKIP: sshd/ssh-keygen/tmux unavailable");
+        return;
+    };
+    let handle = connect(&server);
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let src = server._dir.path().join("pic.png");
+    std::fs::write(&src, b"\x89PNG small").unwrap();
+    let inbox = std::fs::canonicalize(&server.home)
+        .unwrap()
+        .join(".ssh-app/inbox");
+    let stored = rt
+        .block_on(handle.upload_attachment(
+            src.display().to_string(),
+            "pic.png".into(),
+            true,
+            "u1".into(),
+        ))
+        .expect("upload");
+    assert!(
+        std::fs::canonicalize(&stored).unwrap().starts_with(&inbox),
+        "{stored}"
+    );
+    assert_eq!(std::fs::read(&stored).unwrap(), b"\x89PNG small");
+    std::fs::remove_file(&stored).unwrap();
+
+    // A big (sparse) file whose upload is cancelled half way by the app.
+    let big = server._dir.path().join("big.bin");
+    std::fs::File::create(&big)
+        .unwrap()
+        .set_len(190 * 1024 * 1024)
+        .unwrap();
+    let cancelled = rt.block_on(async {
+        let h = Arc::clone(&handle);
+        let canceller = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(30)).await;
+            h.cancel_upload("u2".into());
+        });
+        let r = handle
+            .upload_attachment(
+                big.display().to_string(),
+                "big.bin".into(),
+                true,
+                "u2".into(),
+            )
+            .await;
+        let _ = canceller.await;
+        r
+    });
+    assert_eq!(
+        cancelled,
+        Err(ssh_core::SshCoreError::Cancelled),
+        "the upload was not stopped"
+    );
+    // A cancel that arrives before the upload starts stops it at once.
+    handle.cancel_upload("u3".into());
+    let early = rt.block_on(handle.upload_attachment(
+        src.display().to_string(),
+        "pic.png".into(),
+        true,
+        "u3".into(),
+    ));
+    assert_eq!(early, Err(ssh_core::SshCoreError::Cancelled));
+    // The host's cat sees the end of its input and finds the size short: nothing stays.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let left = std::fs::read_dir(&inbox).map(|d| d.count()).unwrap_or(0);
+        if left == 0 || Instant::now() > deadline {
+            assert_eq!(left, 0, "a cancelled upload left a file in the inbox");
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    handle.disconnect();
+}
+
+#[test]
 fn disconnect_really_closes_the_connection() {
     let Some(server) = start_sshd() else {
         eprintln!("SKIP: sshd/ssh-keygen/tmux unavailable");

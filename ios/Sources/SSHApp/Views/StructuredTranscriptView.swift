@@ -39,6 +39,7 @@ public struct StructuredTranscriptView: View {
     @State private var askKeep = false
     @State private var pendingClipboard = false
     @State private var showCamera = false
+    @State private var uploadTasks: [UUID: Task<Void, Never>] = [:]
     @State private var pendingCamera: [Data] = []
     @State private var syncTask: Task<Void, Never>?
     @State private var adopting = false
@@ -389,10 +390,9 @@ public struct StructuredTranscriptView: View {
             Text(u.failure.map { "\(u.name): \($0)" } ?? u.name)
                 .font(.system(size: 11, design: .monospaced))
                 .lineLimit(1)
-            if u.state == .failed {
-                Button { uploads.removeAll { $0.id == u.id } } label: { Image(systemName: "xmark.circle.fill") }
-                    .foregroundColor(.secondary)
-            }
+            Button { cancelUpload(u.id) } label: { Image(systemName: "xmark.circle.fill") }
+                .foregroundColor(.secondary)
+                .accessibilityLabel(u.state == .failed ? "Dismiss" : "Cancel upload")
         }
         .padding(.horizontal, 8).padding(.vertical, 4)
         .background(Color.appSecondaryBackground, in: Capsule())
@@ -405,15 +405,31 @@ public struct StructuredTranscriptView: View {
         pendingClipboard = false
         let shots = pendingCamera
         pendingCamera = []
-        for data in shots { Task { await attachCameraShot(data, permanent: permanent) } }
-        if clip { Task { await attachClipboardImage(permanent: permanent) } }
-        for item in photos { Task { await attachPhoto(item, permanent: permanent) } }
-        for url in files { Task { await attachFile(url, permanent: permanent) } }
+        for data in shots { startUpload { await attachCameraShot($0, data, permanent: permanent) } }
+        if clip { startUpload { await attachClipboardImage($0, permanent: permanent) } }
+        for item in photos { startUpload { await attachPhoto($0, item, permanent: permanent) } }
+        for url in files { startUpload { await attachFile($0, url, permanent: permanent) } }
     }
 
-    private func attachPhoto(_ item: PhotosPickerItem, permanent: Bool) async {
-        let label = item.supportedContentTypes.first?.preferredFilenameExtension.map { "photo.\($0)" } ?? "photo"
+    /// Runs one upload as a task that the chip's cross can cancel.
+    private func startUpload(_ work: @escaping (UUID) async -> Void) {
         let id = UUID()
+        uploadTasks[id] = Task {
+            await work(id)
+            uploadTasks[id] = nil
+        }
+    }
+
+    /// Stops an upload on its way (the host throws away what had arrived) or clears a failed one.
+    private func cancelUpload(_ id: UUID) {
+        uploadTasks[id]?.cancel()
+        uploadTasks[id] = nil
+        viewModel.cancelUpload(uploadId: id.uuidString)
+        uploads.removeAll { $0.id == id }
+    }
+
+    private func attachPhoto(_ id: UUID, _ item: PhotosPickerItem, permanent: Bool) async {
+        let label = item.supportedContentTypes.first?.preferredFilenameExtension.map { "photo.\($0)" } ?? "photo"
         uploads.append(FeedUpload(id: id, name: label))
         guard let picked = try? await item.loadTransferable(type: PickedFile.self) else {
             fail(id, "could not read")
@@ -433,8 +449,7 @@ public struct StructuredTranscriptView: View {
         await send(id, url: picked.url, name: picked.name, permanent: permanent)
     }
 
-    private func attachFile(_ url: URL, permanent: Bool) async {
-        let id = UUID()
+    private func attachFile(_ id: UUID, _ url: URL, permanent: Bool) async {
         uploads.append(FeedUpload(id: id, name: url.lastPathComponent))
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
@@ -447,8 +462,7 @@ public struct StructuredTranscriptView: View {
     }
 
     /// A photo just taken, processed like a picked one.
-    private func attachCameraShot(_ data: Data, permanent: Bool) async {
-        let id = UUID()
+    private func attachCameraShot(_ id: UUID, _ data: Data, permanent: Bool) async {
         uploads.append(FeedUpload(id: id, name: "camera"))
         guard let r = try? ImagePreflight.process(data) else {
             fail(id, "not a readable image")
@@ -468,8 +482,7 @@ public struct StructuredTranscriptView: View {
     }
 
     /// A picture from the system clipboard, processed like a picked one.
-    private func attachClipboardImage(permanent: Bool) async {
-        let id = UUID()
+    private func attachClipboardImage(_ id: UUID, permanent: Bool) async {
         uploads.append(FeedUpload(id: id, name: "clipboard"))
         guard let data = UIPasteboard.general.data(forPasteboardType: UTType.image.identifier)
                 ?? UIPasteboard.general.image?.pngData(),
@@ -495,7 +508,9 @@ public struct StructuredTranscriptView: View {
             uploads[i].thumbnail = ImagePreflight.thumbnail(of: url)
         }
         do {
-            let path = try await viewModel.uploadAttachment(url, name: name, permanent: permanent)
+            let path = try await viewModel.uploadAttachment(url, name: name, permanent: permanent, uploadId: id.uuidString)
+            // Cancelled in the last moment: the file is on the host, but the user said no.
+            if Task.isCancelled { return }
             uploads.removeAll { $0.id == id }
             // the path goes into the message where the cursor was left: on its own, space-separated
             let sep = promptText.isEmpty || promptText.hasSuffix(" ") || promptText.hasSuffix("\n") ? "" : " "
@@ -504,6 +519,7 @@ public struct StructuredTranscriptView: View {
             promptText += sep + ref + " "
             UINotificationFeedbackGenerator().notificationOccurred(.success)
         } catch {
+            if Task.isCancelled || error is CancellationError || (error as? SshCoreError) == .Cancelled { return }
             fail(id, error.localizedDescription)
         }
     }

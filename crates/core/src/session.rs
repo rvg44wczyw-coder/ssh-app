@@ -78,6 +78,8 @@ pub struct SshSessionHandle {
     port_forwards: Arc<Mutex<Vec<Arc<PortForwardHandle>>>>,
     ssh_client: Arc<tokio::sync::Mutex<Option<ClientHandle>>>,
     host_key: Arc<Mutex<Option<String>>>,
+    /// Uploads in flight by the id the app gave them: set to `true` to stop one (`cancel_upload`).
+    pub(crate) upload_cancels: Arc<Mutex<std::collections::HashMap<String, Arc<AtomicBool>>>>,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -94,6 +96,7 @@ impl SshSessionHandle {
             port_forwards: Arc::new(Mutex::new(Vec::new())),
             ssh_client: Arc::new(tokio::sync::Mutex::new(None)),
             host_key: Arc::new(Mutex::new(None)),
+            upload_cancels: Arc::new(Mutex::new(std::collections::HashMap::new())),
         })
     }
 

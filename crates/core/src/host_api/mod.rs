@@ -283,8 +283,9 @@ pub(crate) fn attachment_name(name: &str) -> String {
 /// in, and the path is printed. The folder is `~/.ssh-app/inbox` (`permanent`) or
 /// `${TMPDIR:-/tmp}/ssh-app-<uid>` (temporary, left to the system to empty); it must be a real
 /// directory of the user's own, never a link or somebody else's. `stored` is already reduced to
-/// safe characters.
-pub(crate) fn attachment_command(stored: &str, permanent: bool) -> String {
+/// safe characters. The file is moved into place only when exactly `size` bytes arrived: an upload
+/// that was cancelled or cut leaves nothing behind.
+pub(crate) fn attachment_command(stored: &str, permanent: bool, size: u64) -> String {
     let dir = if permanent {
         "d=\"$HOME/.ssh-app/inbox\"".to_string()
     } else {
@@ -293,7 +294,9 @@ pub(crate) fn attachment_command(stored: &str, permanent: bool) -> String {
     format!(
         "sh -c 'umask 077; {dir}; mkdir -p \"$d\" || exit 1; [ -d \"$d\" ] && [ ! -L \"$d\" ] && [ -O \"$d\" ] || exit 1; \
          f=\"$d/{stored}\"; \
-         cat > \"$f.part\" || {{ rm -f \"$f.part\"; exit 1; }}; mv \"$f.part\" \"$f\" || exit 1; \
+         cat > \"$f.part\" || {{ rm -f \"$f.part\"; exit 1; }}; \
+         [ \"$(wc -c < \"$f.part\" | tr -d \" \")\" = \"{size}\" ] || {{ rm -f \"$f.part\"; exit 1; }}; \
+         mv \"$f.part\" \"$f\" || exit 1; \
          printf \"ATTACH_PATH=%s\\n\" \"$f\"'"
     )
 }
