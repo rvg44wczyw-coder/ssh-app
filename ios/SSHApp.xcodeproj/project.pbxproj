@@ -45,6 +45,8 @@
 		AA9F0004 /* QuickMenuOrderGrid.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB9F0004 /* QuickMenuOrderGrid.swift */; };
 		AA000019 /* ApprovalBannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000019 /* ApprovalBannerView.swift */; };
 		AA000054 /* GitLogSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000054 /* GitLogSheetView.swift */; };
+		AA9F0060 /* ArtifactViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB9F0060 /* ArtifactViews.swift */; };
+		AA9F0061 /* mermaid.min.js in Resources */ = {isa = PBXBuildFile; fileRef = BB9F0061 /* mermaid.min.js */; };
 		AA000022 /* DiffViewerSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000022 /* DiffViewerSheetView.swift */; };
 		AA000023 /* WebPreviewSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000023 /* WebPreviewSheetView.swift */; };
 		AA000024 /* AiAssistantSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000024 /* AiAssistantSheetView.swift */; };
@@ -147,6 +149,8 @@
 		BB9F0004 /* QuickMenuOrderGrid.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/QuickMenuOrderGrid.swift; sourceTree = "<group>"; };
 		BB000019 /* ApprovalBannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/ApprovalBannerView.swift; sourceTree = "<group>"; };
 		BB000054 /* GitLogSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/GitLogSheetView.swift; sourceTree = "<group>"; };
+		BB9F0060 /* ArtifactViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/ArtifactViews.swift; sourceTree = "<group>"; };
+		BB9F0061 /* mermaid.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = Resources/Mermaid/mermaid.min.js; sourceTree = "<group>"; };
 		BB000022 /* DiffViewerSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/DiffViewerSheetView.swift; sourceTree = "<group>"; };
 		BB000023 /* WebPreviewSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/WebPreviewSheetView.swift; sourceTree = "<group>"; };
 		BB000024 /* AiAssistantSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/AiAssistantSheetView.swift; sourceTree = "<group>"; };
@@ -290,6 +294,7 @@
 				EE000002 /* Products */,
 				EE000003 /* Frameworks */,
 				BB000030 /* Assets.xcassets */,
+				BB9F0061 /* mermaid.min.js */,
 				BB000064 /* SSHApp.entitlements */,
 				EE000010 /* SSHAppFiles */,
 				EE000011 /* Shared */,
@@ -362,6 +367,7 @@
 				BB9F0050 /* HostIntents.swift */,
 				BB9F0002 /* LocalRelayConfig.swift */,
 				BB000022 /* DiffViewerSheetView.swift */,
+				BB9F0060 /* ArtifactViews.swift */,
 				BB000054 /* GitLogSheetView.swift */,
 				BB000023 /* WebPreviewSheetView.swift */,
 				BB000024 /* AiAssistantSheetView.swift */,
@@ -554,6 +560,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				AA000030 /* Assets.xcassets in Resources */,
+				AA9F0061 /* mermaid.min.js in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -599,6 +606,7 @@
 				AA9F0050 /* HostIntents.swift in Sources */,
 				AA9F0002 /* LocalRelayConfig.swift in Sources */,
 				AA000022 /* DiffViewerSheetView.swift in Sources */,
+				AA9F0060 /* ArtifactViews.swift in Sources */,
 				AA000054 /* GitLogSheetView.swift in Sources */,
 				AA000023 /* WebPreviewSheetView.swift in Sources */,
 				AA000024 /* AiAssistantSheetView.swift in Sources */,

@@ -6094,6 +6094,100 @@ public func FfiConverterTypeEnvVar_lower(_ value: EnvVar) -> RustBuffer {
 }
 
 
+public struct ExtractedArtifact: Equatable, Hashable {
+    /**
+     * First 16 hex digits of the SHA-256 of the kind and the content: the same block gives the
+     * same id wherever it is found.
+     */
+    public var id: String
+    public var title: String
+    public var kind: ArtifactKind
+    /**
+     * `flowchart`, `sequenceDiagram`, ... for Mermaid; empty otherwise.
+     */
+    public var chartType: String
+    public var content: String
+    public var lineCount: UInt32
+    /**
+     * Over the render limits: ask before drawing.
+     */
+    public var needsConfirmation: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * First 16 hex digits of the SHA-256 of the kind and the content: the same block gives the
+         * same id wherever it is found.
+         */id: String, title: String, kind: ArtifactKind, 
+        /**
+         * `flowchart`, `sequenceDiagram`, ... for Mermaid; empty otherwise.
+         */chartType: String, content: String, lineCount: UInt32, 
+        /**
+         * Over the render limits: ask before drawing.
+         */needsConfirmation: Bool) {
+        self.id = id
+        self.title = title
+        self.kind = kind
+        self.chartType = chartType
+        self.content = content
+        self.lineCount = lineCount
+        self.needsConfirmation = needsConfirmation
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ExtractedArtifact: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeExtractedArtifact: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ExtractedArtifact {
+        return
+            try ExtractedArtifact(
+                id: FfiConverterString.read(from: &buf), 
+                title: FfiConverterString.read(from: &buf), 
+                kind: FfiConverterTypeArtifactKind.read(from: &buf), 
+                chartType: FfiConverterString.read(from: &buf), 
+                content: FfiConverterString.read(from: &buf), 
+                lineCount: FfiConverterUInt32.read(from: &buf), 
+                needsConfirmation: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ExtractedArtifact, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.title, into: &buf)
+        FfiConverterTypeArtifactKind.write(value.kind, into: &buf)
+        FfiConverterString.write(value.chartType, into: &buf)
+        FfiConverterString.write(value.content, into: &buf)
+        FfiConverterUInt32.write(value.lineCount, into: &buf)
+        FfiConverterBool.write(value.needsConfirmation, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeExtractedArtifact_lift(_ buf: RustBuffer) throws -> ExtractedArtifact {
+    return try FfiConverterTypeExtractedArtifact.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeExtractedArtifact_lower(_ value: ExtractedArtifact) -> RustBuffer {
+    return FfiConverterTypeExtractedArtifact.lower(value)
+}
+
+
 /**
  * Represents a ranked fuzzy search result.
  */
@@ -11500,6 +11594,79 @@ public func FfiConverterTypeApprovalKind_lower(_ value: ApprovalKind) -> RustBuf
 
 
 
+
+public enum ArtifactKind: Equatable, Hashable {
+    
+    case mermaid
+    case markdown
+    case html
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension ArtifactKind: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeArtifactKind: FfiConverterRustBuffer {
+    typealias SwiftType = ArtifactKind
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ArtifactKind {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .mermaid
+        
+        case 2: return .markdown
+        
+        case 3: return .html
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: ArtifactKind, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .mermaid:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .markdown:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .html:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeArtifactKind_lift(_ buf: RustBuffer) throws -> ArtifactKind {
+    return try FfiConverterTypeArtifactKind.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeArtifactKind_lower(_ value: ArtifactKind) -> RustBuffer {
+    return FfiConverterTypeArtifactKind.lower(value)
+}
+
+
+
 /**
  * What happens to a command of a category.
  */
@@ -16030,6 +16197,31 @@ fileprivate struct FfiConverterSequenceTypeEnvVar: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeExtractedArtifact: FfiConverterRustBuffer {
+    typealias SwiftType = [ExtractedArtifact]
+
+    public static func write(_ value: [ExtractedArtifact], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeExtractedArtifact.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [ExtractedArtifact] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [ExtractedArtifact]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeExtractedArtifact.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeFuzzyMatchResult: FfiConverterRustBuffer {
     typealias SwiftType = [FuzzyMatchResult]
 
@@ -17327,6 +17519,14 @@ public func signApprovalSshsig(privateKeyOpenssh: String, message: Data)throws  
     )
 })
 }
+public func extractArtifacts(text: String) -> [ExtractedArtifact]  {
+    return try!  FfiConverterSequenceTypeExtractedArtifact.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_extract_artifacts(
+        FfiConverterString.lower(text),uniffiCallStatus
+    )
+})
+}
 /**
  * The categories, narrow subcommands only: a program is never listed whole (`cargo test`, not
  * `cargo`), so `cargo run` and `cargo install` are not allowed by a build category.
@@ -18562,6 +18762,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_sign_approval_sshsig() != 39274) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_extract_artifacts() != 7334) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_auto_categories() != 2432) {

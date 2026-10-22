@@ -4,7 +4,7 @@
 - **Target Release**: Milestone 30 (Visual Artifact Inspection & Rich Rendering)
 - **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
 - **Hacker Gate**: Yes (sandboxed WebView rendering, XSS prevention, Content Security Policy)
-- **Status**: Reviewed and corrected (`rev`, 2026-10-20). Source is Claude's session file only; agy is excluded until it has a structured source. Mermaid version is chosen after the checks of section 2.3.
+- **Status**: Built 2026-10-22, not yet seen on a device: extraction (`crates/core/src/artifacts.rs`), hardened viewer (`ArtifactViews.swift`), Mermaid 11.17.2 pinned by SHA-256 (`ios/Resources/Mermaid/`; checked in Chrome under the CSP: no `eval`, flowchart, sequence, state, ER and `xychart-beta` draw). Markdown reports are shown as inline-formatted text, not a web page; Photos export and a theme-name match are not done; PNG/SVG go through the share sheet. Reviewed and corrected (`rev`, 2026-10-20). Source is Claude's session file only; agy is excluded until it has a structured source. Mermaid version is chosen after the checks of section 2.3.
 
 ---
 

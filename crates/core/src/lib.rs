@@ -5,6 +5,7 @@ pub mod agents;
 pub mod ai;
 pub mod approval;
 pub mod approval_queue;
+pub mod artifacts;
 pub mod auto_approval;
 pub mod buffer;
 pub mod config;

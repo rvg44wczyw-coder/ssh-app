@@ -257,4 +257,41 @@ final class TerminalPasteTests: XCTestCase {
         XCTAssertEqual(max(r.width, r.height), 256)
         AppConfigStore.shared.replace(defaultAppConfig())
     }
+
+    // MARK: Diagrams (feature 41)
+
+    func testTheDiagramPageCarriesTheSourceOnlyAsBase64AndAllowsNoNetwork() {
+        let hostile = "flowchart TD\n A[\"</script><script>alert(1)</script>\"]"
+        let page = ArtifactPage.mermaid(source: hostile, mermaidJS: "/* lib */", dark: true)
+        XCTAssertFalse(page.contains("alert(1)"))
+        XCTAssertTrue(page.contains(Data(hostile.utf8).base64EncodedString()))
+        XCTAssertTrue(page.contains("default-src 'none'"))
+        XCTAssertFalse(page.contains("connect-src"))
+        XCTAssertFalse(page.contains("unsafe-eval"))
+        XCTAssertTrue(page.contains("securityLevel: 'strict'"))
+    }
+
+    func testAnHtmlSnippetPageHasNoScriptSource() {
+        let page = ArtifactPage.html(snippet: "<b>x</b><script>alert(1)</script>", dark: false)
+        XCTAssertFalse(ArtifactPage.htmlCSP.contains("script-src"))
+        XCTAssertTrue(page.contains("default-src 'none'"))
+    }
+
+    func testThePinnedMermaidFileMatchesItsHash() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Resources/Mermaid/mermaid.min.js")
+        let data = try Data(contentsOf: url)
+        XCTAssertEqual(ArtifactPage.sha256(data), ArtifactPage.pinnedMermaidSHA256)
+    }
+
+    func testArtifactsAreCollectedOncePerBlockFromAssistantTurnsOnly() {
+        let block = "```mermaid\nflowchart TD\n A-->B\n```"
+        func turn(_ type: TranscriptTurnType, _ text: String, _ id: String) -> TranscriptTurn {
+            TranscriptTurn(id: id, stepIndex: 0, turnType: type, timestamp: nil, content: text, thinking: nil,
+                           toolCalls: [], status: .done, label: nil)
+        }
+        let turns = [turn(.assistant, block, "1"), turn(.assistant, block, "2"), turn(.user, block, "3")]
+        XCTAssertEqual(StructuredTranscriptView.collectArtifacts(turns).count, 1)
+    }
 }

@@ -33,6 +33,8 @@ public struct StructuredTranscriptView: View {
     @State private var showFileImporter = false
     @State private var pickedPhotos: [PhotosPickerItem] = []
     @State private var uploads: [FeedUpload] = []
+    @State private var artifacts: [ExtractedArtifact] = []
+    @State private var showArtifacts = false
     /// Picked but not sent yet: the user is asked first whether the host keeps them.
     @State private var pendingPhotos: [PhotosPickerItem] = []
     @State private var pendingFiles: [URL] = []
@@ -186,6 +188,22 @@ public struct StructuredTranscriptView: View {
                         highlightVersion += 1
                     }
                 }
+                .task(id: "\(viewModel.transcriptTurns.count)|\(viewModel.transcriptTurns.last?.content?.count ?? 0)") {
+                    artifacts = Self.collectArtifacts(viewModel.transcriptTurns)
+                }
+                .overlay(alignment: .bottomLeading) {
+                    if !artifacts.isEmpty {
+                        Button { showArtifacts = true } label: {
+                            Label("Diagrams \(artifacts.count)", systemImage: "point.3.connected.trianglepath.dotted")
+                                .font(.system(size: 12, weight: .semibold))
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(.regularMaterial, in: Capsule())
+                        }
+                        .padding(10)
+                    }
+                }
+                .sheet(isPresented: $showArtifacts) { ArtifactListSheet(artifacts: artifacts) }
                 .onChange(of: viewModel.transcriptTurns) { _, _ in
                     // The text view follows the output only while the reader is at the bottom.
                     if !atBottom { unseenNew = true }
@@ -315,6 +333,17 @@ public struct StructuredTranscriptView: View {
             .padding(.vertical, 8)
             .background(Color.appBackground)
         }
+    }
+
+    /// Closed ```mermaid / markdown / html fences in the agent's replies, newest last, each once.
+    static func collectArtifacts(_ turns: [TranscriptTurn]) -> [ExtractedArtifact] {
+        var seen = Set<String>()
+        var out: [ExtractedArtifact] = []
+        for turn in turns where turn.turnType == .assistant {
+            guard let text = turn.content, text.contains("```") || text.contains("~~~") else { continue }
+            for a in extractArtifacts(text: text) where seen.insert(a.id).inserted { out.append(a) }
+        }
+        return out
     }
 
     private func decorated<V: View>(_ content: V) -> some View {
