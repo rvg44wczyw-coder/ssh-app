@@ -265,5 +265,23 @@ struct SSHAppShortcuts: AppShortcutsProvider {
             shortTitle: "Host health",
             systemImageName: "waveform.path.ecg"
         )
+        AppShortcut(
+            intent: RunSavedCommandIntent(),
+            phrases: ["Run a saved command on \(\.$server) in \(.applicationName)"],
+            shortTitle: "Run saved command",
+            systemImageName: "terminal"
+        )
+        AppShortcut(
+            intent: RunAgentTaskIntent(),
+            phrases: ["Start an agent on \(\.$server) in \(.applicationName)"],
+            shortTitle: "Run agent task",
+            systemImageName: "sparkles"
+        )
+        AppShortcut(
+            intent: RestartDockerContainerIntent(),
+            phrases: ["Restart a Docker container in \(.applicationName)"],
+            shortTitle: "Restart Docker container",
+            systemImageName: "shippingbox"
+        )
     }
 }
