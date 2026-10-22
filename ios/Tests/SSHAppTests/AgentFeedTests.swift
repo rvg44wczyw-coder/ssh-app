@@ -1,4 +1,7 @@
 import XCTest
+import ImageIO
+import UniformTypeIdentifiers
+import UIKit
 @testable import SSHApp
 
 final class AgentFeedTests: XCTestCase {
@@ -100,5 +103,58 @@ final class TerminalPasteTests: XCTestCase {
     func testEndMarkerInsideThePasteIsRemoved() {
         let text = String(decoding: TerminalPaste.bytes("x\u{1b}[201~y", bracketed: true), as: UTF8.self)
         XCTAssertEqual(text, "\u{1b}[200~xy\u{1b}[201~")
+    }
+
+    // MARK: ImagePreflight (feature 38)
+
+    private func makeImage(width: Int, height: Int, type: UTType, gps: Bool) -> Data {
+        let size = CGSize(width: width, height: height)
+        let fmt = UIGraphicsImageRendererFormat.default()
+        fmt.scale = 1
+        let img = UIGraphicsImageRenderer(size: size, format: fmt).image { c in
+            UIColor.red.setFill(); c.fill(CGRect(origin: .zero, size: size))
+        }.cgImage!
+        let out = NSMutableData()
+        let dest = CGImageDestinationCreateWithData(out, type.identifier as CFString, 1, nil)!
+        var props: [CFString: Any] = [:]
+        if gps {
+            props[kCGImagePropertyGPSDictionary] = [kCGImagePropertyGPSLatitude: 55.75, kCGImagePropertyGPSLongitude: 37.61]
+            props[kCGImagePropertyTIFFDictionary] = [kCGImagePropertyTIFFModel: "iPhone-Secret-Model"]
+        }
+        CGImageDestinationAddImage(dest, img, props as CFDictionary)
+        CGImageDestinationFinalize(dest)
+        return out as Data
+    }
+
+    func testPreflightDropsGpsAndDeviceMetadata() throws {
+        let input = makeImage(width: 64, height: 64, type: .jpeg, gps: true)
+        let before = CGImageSourceCopyPropertiesAtIndex(CGImageSourceCreateWithData(input as CFData, nil)!, 0, nil) as? [CFString: Any]
+        XCTAssertNotNil(before?[kCGImagePropertyGPSDictionary], "the fixture must carry GPS")
+        let r = try ImagePreflight.process(input)
+        XCTAssertEqual(r.ext, "jpg")
+        let after = CGImageSourceCopyPropertiesAtIndex(CGImageSourceCreateWithData(r.data as CFData, nil)!, 0, nil) as? [CFString: Any]
+        XCTAssertNil(after?[kCGImagePropertyGPSDictionary])
+        XCTAssertNil((after?[kCGImagePropertyTIFFDictionary] as? [CFString: Any])?[kCGImagePropertyTIFFModel])
+        XCTAssertFalse(String(decoding: r.data, as: UTF8.self).contains("iPhone-Secret-Model"))
+    }
+
+    func testPreflightClampsTheLongestSideAndKeepsPng() throws {
+        let big = makeImage(width: 3000, height: 1500, type: .png, gps: false)
+        let r = try ImagePreflight.process(big)
+        XCTAssertEqual(r.ext, "png")
+        XCTAssertEqual(max(r.width, r.height), ImagePreflight.maxSide)
+        XCTAssertEqual(r.width, 2048)
+        XCTAssertEqual(r.height, 1024)
+    }
+
+    func testPreflightLeavesSmallImagesAtTheirSize() throws {
+        let r = try ImagePreflight.process(makeImage(width: 100, height: 40, type: .jpeg, gps: false))
+        XCTAssertEqual(r.width, 100)
+        XCTAssertEqual(r.height, 40)
+    }
+
+    func testPreflightRejectsGarbage() {
+        XCTAssertThrowsError(try ImagePreflight.process(Data("not an image".utf8)))
+        XCTAssertThrowsError(try ImagePreflight.process(Data()))
     }
 }

@@ -1,5 +1,6 @@
 import SwiftUI
 import PhotosUI
+import ImageIO
 import UniformTypeIdentifiers
 import SshCoreBridge
 
@@ -36,6 +37,7 @@ public struct StructuredTranscriptView: View {
     @State private var pendingPhotos: [PhotosPickerItem] = []
     @State private var pendingFiles: [URL] = []
     @State private var askKeep = false
+    @State private var pendingClipboard = false
     @State private var syncTask: Task<Void, Never>?
     @State private var adopting = false
 
@@ -246,6 +248,9 @@ public struct StructuredTranscriptView: View {
                     Menu {
                         Button { showPhotoPicker = true } label: { Label("Photos & videos", systemImage: "photo.on.rectangle") }
                         Button { showFileImporter = true } label: { Label("Files", systemImage: "folder") }
+                        if UIPasteboard.general.hasImages {
+                            Button { pendingClipboard = true; askKeep = true } label: { Label("Paste image", systemImage: "doc.on.clipboard") }
+                        }
                     } label: {
                         Image(systemName: "paperclip.circle.fill")
                             .font(.system(size: 30))
@@ -324,7 +329,7 @@ public struct StructuredTranscriptView: View {
         .confirmationDialog("Keep on the host?", isPresented: $askKeep, titleVisibility: .visible) {
             Button("Keep permanently") { sendPending(permanent: true) }
             Button("Temporary") { sendPending(permanent: false) }
-            Button("Cancel", role: .cancel) { pendingPhotos = []; pendingFiles = [] }
+            Button("Cancel", role: .cancel) { pendingPhotos = []; pendingFiles = []; pendingClipboard = false }
         } message: {
             Text("Permanent: ~/.ssh-app/inbox, stays until you delete it. Temporary: the host's temp folder, which the system empties.")
         }
@@ -370,9 +375,11 @@ public struct StructuredTranscriptView: View {
     }
 
     private func sendPending(permanent: Bool) {
-        let photos = pendingPhotos, files = pendingFiles
+        let photos = pendingPhotos, files = pendingFiles, clip = pendingClipboard
         pendingPhotos = []
         pendingFiles = []
+        pendingClipboard = false
+        if clip { Task { await attachClipboardImage(permanent: permanent) } }
         for item in photos { Task { await attachPhoto(item, permanent: permanent) } }
         for url in files { Task { await attachFile(url, permanent: permanent) } }
     }
@@ -386,6 +393,16 @@ public struct StructuredTranscriptView: View {
             return
         }
         defer { try? FileManager.default.removeItem(at: picked.url) }
+        if ImagePreflight.isImage(picked.url) {
+            // A picture never leaves the phone with its metadata: if it cannot be re-encoded, nothing is sent.
+            guard let clean = try? ImagePreflight.processToTemporaryFile(picked.url, baseName: picked.name) else {
+                fail(id, "not a readable image")
+                return
+            }
+            defer { try? FileManager.default.removeItem(at: clean.deletingLastPathComponent()) }
+            await send(id, url: clean, name: clean.lastPathComponent, permanent: permanent, isImage: true)
+            return
+        }
         await send(id, url: picked.url, name: picked.name, permanent: permanent)
     }
 
@@ -394,16 +411,46 @@ public struct StructuredTranscriptView: View {
         uploads.append(FeedUpload(id: id, name: url.lastPathComponent))
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        if ImagePreflight.isImage(url), let clean = try? ImagePreflight.processToTemporaryFile(url, baseName: url.lastPathComponent) {
+            defer { try? FileManager.default.removeItem(at: clean.deletingLastPathComponent()) }
+            await send(id, url: clean, name: clean.lastPathComponent, permanent: permanent, isImage: true)
+            return
+        }
         await send(id, url: url, name: url.lastPathComponent, permanent: permanent)
     }
 
-    private func send(_ id: UUID, url: URL, name: String, permanent: Bool) async {
+    /// A picture from the system clipboard, processed like a picked one.
+    private func attachClipboardImage(permanent: Bool) async {
+        let id = UUID()
+        uploads.append(FeedUpload(id: id, name: "clipboard"))
+        guard let data = UIPasteboard.general.data(forPasteboardType: UTType.image.identifier)
+                ?? UIPasteboard.general.image?.pngData(),
+              let r = try? ImagePreflight.process(data) else {
+            fail(id, "no image on the clipboard")
+            return
+        }
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let file = dir.appendingPathComponent("clipboard.\(r.ext)")
+        do {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            try r.data.write(to: file, options: .atomic)
+        } catch {
+            fail(id, error.localizedDescription)
+            return
+        }
+        defer { try? FileManager.default.removeItem(at: dir) }
+        await send(id, url: file, name: file.lastPathComponent, permanent: permanent, isImage: true)
+    }
+
+    private func send(_ id: UUID, url: URL, name: String, permanent: Bool, isImage: Bool = false) async {
         do {
             let path = try await viewModel.uploadAttachment(url, name: name, permanent: permanent)
             uploads.removeAll { $0.id == id }
             // the path goes into the message where the cursor was left: on its own, space-separated
             let sep = promptText.isEmpty || promptText.hasSuffix(" ") || promptText.hasSuffix("\n") ? "" : " "
-            promptText += sep + path + " "
+            // Claude Code reads a picture it is given as @<path>; other agents get the bare path.
+            let ref = isImage && viewModel.session.agentType == .claudeCode ? "@" + path : path
+            promptText += sep + ref + " "
             UINotificationFeedbackGenerator().notificationOccurred(.success)
         } catch {
             fail(id, error.localizedDescription)
@@ -821,5 +868,61 @@ struct PickedFile: Transferable {
             try FileManager.default.copyItem(at: received.file, to: dest)
             return PickedFile(url: dest, name: received.file.lastPathComponent)
         }
+    }
+}
+
+/// Pre-flight of a picture before it leaves the phone (feature 38): decoded and written again
+/// without any metadata (GPS, device, time), the longest side clamped, HEIC and other formats
+/// turned into JPEG; PNG stays PNG (screenshots keep sharp text).
+enum ImagePreflight {
+    static let maxSide = 2048
+
+    struct Result {
+        let data: Data
+        let ext: String
+        let width: Int
+        let height: Int
+    }
+
+    enum Failure: Error { case notAnImage, encodeFailed }
+
+    static func process(_ input: Data, maxSide: Int = ImagePreflight.maxSide) throws -> Result {
+        guard let source = CGImageSourceCreateWithData(input as CFData, nil),
+              CGImageSourceGetCount(source) > 0 else { throw Failure.notAnImage }
+        let isPNG = (CGImageSourceGetType(source) as String?) == UTType.png.identifier
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,   // the orientation is applied, then dropped
+            kCGImageSourceThumbnailMaxPixelSize: maxSide,
+        ]
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+            throw Failure.notAnImage
+        }
+        let out = NSMutableData()
+        let type = isPNG ? UTType.png : UTType.jpeg
+        guard let dest = CGImageDestinationCreateWithData(out, type.identifier as CFString, 1, nil) else {
+            throw Failure.encodeFailed
+        }
+        // No properties dictionary is copied from the source: nothing but pixels is written.
+        let props: [CFString: Any] = isPNG ? [:] : [kCGImageDestinationLossyCompressionQuality: 0.85]
+        CGImageDestinationAddImage(dest, image, props as CFDictionary)
+        guard CGImageDestinationFinalize(dest) else { throw Failure.encodeFailed }
+        return Result(data: out as Data, ext: isPNG ? "png" : "jpg", width: image.width, height: image.height)
+    }
+
+    /// Writes the processed picture to a temporary file for the upload.
+    static func processToTemporaryFile(_ url: URL, baseName: String) throws -> URL {
+        let r = try process(try Data(contentsOf: url))
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let stem = (baseName as NSString).deletingPathExtension
+        let file = dir.appendingPathComponent("\(stem.isEmpty ? "photo" : stem).\(r.ext)")
+        try r.data.write(to: file, options: .atomic)
+        return file
+    }
+
+    static func isImage(_ url: URL) -> Bool {
+        guard let t = UTType(filenameExtension: url.pathExtension) else { return false }
+        return t.conforms(to: .image)
     }
 }

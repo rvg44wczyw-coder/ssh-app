@@ -238,3 +238,7 @@ What is missing, in order:
 4. **Later, each after its own live test**: agy (how it receives an image is unknown), Ollama multimodal (host-side call to `127.0.0.1:11434`).
 
 Tests: the processing is a pure function (`ImagePreflight`) tested in `ios/Tests` with a generated JPEG that carries GPS EXIF (must be gone), an oversized image (clamped), a HEIC-less PNG (unchanged format), garbage bytes (error). No new Rust code in step 1-3.
+
+### Built 2026-10-22
+
+`ImagePreflight` (in `StructuredTranscriptView.swift`) re-encodes every picked, filed or pasted picture without metadata, clamps it to 2048 px and turns HEIC into JPEG (PNG stays PNG); the paperclip menu has "Paste image" when the clipboard holds one; for a Claude Code tab the path is put into the message as `@<path>`. 4 new Swift tests (GPS and device tag gone, clamp, small image untouched, garbage refused); 68 Swift tests pass, simulator build passes. **Not done yet**: camera source, thumbnail chips with cancel, agy, Ollama multimodal. Not tried on a device.
