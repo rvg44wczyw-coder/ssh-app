@@ -1040,7 +1040,7 @@ def zellij_session_name():
     """The Zellij session this process runs in (Zellij sets ZELLIJ and ZELLIJ_SESSION_NAME in every
     pane), or "" when it is not in one or the name has characters Zellij does not allow."""
     name = os.environ.get("ZELLIJ_SESSION_NAME", "")
-    if "ZELLIJ" in os.environ and 0 < len(name) <= 64 and all(c.isascii() and (c.isalnum() or c in "_-") for c in name):
+    if "ZELLIJ" in os.environ and 0 < len(name) <= 64 and name[0] != "-" and all(c.isascii() and (c.isalnum() or c in "_-") for c in name):
         return name
     return ""
 

@@ -24,6 +24,7 @@ pub fn zellij_name(zellij: Option<&str>, name: Option<&str>) -> String {
     match (zellij, name) {
         (Some(_), Some(n))
             if !n.is_empty()
+                && !n.starts_with('-')
                 && n.len() <= 64
                 && n.chars()
                     .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') =>
@@ -151,6 +152,8 @@ mod tests {
         assert_eq!(zellij_name(Some("0"), None), "");
         assert_eq!(zellij_name(Some("0"), Some("")), "");
         assert_eq!(zellij_name(Some("0"), Some("a b")), "");
+        assert_eq!(zellij_name(Some("0"), Some("-x")), "");
+        assert_eq!(zellij_name(Some("0"), Some("--help")), "");
         assert_eq!(zellij_name(Some("0"), Some("a;rm")), "");
         assert_eq!(zellij_name(Some("0"), Some(&"x".repeat(65))), "");
         assert_eq!(zellij_name(Some("0"), Some("к")), "");

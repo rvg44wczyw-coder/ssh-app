@@ -1382,6 +1382,10 @@ fn a_zellij_session_name_is_registered_in_the_same_field_and_tmux_wins() {
     let _ = h
         .spawn_hook_env("claude", "SessionStart", &start("z-2"), 1, &bad)
         .finish();
+    let dash = [("ZELLIJ", "0"), ("ZELLIJ_SESSION_NAME", "-x")];
+    let _ = h
+        .spawn_hook_env("claude", "SessionStart", &start("z-4"), 1, &dash)
+        .finish();
     let unmarked = [("ZELLIJ_SESSION_NAME", "zt-feed")];
     let _ = h
         .spawn_hook_env("claude", "SessionStart", &start("z-3"), 1, &unmarked)
@@ -1397,6 +1401,7 @@ fn a_zellij_session_name_is_registered_in_the_same_field_and_tmux_wins() {
     assert_eq!(name_of("z-1"), Some(json!("zt-feed")), "{l}");
     assert_eq!(name_of("z-2"), Some(json!("")), "{l}");
     assert_eq!(name_of("z-3"), Some(json!("")), "{l}");
+    assert_eq!(name_of("z-4"), Some(json!("")), "{l}");
 }
 
 #[test]

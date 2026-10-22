@@ -104,6 +104,7 @@ fn capture_zellij(name: &str) -> Option<String> {
 fn capture_zellij_with(name: &str, env: &[(&str, &str)]) -> Option<String> {
     // The same name rules as the app's attach: nothing else is ever put in the argv.
     if name.is_empty()
+        || name.starts_with('-')
         || name.len() > 64
         || !name
             .chars()
@@ -235,5 +236,6 @@ mod tests {
         assert!(seen.contains("sw-marker-7"), "{seen:?}");
         assert!(super::capture_zellij_with("sw-none", &env).is_none());
         assert!(super::capture_zellij_with("a b", &env).is_none());
+        assert!(super::capture_zellij_with("-x", &env).is_none());
     }
 }
