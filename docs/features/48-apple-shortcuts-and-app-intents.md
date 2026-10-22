@@ -4,7 +4,7 @@
 - **Target Release**: Milestone 37 (System-Wide Apple Automation & Siri Control)
 - **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
 - **Hacker Gate**: Yes (background command execution, Siri voice authorization, App Intent parameter sanitization)
-- **Status**: Reviewed and corrected (`rev` + `hacker`, 2026-10-20); implementation pending. Intents choose saved items; they never run free text.
+- **Status**: Reviewed and corrected (`rev` + `hacker`, 2026-10-20); first release implemented 2026-10-22 (see the end of this file). Intents choose saved items; they never run free text.
 
 ---
 
@@ -96,3 +96,14 @@ public struct RunAgentTaskIntent: AppIntent {
 ## Review (`rev`, 2026-10-20) - applied
 
 Folded in above: saved items only, no free command, no approval intent, the two authentication mechanisms named separately, the 30 s budget reported honestly, widgets deferred to an extension target, `quote_argument_for_shell` replaced by the existing `tmux::shell_quote`.
+
+## Built 2026-10-22 (first release)
+
+`ios/Sources/SSHApp/Intents/HostIntents.swift`: entities `ServerEntity`, `AgentProfileEntity`, `SavedCommandEntity` (read from the app's saved servers, profiles and the user's own saved commands, offered as pickers); intents `FetchHostHealthIntent` (read-only, spoken answer), `RunSavedCommandIntent` (a saved command chosen by id, refused if it has `{{placeholders}}`, output cut to 400 characters) and `RunAgentTaskIntent` (a saved **Claude Code** profile started in a new detached tmux session `intent-<8 hex>` with the instruction as its first message); one Siri phrase set for host health. The two intents that change anything carry `authenticationPolicy = .requiresAuthentication`; there is no approve intent, and no intent takes a command as text.
+
+- Core: `build_agent_task_command(profile, session, prompt)` builds the detached start. The instruction is cleaned (control characters other than newline and tab removed, 4000 characters at most, a leading `-` covered with "Task: " so the agent's option parser cannot read it as a flag) and passed as one single-quoted argument; a test runs the generated launch line with a hostile instruction and reads the argument back byte for byte. Other agents are refused with `Unsupported` rather than started without the instruction (no other agent takes a first message on its command line).
+- A server without a pinned host key (never connected in the app) or without its key available is "not started" with the reason; every call is bounded by a 25 s budget (`withIntentBudget`) and never retries or reports success it did not see.
+- Tests: 5 Swift tests (budget, unknown server, instruction as data, placeholders) and 3 Rust tests. Siri and Shortcuts themselves are not tried (needs the device).
+- Later, as in section 1.2: Docker restart (feature 45), widgets (separate extension target), a container picker.
+
+Security (hacker gate): the free prompt is the only free text and is data; entity ids are looked up in the store and an unknown id is refused; background budget enforced; destructive intents do not exist yet. One residual: the saved command runs as typed by the user on their own host, like in the snippets sheet; a locked phone needs the device unlock first.

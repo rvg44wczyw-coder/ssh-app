@@ -41,6 +41,7 @@
 		AA000018 /* ApprovalModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000018 /* ApprovalModel.swift */; };
 		AA9F0002 /* LocalRelayConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB9F0002 /* LocalRelayConfig.swift */; };
 		AA9F0003 /* SessionAttention.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB9F0003 /* SessionAttention.swift */; };
+		AA9F0050 /* HostIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB9F0050 /* HostIntents.swift */; };
 		AA9F0004 /* QuickMenuOrderGrid.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB9F0004 /* QuickMenuOrderGrid.swift */; };
 		AA000019 /* ApprovalBannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000019 /* ApprovalBannerView.swift */; };
 		AA000054 /* GitLogSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000054 /* GitLogSheetView.swift */; };
@@ -142,6 +143,7 @@
 		BB000018 /* ApprovalModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models/ApprovalModel.swift; sourceTree = "<group>"; };
 		BB9F0002 /* LocalRelayConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Generated/LocalRelayConfig.swift; sourceTree = "<group>"; };
 		BB9F0003 /* SessionAttention.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models/SessionAttention.swift; sourceTree = "<group>"; };
+		BB9F0050 /* HostIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Intents/HostIntents.swift; sourceTree = "<group>"; };
 		BB9F0004 /* QuickMenuOrderGrid.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/QuickMenuOrderGrid.swift; sourceTree = "<group>"; };
 		BB000019 /* ApprovalBannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/ApprovalBannerView.swift; sourceTree = "<group>"; };
 		BB000054 /* GitLogSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/GitLogSheetView.swift; sourceTree = "<group>"; };
@@ -357,6 +359,7 @@
 				BB000019 /* ApprovalBannerView.swift */,
 				BB9F0004 /* QuickMenuOrderGrid.swift */,
 				BB9F0003 /* SessionAttention.swift */,
+				BB9F0050 /* HostIntents.swift */,
 				BB9F0002 /* LocalRelayConfig.swift */,
 				BB000022 /* DiffViewerSheetView.swift */,
 				BB000054 /* GitLogSheetView.swift */,
@@ -593,6 +596,7 @@
 				AA000019 /* ApprovalBannerView.swift in Sources */,
 				AA9F0004 /* QuickMenuOrderGrid.swift in Sources */,
 				AA9F0003 /* SessionAttention.swift in Sources */,
+				AA9F0050 /* HostIntents.swift in Sources */,
 				AA9F0002 /* LocalRelayConfig.swift in Sources */,
 				AA000022 /* DiffViewerSheetView.swift in Sources */,
 				AA000054 /* GitLogSheetView.swift in Sources */,

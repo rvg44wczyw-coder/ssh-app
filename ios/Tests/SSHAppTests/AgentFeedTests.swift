@@ -2,6 +2,7 @@ import XCTest
 import ImageIO
 import UniformTypeIdentifiers
 import UIKit
+import SshCoreBridge
 @testable import SSHApp
 
 final class AgentFeedTests: XCTestCase {
@@ -167,5 +168,47 @@ final class TerminalPasteTests: XCTestCase {
         XCTAssertNil(HostTargetCache.chosenMultiplexer(forKey: key), "a changed preference asks the host again")
         HostTargetCache.setMultiplexerPreference(.auto, forKey: key)
         XCTAssertEqual(HostTargetCache.multiplexerPreference(forKey: key), .auto)
+    }
+
+    // MARK: App Intents (feature 48)
+
+    func testIntentBudgetReportsNotStartedInsteadOfWaiting() async {
+        do {
+            _ = try await withIntentBudget(seconds: 0.2) { () -> Int in
+                try await Task.sleep(for: .seconds(5))
+                return 1
+            }
+            XCTFail("the slow work must not be waited for")
+        } catch let e as IntentFailure {
+            guard case .notStarted = e else { return XCTFail("wrong failure \(e)") }
+        } catch {
+            XCTFail("unexpected \(error)")
+        }
+    }
+
+    func testIntentBudgetReturnsTheResultOfFastWork() async throws {
+        let v = try await withIntentBudget(seconds: 5) { 42 }
+        XCTAssertEqual(v, 42)
+    }
+
+    @MainActor
+    func testAnUnknownServerIsRefused() {
+        XCTAssertThrowsError(try IntentTarget.resolve(serverId: "00000000-0000-0000-0000-000000000000")) { error in
+            guard case IntentFailure.unknownItem = error else { return XCTFail("wrong failure \(error)") }
+        }
+    }
+
+    func testAnInstructionIsData_NotACommand() throws {
+        let profile = SavedAgentProfile(defaultLaunchProfiles()[0])
+        let c = try buildAgentTaskCommand(profile: profile.coreProfile, sessionName: "intent-ab12cd34",
+                                          prompt: "x'; rm -rf ~ #`id` $(id)")
+        XCTAssertTrue(c.contains("tmux new-session -d -s intent-ab12cd34"))
+        XCTAssertThrowsError(try buildAgentTaskCommand(profile: profile.coreProfile, sessionName: "bad name", prompt: "x"))
+        XCTAssertThrowsError(try buildAgentTaskCommand(profile: profile.coreProfile, sessionName: "intent-ab12cd34", prompt: "  "))
+    }
+
+    func testPlaceholdersInASavedCommandAreFound() {
+        XCTAssertFalse(extractSnippetPlaceholders(command: "ls {{dir}}").isEmpty)
+        XCTAssertTrue(extractSnippetPlaceholders(command: "ls -la").isEmpty)
     }
 }

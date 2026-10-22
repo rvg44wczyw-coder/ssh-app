@@ -16259,6 +16259,23 @@ public func buildAgentLaunchCommand(profile: AgentLaunchProfile)throws  -> Strin
 })
 }
 /**
+ * Shell command that starts a saved agent profile in a new, detached tmux session named
+ * `session_name` with `prompt` as the agent's first message, and prints `STARTED` (or
+ * `EXISTS` when the name is taken; nothing is touched then). For App Intents: nothing attaches,
+ * no terminal is needed. Only Claude Code takes a first message on its command line; other
+ * agents are refused rather than started without the instruction.
+ */
+public func buildAgentTaskCommand(profile: AgentLaunchProfile, sessionName: String, prompt: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_build_agent_task_command(
+        FfiConverterTypeAgentLaunchProfile_lower(profile),
+        FfiConverterString.lower(sessionName),
+        FfiConverterString.lower(prompt),uniffiCallStatus
+    )
+})
+}
+/**
  * Command that prints where `binary` resolves in a login shell (`interactive == false`) or an
  * interactive shell that has read `~/.zshrc`. Run it on the host and feed the output to
  * `parse_resolved_binary`.
@@ -17481,6 +17498,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_build_agent_launch_command() != 42878) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_build_agent_task_command() != 44902) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_build_binary_probe_command() != 57846) {

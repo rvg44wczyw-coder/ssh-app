@@ -464,6 +464,14 @@ pub(crate) fn remote_path_expr(path: &str) -> String {
 /// followed by a login shell so the tmux session survives the agent exiting.
 #[uniffi::export]
 pub fn build_agent_launch_command(profile: AgentLaunchProfile) -> Result<String, SshCoreError> {
+    launch_command(profile, None)
+}
+
+/// The launch command, with `prompt` (already cleaned) as the agent's first message.
+fn launch_command(
+    profile: AgentLaunchProfile,
+    prompt: Option<&str>,
+) -> Result<String, SshCoreError> {
     validate_launch_profile(profile.clone())?;
     let mut cmd = String::new();
     if let Some(dir) = profile
@@ -502,6 +510,9 @@ pub fn build_agent_launch_command(profile: AgentLaunchProfile) -> Result<String,
     if profile.agent == AgentKind::ClaudeCode && !profile.args.iter().any(|a| a == "--verbose") {
         inner.push_str(" '--verbose'");
     }
+    if let Some(p) = prompt {
+        inner.push_str(&format!(" {}", shell_quote(p)));
+    }
     if profile.load_shell_rc {
         // `+m` (no job control): an interactive shell that owns the terminal's foreground group
         // leaves it behind when it exits, and the login shell below then dies on "error on TTY
@@ -515,6 +526,67 @@ pub fn build_agent_launch_command(profile: AgentLaunchProfile) -> Result<String,
     }
     cmd.push_str("; exec \"${SHELL:-/bin/zsh}\" -l");
     Ok(cmd)
+}
+
+/// Longest prompt an App Intent (Shortcuts, Siri) may hand to an agent.
+pub const INTENT_PROMPT_MAX: usize = 4000;
+
+/// The prompt of an App Intent as data for the agent: control characters other than newline and
+/// tab are removed, surrounding space trimmed, and a leading `-` is covered so the agent's own
+/// option parser never takes it for a flag. Empty or too long is refused.
+pub(crate) fn clean_intent_prompt(prompt: &str) -> Result<String, SshCoreError> {
+    let cleaned: String = prompt
+        .chars()
+        .filter(|c| !c.is_control() || *c == '\n' || *c == '\t')
+        .collect();
+    let cleaned = cleaned.trim().to_string();
+    if cleaned.is_empty() {
+        return Err(invalid("The instruction is empty"));
+    }
+    if cleaned.chars().count() > INTENT_PROMPT_MAX {
+        return Err(invalid(format!(
+            "The instruction is longer than {INTENT_PROMPT_MAX} characters"
+        )));
+    }
+    Ok(if cleaned.starts_with('-') {
+        format!("Task: {cleaned}")
+    } else {
+        cleaned
+    })
+}
+
+/// Shell command that starts a saved agent profile in a new, detached tmux session named
+/// `session_name` with `prompt` as the agent's first message, and prints `STARTED` (or
+/// `EXISTS` when the name is taken; nothing is touched then). For App Intents: nothing attaches,
+/// no terminal is needed. Only Claude Code takes a first message on its command line; other
+/// agents are refused rather than started without the instruction.
+#[uniffi::export]
+pub fn build_agent_task_command(
+    profile: AgentLaunchProfile,
+    session_name: String,
+    prompt: String,
+) -> Result<String, SshCoreError> {
+    crate::tmux::validate_session_name(&session_name)?;
+    if profile.agent != AgentKind::ClaudeCode {
+        return Err(SshCoreError::Unsupported {
+            reason: "Only Claude Code profiles can take an instruction from Shortcuts".to_string(),
+        });
+    }
+    let launch = launch_command(profile, Some(&clean_intent_prompt(&prompt)?))?;
+    let create = format!(
+        "tmux new-session -d -s {session_name} {}",
+        shell_quote(&launch)
+    );
+    let script = format!(
+        "export PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\"; \
+         if ! command -v tmux >/dev/null 2>&1; then echo NO_TMUX; \
+         elif tmux has-session -t {session_name} 2>/dev/null; then echo EXISTS; \
+         else {create} && echo STARTED || echo FAILED; fi"
+    );
+    Ok(format!(
+        "${{SHELL:-/bin/zsh}} -l -c {}",
+        shell_quote(&script)
+    ))
 }
 
 /// Command that prints where `binary` resolves in a login shell (`interactive == false`) or an
@@ -558,6 +630,75 @@ pub use crate::agent_hooks::*;
 
 #[cfg(test)]
 mod tests {
+    fn claude_profile() -> AgentLaunchProfile {
+        AgentLaunchProfile {
+            id: "p".into(),
+            name: "Claude".into(),
+            agent: AgentKind::ClaudeCode,
+            binary: "printf".into(), // prints its arguments, so a test can read them back
+            env: vec![],
+            args: vec!["%s|".into()],
+            working_dir: None,
+            git_branch: None,
+            permission_mode: None,
+            load_shell_rc: false,
+        }
+    }
+
+    #[test]
+    fn an_intent_prompt_is_cleaned_and_bounded() {
+        assert_eq!(
+            clean_intent_prompt("  fix the build \n").unwrap(),
+            "fix the build"
+        );
+        assert_eq!(
+            clean_intent_prompt("a\u{1b}[31mb\u{0}c").unwrap(),
+            "a[31mbc"
+        );
+        assert_eq!(
+            clean_intent_prompt("line1\nline2\tx").unwrap(),
+            "line1\nline2\tx"
+        );
+        assert_eq!(
+            clean_intent_prompt("--dangerously-skip-permissions").unwrap(),
+            "Task: --dangerously-skip-permissions"
+        );
+        assert!(clean_intent_prompt("   ").is_err());
+        assert!(clean_intent_prompt(&"x".repeat(INTENT_PROMPT_MAX + 1)).is_err());
+        assert!(clean_intent_prompt(&"x".repeat(INTENT_PROMPT_MAX)).is_ok());
+    }
+
+    #[test]
+    fn the_prompt_reaches_the_agent_as_one_inert_argument() {
+        let nasty = "x'; rm -rf ~ #`id` $(id) \"quoted\" \\ \nsecond line";
+        let launch =
+            launch_command(claude_profile(), Some(&clean_intent_prompt(nasty).unwrap())).unwrap();
+        // run the launch for real: `printf '%s|' --verbose <prompt>`, then the trailing login shell is a no-op
+        let out = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(&launch)
+            .env("SHELL", "/usr/bin/true")
+            .output()
+            .unwrap();
+        let text = String::from_utf8_lossy(&out.stdout);
+        assert_eq!(text, format!("--verbose|{nasty}|"), "{launch}");
+    }
+
+    #[test]
+    fn only_claude_takes_an_instruction_and_names_are_validated() {
+        let mut p = claude_profile();
+        let c = build_agent_task_command(p.clone(), "task-1".into(), "do it".into()).unwrap();
+        assert!(c.contains("tmux new-session -d -s task-1"), "{c}");
+        assert!(c.contains("EXISTS") && c.contains("STARTED"), "{c}");
+        assert!(build_agent_task_command(p.clone(), "bad name".into(), "do it".into()).is_err());
+        assert!(build_agent_task_command(p.clone(), "task-1".into(), "".into()).is_err());
+        p.agent = AgentKind::Antigravity;
+        assert!(matches!(
+            build_agent_task_command(p, "task-1".into(), "do it".into()),
+            Err(SshCoreError::Unsupported { .. })
+        ));
+    }
+
     fn local(tool: &str, model: &str) -> Result<AgentLaunchProfile, SshCoreError> {
         build_local_agent_profile(tool.into(), model.into())
     }
