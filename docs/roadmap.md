@@ -226,11 +226,11 @@
 - **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
 - **Status**: Spec reviewed and corrected (`rev`, 2026-10-20; binding corrections at the end of the spec), implementation pending.
 
-### Feature 40 / M29: Voice Input & Technical Agent Prompt Dictation (`docs/features/40-agent-voice-dictation.md`)
+### Feature 40 / M29: Voice Input for Agent Prompts (`docs/features/40-agent-voice-dictation.md`)
 - **Doc**: `docs/features/40-agent-voice-dictation.md`
-- **Scope**: 100% on-device speech recognition via Apple Speech (`requiresOnDeviceRecognition`), technical syntax normalizer (`auth.rs`, `--flags`, `camelCase`), prompt action chips, zero audio leakage.
-- **Roles**: `doc-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
-- **Status**: Spec reviewed and corrected (`rev`, 2026-10-20; binding corrections at the end of the spec), implementation pending.
+- **Scope**: The iOS keyboard's own dictation in the composer; no recorder, no normalizer.
+- **Roles**: none (no code)
+- **Status**: Closed 2026-10-22 without code.
 
 ### Feature 41 / M30: Agent Artifacts & Interactive Architecture Visualizer (`docs/features/41-agent-artifacts-and-visualizer.md`)
 - **Doc**: `docs/features/41-agent-artifacts-and-visualizer.md`
