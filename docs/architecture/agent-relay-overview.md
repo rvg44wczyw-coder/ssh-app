@@ -102,7 +102,7 @@ Run in a private tmux with `claude-personal` and `agy`:
 
 ## 8. Related
 
-- Spec: `docs/features/51-two-agent-relay.md` (branch `feature/agent-relay`).
+- Spec: `docs/features/51-two-agent-relay.md` (branch `feature/mesh`).
 - Parent feature: `docs/features/37-multi-agent-trio-chat.md` (M26 mesh, phase 1 client relay; branch `feature/mesh`).
 - Screen parsing and styles: `docs/architecture/screen-parser.md`.
 - Why MCP is not used for this: `docs/architecture/mcp-channel-study.md`.
