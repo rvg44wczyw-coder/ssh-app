@@ -20,11 +20,14 @@ use sha2::{Digest, Sha256};
 
 /// Separates the section of Compose labels from the container list in one Docker call.
 const PROJECTS_MARKER: &str = "---PROJECTS---";
-/// Pods are read up to this many bytes; a longer document is refused, not guessed from.
-const KUBECTL_MAX_BYTES: usize = 8 * 1024 * 1024;
+/// Pods are read up to this many bytes (under the 4 MB the exec channel keeps); a longer document
+/// is refused, not guessed from.
+const KUBECTL_MAX_BYTES: usize = 3 * 1024 * 1024;
 /// A stack action covers at most this many containers.
 pub const MAX_STACK: usize = 20;
 const ACTION_OK: &str = "ACTION_OK";
+/// The script's own watchdog, shorter than the 120 s the client waits, so the answer arrives.
+const STACK_SECS: u32 = 110;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
 pub enum ContainerRuntime {
@@ -227,7 +230,7 @@ fn list_body(runtime: ContainerRuntime) -> String {
             "if command -v kubectl >/dev/null 2>&1; then \
              if [ -z \"$KUBERNETES_SERVICE_HOST\" ] && ! kubectl config current-context >/dev/null 2>&1; then echo KUBE_NO_CONTEXT; else \
              out=$(kubectl get pods --all-namespaces -o json 2>&1); \
-             case \"$out\" in *Forbidden*|*forbidden*) echo KUBE_CURRENT_NAMESPACE; out=$(kubectl get pods -o json 2>&1);; esac; \
+             case \"$out\" in '{{'*) ;; *Forbidden*|*forbidden*) echo KUBE_CURRENT_NAMESPACE; out=$(kubectl get pods -o json 2>&1);; esac; \
              printf '%s\\n' \"$out\" | head -c {KUBECTL_MAX_BYTES}; fi; \
              else echo RUNTIME_NOT_INSTALLED; fi"
         ),
@@ -329,12 +332,8 @@ fn name_like(s: &str) -> Option<String> {
     ok.then(|| s.to_string())
 }
 
-struct FamilyLine {
-    info: DockerContainerInfo,
-}
-
 /// One line of `family_template`, or `None` when it is not exactly that shape.
-fn parse_family_line(line: &str) -> Option<FamilyLine> {
+fn parse_family_line(line: &str) -> Option<DockerContainerInfo> {
     const KEYS: [&str; 9] = [
         "ID", "NAME", "IMAGE", "STATE", "STATUS", "PORTS", "CREATED", "PROJECT", "SERVICE",
     ];
@@ -352,21 +351,19 @@ fn parse_family_line(line: &str) -> Option<FamilyLine> {
     if state == ContainerState::Unknown {
         state = state_from_status(status);
     }
-    Some(FamilyLine {
-        info: DockerContainerInfo {
-            id,
-            name: clean(vals[1].split(',').next().unwrap_or(""), 128),
-            image: clean(vals[2], 200),
-            state,
-            status_text: clean(status, 120),
-            created_at: clean(vals[6], 60),
-            ports: clean(vals[5], 200),
-            unhealthy: status.contains("(unhealthy)"),
-            project: name_like(vals[7]),
-            service: name_like(vals[8]),
-            scope: String::new(),
-            restartable: true,
-        },
+    Some(DockerContainerInfo {
+        id,
+        name: clean(vals[1].split(',').next().unwrap_or(""), 128),
+        image: clean(vals[2], 200),
+        state,
+        status_text: clean(status, 120),
+        created_at: clean(vals[6], 60),
+        ports: clean(vals[5], 200),
+        unhealthy: status.contains("(unhealthy)"),
+        project: name_like(vals[7]),
+        service: name_like(vals[8]),
+        scope: String::new(),
+        restartable: true,
     })
 }
 
@@ -378,7 +375,7 @@ fn parse_family_list(runtime: ContainerRuntime, output: &str) -> DockerContainer
             return not_installed(runtime);
         }
         match parse_family_line(line) {
-            Some(f) => containers.push(f.info),
+            Some(info) => containers.push(info),
             None => other.push(line.trim()),
         }
     }
@@ -586,21 +583,29 @@ fn parse_kube_list(output: &str) -> DockerContainersSnapshot {
 pub fn parse_container_list(runtime: ContainerRuntime, output: String) -> DockerContainersSnapshot {
     match runtime {
         ContainerRuntime::Docker => {
-            let (json_part, projects) = match output.split_once(PROJECTS_MARKER) {
-                Some((a, b)) => (a, b),
-                None => (output.as_str(), ""),
-            };
-            let mut snap = parse_docker_list(json_part.to_string());
+            // The marker counts only as a line of its own: a label or a name that contains the
+            // text must not cut the list in two.
+            let (mut json_part, mut projects, mut after) = (String::new(), String::new(), false);
+            for line in output.lines() {
+                if !after && line == PROJECTS_MARKER {
+                    after = true;
+                    continue;
+                }
+                let dst = if after { &mut projects } else { &mut json_part };
+                dst.push_str(line);
+                dst.push('\n');
+            }
+            let mut snap = parse_docker_list(json_part);
             if snap.docker_available {
                 for line in projects.lines() {
                     if let Some(f) = parse_family_line(line) {
                         if let Some(c) = snap
                             .containers
                             .iter_mut()
-                            .find(|c| c.id == f.info.id || f.info.id.starts_with(&c.id))
+                            .find(|c| c.id == f.id || f.id.starts_with(&c.id))
                         {
-                            c.project = f.info.project;
-                            c.service = f.info.service;
+                            c.project = f.project;
+                            c.service = f.service;
                         }
                     }
                 }
@@ -616,10 +621,7 @@ pub fn parse_container_list(runtime: ContainerRuntime, output: String) -> Docker
 // ---------- stats ----------
 
 /// Memory and CPU: engines only.
-pub fn container_stats_command(
-    runtime: ContainerRuntime,
-    id: &str,
-) -> Result<String, SshCoreError> {
+fn container_stats_command(runtime: ContainerRuntime, id: &str) -> Result<String, SshCoreError> {
     if !runtime.is_engine() {
         return Err(unsupported(runtime, "usage numbers"));
     }
@@ -780,7 +782,7 @@ pub fn runtime_stack_command(
 ) -> Result<String, SshCoreError> {
     Ok(docker_script(
         &stack_body(runtime, action, container_ids)?,
-        120,
+        STACK_SECS,
     ))
 }
 
@@ -1299,7 +1301,8 @@ mod tests {
         let l = list_body(ContainerRuntime::Podman);
         assert!(l.contains(r#"{{"\x1f"}}"#) && l.contains("podman ps -a"));
         assert!(list_body(ContainerRuntime::Docker).contains(PROJECTS_MARKER));
-        assert!(list_body(ContainerRuntime::Kubernetes).contains("head -c 8388608"));
+        assert!(list_body(ContainerRuntime::Kubernetes)
+            .contains(&format!("head -c {KUBECTL_MAX_BYTES}")));
     }
 
     #[test]
@@ -1595,5 +1598,21 @@ mod tests {
         .unwrap();
         assert_eq!(run(&stack), "docker restart aa11\ndocker restart bb22\n");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn text_inside_a_field_cannot_cut_the_list_or_narrow_it() {
+        // A container whose label carries the marker text does not split the output.
+        let evil = r#"{"ID":"aa11bb22cc","Names":"evil","Image":"x","State":"running","Status":"Up","CreatedAt":"x","Ports":"","Labels":"k=---PROJECTS---"}"#;
+        let good = r#"{"ID":"bc262e486183","Names":"shop-web-1","Image":"nginx","State":"running","Status":"Up","CreatedAt":"x","Ports":""}"#;
+        let proj = fam("bc262e486183", "shop-web-1", "running", "Up", "", "shop");
+        let out = format!("{evil}\n{good}\n{PROJECTS_MARKER}\n{proj}\n");
+        let s = parse_container_list(ContainerRuntime::Docker, out);
+        assert_eq!(s.containers.len(), 2, "both containers survive");
+        assert_eq!(s.containers[1].project.as_deref(), Some("shop"));
+        // A pod whose name or annotation says "Forbidden" is not an access error: the list
+        // script only retries for the current namespace on a non-JSON answer.
+        let body = list_body(ContainerRuntime::Kubernetes);
+        assert!(body.contains("'{'*) ;; *Forbidden*"), "{body}");
     }
 }
