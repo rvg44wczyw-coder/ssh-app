@@ -25,6 +25,9 @@ private struct RootView: View {
     var body: some View {
         MainTerminalView()
             .tint(AppAccent.color(for: accentRaw))
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active { VaultSync.shared.sync() }
+            }
             .overlay {
                 // iOS takes the App Switcher picture when the app stops being active; a covered
                 // screen means no agent output or key text is left in that picture (SEC-02).

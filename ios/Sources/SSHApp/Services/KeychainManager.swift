@@ -231,12 +231,18 @@ public final class SSHKeyStore: ObservableObject {
         return try store(name: name, privateKey: pair.privateKeyOpenssh, publicKey: pair.publicKeyOpenssh)
     }
 
-    /// Imports an unencrypted OpenSSH private key; anything the core cannot parse is refused.
+    /// Imports an OpenSSH Ed25519 private key, decrypting it with `passphrase` when it has one. The
+    /// key derivation runs off the main thread (a high bcrypt rounds count takes seconds); if the
+    /// calling task is cancelled meanwhile, nothing is stored. The Keychain holds the key without
+    /// the passphrase, so the passphrase is not kept anywhere.
     @discardableResult
-    public func importKey(name: String, privateKey: String) throws -> SSHKeyInfo {
-        let pem = privateKey.trimmingCharacters(in: .whitespacesAndNewlines) + "\n"
-        let pub = try derivePublicKey(privateKeyOpenssh: pem)
-        return try store(name: name, privateKey: pem, publicKey: pub)
+    public func importKey(name: String, privateKey: String, passphrase: Data? = nil) async throws -> SSHKeyInfo {
+        let armored = privateKey.trimmingCharacters(in: .whitespacesAndNewlines) + "\n"
+        let imported = try await Task.detached(priority: .userInitiated) {
+            try importPrivateKey(armoredKey: armored, passphrase: passphrase)
+        }.value
+        try Task.checkCancellation()
+        return try store(name: name, privateKey: imported.privateKeyOpenssh, publicKey: imported.publicKeyOpenssh)
     }
 
     private func store(name: String, privateKey: String, publicKey: String) throws -> SSHKeyInfo {

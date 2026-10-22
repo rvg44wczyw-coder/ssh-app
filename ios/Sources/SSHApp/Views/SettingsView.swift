@@ -478,6 +478,7 @@ public struct SettingsView: View {
                 }
 
                 additionalKeysSection
+                VaultSyncSection()
 
                 if let err = errorMessage {
                     Section {
@@ -509,7 +510,39 @@ public struct SettingsView: View {
     @State private var importingKey = false
     @State private var importText = ""
     @State private var showKeyFileImporter = false
+    @State private var importPassphrase = ""
+    @State private var importNeedsPassphrase = false
+    @State private var importTask: Task<Void, Never>? = nil
+    @State private var importError: String? = nil
     @State private var keyToDelete: SSHKeyInfo? = nil
+
+    private func startKeyImport() {
+        let passphrase = importNeedsPassphrase && !importPassphrase.isEmpty ? Data(importPassphrase.utf8) : nil
+        importPassphrase = ""
+        importError = nil
+        importTask = Task {
+            do {
+                try await keyStore.importKey(name: newKeyName, privateKey: importText, passphrase: passphrase)
+                newKeyName = ""; errorMessage = nil
+                endKeyImport()
+            } catch is CancellationError {
+                importTask = nil
+            } catch SshCoreError.KeyPassphraseRequired {
+                importError = "This key needs its passphrase."; importTask = nil
+            } catch SshCoreError.KeyPassphraseWrong {
+                importError = "That passphrase does not unlock the key."; importTask = nil
+            } catch {
+                importError = "Import failed: \(error.localizedDescription)"; importTask = nil
+            }
+        }
+    }
+
+    private func endKeyImport() {
+        importTask?.cancel()
+        importTask = nil
+        importingKey = false
+        importText = ""; importPassphrase = ""; importNeedsPassphrase = false; importError = nil
+    }
 
     private func usedBy(_ id: String) -> [String] {
         serversManager.profiles.filter { $0.keyId == id }.map(\.name)
@@ -518,7 +551,7 @@ public struct SettingsView: View {
     private var additionalKeysSection: some View {
         Section(
             header: Text("More SSH keys"),
-            footer: Text("Use a different key per server (pick it in the server's settings). Private keys stay in this device's Keychain; imported keys must be unencrypted OpenSSH Ed25519 (`-----BEGIN OPENSSH PRIVATE KEY-----`).")
+            footer: Text("Use a different key per server (pick it in the server's settings). Private keys stay in this device's Keychain; imported keys must be OpenSSH Ed25519 (`-----BEGIN OPENSSH PRIVATE KEY-----`), with or without a passphrase.")
         ) {
             ForEach(keyStore.extra) { k in
                 VStack(alignment: .leading, spacing: 4) {
@@ -554,26 +587,36 @@ public struct SettingsView: View {
         .sheet(isPresented: $importingKey) {
             NavigationStack {
                 Form {
-                    Section(footer: Text("Paste the contents of an unencrypted OpenSSH private key (id_ed25519), or choose the file. The name above is used.")) {
+                    Section(footer: Text(importError ?? "Paste the contents of an OpenSSH private key (id_ed25519), or choose the file. The name above is used. A key with a passphrase asks for it.")) {
                         TextEditor(text: $importText)
                             .font(.system(size: 11, design: .monospaced))
                             .frame(minHeight: 160)
                             .autocorrectionDisabled()
                         Button("Choose file…") { showKeyFileImporter = true }
                     }
+                    if importNeedsPassphrase {
+                        Section(footer: Text("The passphrase is used once to unlock the key and is not stored.")) {
+                            SecureField("Key passphrase", text: $importPassphrase)
+                                .textContentType(.password)
+                        }
+                    }
+                    if importTask != nil {
+                        Section { HStack { ProgressView(); Text("Unlocking the key…") } }
+                    }
                 }
                 .navigationTitle("Import key")
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("Cancel") { importingKey = false; importText = "" } }
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Import") {
-                            do {
-                                try keyStore.importKey(name: newKeyName, privateKey: importText)
-                                newKeyName = ""; importText = ""; importingKey = false; errorMessage = nil
-                            } catch { errorMessage = "Import failed: \(error.localizedDescription)"; importingKey = false }
-                        }
-                        .disabled(importText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") { endKeyImport() }
                     }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Import") { startKeyImport() }
+                            .disabled(importText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || importTask != nil)
+                    }
+                }
+                .onChange(of: importText) { _, text in
+                    importNeedsPassphrase = (try? privateKeyNeedsPassphrase(armoredKey: text.trimmingCharacters(in: .whitespacesAndNewlines) + "\n")) ?? false
+                    importError = nil
                 }
                 .fileImporter(isPresented: $showKeyFileImporter, allowedContentTypes: [.data, .text, .plainText]) { result in
                     guard case .success(let url) = result else { return }
@@ -744,6 +787,38 @@ struct ModuleSettingsView: View {
         .confirmationDialog("Reset all module settings?", isPresented: $confirmResetAll, titleVisibility: .visible) {
             Button("Reset all", role: .destructive) { store.replace(defaultAppConfig()); notice = "Settings reset." }
             Button("Cancel", role: .cancel) {}
+        }
+    }
+}
+
+/// iCloud sync of the server list (feature 43). Private keys never sync; the list travels in an end
+/// to end encrypted iCloud Keychain item.
+private struct VaultSyncSection: View {
+    @ObservedObject private var vault = VaultSync.shared
+    @AppStorage(VaultSync.serversKey) private var syncServers = true
+    @AppStorage(VaultSync.fingerprintsKey) private var syncFingerprints = false
+
+    var body: some View {
+        Section(
+            header: Text("iCloud sync"),
+            footer: Text("Servers (name, address, port, user) are shared with your other devices through iCloud Keychain, which needs iCloud Keychain to be on. Private keys never leave this device; each device has its own key. Pinned host fingerprints are not shared unless you turn that on: sharing them tells the other device to trust the same host key.")
+        ) {
+            Toggle("Sync servers", isOn: $syncServers)
+            Toggle("Also sync pinned host fingerprints", isOn: $syncFingerprints)
+                .disabled(!syncServers)
+            Button("Sync now") { vault.sync() }
+                .disabled(!syncServers)
+            if let last = vault.lastSync, syncServers {
+                Text("Last synced \(last.formatted(date: .omitted, time: .shortened))")
+                    .font(.caption).foregroundColor(.secondary)
+            }
+            if let err = vault.lastError {
+                Text(err).font(.caption).foregroundColor(.orange)
+            }
+            if !vault.fingerprintConflicts.isEmpty {
+                Text("The host key differs from the one pinned on another device for: \(vault.fingerprintConflicts.joined(separator: ", ")). This device keeps its own pin; check the server before trusting either.")
+                    .font(.caption).foregroundColor(.red)
+            }
         }
     }
 }

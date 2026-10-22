@@ -12,6 +12,8 @@ public final class ServerProfilesManager: ObservableObject {
     public init() {
         loadProfiles()
         FilesIntegration.refresh(profiles: profiles)
+        VaultSync.shared.attach(self)
+        Task { VaultSync.shared.sync() }
     }
 
     public var activeProfile: ServerProfile? {
@@ -47,7 +49,8 @@ public final class ServerProfilesManager: ObservableObject {
             port: port,
             username: username.trimmingCharacters(in: .whitespacesAndNewlines),
             isDefault: shouldBeDefault,
-            keyId: keyId
+            keyId: keyId,
+            updatedAt: Date()
         )
 
         profiles.append(newProfile)
@@ -69,6 +72,7 @@ public final class ServerProfilesManager: ObservableObject {
         }
 
         profiles[index] = updated
+        profiles[index].updatedAt = Date()
         saveProfiles()
     }
 
@@ -78,10 +82,12 @@ public final class ServerProfilesManager: ObservableObject {
         guard let index = profiles.firstIndex(where: { $0.id == serverId }),
               profiles[index].hostKeyFingerprint == nil else { return }
         profiles[index].hostKeyFingerprint = fingerprint
+        profiles[index].updatedAt = Date()
         saveProfiles()
     }
 
     public func deleteProfile(id: UUID) {
+        VaultSync.shared.recordDeletion(of: id)
         profiles.removeAll(where: { $0.id == id })
         if activeProfileId == id {
             activeProfileId = profiles.first?.id
@@ -135,7 +141,24 @@ public final class ServerProfilesManager: ObservableObject {
         }
     }
 
+    /// Replaces the list with what a vault merge produced. Saves without stamping or syncing again.
+    func applySynced(_ merged: [ServerProfile]) {
+        profiles = merged
+        if let id = activeProfileId, !merged.contains(where: { $0.id == id }) {
+            activeProfileId = merged.first(where: { $0.isDefault })?.id ?? merged.first?.id
+        }
+        if !profiles.isEmpty && !profiles.contains(where: { $0.isDefault }) {
+            profiles[0].isDefault = true
+        }
+        persist()
+    }
+
     private func saveProfiles() {
+        persist()
+        Task { VaultSync.shared.sync() }
+    }
+
+    private func persist() {
         if let encoded = try? JSONEncoder().encode(profiles) {
             UserDefaults.standard.set(encoded, forKey: Self.profilesKey)
         }

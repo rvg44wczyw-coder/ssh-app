@@ -16,6 +16,9 @@ public struct ServerProfile: Identifiable, Codable, Equatable, Hashable, Sendabl
     public var showInFiles: Bool?
     /// Folder that is the root of the server in Files (`nil` / empty = the home folder).
     public var filesFolder: String?
+    /// When the synced fields (name, address, port, user) last changed on this device; the iCloud
+    /// vault keeps the later write per server.
+    public var updatedAt: Date?
 
     public init(
         id: UUID = UUID(),
@@ -27,7 +30,8 @@ public struct ServerProfile: Identifiable, Codable, Equatable, Hashable, Sendabl
         hostKeyFingerprint: String? = nil,
         keyId: String? = nil,
         showInFiles: Bool? = nil,
-        filesFolder: String? = nil
+        filesFolder: String? = nil,
+        updatedAt: Date? = nil
     ) {
         self.id = id
         self.name = name
@@ -39,5 +43,6 @@ public struct ServerProfile: Identifiable, Codable, Equatable, Hashable, Sendabl
         self.keyId = keyId
         self.showInFiles = showInFiles
         self.filesFolder = filesFolder
+        self.updatedAt = updatedAt
     }
 }

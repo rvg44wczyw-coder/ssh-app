@@ -4,7 +4,7 @@
 - **Target Release**: Milestone 32 (Enterprise Security & Cross-Device Key Management)
 - **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
 - **Hacker Gate**: Yes (cryptographic key import, FIDO2/WebAuthn assertions, iCloud sync encryption, Secure Enclave)
-- **Status**: Reviewed and corrected (`rev`, 2026-10-20). Key import and the sync are buildable now; hardware keys (FIDO2) stay "not ready" until the spike of section 2.3 shows a signature accepted by a real `sshd`.
+- **Status**: Reviewed and corrected (`rev`, 2026-10-20). **Implemented 2026-10-22: passphrase key import and the iCloud server sync** (section 6). Hardware keys (FIDO2) and the Secure Enclave key stay "not ready": the first needs the spike of section 2.3 with a real YubiKey, the second its own signing path. Neither can be proved without a device.
 
 ---
 
@@ -162,3 +162,17 @@ flowchart TD
 ## Review (`rev`, 2026-10-20) - applied
 
 Folded in above: library and own `sk-` assembly (first deliverable, with a real-`sshd` spike); the SSH signature shape; Secure Enclave is P-256; the iPad key goes through pairing; fingerprint sync is a default-off decision; bcrypt-pbkdf instead of Argon2; passphrase as `Data` with the limit stated; `bool` typo; last-writer-wins instead of vector clocks.
+
+---
+
+## 6. Implemented slice (2026-10-22)
+
+**Key import** (`crates/core/src/keys.rs`). `import_private_key(armored, passphrase: Option<Vec<u8>>) -> ImportedKey` and `private_key_needs_passphrase(armored)`. The passphrase is `Data` on the Swift side and `Zeroizing` in Rust; the armored text is zeroized too. A bcrypt-pbkdf rounds count above `MAX_BCRYPT_ROUNDS` (500; `ssh-keygen` uses 16) is refused **before** any derivation (a crafted file with `u32::MAX` rounds is refused in well under a second, tested). No passphrase gives `KeyPassphraseRequired`, a wrong one `KeyPassphraseWrong`. Only Ed25519 is accepted, because the connection path signs with no RSA hash choice (`PrivateKeyWithHashAlg::new(key, None)` would mean SHA-1 for RSA, which current servers refuse) and ECDSA is not proved against a real `sshd`; other types get a message saying so. The Keychain stores the decrypted key (the item is the protection, `ThisDeviceOnly`); the passphrase is kept nowhere. The app derives off the main thread and a cancelled task stores nothing.
+
+**Server sync** (`crates/core/src/vault_sync.rs`, `ios/Sources/SSHApp/Services/VaultSync.swift`). One synchronizable Keychain item (`com.sshapp.vault`) that iCloud Keychain carries end to end encrypted; no iCloud container, no entitlement. The core decides per entry: last writer wins by `updated_at_ms`; on a tie a deletion wins, then the larger payload, so two devices converge whichever is "local". Deletions are tombstones for 30 days. Remote entries are dropped when the id is malformed, the payload is over 16 KB, there are over 1000 entries, or the stamp is more than a day ahead (wrong clock, or an attempt to win every later edit).
+
+What travels: name, host, port, user, and the pinned fingerprint **only** with its toggle (off by default). What does not: private keys, `keyId` (each device signs with its own key; the iPad's key is added to a host through pairing, section 3), the default flag, Files settings. A received server is checked again on the phone (`SyncedServer.isSane`: no leading `-`, no whitespace or control characters, length caps, port above 0). A differing fingerprint on the other device is shown as a conflict and never replaces the local pin. Triggers: start, becoming active, after a local change; the phone does not poll.
+
+Known limits: a server added by hand on two devices has two different ids and shows twice (merge by address is a guess that could join two different hosts); synced snippets and launch profiles are not wired yet (the core merge is generic, only the payload types are missing); the sync item can be read by anything that holds the iCloud Keychain, which is the same trust as the account.
+
+Tests: 8 Rust (import, wrong/missing passphrase, rounds ceiling, hostile file, wrong key type, garbage), 7 Rust (merge), 8 Swift (arrival without key choice, later edit wins and keeps the local key, deletions both ways, fingerprint toggle and conflict, hostile payloads, payload has no key data).
