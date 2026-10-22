@@ -85,4 +85,7 @@ pub enum SshCoreError {
 
     #[error("Transfer cancelled")]
     Cancelled,
+
+    #[error("Not available: {reason}")]
+    Unsupported { reason: String },
 }

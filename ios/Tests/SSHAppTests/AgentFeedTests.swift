@@ -157,4 +157,15 @@ final class TerminalPasteTests: XCTestCase {
         XCTAssertThrowsError(try ImagePreflight.process(Data("not an image".utf8)))
         XCTAssertThrowsError(try ImagePreflight.process(Data()))
     }
+
+    func testMultiplexerPreferenceIsKeptPerHostAndForgetsTheChosenProgram() {
+        let key = "test@zellij-host-\(UUID().uuidString):22"
+        XCTAssertEqual(HostTargetCache.multiplexerPreference(forKey: key), .auto)
+        HostTargetCache.setChosenMultiplexer(.tmux, forKey: key)
+        HostTargetCache.setMultiplexerPreference(.preferZellij, forKey: key)
+        XCTAssertEqual(HostTargetCache.multiplexerPreference(forKey: key), .preferZellij)
+        XCTAssertNil(HostTargetCache.chosenMultiplexer(forKey: key), "a changed preference asks the host again")
+        HostTargetCache.setMultiplexerPreference(.auto, forKey: key)
+        XCTAssertEqual(HostTargetCache.multiplexerPreference(forKey: key), .auto)
+    }
 }

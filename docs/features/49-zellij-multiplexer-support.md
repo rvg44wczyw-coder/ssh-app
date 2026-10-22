@@ -4,7 +4,7 @@
 - **Target Release**: Milestone 38 (Next-Gen Terminal Multiplexer Parity)
 - **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
 - **Hacker Gate**: Yes (session name sanitization, layout file parsing, WASM plugin boundaries)
-- **Status**: Reviewed and rescoped (`rev` + `hacker`, 2026-10-20): milestone A is "attach and detach only"; feed parity is a separate milestone B that waits on a scriptable Zellij screen dump. Implementation pending.
+- **Status**: Reviewed and rescoped (`rev` + `hacker`, 2026-10-20): milestone A is "attach and detach only"; feed parity is a separate milestone B that waits on a scriptable Zellij screen dump. Milestone A implemented 2026-10-22 (see the end of this file).
 
 ---
 
@@ -78,3 +78,14 @@ The four builders (`attach_or_create`, `detach`, `kill`, `list_detailed`) gain a
 ## Review (`rev`, 2026-10-20) - applied
 
 Folded in above: honest scope (attach/detach only), reuse of the existing `multiplexer.rs`, CLI flags verified per release, work split into milestones A and B, test isolation for Zellij.
+
+## Built 2026-10-22 (milestone A)
+
+CLI checked against **Zellij 0.45.1** on a private socket folder: `attach --create <name> [-- <command>]` (the command only matters when the session is created), `list-sessions --no-formatting` prints `name [Created 2s ago]` (dead, resurrectable sessions say `EXITED` and are left out of the list), `delete-session --force` kills and forgets a session (older releases: kill then delete, the builder falls back), there is **no** way to detach another client from outside, so `detach` is the typed error `Unsupported`.
+
+- `crates/core/src/multiplexer.rs`: `MultiplexerKind::Zellij`, `MultiplexerPreference` (Auto / PreferZellij / PreferTmux), `multiplexer_probe_command` + `parse_multiplexer_probe` + `choose_multiplexer` (Auto: tmux when both exist), `supports_screen_access()` (tmux only), names `[A-Za-z0-9_-]{1,64}` refused rather than rewritten, start folder validated like tmux's, the initial command single-quoted and run by the login shell. `detect_multiplexer_once(config, preference)` asks the host over one short connection; any failure means tmux.
+- Tests: names, attach text, typed unsupported, probe parsing and choice, the probe command run for real, and list/kill against a real private Zellij server (skipped where `zellij` is missing); the developer's own sessions are never reachable (`ZELLIJ_SOCKET_DIR`, `ZELLIJ`, `ZELLIJ_SESSION_NAME`, `TMUX` removed).
+- iOS: server sheet gets "Session program" (Auto / Prefer tmux / Prefer Zellij, kept per `user@host:port`), the chosen program is asked once per host and app run, a Zellij tab shows "Zellij: terminal only" and cannot switch to the feed. Other tmux-only features (screen watch, agent keys) find no tmux session and report that; greying them out one by one is left to milestone B.
+- Not tried on a device or with a Zellij server over real SSH (only the builders and a local server).
+
+Security (hacker gate): no user text reaches the Zellij argv except the validated name; no layout or plugin option is ever built; the only quoting of free text is the initial command (single-quoted, escaped, run by the user's login shell like tmux's); tests never touch the developer's Zellij. Nothing found.

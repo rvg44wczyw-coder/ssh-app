@@ -20,6 +20,7 @@ public struct AddEditServerSheetView: View {
     @State private var keyId: String? = nil
     @State private var showInFiles: Bool = true
     @State private var filesFolder: String = ""
+    @State private var muxPreference: MultiplexerPreference = .auto
     @ObservedObject private var keys = SSHKeyStore.shared
     @State private var showPairing = false
     @State private var pairedHostKey: (host: String, port: UInt16, fingerprint: String)? = nil
@@ -39,6 +40,10 @@ public struct AddEditServerSheetView: View {
         _keyId = State(initialValue: existingProfile?.keyId)
         _showInFiles = State(initialValue: existingProfile?.showInFiles ?? true)
         _filesFolder = State(initialValue: existingProfile?.filesFolder ?? "")
+        if let p = existingProfile {
+            _muxPreference = State(initialValue: HostTargetCache.multiplexerPreference(
+                forKey: HostTargetCache.key(host: p.host, port: p.port, username: p.username)))
+        }
     }
 
     public var body: some View {
@@ -101,6 +106,17 @@ public struct AddEditServerSheetView: View {
                     if let paired = pairedHostKey, paired.host == host.trimmingCharacters(in: .whitespacesAndNewlines) {
                         Label("Key added; host key pinned", systemImage: "checkmark.seal")
                             .font(.caption).foregroundColor(.green)
+                    }
+                }
+
+                Section(
+                    header: Text("Sessions"),
+                    footer: Text("What keeps terminal sessions alive on this host. With both installed, Auto uses tmux. Zellij tabs are terminals only: no agent feed, screen watch or answering agents from the phone.")
+                ) {
+                    Picker("Session program", selection: $muxPreference) {
+                        Text("Auto").tag(MultiplexerPreference.auto)
+                        Text("Prefer tmux").tag(MultiplexerPreference.preferTmux)
+                        Text("Prefer Zellij").tag(MultiplexerPreference.preferZellij)
                     }
                 }
 
@@ -202,6 +218,8 @@ public struct AddEditServerSheetView: View {
             filesFolder: filesFolder.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : filesFolder.trimmingCharacters(in: .whitespacesAndNewlines)
         )
 
+        HostTargetCache.setMultiplexerPreference(
+            muxPreference, forKey: HostTargetCache.key(host: trimmedHost, port: UInt16(clamping: port), username: trimmedUser))
         onSave(profile)
         dismiss()
     }

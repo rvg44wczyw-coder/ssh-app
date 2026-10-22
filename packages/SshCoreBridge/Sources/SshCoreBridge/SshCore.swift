@@ -8189,6 +8189,63 @@ public func FfiConverterTypeLocalAgentTool_lower(_ value: LocalAgentTool) -> Rus
 
 
 /**
+ * What the host has: versions from `multiplexer_probe_command`.
+ */
+public struct MultiplexerProbe: Equatable, Hashable {
+    public var tmux: String?
+    public var zellij: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(tmux: String?, zellij: String?) {
+        self.tmux = tmux
+        self.zellij = zellij
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension MultiplexerProbe: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMultiplexerProbe: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MultiplexerProbe {
+        return
+            try MultiplexerProbe(
+                tmux: FfiConverterOptionString.read(from: &buf), 
+                zellij: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: MultiplexerProbe, into buf: inout [UInt8]) {
+        FfiConverterOptionString.write(value.tmux, into: &buf)
+        FfiConverterOptionString.write(value.zellij, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMultiplexerProbe_lift(_ buf: RustBuffer) throws -> MultiplexerProbe {
+    return try FfiConverterTypeMultiplexerProbe.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMultiplexerProbe_lower(_ value: MultiplexerProbe) -> RustBuffer {
+    return FfiConverterTypeMultiplexerProbe.lower(value)
+}
+
+
+/**
  * What the host has: whether Ollama is installed, whether its server answers on the default
  * loopback endpoint, and which models it lists.
  */
@@ -12534,6 +12591,11 @@ public enum MultiplexerKind: Equatable, Hashable {
      * `ssh-app-host.exe mux` on a native Windows host.
      */
     case windowsMux
+    /**
+     * Zellij (feature 49, milestone A): attach, detach and kill only. No agent feed, screen
+     * watch or key injection, since those rely on tmux's `capture-pane` and `send-keys`.
+     */
+    case zellij
 
 
 
@@ -12559,6 +12621,8 @@ public struct FfiConverterTypeMultiplexerKind: FfiConverterRustBuffer {
         
         case 2: return .windowsMux
         
+        case 3: return .zellij
+        
         default: throw UniffiInternalError.unexpectedEnumCase
         }
     }
@@ -12573,6 +12637,10 @@ public struct FfiConverterTypeMultiplexerKind: FfiConverterRustBuffer {
         
         case .windowsMux:
             writeInt(&buf, Int32(2))
+        
+        
+        case .zellij:
+            writeInt(&buf, Int32(3))
         
         }
     }
@@ -12591,6 +12659,85 @@ public func FfiConverterTypeMultiplexerKind_lift(_ buf: RustBuffer) throws -> Mu
 #endif
 public func FfiConverterTypeMultiplexerKind_lower(_ value: MultiplexerKind) -> RustBuffer {
     return FfiConverterTypeMultiplexerKind.lower(value)
+}
+
+
+
+/**
+ * Which multiplexer a server uses when the host has both.
+ */
+
+public enum MultiplexerPreference: Equatable, Hashable {
+    
+    /**
+     * tmux when it is there, else Zellij.
+     */
+    case auto
+    case preferZellij
+    case preferTmux
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension MultiplexerPreference: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMultiplexerPreference: FfiConverterRustBuffer {
+    typealias SwiftType = MultiplexerPreference
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MultiplexerPreference {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .auto
+        
+        case 2: return .preferZellij
+        
+        case 3: return .preferTmux
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: MultiplexerPreference, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .auto:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .preferZellij:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .preferTmux:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMultiplexerPreference_lift(_ buf: RustBuffer) throws -> MultiplexerPreference {
+    return try FfiConverterTypeMultiplexerPreference.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMultiplexerPreference_lower(_ value: MultiplexerPreference) -> RustBuffer {
+    return FfiConverterTypeMultiplexerPreference.lower(value)
 }
 
 
@@ -13229,6 +13376,8 @@ enum SshCoreError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
     case TooLarge(limit: UInt64
     )
     case Cancelled
+    case Unsupported(reason: String
+    )
 
     
 
@@ -13336,6 +13485,9 @@ public struct FfiConverterTypeSshCoreError: FfiConverterRustBuffer {
             limit: try FfiConverterUInt64.read(from: &buf)
             )
         case 27: return .Cancelled
+        case 28: return .Unsupported(
+            reason: try FfiConverterString.read(from: &buf)
+            )
 
          default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -13483,6 +13635,11 @@ public struct FfiConverterTypeSshCoreError: FfiConverterRustBuffer {
         case .Cancelled:
             writeInt(&buf, Int32(27))
         
+        
+        case let .Unsupported(reason):
+            writeInt(&buf, Int32(28))
+            FfiConverterString.write(reason, into: &buf)
+            
         }
     }
 }
@@ -16664,6 +16821,37 @@ public func derivePublicKey(privateKeyOpenssh: String)throws  -> String  {
     )
 })
 }
+/**
+ * The multiplexer to use on a host: the preference when that program exists, else the other
+ * one; tmux when neither was found (the existing fallback to a plain shell then applies).
+ */
+public func chooseMultiplexer(preference: MultiplexerPreference, probe: MultiplexerProbe) -> MultiplexerKind  {
+    return try!  FfiConverterTypeMultiplexerKind_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_choose_multiplexer(
+        FfiConverterTypeMultiplexerPreference_lower(preference),
+        FfiConverterTypeMultiplexerProbe_lower(probe),uniffiCallStatus
+    )
+})
+}
+/**
+ * One remote command that prints `tmux=<version or empty>` and `zellij=<version or empty>`.
+ */
+public func multiplexerProbeCommand() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_multiplexer_probe_command(uniffiCallStatus
+    )
+})
+}
+public func parseMultiplexerProbe(out: String) -> MultiplexerProbe  {
+    return try!  FfiConverterTypeMultiplexerProbe_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_parse_multiplexer_probe(
+        FfiConverterString.lower(out),uniffiCallStatus
+    )
+})
+}
 public func onboardingFindings(doctor: HostDoctor) -> [OnboardingFinding]  {
     return try!  FfiConverterSequenceTypeOnboardingFinding.lift(try! rustCall() {
         uniffiCallStatus in
@@ -16886,6 +17074,25 @@ public func detectHostTargetOnce(config: RemoteServerConfig)async throws  -> Hos
             completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
             freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
             liftFunc: FfiConverterTypeHostTarget_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+/**
+ * Which multiplexer to use on a host that may have tmux, Zellij or both: one short connection
+ * that asks the host (`multiplexer_probe_command`) and applies the server's preference. Any
+ * failure means tmux, as before.
+ */
+public func detectMultiplexerOnce(config: RemoteServerConfig, preference: MultiplexerPreference)async throws  -> MultiplexerKind  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_func_detect_multiplexer_once(FfiConverterTypeRemoteServerConfig_lower(config),FfiConverterTypeMultiplexerPreference_lower(preference)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeMultiplexerKind_lift,
             errorHandler: FfiConverterTypeSshCoreError_lift
         )
 }
@@ -17423,6 +17630,15 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_func_derive_public_key() != 26782) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_func_choose_multiplexer() != 40078) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_multiplexer_probe_command() != 42521) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_parse_multiplexer_probe() != 32056) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_func_onboarding_findings() != 35201) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -17472,6 +17688,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_detect_host_target_once() != 32496) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_detect_multiplexer_once() != 33375) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_ensure_windows_helper_once() != 31120) {

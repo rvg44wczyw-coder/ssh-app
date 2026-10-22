@@ -14,6 +14,10 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
 
     // Structured Transcript / Dual-Mode State
     @Published public var isChatMode: Bool = false
+    /// What keeps this tab alive on the host. Zellij tabs are terminal only: the agent feed and
+    /// everything else that reads the screen or sends keys needs tmux.
+    @Published public private(set) var multiplexer: MultiplexerKind = .tmux
+    public var isTerminalOnly: Bool { multiplexer == .zellij }
     /// Counted up by the session menu's "Find in feed"; the feed opens its search when it changes.
     @Published public var feedFindRequests = 0
     private var watchedSum: String? = nil
@@ -112,8 +116,17 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         // when it fails the tab uses tmux as before.
         if let known = HostTargetCache.target(forKey: hostKey) {
             hostTarget = known
-            connect(host: host, port: port, username: username, privateKeyPEM: privateKeyPEM,
-                    multiplexer: hostTargetMultiplexer(target: known))
+            let base = hostTargetMultiplexer(target: known)
+            if base != .tmux {
+                connect(host: host, port: port, username: username, privateKeyPEM: privateKeyPEM, multiplexer: base)
+                return
+            }
+            self.state = .connecting
+            Task { @MainActor in
+                let mux = await chooseMultiplexer(host: host, port: port, username: username, privateKeyPEM: privateKeyPEM)
+                self.state = .disconnected
+                connect(host: host, port: port, username: username, privateKeyPEM: privateKeyPEM, multiplexer: mux)
+            }
             return
         }
         self.state = .connecting
@@ -138,10 +151,25 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
                     return
                 }
             }
+            if multiplexer == .tmux {
+                multiplexer = await chooseMultiplexer(host: host, port: port, username: username, privateKeyPEM: privateKeyPEM)
+            }
             self.state = .disconnected
             connect(host: host, port: port, username: username, privateKeyPEM: privateKeyPEM,
                     multiplexer: multiplexer)
         }
+    }
+
+    /// tmux unless the server prefers Zellij (and it is there) or tmux is not installed at all.
+    /// One short connection per host and app run; any failure means tmux, as before.
+    private func chooseMultiplexer(host: String, port: UInt16, username: String, privateKeyPEM: String) async -> MultiplexerKind {
+        if let known = HostTargetCache.chosenMultiplexer(forKey: hostKey) { return known }
+        let probe = RemoteServerConfig(host: host, port: port, username: username,
+                                       privateKeyPem: privateKeyPEM, pinnedHostKey: pinnedHostKey)
+        let pref = HostTargetCache.multiplexerPreference(forKey: hostKey)
+        let kind = (try? await detectMultiplexerOnce(config: probe, preference: pref)) ?? .tmux
+        HostTargetCache.setChosenMultiplexer(kind, forKey: hostKey)
+        return kind
     }
 
     private func connect(host: String, port: UInt16, username: String, privateKeyPEM: String,
@@ -162,6 +190,7 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
 
         let sessionHandle = SshSessionHandle(config: config)
         self.handle = sessionHandle
+        self.multiplexer = multiplexer
 
         do {
             self.state = .connecting
@@ -277,6 +306,11 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     }
 
     public func toggleChatMode() {
+        if isTerminalOnly {
+            // The feed reads the agent's screen with tmux; Zellij tabs stay terminals.
+            isChatMode = false
+            return
+        }
         isChatMode.toggle()
         if isChatMode && transcriptTurns.isEmpty {
             loadTranscript()

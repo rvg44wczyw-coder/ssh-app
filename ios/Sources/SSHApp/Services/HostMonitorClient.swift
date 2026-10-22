@@ -47,6 +47,36 @@ public final class HostTargetCache: @unchecked Sendable {
         return hostTargetMultiplexer(target: t)
     }
 
+    // MARK: Zellij or tmux (feature 49)
+
+    private var chosen: [String: MultiplexerKind] = [:]
+
+    /// The server's choice between Zellij and tmux (kept per `user@host:port`; Auto when never set).
+    public static func multiplexerPreference(forKey key: String) -> MultiplexerPreference {
+        switch UserDefaults.standard.string(forKey: "muxPreference.\(key)") {
+        case "zellij": return .preferZellij
+        case "tmux": return .preferTmux
+        default: return .auto
+        }
+    }
+
+    public static func setMultiplexerPreference(_ pref: MultiplexerPreference, forKey key: String) {
+        let raw: String? = pref == .preferZellij ? "zellij" : (pref == .preferTmux ? "tmux" : nil)
+        UserDefaults.standard.set(raw, forKey: "muxPreference.\(key)")
+        shared.lock.lock(); defer { shared.lock.unlock() }
+        shared.chosen[key] = nil   // asked again on the next connection
+    }
+
+    public static func chosenMultiplexer(forKey key: String) -> MultiplexerKind? {
+        shared.lock.lock(); defer { shared.lock.unlock() }
+        return shared.chosen[key]
+    }
+
+    public static func setChosenMultiplexer(_ kind: MultiplexerKind, forKey key: String) {
+        shared.lock.lock(); defer { shared.lock.unlock() }
+        shared.chosen[key] = kind
+    }
+
     public static func pin(host: String, port: UInt16, username: String) -> String? {
         shared.lock.lock(); defer { shared.lock.unlock() }
         guard let target = shared.targets[key(host: host, port: port, username: username)] else {

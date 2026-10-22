@@ -557,6 +557,31 @@ pub async fn detect_host_target_once(
     })?
 }
 
+/// Which multiplexer to use on a host that may have tmux, Zellij or both: one short connection
+/// that asks the host (`multiplexer_probe_command`) and applies the server's preference. Any
+/// failure means tmux, as before.
+#[uniffi::export(async_runtime = "tokio")]
+pub async fn detect_multiplexer_once(
+    config: RemoteServerConfig,
+    preference: crate::multiplexer::MultiplexerPreference,
+) -> Result<crate::multiplexer::MultiplexerKind, SshCoreError> {
+    let handle = RUNTIME.spawn(async move {
+        let out = execute_remote_command_internal(
+            &config,
+            &crate::multiplexer::multiplexer_probe_command(),
+        )
+        .await
+        .unwrap_or_default();
+        Ok(crate::multiplexer::choose_multiplexer(
+            preference,
+            crate::multiplexer::parse_multiplexer_probe(&out),
+        ))
+    });
+    handle.await.map_err(|e| SshCoreError::ConnectionError {
+        reason: format!("Task join error: {e}"),
+    })?
+}
+
 /// Puts the Windows helper (which IS the multiplexer on a native Windows host) in place if the
 /// verified build is not there yet. One short connection; the install is a few hundred small
 /// commands, so it runs once per app version and host.

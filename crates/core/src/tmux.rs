@@ -107,7 +107,7 @@ pub fn build_tmux_attach_or_create_command(
 }
 
 /// The start folder as a shell expression (`~/x` keeps `$HOME` live), or `None` for "default".
-fn validate_start_dir(dir: Option<&str>) -> Result<Option<String>, SshCoreError> {
+pub(crate) fn validate_start_dir(dir: Option<&str>) -> Result<Option<String>, SshCoreError> {
     let Some(raw) = dir.map(str::trim).filter(|d| !d.is_empty()) else {
         return Ok(None);
     };
