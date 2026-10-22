@@ -24,3 +24,8 @@ Live tests (own processes, private Zellij socket folders, no tmux, no real sessi
 ## 3. Verdict
 
 Findings, highest severity Low.
+
+## Update 2026-10-22 (after the fix round)
+
+- Finding 1 fixed: the hook script, `zellij_name` and `capture_zellij` refuse a name that starts with `-`; tests added in all three (including the Python and Rust hook implementations). Re-run live: `-x` and `--help` are no longer registered.
+- Finding 2: inherent to reading the environment through `ps -Eww` on macOS (a same-user process can imitate the tokens in its arguments). Not fixed; accepted as a known limitation for the owner to confirm: no privilege boundary is crossed, and the registry stays the first source for the transcript. The Linux branch reads `/proc/<pid>/environ` and is exact.
