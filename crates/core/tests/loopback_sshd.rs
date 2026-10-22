@@ -2120,9 +2120,16 @@ fn usage_report_finds_models_in_tmux_sessions_and_reads_transcripts() {
             .install_bundled_host_helper_for(ssh_core::HostTarget::Unsupported { reason: "x".into() })
             .await
             .is_err());
-        // The Linux builds are embedded too (not installed here: the loopback host is a Mac).
+        // The Linux builds are embedded too (not installed here: the loopback host is a Mac). A
+        // fresh checkout has none (`crates/core/embedded/` is gitignored, `make xcframework`
+        // fills it), so the check applies only to a build that has them.
         for t in [ssh_core::HostTarget::LinuxAarch64, ssh_core::HostTarget::LinuxX86_64] {
-            assert!(ssh_core::usage::bundled_host_helper_size_for(t.clone()) > 1_000_000, "{t:?}");
+            let size = ssh_core::usage::bundled_host_helper_size_for(t.clone());
+            if size == 0 {
+                eprintln!("SKIP: no embedded helper for {t:?}");
+                continue;
+            }
+            assert!(size > 1_000_000, "{t:?}");
             assert_eq!(ssh_core::usage::bundled_host_helper_sha256_for(t).unwrap().len(), 64);
         }
 
