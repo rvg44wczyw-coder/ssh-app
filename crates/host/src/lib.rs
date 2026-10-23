@@ -18,6 +18,7 @@ pub mod queue;
 pub mod rpc;
 pub mod screenwatch;
 pub mod sessions;
+pub mod skills;
 pub mod statusline;
 pub mod telemetry;
 pub mod timefmt;

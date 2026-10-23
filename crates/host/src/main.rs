@@ -7,7 +7,8 @@
 use serde_json::json;
 use ssh_app_host::queue::{install_signal_handlers, Paths};
 use ssh_app_host::{
-    agent, ctl, doctor, files, hook, models, pair, procs, push, rpc, statusline, telemetry, usage,
+    agent, ctl, doctor, files, hook, models, pair, procs, push, rpc, skills, statusline, telemetry,
+    usage,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -21,7 +22,7 @@ fn main() {
         Some("hello") => {
             println!(
                 "{}",
-                json!({"v": 1, "name": "ssh-app-host", "version": VERSION, "caps": ["usage", "hook", "agent", "push", "models", "telemetry", "fs", "read", "kill", "pair", "doctor"]})
+                json!({"v": 1, "name": "ssh-app-host", "version": VERSION, "caps": ["usage", "hook", "agent", "push", "models", "telemetry", "fs", "read", "kill", "pair", "doctor", "skills"]})
             );
             0
         }
@@ -80,6 +81,20 @@ fn main() {
         Some("models") => {
             let home = std::env::var("HOME").unwrap_or_default();
             let reply = models::reply(args.get(1).map_or("", String::as_str), &home);
+            println!("{reply}");
+            i32::from(reply["ok"] != true)
+        }
+        Some("skills") => {
+            // One JSON request on stdin (at most a skill and a little more).
+            let mut input = Vec::new();
+            let _ = std::io::Read::read_to_end(
+                &mut std::io::Read::take(std::io::stdin(), 2 * skills::MAX_SKILL_BYTES as u64),
+                &mut input,
+            );
+            let reply = match serde_json::from_slice::<serde_json::Value>(&input) {
+                Ok(req) => skills::handle(&req, &std::env::var("HOME").unwrap_or_default()),
+                Err(_) => json!({"ok": false, "error": "the request is not JSON"}),
+            };
             println!("{reply}");
             i32::from(reply["ok"] != true)
         }

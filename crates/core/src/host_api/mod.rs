@@ -317,6 +317,7 @@ mod hooks;
 mod host_info;
 mod ollama;
 mod session_io;
+mod skills;
 mod statusline_push;
 #[cfg(test)]
 mod tests;
