@@ -35,6 +35,17 @@ struct SessionsHomeView: View {
     var serverOf: (TabSession) -> UUID? = { $0.serverId }
     /// Opens a full screen of the server (containers, processes, host monitor).
     var onServerScreen: (UUID, HostScreen) -> Void = { _, _ in }
+    /// Opens the containers screen on Kubernetes pods (the runtime is remembered per server).
+    private func openKubernetes(_ server: UUID) {
+        ContainerRuntimePrefs.choose(.kubernetes, server: server)
+        onServerScreen(server, .docker)
+    }
+
+    /// Opens the containers screen on an engine; a server last looked at in Kubernetes goes back to Docker.
+    private func openContainers(_ server: UUID) {
+        if ContainerRuntimePrefs.chosen(server: server) == .kubernetes { ContainerRuntimePrefs.choose(.docker, server: server) }
+        onServerScreen(server, .docker)
+    }
 
     @State private var renaming: TabSession?
     @State private var renameText = ""
@@ -94,9 +105,10 @@ struct SessionsHomeView: View {
             GlassEffectContainer(spacing: 8) {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
-                        serverButton("Containers", "shippingbox.fill", .docker, server.id, enabled: connected)
-                        serverButton("Processes", "list.bullet.rectangle", .processes, server.id, enabled: connected)
-                        serverButton("Monitor", "gauge.with.dots.needle.67percent", .host, server.id, enabled: connected)
+                        serverButton("Containers", "shippingbox.fill", server.id, enabled: connected) { openContainers(server.id) }
+                        serverButton("Kubernetes", "helm", server.id, enabled: connected) { openKubernetes(server.id) }
+                        serverButton("Processes", "list.bullet.rectangle", server.id, enabled: connected) { onServerScreen(server.id, .processes) }
+                        serverButton("Monitor", "gauge.with.dots.needle.67percent", server.id, enabled: connected) { onServerScreen(server.id, .host) }
                     }
                 }
             }
@@ -110,8 +122,8 @@ struct SessionsHomeView: View {
         }
     }
 
-    private func serverButton(_ title: String, _ symbol: String, _ screen: HostScreen, _ id: UUID, enabled: Bool) -> some View {
-        Button { onServerScreen(id, screen) } label: {
+    private func serverButton(_ title: String, _ symbol: String, _ id: UUID, enabled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
             Label(title, systemImage: symbol).font(.subheadline.weight(.medium)).padding(.horizontal, 12).padding(.vertical, 7)
         }
         .buttonStyle(.plain)
