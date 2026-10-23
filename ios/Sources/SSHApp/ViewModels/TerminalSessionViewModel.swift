@@ -123,6 +123,7 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
 
     public init(session: TabSession) {
         self.session = session
+        self.isChatMode = Self.startsInFeed(session)
         print("[SwiftVM \(instanceId)] initialized for session '\(session.title)' (id=\(session.id))")
     }
 
@@ -225,6 +226,8 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         let sessionHandle = SshSessionHandle(config: config)
         self.handle = sessionHandle
         self.multiplexer = multiplexer
+        // The feed reads the tmux pane: a Zellij tab is terminal only.
+        if multiplexer != .tmux, isChatMode { isChatMode = false }
 
         do {
             self.state = .connecting
@@ -339,8 +342,19 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         }
     }
 
+    /// The feed is the default view of an agent tab; a plain shell or container shell starts as a
+    /// terminal. What the owner picked for this one session (the feed/terminal switch) wins.
+    private static func startsInFeed(_ session: TabSession) -> Bool {
+        if let picked = UserDefaults.standard.object(forKey: "feed_mode_" + session.id.uuidString) as? Bool { return picked }
+        switch session.agentType {
+        case .claudeCode, .antigravity, .localLlm: return true
+        case .customShell, .dockerContainer: return false
+        }
+    }
+
     public func toggleChatMode() {
         isChatMode.toggle()
+        UserDefaults.standard.set(isChatMode, forKey: "feed_mode_" + session.id.uuidString)
         if isChatMode && transcriptTurns.isEmpty {
             loadTranscript()
         }

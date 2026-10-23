@@ -19,7 +19,7 @@ impl SshSessionHandle {
         let p = crate::tmux::shell_quote(&remote_path);
         let cmd = format!(
             "r=$(realpath -- {p} 2>/dev/null || readlink -f -- {p} 2>/dev/null) && [ -f \"$r\" ] && \
-             {{ printf 'TP_PATH=%s\\n' \"$r\"; grep -Ev '^\\{{\"type\":\"(api-request-blob|api-request|mode|atis-latch|ai-title|last-prompt|queue-operation|file-history-snapshot)\"' -- \"$r\" | tail -n 3000 | tail -c 4000000; }}"
+             {{ printf 'TP_PATH=%s\\n' \"$r\"; tail -c 32000000 -- \"$r\" | LC_ALL=C grep -aEv '^\\{{\"type\":\"(api-request-blob|api-request|mode|atis-latch|ai-title|last-prompt|queue-operation|file-history-snapshot)\"' | tail -n 3000 | tail -c 4000000; }}"
         );
         let raw_output = self.execute_command_on_active_session(cmd).await?;
         let (first, rest) = raw_output

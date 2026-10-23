@@ -637,8 +637,9 @@ public struct TerminalContainerView: UIViewRepresentable {
 
         public func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
             print("[TerminalView \(viewModel.instanceId)] sizeChanged cols=\(newCols), rows=\(newRows)")
-            // The host gets one column less than the view holds: the last column sits under the
-            // rounded edge and a character drawn there looks like it sticks out of the border.
+            // The host gets one column less than the view holds, so a character in the last
+            // column never touches the screen's rounded edge (kept after the layout fix, see
+            // ActiveTerminalSessionView; the owner checked the two together).
             viewModel.resize(cols: UInt16(max(newCols - 1, 2)), rows: UInt16(newRows))
         }
 

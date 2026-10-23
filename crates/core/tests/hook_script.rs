@@ -341,6 +341,18 @@ fn no_decision_defers_to_the_native_policy_and_cleans_up() {
     assert!(std::fs::read_dir(h.pending()).unwrap().next().is_none());
 }
 
+#[test]
+fn a_question_of_claude_gets_no_phone_popup_in_the_python_hook_either() {
+    need_tools!();
+    let h = Host::new();
+    let ask = r#"{"tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"Which one?"}]},"cwd":"/work/proj","session_id":"s1"}"#;
+    for event in ["PermissionRequest", "PreToolUse"] {
+        let (out, code) = h.spawn_hook("claude", event, ask, 1).finish();
+        assert_eq!((out.as_str(), code), ("", 0), "{event}");
+    }
+    assert!(std::fs::read_dir(h.pending()).unwrap().next().is_none());
+}
+
 fn assert_ignored(h: &Host, mutate: impl Fn(&Host, &Value, u64) -> String) {
     let hook = h.spawn_hook("claude", "PermissionRequest", CLAUDE_IN, 3);
     let (item, now) = h.wait_item("approval");

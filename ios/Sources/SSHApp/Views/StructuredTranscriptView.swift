@@ -292,7 +292,7 @@ public struct StructuredTranscriptView: View {
                     }
                     .disabled(viewModel.sessionHandle == nil || viewModel.state != .connected)
                     TextField("Message…", text: $promptText, axis: .vertical)
-                        .lineLimit(1...(editorExpanded ? 16 : 6))
+                        .lineLimit(editorExpanded ? 8...16 : 1...6)
                         .focused($inputFocused)
                         .font(.system(size: 16))
                         .padding(.horizontal, 10)
@@ -312,6 +312,8 @@ public struct StructuredTranscriptView: View {
                                 .foregroundColor(.secondary)
                                 .padding(8)
                         }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(editorExpanded ? "Shrink the message box" : "Enlarge the message box")
                     }
 
                     if viewModel.screenStatus != nil, viewModel.screenPrompt == nil {

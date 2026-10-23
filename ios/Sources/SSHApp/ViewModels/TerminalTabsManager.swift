@@ -112,6 +112,10 @@ public final class TerminalTabsManager: ObservableObject {
         }
         stateCancellables.removeValue(forKey: id)
         sessionStates.removeValue(forKey: id)
+        // Per-session choices kept in the defaults go with the tab.
+        for key in ["feed_mode_", "chat_last_opened_"] {
+            UserDefaults.standard.removeObject(forKey: key + id.uuidString)
+        }
 
         if let index = sessions.firstIndex(where: { $0.id == id }) {
             sessions.remove(at: index)
