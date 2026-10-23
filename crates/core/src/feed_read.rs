@@ -182,7 +182,7 @@ mod tests {
         let c = run(&f, Some(b.cursor)).expect("file");
         assert!(!c.reset);
         assert_eq!(c.text, user(3));
-        h.write_all(half[20..].as_bytes()).expect("w");
+        h.write_all(&half.as_bytes()[20..]).expect("w");
         let d = run(&f, Some(c.cursor)).expect("file");
         assert_eq!(
             d.text, half,
@@ -256,14 +256,14 @@ mod tests {
                 .append(true)
                 .open(&f)
                 .expect("open");
-            h.write_all(line[..cut].as_bytes()).expect("w");
+            h.write_all(&line.as_bytes()[..cut]).expect("w");
             let r = run(&f, cursor).expect("file");
             if r.reset {
                 state.reset();
             }
             state.apply_chunk(r.text);
             cursor = Some(r.cursor);
-            h.write_all(line[cut..].as_bytes()).expect("w");
+            h.write_all(&line.as_bytes()[cut..]).expect("w");
         }
         let r = run(&f, cursor).expect("file");
         state.apply_chunk(r.text);
