@@ -11,6 +11,7 @@ public enum AppAction: String, CaseIterable, Identifiable, Sendable {
     case snippets
     case commands
     case sessionPermissions
+    case skills
     case agentProfiles
     case fileBrowser
     case telemetry
@@ -35,6 +36,7 @@ public enum AppAction: String, CaseIterable, Identifiable, Sendable {
         case .snippets: return "Snippets"
         case .commands: return "Commands"
         case .sessionPermissions: return "Permissions"
+        case .skills: return "Skills"
         case .agentProfiles: return "Agents"
         case .fileBrowser: return "Files"
         case .telemetry: return "Host monitor"
@@ -58,6 +60,7 @@ public enum AppAction: String, CaseIterable, Identifiable, Sendable {
         case .snippets: return "bolt.fill"
         case .commands: return "slash.circle"
         case .sessionPermissions: return "checkmark.shield"
+        case .skills: return "sparkles.rectangle.stack"
         case .agentProfiles: return "play.rectangle.on.rectangle.fill"
         case .fileBrowser: return "folder.fill"
         case .telemetry: return "gauge.with.dots.needle.33percent"
@@ -81,6 +84,7 @@ public enum AppAction: String, CaseIterable, Identifiable, Sendable {
         case .snippets: return .orange
         case .commands: return .brown
         case .sessionPermissions: return .red
+        case .skills: return .purple
         case .agentProfiles: return .mint
         case .fileBrowser: return .yellow
         case .telemetry: return .green
@@ -113,6 +117,8 @@ public enum AppAction: String, CaseIterable, Identifiable, Sendable {
             return "Slash commands of the agent in this tab (/model, /config, /compact, ...): insert at the prompt or run in one tap."
         case .sessionPermissions:
             return "What this tab's agent may do: its folder, the rules in effect (profile and project), the start mode, and suggestions such as accepting edits in the project folder."
+        case .skills:
+            return "The project's skills for this tab's agent: create, edit, disable and delete them (deleted ones wait in a trash for 30 days)."
         case .agentProfiles:
             return "Start Claude Code, Antigravity and others in a new tab, choose what starts automatically, and manage their approval hooks."
         case .fileBrowser:
@@ -139,7 +145,7 @@ public enum AppAction: String, CaseIterable, Identifiable, Sendable {
     /// Belongs to the current session (its own toolbar button) rather than the quick menu.
     public var isSessionAction: Bool {
         switch self {
-        case .chatToggle, .feedFind, .feedRefresh, .sessionPermissions, .agentProfiles, .diffViewer: return true
+        case .chatToggle, .feedFind, .feedRefresh, .sessionPermissions, .skills, .agentProfiles, .diffViewer: return true
         default: return false
         }
     }
@@ -147,7 +153,7 @@ public enum AppAction: String, CaseIterable, Identifiable, Sendable {
     /// Needs a live connection to the active host (shown disabled otherwise, never hidden).
     public var requiresConnection: Bool {
         switch self {
-        case .chatToggle, .feedFind, .feedRefresh, .aiAssistant, .snippets, .commands, .sessionPermissions, .agentProfiles, .fileBrowser, .telemetry, .processes, .docker, .hostHelper, .webPreview, .diffViewer:
+        case .chatToggle, .feedFind, .feedRefresh, .aiAssistant, .snippets, .commands, .sessionPermissions, .skills, .agentProfiles, .fileBrowser, .telemetry, .processes, .docker, .hostHelper, .webPreview, .diffViewer:
             return true
         case .tmuxSessions, .publicKey, .settings:
             return false

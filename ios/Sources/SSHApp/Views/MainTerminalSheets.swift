@@ -81,6 +81,10 @@ extension MainTerminalView {
                     onClose: { activeSheet = nil }
                 )
             }
+        case .skills:
+            if let activeVM = tabsManager.activeViewModel, let tab = tabsManager.activeSession {
+                SkillsSheetView(tab: tab, viewModel: activeVM) { activeSheet = nil }
+            }
         case .snippets:
             if let activeVM = tabsManager.activeViewModel {
                 SnippetsSheetView(viewModel: activeVM) {

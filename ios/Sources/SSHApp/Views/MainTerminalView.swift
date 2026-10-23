@@ -45,6 +45,7 @@ public struct MainTerminalView: View {
         case snippets
         case commands
         case sessionPermissions
+        case skills
         case telemetry
         case processes
         case docker
@@ -797,6 +798,7 @@ public struct MainTerminalView: View {
         case .snippets: sheet = .snippets
         case .commands: sheet = .commands
         case .sessionPermissions: sheet = .sessionPermissions
+        case .skills: sheet = .skills
         case .agentProfiles: sheet = .agentProfiles
         case .fileBrowser: sheet = .fileBrowser
         case .telemetry: sheet = .telemetry
