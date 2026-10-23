@@ -256,4 +256,30 @@ mod tests {
             Some(format!("m{}", MAX_TURNS + 49))
         );
     }
+
+    #[test]
+    fn hostile_file_content_is_survived() {
+        let f = FeedState::new();
+        // Nesting far beyond any stack: the line is skipped, not a crash.
+        let deep = format!("{}1{}\n", "[".repeat(200_000), "]".repeat(200_000));
+        f.apply_chunk(deep);
+        // A huge single record is accepted once and bounded in memory by the chunk cap.
+        let big = format!(
+            "{{\"type\":\"user\",\"message\":{{\"role\":\"user\",\"content\":\"{}\"}}}}\n",
+            "a".repeat(2_000_000)
+        );
+        let c = f.apply_chunk(big);
+        assert_eq!(c.added.len(), 1);
+        // Escape sequences and bidi overrides in text do not reach the turn.
+        let esc = "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"a\\u001b[31mred\\u202Eb\"}}\n";
+        f.apply_chunk(esc.to_string());
+        let t = f.turns();
+        let text = t.last().and_then(|t| t.content.clone()).unwrap_or_default();
+        assert!(
+            !text.contains('\u{1b}') && !text.contains('\u{202E}'),
+            "{text:?}"
+        );
+        // Binary noise between records.
+        f.apply_chunk("\u{0}\u{1}\u{2}\n{\"type\":\"user\"\n".to_string());
+    }
 }

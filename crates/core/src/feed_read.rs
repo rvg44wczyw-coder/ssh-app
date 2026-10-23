@@ -28,11 +28,26 @@ pub struct FeedRead {
 
 const FILTER: &str = r#"LC_ALL=C grep -aEv '^\{"type":"(api-request-blob|api-request|mode|atis-latch|ai-title|last-prompt|queue-operation|file-history-snapshot)"'"#;
 
+/// The folders a session file must never be read from, as `case` patterns for the resolved real
+/// path (the same list as `validate_transcript_path`): a link in an allowed folder cannot lead
+/// the host to read `~/.ssh` and send it over the wire before the app can refuse it.
+const BLOCKED_PATTERNS: &str = "/etc/*|/var/*|/dev/*|/proc/*|/sys/*|/private/etc/*|/private/var/*|*/.ssh/*|*/.gnupg/*|*/.aws/*|*/Library/Keychains/*";
+
 /// `$1` path, `$2` inode of the cursor or `-`, `$3` offset of the cursor or `-`.
 pub fn delta_script() -> String {
+    delta_script_with(true)
+}
+
+/// `guard: false` only in tests, whose temporary folders are under the blocked `/var`.
+pub(crate) fn delta_script_with(guard: bool) -> String {
+    let check = if guard {
+        format!("case \"$r\" in {BLOCKED_PATTERNS}) echo NOFILE; exit 0;; esac\n")
+    } else {
+        String::new()
+    };
     format!(
         r#"r=$(realpath -- "$1" 2>/dev/null || readlink -f -- "$1" 2>/dev/null) && [ -f "$r" ] || {{ echo NOFILE; exit 0; }}
-st=$(stat -c '%i %s' "$r" 2>/dev/null || stat -f '%i %z' "$r" 2>/dev/null) || {{ echo NOFILE; exit 0; }}
+{check}st=$(stat -c '%i %s' "$r" 2>/dev/null || stat -f '%i %z' "$r" 2>/dev/null) || {{ echo NOFILE; exit 0; }}
 ino=${{st%% *}}; size=${{st##* }}
 mode=delta
 if [ "$2" = - ] || [ "$3" = - ] || [ "$2" != "$ino" ] || [ "$3" -gt "$size" ] 2>/dev/null; then mode=full; off=0; else off=$3; fi
@@ -127,7 +142,7 @@ mod tests {
         };
         let out = Command::new("sh")
             .arg("-c")
-            .arg(delta_script())
+            .arg(delta_script_with(false))
             .arg("sh")
             .arg(path)
             .arg(ino)
@@ -284,6 +299,33 @@ mod tests {
         )
         .expect("ok");
         assert!(c.contains("'/home/u/a b.jsonl' 7 9"), "{c}");
+    }
+
+    #[test]
+    fn the_script_itself_refuses_a_link_into_a_blocked_folder() {
+        // Under the user's cache (not under /var) so that only the `.ssh` rule decides.
+        let home = std::env::var("HOME").expect("HOME");
+        let base = std::path::PathBuf::from(home)
+            .join(format!(".cache/ssh-app-itest-guard-{}", std::process::id()));
+        let secret_dir = base.join(".ssh");
+        std::fs::create_dir_all(&secret_dir).expect("dir");
+        std::fs::write(secret_dir.join("id"), "SECRET\n").expect("w");
+        std::fs::write(base.join("ok.jsonl"), user(1)).expect("w");
+        std::os::unix::fs::symlink(secret_dir.join("id"), base.join("link.jsonl")).expect("link");
+        let go = |p: &std::path::Path| {
+            let out = Command::new("sh")
+                .args(["-c", &delta_script(), "sh"])
+                .arg(p)
+                .args(["-", "-"])
+                .output()
+                .expect("sh");
+            String::from_utf8_lossy(&out.stdout).to_string()
+        };
+        let linked = go(&base.join("link.jsonl"));
+        assert!(linked.starts_with("NOFILE"), "{linked}");
+        assert!(!linked.contains("SECRET"));
+        assert!(go(&base.join("ok.jsonl")).contains("MODE full"));
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]

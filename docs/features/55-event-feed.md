@@ -1,6 +1,6 @@
 # Feature 55: Event feed (incremental updates instead of re-sending the whole screen)
 
-- **Status**: Reviewed 2026-10-23 (`rev` of the doc: changes applied, see Revision notes). Implementation started (core: incremental parser, `FeedState`, read by cursor). Follows `docs/architecture/performance-audit-2026-10-23.md`, bottlenecks 1, 2, 3, 6, 7.
+- **Status**: Reviewed 2026-10-23 (`rev` of the doc: changes applied, see Revision notes). Implemented 2026-10-23 for Claude Code (phases 1–4a): incremental parser and `FeedState`, read by cursor, stable compressed capture, `watch_feed` stream, Swift wiring that replaces polling while the stream runs. Findings: `docs/security-findings/2026-10-23-event-feed.md`. Open: phase 4b (splice only new screen lines), agy through its database, subagents. Deviations: the transcript path is passed by the app (validated twice) instead of detected in the stream; the stream is a `sh` loop, not a helper command; applying a chunk twice is not idempotent (cursor and `reset` prevent repeats). Follows `docs/architecture/performance-audit-2026-10-23.md`, bottlenecks 1, 2, 3, 6, 7.
 - **Agents**: Claude Code first (its session file is already JSON lines). Antigravity: studied 2026-10-23, see §8; events are possible through its SQLite store, but only after a spike.
 
 ## 1. Purpose

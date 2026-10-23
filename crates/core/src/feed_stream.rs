@@ -20,7 +20,12 @@ pub const LIVE_LINES: u32 = 80;
 /// ping period in loops (default 15). `$5` seconds between pings of a quiet stream (default 15).
 /// `tmux` is the command word so a test can point it at a private socket.
 pub fn stream_script(tmux: &str) -> String {
-    let delta = crate::feed_read::delta_script().replace("exit 0", "return 0");
+    stream_script_with(tmux, true)
+}
+
+/// `guard: false` only in tests (their temporary folders are under the blocked `/var`).
+pub(crate) fn stream_script_with(tmux: &str, guard: bool) -> String {
+    let delta = crate::feed_read::delta_script_with(guard).replace("exit 0", "return 0");
     format!(
         r#"PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"; export PATH
 command -v tmux >/dev/null 2>&1 || {{ echo '{{"ev":"bye","why":"notmux"}}'; exit 0; }}
@@ -295,7 +300,7 @@ mod tests {
         file: &std::path::Path,
         cursor: &str,
     ) -> (std::process::Child, mpsc::Receiver<StreamEvent>) {
-        let script = stream_script(&format!("tmux -S '{}'", p.sock()));
+        let script = stream_script_with(&format!("tmux -S '{}'", p.sock()), false);
         let mut child = Command::new("sh")
             .env_remove("TMUX")
             .env_remove("TMUX_PANE")
@@ -470,5 +475,46 @@ mod tests {
         let _ = child.wait();
         let _ = std::io::stdout().flush();
         let _ = std::io::BufReader::new(std::io::empty()).lines().count();
+    }
+
+    #[test]
+    fn a_hostile_session_name_or_path_is_only_data() {
+        let p = Private::new();
+        p.tmux(&["new-session", "-d", "-s", "cap", "sh"]);
+        let marker = p.dir.path().join("pwned");
+        let file = p.dir.path().join("a b;touch pwned.jsonl");
+        std::fs::write(&file, user(1)).expect("w");
+        let script = stream_script_with(&format!("tmux -S '{}'", p.sock()), false);
+        for (name, path) in [
+            (
+                format!("x; touch {}", marker.display()),
+                file.to_string_lossy().to_string(),
+            ),
+            (
+                "cap".to_string(),
+                format!("{}$(touch {})", file.display(), marker.display()),
+            ),
+            ("cap".to_string(), format!("`touch {}`", marker.display())),
+        ] {
+            let out = Command::new("timeout")
+                .args(["2", "sh", "-c", &script, "sh", &name, &path, "-", "-"])
+                .env_remove("TMUX")
+                .env_remove("TMUX_PANE")
+                .output();
+            // `timeout` may be absent on a Mac; then the plain script is run with a short life.
+            if out.is_err() {
+                let mut child = Command::new("sh")
+                    .args(["-c", &script, "sh", &name, &path, "-", "-"])
+                    .env_remove("TMUX")
+                    .env_remove("TMUX_PANE")
+                    .stdout(Stdio::null())
+                    .spawn()
+                    .expect("sh");
+                std::thread::sleep(Duration::from_millis(1200));
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+            assert!(!marker.exists(), "{name} / {path} ran a command");
+        }
     }
 }
