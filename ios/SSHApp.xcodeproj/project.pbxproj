@@ -52,6 +52,7 @@
 		AA9F0067 /* PortsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB9F0067 /* PortsSection.swift */; };
 		AA9F0068 /* SubagentsSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB9F0068 /* SubagentsSheetView.swift */; };
 		AA9F0062 /* VaultSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB9F0062 /* VaultSync.swift */; };
+		AA9F0069 /* VaultCollections.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB9F0069 /* VaultCollections.swift */; };
 		AA9F0060 /* ArtifactViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB9F0060 /* ArtifactViews.swift */; };
 		AA9F0061 /* mermaid.min.js in Resources */ = {isa = PBXBuildFile; fileRef = BB9F0061 /* mermaid.min.js */; };
 		AA000022 /* DiffViewerSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000022 /* DiffViewerSheetView.swift */; };
@@ -127,6 +128,7 @@
 		BB9F0067 /* PortsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/PortsSection.swift; sourceTree = "<group>"; };
 		BB9F0068 /* SubagentsSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/SubagentsSheetView.swift; sourceTree = "<group>"; };
 		BB9F0062 /* VaultSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/VaultSync.swift; sourceTree = "<group>"; };
+		BB9F0069 /* VaultCollections.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/VaultCollections.swift; sourceTree = "<group>"; };
 		BB000003 /* KeychainManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/KeychainManager.swift; sourceTree = "<group>"; };
 		BB000004 /* NetworkMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/NetworkMonitor.swift; sourceTree = "<group>"; };
 		BB000005 /* TerminalSessionViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewModels/TerminalSessionViewModel.swift; sourceTree = "<group>"; };
@@ -358,6 +360,7 @@
 				BB000002 /* SessionModel.swift */,
 				BB000003 /* KeychainManager.swift */,
 				BB9F0062 /* VaultSync.swift */,
+				BB9F0069 /* VaultCollections.swift */,
 				BB9F0063 /* ContainersScreen.swift */,
 				BB9F0064 /* CompactLayout.swift */,
 				BB9F0065 /* SkillsSheetView.swift */,
@@ -604,6 +607,7 @@
 				AA000002 /* SessionModel.swift in Sources */,
 				AA000003 /* KeychainManager.swift in Sources */,
 				AA9F0062 /* VaultSync.swift in Sources */,
+				AA9F0069 /* VaultCollections.swift in Sources */,
 				AA9F0063 /* ContainersScreen.swift in Sources */,
 				AA9F0064 /* CompactLayout.swift in Sources */,
 				AA9F0065 /* SkillsSheetView.swift in Sources */,

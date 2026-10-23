@@ -173,6 +173,16 @@ Folded in above: library and own `sk-` assembly (first deliverable, with a real-
 
 What travels: name, host, port, user, and the pinned fingerprint **only** with its toggle (off by default). What does not: private keys, `keyId` (each device signs with its own key; the iPad's key is added to a host through pairing, section 3), the default flag, Files settings. A received server is checked again on the phone (`SyncedServer.isSane`: no leading `-`, no whitespace or control characters, length caps, port above 0). A differing fingerprint on the other device is shown as a conflict and never replaces the local pin. Triggers: start, becoming active, after a local change; the phone does not poll.
 
-Known limits: a server added by hand on two devices has two different ids and shows twice (merge by address is a guess that could join two different hosts); synced snippets and launch profiles are not wired yet (the core merge is generic, only the payload types are missing); the sync item can be read by anything that holds the iCloud Keychain, which is the same trust as the account.
+Known limits: a server added by hand on two devices has two different ids and shows twice (merge by address is a guess that could join two different hosts); launch profiles and snippets are wired (below); the sync item can be read by anything that holds the iCloud Keychain, which is the same trust as the account.
 
 Tests: 8 Rust (import, wrong/missing passphrase, rounds ceiling, hostile file, wrong key type, garbage), 7 Rust (merge), 8 Swift (arrival without key choice, later edit wins and keeps the local key, deletions both ways, fingerprint toggle and conflict, hostile payloads, payload has no key data).
+
+### Launch profiles and snippets (2026-10-23)
+
+They travel in the same item under the id prefixes `p_` and `s_` (ids of at most 64 characters of `[A-Za-z0-9_-]`). Neither has an edit time, so `VaultCollectionEngine` (`VaultCollections.swift`) stamps a local edit when the payload differs from the last one seen, turns an id that disappeared into a tombstone, and leaves the winner to `mergeVault`. Two switches in Settings (on by default): launch profiles and snippets.
+
+What does **not** leave the device: values of environment variables whose name contains KEY, TOKEN, SECRET, PASSWORD, PASSWD, CREDENTIAL or AUTH; any profile with a custom hook command (a command the host would run); snippets whose title or command matches the secret pattern of the snippet catalog. A received profile is checked again before it is used (lengths, no control characters, no leading `-` in the binary, `KEY=VALUE` environment names, no custom hook, the id inside equals the entry id) and keeps the secrets and the custom hook this device already has for the same id. A received snippet is limited in length and tags. Anything refused stays in the vault for devices that accept it and is never applied.
+
+Known limit: someone who holds the iCloud Keychain can add a launch profile or snippet that the host would run when the owner starts it; that is the same trust as the account, and nothing starts without a tap.
+
+Tests: 10 Swift (`VaultCollectionTests`): edit and deletion rules, no echo after applying, other prefixes untouched, secrets and custom hooks stay, hostile profiles and snippets refused.

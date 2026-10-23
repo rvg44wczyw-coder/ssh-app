@@ -31,7 +31,7 @@
 | **M29: Agent Voice Prompt Dictation** | Closed without code: the iOS keyboard's dictation is used in the composer; no custom recorder, no normalizer unless a device test shows damaged file names or flags (`docs/features/40-agent-voice-dictation.md`) | Superseded 2026-10-22 | `doc-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker` |
 | **M30: Visual Artifacts & Diagrams** | Mermaid flowchart/sequence/state diagram renderer, sandboxed CSP WebView, SVG zoom/export, unified split diff viewer (`docs/features/41-agent-artifacts-and-visualizer.md`) | Built, device check pending (PNG/SVG through the share sheet, which also saves to Photos) | `doc-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker` |
 | **M31: iPadOS Productivity & Keyboards** | NavigationSplitView 3-column layout, Stage Manager multi-window, UIKeyCommand hardware shortcuts (`Cmd+T`, `Ctrl+C`), external display mode (`docs/features/42-ipados-hardware-keyboard-and-stage-manager.md`) | Spec written | `doc-dev`, `ios-ui-dev`, `rev`, `hacker` |
-| **M32: Hardware Keys & iCloud Vault Sync** | FIDO2/YubiKey (`ed25519-sk`), OpenSSH private key import with zeroization, zero-knowledge iCloud Keychain host sync (`docs/features/43-hardware-keys-and-vault-sync.md`) | Partly done: key import + server sync; FIDO2 and Secure Enclave open | `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker` |
+| **M32: Hardware Keys & iCloud Vault Sync** | FIDO2/YubiKey (`ed25519-sk`), OpenSSH private key import with zeroization, zero-knowledge iCloud Keychain host sync (`docs/features/43-hardware-keys-and-vault-sync.md`) | Partly done: key import + sync of servers, launch profiles and snippets; FIDO2 and Secure Enclave open | `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker` |
 | **M33: Zero-Touch Host Onboarding** | paste-one-line or password pairing (no hosted script), automatic helper deploy, safe atomic `authorized_keys` append (`ssh-app-host pair`), read-only host doctor (`docs/features/44-zero-touch-host-onboarding.md`) | Implemented (helper, core, app; device run pending) | `doc-dev`, `rev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `hacker` |
 | **M34: Docker Containers & In-Container Terminal** | Container monitoring (green/red status, RAM, CPU), 1-tap `[ ↺ Restart ]`, `[ ⎘ Logs ]`, and 1-tap `[ >_ Terminal ]` spawn directly into container shell (`docs/features/45-docker-container-manager-and-terminal.md`) | Implemented over the docker CLI (list, stats, start/stop/restart, logs with Live follow, container terminal tab, Shortcuts restart intent); the helper path was dropped on purpose; device run pending | `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker` |
 | **M35: Modular Configuration Engine** | Universal configuration architecture with granular tuning across all 9 subsystems (Docker, Uploads, Live Activities, Voice, Mermaid, Keyboard, Vault, Mesh, SSH Core) + JSON Export/Import (`docs/features/46-modular-configuration-and-power-settings.md`) | First slice built (Docker + Uploads modules, export/import); other modules arrive with their features | `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker` |
@@ -222,7 +222,7 @@
 - **Doc**: `docs/features/38-multimodal-agent-uploads.md`
 - **Scope**: Native photo library/camera/clipboard picker, client-side EXIF stripping & HEIC->PNG conversion, sandboxed upload into `~/.ssh-app/run/uploads/<sha256>.<ext>`, TTL prune daemon, agent `@path` injection (Claude Code / agy / Ollama).
 - **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
-- **Status**: Spec reviewed and corrected (`rev`, 2026-10-20; binding corrections at the end of the spec), implementation pending.
+- **Status**: Implemented for Claude Code (photo, camera, clipboard, files, cancel); device run pending. Open: Ollama multimodal and agy (need live tests).
 
 ### Feature 39 / M28: Live Activities & Dynamic Island for Long-Running Agent Tasks (`docs/features/39-live-activities-and-dynamic-island.md`)
 - **Doc**: `docs/features/39-live-activities-and-dynamic-island.md`
@@ -240,7 +240,7 @@
 - **Doc**: `docs/features/41-agent-artifacts-and-visualizer.md`
 - **Scope**: Automatic extraction of Mermaid diagrams and markdown reports from agent feed, hardened sandboxed WKWebView (CSP `default-src 'none'`), SVG pinch/zoom/pan, dark-mode matching, PNG/SVG export, unified diff viewer.
 - **Roles**: `doc-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
-- **Status**: Spec reviewed and corrected (`rev`, 2026-10-20; binding corrections at the end of the spec), implementation pending.
+- **Status**: Built; device check pending (PNG/SVG through the share sheet).
 
 ### Feature 42 / M31: iPadOS Native Experience, External Hardware Keyboard & Multi-Window (`docs/features/42-ipados-hardware-keyboard-and-stage-manager.md`)
 - **Doc**: `docs/features/42-ipados-hardware-keyboard-and-stage-manager.md`
@@ -252,7 +252,7 @@
 - **Doc**: `docs/features/43-hardware-keys-and-vault-sync.md`
 - **Scope**: OpenSSH FIDO2 (`ed25519-sk`, `ecdsa-sk`) via NFC / USB-C YubiKey, OpenSSH private key import with Argon2 / zeroization, end-to-end encrypted iCloud Keychain sync of server profiles (zero-knowledge: private keys never leave local device).
 - **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
-- **Status**: Passphrase key import and iCloud server sync implemented (2026-10-22, spec section 6; simulator only). Open: FIDO2 spike with a real YubiKey, Secure Enclave P-256 key, snippets and launch profiles in the sync.
+- **Status**: Passphrase key import and iCloud server sync implemented (2026-10-22, spec section 6; simulator only). Launch profiles and snippets are in the sync (2026-10-23; secrets and custom hooks stay local). Open: FIDO2 spike with a real YubiKey, Secure Enclave P-256 key.
 
 ### Feature 44 / M33: Zero-Touch Host Onboarding & Instant Pairing (`docs/features/44-zero-touch-host-onboarding.md`)
 - **Doc**: `docs/features/44-zero-touch-host-onboarding.md`
@@ -265,7 +265,7 @@
 - **Doc**: `docs/features/45-docker-container-manager-and-terminal.md`
 - **Scope**: Docker container list with green/red status indicators, memory & CPU statistics, 1-tap `[ ↺ Restart ]`, slide-over `[ ⎘ Logs ]` viewer, and 1-tap `[ >_ Terminal ]` opening an interactive shell tab directly inside the container via `docker exec -it`.
 - **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
-- **Status**: Spec reviewed and corrected (`rev`, 2026-10-20; binding corrections at the end of the spec), implementation pending.
+- **Status**: Implemented over the docker CLI (list, stats, start/stop/restart, logs with Live follow, container terminal tab, Shortcuts restart intent); device run pending.
 
 ### Feature 51: Container Runtimes Beyond Docker (`docs/features/51-container-runtimes.md`)
 - **Doc**: `docs/features/51-container-runtimes.md`
@@ -278,19 +278,19 @@
 - **Doc**: `docs/features/46-modular-configuration-and-power-settings.md`
 - **Scope**: Universal configuration engine in Rust Core & Swift SettingsStore: granular controls for Docker (custom sockets, shells, log bounds), Uploads (compression, dimensions, TTL, EXIF), Live Activities (throttling, Face ID), Voice (locales, custom lexicon), Mermaid (themes, line caps), Keyboard (remapping, debounce), Vault (sync toggles), Mesh (turn limits, leases), and Core SSH (grace periods, timeouts, TrueColor). Clean JSON Export/Import and per-module Reset.
 - **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
-- **Status**: Spec reviewed and corrected (`rev` + `hacker`, 2026-10-20), implementation pending.
+- **Status**: First slice built (Docker and Uploads modules, export/import, per-module reset); the other modules arrive with their features.
 
 ### Feature 48 / M37: Apple Shortcuts & App Intents Automation (`docs/features/48-apple-shortcuts-and-app-intents.md`)
 - **Doc**: `docs/features/48-apple-shortcuts-and-app-intents.md`
 - **Scope**: App Intents framework integration for Siri voice commands (*"Hey Siri, run tests with Claude on MacBook"*), iOS 18 Control Center widgets, Lock Screen triggers, and Shortcuts parametric actions with structured JSON outputs.
 - **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
-- **Status**: Spec reviewed and corrected (`rev` + `hacker`, 2026-10-20), implementation pending.
+- **Status**: Implemented (host health, saved command, agent task for Claude profiles, Docker restart; Siri phrases for all four); widgets dropped on purpose; device run pending.
 
 ### Feature 49 / M38: Zellij Terminal Multiplexer Support (`docs/features/49-zellij-multiplexer-support.md`)
 - **Doc**: `docs/features/49-zellij-multiplexer-support.md`
 - **Scope**: Universal `MultiplexerKind` trait supporting both `tmux` and `zellij` (auto-detect, session attach/create/kill, KDL layouts) for modern Rust/Go environments, dynamic PTY resizing, and native TrueColor.
 - **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
-- **Status**: Spec reviewed and corrected (`rev` + `hacker`, 2026-10-20), implementation pending. Scope cut to attach/detach only (milestone A).
+- **Status**: Milestone A and B implemented (attach, list, kill; agent feed, screen watch and registry on Zellij); device run pending.
 
 ### Feature 50 / M39: Auto-approval by command category (`docs/features/50-auto-approval-categories.md`)
 - **Doc**: `docs/features/50-auto-approval-categories.md`

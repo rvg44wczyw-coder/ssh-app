@@ -251,6 +251,10 @@ public struct MainTerminalView: View {
         }
     }
 
+    private func attachVault() {
+        VaultSync.shared.attach(agentProfiles: agentProfiles)
+    }
+
     /// A tap on a push opens the tab its `sid` names (no match: the tab is closed, nothing to open).
     private func openPushTarget() {
         guard let sid = push.pendingSid else { return }
@@ -406,7 +410,7 @@ public struct MainTerminalView: View {
     /// Taps on pushes and in-app notifications, and notices, routed to their sessions.
     private func routing<V: View>(_ content: V) -> some View {
         content
-            .onAppear { openPushTarget() }
+            .onAppear { openPushTarget(); attachVault() }
             .onChange(of: push.pendingSid) { _, _ in openPushTarget() }
             .onChange(of: tabsManager.sessions.count) { _, _ in openPushTarget() }
             .onChange(of: approvals.tmuxNames) { _, _ in deliverNotices(); announceApprovals() }

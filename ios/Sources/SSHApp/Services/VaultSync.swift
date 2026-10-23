@@ -172,21 +172,124 @@ final class VaultSync: ObservableObject {
         tombstones = stones
     }
 
-    /// Merges the vault with the local list and writes the result to both.
+    /// Merges the vault with the local lists and writes the result to both: servers, launch
+    /// profiles and snippets, each switched on or off on its own.
     func sync(now: Date = Date()) {
-        guard serversEnabled, let manager else { return }
+        guard let manager else { return }
         let remote = readRemote()
-        let outcome = VaultSyncEngine.reconcile(
-            local: manager.profiles, tombstones: tombstones, remote: remote,
-            syncFingerprints: fingerprintsEnabled, now: now)
-        if outcome.profilesChanged { manager.applySynced(outcome.profiles) }
-        tombstones = outcome.tombstones
-        fingerprintConflicts = outcome.fingerprintConflicts
-        let own = VaultSyncEngine.entries(for: outcome.profiles, tombstones: outcome.tombstones, syncFingerprints: fingerprintsEnabled)
-        if own.sorted(by: { $0.id < $1.id }) != remote.sorted(by: { $0.id < $1.id }) {
-            writeRemote(own)
+        let isOther: (VaultEntry) -> Bool = { $0.id.hasPrefix(SyncedProfile.prefix) || $0.id.hasPrefix(SyncedSnippet.prefix) }
+        var entries: [VaultEntry] = []
+
+        let serverRemote = remote.filter { !isOther($0) }
+        if serversEnabled {
+            let outcome = VaultSyncEngine.reconcile(
+                local: manager.profiles, tombstones: tombstones, remote: serverRemote,
+                syncFingerprints: fingerprintsEnabled, now: now)
+            if outcome.profilesChanged { manager.applySynced(outcome.profiles) }
+            tombstones = outcome.tombstones
+            fingerprintConflicts = outcome.fingerprintConflicts
+            entries += VaultSyncEngine.entries(for: outcome.profiles, tombstones: outcome.tombstones, syncFingerprints: fingerprintsEnabled)
+        } else {
+            entries += serverRemote
+        }
+
+        if profilesEnabled, let agents = agentProfiles {
+            let outcome = VaultCollectionEngine.reconcile(
+                prefix: SyncedProfile.prefix, local: SyncedProfile.outgoing(agents.profiles), remote: remote,
+                state: collectionState(Self.profileStateKey), now: now,
+                accept: { SyncedProfile.decode($0) != nil })
+            if !outcome.upserts.isEmpty || !outcome.deletes.isEmpty {
+                var list = agents.profiles
+                list.removeAll { outcome.deletes.contains($0.id) }
+                for item in outcome.upserts {
+                    guard let incoming = SyncedProfile.decode(item) else { continue }
+                    let i = list.firstIndex { $0.id == incoming.id }
+                    let merged = SyncedProfile.merged(incoming, into: i.map { list[$0] })
+                    if let i { list[i] = merged } else { list.append(merged) }
+                }
+                agents.applySynced(list)
+            }
+            setCollectionState(outcome.state, Self.profileStateKey)
+            entries += outcome.entries
+        } else {
+            entries += remote.filter { $0.id.hasPrefix(SyncedProfile.prefix) }
+        }
+
+        if snippetsEnabled {
+            let local = storedSnippets()
+            let outcome = VaultCollectionEngine.reconcile(
+                prefix: SyncedSnippet.prefix,
+                local: SyncedSnippet.outgoing(local.map { SyncedSnippet(id: $0.id, title: $0.title, command: $0.command, category: $0.category, tags: $0.tags) }),
+                remote: remote, state: collectionState(Self.snippetStateKey), now: now,
+                accept: { SyncedSnippet.decode($0) != nil })
+            if !outcome.upserts.isEmpty || !outcome.deletes.isEmpty {
+                var list = local
+                list.removeAll { outcome.deletes.contains($0.id) }
+                for item in outcome.upserts {
+                    guard let s = SyncedSnippet.decode(item) else { continue }
+                    let stored = StoredSnippet(id: s.id, title: s.title, command: s.command, category: s.category, tags: s.tags,
+                                               useCount: list.first { $0.id == s.id }?.useCount ?? 5)
+                    if let i = list.firstIndex(where: { $0.id == s.id }) { list[i] = stored } else { list.insert(stored, at: 0) }
+                }
+                storeSnippets(list)
+            }
+            setCollectionState(outcome.state, Self.snippetStateKey)
+            entries += outcome.entries
+        } else {
+            entries += remote.filter { $0.id.hasPrefix(SyncedSnippet.prefix) }
+        }
+
+        if entries.sorted(by: { $0.id < $1.id }) != remote.sorted(by: { $0.id < $1.id }) {
+            writeRemote(entries)
         }
         lastSync = now
+    }
+
+    // MARK: Launch profiles and snippets
+
+    static let profilesKey = "vault_sync_profiles"
+    static let snippetsKey = "vault_sync_snippets"
+    private static let profileStateKey = "vault_state_profiles"
+    private static let snippetStateKey = "vault_state_snippets"
+    private static let snippetsStorageKey = "ssh_app.custom_snippets.v1"
+
+    var profilesEnabled: Bool { defaults.object(forKey: Self.profilesKey) as? Bool ?? true }
+    var snippetsEnabled: Bool { defaults.object(forKey: Self.snippetsKey) as? Bool ?? true }
+    private weak var agentProfiles: AgentProfilesManager?
+
+    func attach(agentProfiles: AgentProfilesManager) {
+        self.agentProfiles = agentProfiles
+        sync()
+    }
+
+    /// The same record the snippets sheet keeps.
+    struct StoredSnippet: Codable, Equatable {
+        var id: String
+        var title: String
+        var command: String
+        var category: String
+        var tags: [String]
+        var useCount: UInt64
+    }
+
+    private func storedSnippets() -> [StoredSnippet] {
+        guard let data = defaults.data(forKey: Self.snippetsStorageKey) else { return [] }
+        return (try? JSONDecoder().decode([StoredSnippet].self, from: data)) ?? []
+    }
+
+    private func storeSnippets(_ list: [StoredSnippet]) {
+        if let data = try? JSONEncoder().encode(list) { defaults.set(data, forKey: Self.snippetsStorageKey) }
+    }
+
+    private func collectionState(_ key: String) -> CollectionState {
+        guard let data = defaults.data(forKey: key), let st = try? JSONDecoder().decode(CollectionState.self, from: data) else {
+            return CollectionState()
+        }
+        return st
+    }
+
+    private func setCollectionState(_ state: CollectionState, _ key: String) {
+        if let data = try? JSONEncoder().encode(state) { defaults.set(data, forKey: key) }
     }
 
     private func readRemote() -> [VaultEntry] {

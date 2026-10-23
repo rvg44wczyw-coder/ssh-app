@@ -373,5 +373,15 @@ public final class AgentProfilesManager: ObservableObject {
         if let data = try? JSONEncoder().encode(profiles) {
             UserDefaults.standard.set(data, forKey: Self.profilesKey)
         }
+        Task { @MainActor in VaultSync.shared.sync() }
+    }
+
+    /// The list after an iCloud sync (feature 43): replaces the profiles without syncing again.
+    func applySynced(_ list: [SavedAgentProfile]) {
+        profiles = list
+        if let id = autoStartProfileId, !list.contains(where: { $0.id == id }) { autoStartProfileId = nil }
+        if let data = try? JSONEncoder().encode(list) {
+            UserDefaults.standard.set(data, forKey: Self.profilesKey)
+        }
     }
 }

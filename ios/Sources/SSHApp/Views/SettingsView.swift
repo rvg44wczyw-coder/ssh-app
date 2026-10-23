@@ -807,18 +807,22 @@ private struct VaultSyncSection: View {
     @ObservedObject private var vault = VaultSync.shared
     @AppStorage(VaultSync.serversKey) private var syncServers = true
     @AppStorage(VaultSync.fingerprintsKey) private var syncFingerprints = false
+    @AppStorage(VaultSync.profilesKey) private var syncProfiles = true
+    @AppStorage(VaultSync.snippetsKey) private var syncSnippets = true
 
     var body: some View {
         Section(
             header: Text("iCloud sync"),
-            footer: Text("Servers (name, address, port, user) are shared with your other devices through iCloud Keychain, which needs iCloud Keychain to be on. Private keys never leave this device; each device has its own key. Pinned host fingerprints are not shared unless you turn that on: sharing them tells the other device to trust the same host key.")
+            footer: Text("Servers (name, address, port, user), launch profiles and snippets are shared with your other devices through iCloud Keychain, which needs iCloud Keychain to be on. Private keys never leave this device; each device has its own key. Environment values that look like secrets, profiles with a custom hook command and snippets that contain a secret stay on this device. Pinned host fingerprints are not shared unless you turn that on: sharing them tells the other device to trust the same host key.")
         ) {
+            Toggle("Sync launch profiles", isOn: $syncProfiles)
+            Toggle("Sync snippets", isOn: $syncSnippets)
             Toggle("Sync servers", isOn: $syncServers)
             Toggle("Also sync pinned host fingerprints", isOn: $syncFingerprints)
                 .disabled(!syncServers)
             Button("Sync now") { vault.sync() }
-                .disabled(!syncServers)
-            if let last = vault.lastSync, syncServers {
+                .disabled(!syncServers && !syncProfiles && !syncSnippets)
+            if let last = vault.lastSync, syncServers || syncProfiles || syncSnippets {
                 Text("Last synced \(last.formatted(date: .omitted, time: .shortened))")
                     .font(.caption).foregroundColor(.secondary)
             }

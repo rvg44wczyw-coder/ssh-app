@@ -319,6 +319,7 @@ public struct SnippetsSheetView: View {
         let codable = customSnippets.map { CodableSnippet(from: $0) }
         if let encoded = try? JSONEncoder().encode(codable) {
             UserDefaults.standard.set(encoded, forKey: customSnippetsStorageKey)
+            Task { @MainActor in VaultSync.shared.sync() }
         }
         newTitle = ""
         newCommand = ""
