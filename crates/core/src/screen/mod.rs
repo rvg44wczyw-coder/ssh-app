@@ -53,6 +53,10 @@ pub struct ScreenFeed {
     pub draft: Option<String>,
     /// A question on screen that waits for an answer.
     pub prompt: Option<ScreenPrompt>,
+    /// The `/btw` overlay (Claude Code): the side question and its answer.
+    pub aside: Option<ScreenAside>,
+    /// A full-screen dialog of a slash command (`/model`, `/permissions`, `/config`, `/mcp`, `/status`).
+    pub dialog: Option<ScreenDialog>,
 }
 
 /// Which agent's terminal UI the screen was recognised as.
@@ -76,15 +80,28 @@ pub fn parse_screen_feed(text: String) -> ScreenFeed {
     }
     let dialect = detect(&lines);
 
+    // A command's overlay or dialog is drawn over the bottom of the pane: it is its own thing, not
+    // a turn and not a question of the agent, so it is cut off first. The known dialogs are
+    // recognised by their title, so their numbered lists are never mistaken for a prompt.
+    let (mut aside, mut dialog) = (None, None);
+    if dialect == ScreenDialect::Claude {
+        if let Some((start, a)) = parse_aside(&lines) {
+            lines.truncate(start);
+            aside = Some(a);
+        } else if let Some((start, d)) = parse_dialog(&lines) {
+            lines.truncate(start.saturating_sub(1));
+            dialog = Some(d);
+        }
+    }
     // A menu replaces the input box: cut it off before anything else reads the lines.
-    let prompt = match parse_prompt(&lines) {
-        Some((start, p)) => {
+    let prompt = match (aside.is_some() || dialog.is_some(), parse_prompt(&lines)) {
+        (false, Some((start, p))) => {
             lines.truncate(start);
             Some(p)
         }
-        None => None,
+        _ => None,
     };
-    let (footer, draft) = if prompt.is_some() {
+    let (footer, draft) = if prompt.is_some() || aside.is_some() || dialog.is_some() {
         (lines.len(), None)
     } else {
         split_footer(&lines)
@@ -113,6 +130,8 @@ pub fn parse_screen_feed(text: String) -> ScreenFeed {
         status,
         draft,
         prompt,
+        aside,
+        dialog,
     }
 }
 
@@ -315,6 +334,9 @@ impl Builder {
 
 // MARK: questions the agent waits on
 
+mod dialog;
+use dialog::*;
+pub use dialog::{DialogKind, DialogRow, DialogTab, RowState, ScreenAside, ScreenDialog};
 mod prompt;
 use prompt::*;
 mod text;

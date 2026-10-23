@@ -944,3 +944,223 @@ fn a_real_styled_claude_reply_gets_bold_and_code_back() {
     assert!(text.contains("`docs/roadmap.md`:"), "{text}");
     assert!(!text.contains('\u{1b}'));
 }
+
+// Slash-command overlays and dialogs (feature 52). The captures are real Claude Code 2.1.308 panes
+// (100 columns), with the account's name and e-mail removed.
+
+const RULE: &str = "────────────────────────────────────────────────────────────────────────────────────────────────────";
+
+fn pane(lines: &[&str]) -> String {
+    let mut out = vec![
+        " ▐▛███▛█   Claude Code v2.1.308",
+        "▝▜██████▀  Sonnet 5.5 · Claude Pro",
+        "",
+        "❯ hello",
+        "",
+        "⏺ Hi there.",
+        "",
+    ];
+    out.extend_from_slice(lines);
+    out.join("\n")
+}
+
+#[test]
+fn btw_overlay_is_an_aside_not_a_turn() {
+    let pending = pane(&[
+        "❯ /btw what is 2+2",
+        "  /btw what is 2+2",
+        "    · Answering…",
+        "  Esc to close",
+    ]);
+    let f = parse_screen_feed(pending);
+    let a = f.aside.expect("aside");
+    assert_eq!(a.question, "what is 2+2");
+    assert!(a.pending && a.answer.is_empty() && !a.scrollable);
+    assert!(f.dialog.is_none() && f.prompt.is_none());
+    assert!(f
+        .turns
+        .iter()
+        .all(|t| !t.content.as_deref().unwrap_or("").contains("Answering")));
+
+    let done = pane(&[
+        "❯ /btw what is 2+2",
+        "  /btw what is 2+2",
+        "    2 + 2 = 4.",
+        "",
+        "    Done.",
+        "  ↑/↓ to scroll · c to copy · f to fork · Esc to close",
+    ]);
+    let a = parse_screen_feed(done).aside.expect("aside");
+    assert!(!a.pending && a.scrollable);
+    assert_eq!(a.answer, "2 + 2 = 4.\n\nDone.");
+}
+
+#[test]
+fn model_dialog_is_read_as_rows_with_the_cursor_and_the_current_one() {
+    let p = pane(&[
+        "❯ /model",
+        RULE,
+        "  Select model",
+        "  Switch between Claude models. Your pick becomes the default for new sessions.",
+        "    1.  Default (recommended)  Sonnet 5.5 · Efficient for routine tasks",
+        "    2.  Opus 5.5               For complex work and everyday tasks",
+        "  ❯ 3.  Sonnet 5.5 ✔           Most efficient for simpler tasks",
+        "    4.  Fable 5.1              For your toughest challenges",
+        "  ↓ 5.  Opus 4.8               Best for everyday, complex tasks",
+        "     … +3 models",
+        "  ◐ Medium effort (default) ←/→ to adjust",
+        "  Enter to set as default · s to use this session only · Esc to cancel",
+    ]);
+    let f = parse_screen_feed(p);
+    assert!(
+        f.prompt.is_none(),
+        "the list is not a question of the agent"
+    );
+    let d = f.dialog.expect("dialog");
+    assert_eq!(d.kind, DialogKind::Model);
+    assert_eq!(d.rows.len(), 5);
+    assert_eq!(d.selected, 2);
+    assert_eq!(d.rows[2].label, "Sonnet 5.5");
+    assert_eq!(d.rows[2].state, RowState::Current);
+    assert_eq!(d.rows[2].number, Some(3));
+    assert_eq!(d.rows[0].label, "Default (recommended)");
+    assert!(d.more_below && !d.more_above);
+    assert!(d.note.contains("Medium effort"));
+    assert!(d.hints.starts_with("Enter to set as default"));
+    // The dialog is not part of the feed; what came before it still is.
+    assert!(f
+        .turns
+        .iter()
+        .any(|t| t.content.as_deref() == Some("Hi there.")));
+    assert!(f
+        .turns
+        .iter()
+        .all(|t| !t.content.as_deref().unwrap_or("").contains("Select model")));
+}
+
+#[test]
+fn config_status_permissions_and_mcp_dialogs() {
+    let config = pane(&[
+        "❯ /config",
+        RULE,
+        "  Settings   Status   Config   Usage   Stats",
+        "  ╭────────────────────────────────╮",
+        "  │ ⌕ Search…                      │",
+        "  ╰────────────────────────────────╯",
+        "  ❯ Auto-compact                 true",
+        "    Reduce motion                false",
+        "    Time format                  auto ›",
+        "    ↓ 25 more",
+        "  Type to filter · Enter/↓ to select · ↑ to tabs · Esc to clear",
+    ]);
+    let d = parse_screen_feed(config).dialog.expect("config");
+    assert_eq!(d.kind, DialogKind::Config);
+    assert_eq!(d.search.as_deref(), Some(""));
+    assert_eq!(d.rows.len(), 3);
+    assert_eq!(d.rows[0].state, RowState::On);
+    assert_eq!(d.rows[1].state, RowState::Off);
+    assert_eq!(d.rows[2].value.as_deref(), Some("auto ›"));
+    assert!(d.more_below);
+    assert!(d.tabs.iter().any(|t| t.name == "Config" && t.active));
+
+    let status = pane(&[
+        "❯ /status",
+        RULE,
+        "  Settings   Status   Config   Usage   Stats",
+        "  Session ID:        aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        "  cwd:               /work/project",
+        "  Model:             sonnet (claude-sonnet-5-5)",
+        "  Esc to cancel",
+    ]);
+    let d = parse_screen_feed(status).dialog.expect("status");
+    assert_eq!(d.kind, DialogKind::Status);
+    assert_eq!(d.rows[1].label, "cwd");
+    assert_eq!(d.rows[1].value.as_deref(), Some("/work/project"));
+
+    let perms = pane(&[
+        "❯ /permissions",
+        RULE,
+        "  Permissions  Recently denied   Allow   Ask   Deny   Auto mode   Workspace",
+        "  Claude Code won't ask before using allowed tools.",
+        "    1.  Add a new rule…",
+        "  ❯ 2.  Bash(gofmt *)",
+        "  ↓ 3.  Bash(gofmt)",
+        "  ←/→ to switch · ↓ to select · Esc to cancel",
+    ]);
+    let d = parse_screen_feed(perms).dialog.expect("permissions");
+    assert_eq!(d.kind, DialogKind::Permissions);
+    assert_eq!((d.rows.len(), d.selected), (3, 1));
+    assert!(d.tabs.iter().any(|t| t.name == "Deny"));
+
+    let mcp = pane(&[
+        "❯ /mcp",
+        RULE,
+        "  Manage MCP servers",
+        "  3 servers",
+        "    claude.ai",
+        "  ❯ ✔ claude.ai Docs                8 tools",
+        "    Built-in MCPs (always available)",
+        "    ◯ computer-use",
+        "    ⚠ plugin:design:figma             needs authentication",
+        "  https://code.claude.com/docs/en/mcp for help",
+        " ↑/↓ to navigate · Enter to confirm · Esc to cancel",
+    ]);
+    let d = parse_screen_feed(mcp).dialog.expect("mcp");
+    assert_eq!(d.kind, DialogKind::Mcp);
+    let states: Vec<_> = d.rows.iter().map(|r| r.state.clone()).collect();
+    assert_eq!(
+        states,
+        [
+            RowState::Header,
+            RowState::Current,
+            RowState::Header,
+            RowState::Off,
+            RowState::Warning
+        ]
+    );
+    assert_eq!(d.selected, 1);
+    assert_eq!(d.rows[4].detail, "needs authentication");
+}
+
+#[test]
+fn a_permission_question_and_unknown_footers_are_not_dialogs() {
+    let q = pane(&[
+        RULE,
+        " Bash command",
+        "   git push origin main",
+        " Do you want to proceed?",
+        " ❯ 1. Yes",
+        "   2. No",
+        " ↑/↓ to navigate · Enter to select · Esc to cancel",
+    ]);
+    let f = parse_screen_feed(q);
+    assert!(f.dialog.is_none() && f.aside.is_none());
+    assert!(f.prompt.is_some());
+
+    // An unknown screen with the same footer stays what it was.
+    let other = pane(&[RULE, "  Something else", "    1.  a", "  Esc to cancel"]);
+    assert!(parse_screen_feed(other).dialog.is_none());
+
+    // The ordinary input box is not a dialog, whatever the last line says.
+    let idle = pane(&[
+        RULE,
+        "❯ ",
+        RULE,
+        "  Sonnet 5.5 · 5h 7%",
+        "  ⏵⏵ auto mode on (shift+tab to cycle)",
+    ]);
+    let f = parse_screen_feed(idle);
+    assert!(f.dialog.is_none() && f.aside.is_none());
+}
+
+#[test]
+fn dialog_text_is_capped() {
+    let long = "x".repeat(5000);
+    let rows: Vec<String> = (1..=50).map(|i| format!("    {i}.  {long}")).collect();
+    let mut lines: Vec<&str> = vec!["❯ /permissions", RULE, "  Permissions  Allow   Deny"];
+    lines.extend(rows.iter().map(String::as_str));
+    lines.push("  Esc to cancel");
+    let d = parse_screen_feed(pane(&lines)).dialog.expect("dialog");
+    assert_eq!(d.rows.len(), 50);
+    assert!(d.rows.iter().all(|r| r.label.chars().count() <= 200));
+}
