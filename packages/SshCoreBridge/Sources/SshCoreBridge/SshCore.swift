@@ -877,6 +877,134 @@ public func FfiConverterTypeFeedState_lower(_ value: FeedState) -> UInt64 {
 
 
 /**
+ * Handle of a running `watch_feed` stream.
+ */
+public protocol FeedWatchProtocol: AnyObject, Sendable {
+    
+    /**
+     * Ends the stream (idempotent); `on_closed` follows.
+     */
+    func stop() 
+    
+}
+/**
+ * Handle of a running `watch_feed` stream.
+ */
+open class FeedWatch: FeedWatchProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_ssh_core_fn_clone_feedwatch(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_ssh_core_fn_free_feedwatch(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * Ends the stream (idempotent); `on_closed` follows.
+     */
+open func stop()  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_method_feedwatch_stop(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+}
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFeedWatch: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = FeedWatch
+
+    public static func lift(_ handle: UInt64) throws -> FeedWatch {
+        return FeedWatch(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: FeedWatch) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FeedWatch {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: FeedWatch, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFeedWatch_lift(_ handle: UInt64) throws -> FeedWatch {
+    return try FfiConverterTypeFeedWatch.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFeedWatch_lower(_ value: FeedWatch) -> UInt64 {
+    return FfiConverterTypeFeedWatch.lower(value)
+}
+
+
+
+
+
+
+/**
  * Handle of a running `watch_host_agent` stream.
  */
 public protocol HostAgentWatchProtocol: AnyObject, Sendable {
@@ -1659,6 +1787,14 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
      * One host-side script for a whole Compose project; stops at the first failure.
      */
     func runtimeStackAction(runtime: ContainerRuntime, action: DockerAction, containerIds: [String]) async throws  -> StackOutcome
+    
+    /**
+     * Streams the feed of a tmux session: new lines of its session file (`remote_path`, the one
+     * `detect_session_transcript_path` found) as changes of `state`, and the tail of the pane as
+     * live text. One exec channel stays open and the host writes only when something changed;
+     * closing the connection (the app in the background) stops it. Resume with the last cursor.
+     */
+    func watchFeed(sessionName: String, remotePath: String, state: FeedState, cursor: FeedCursor?, listener: FeedListener) async throws  -> FeedWatch
     
     /**
      * Puts the chosen hunks in the index (or takes them out again with `unstage`); the working
@@ -2697,6 +2833,28 @@ open func runtimeStackAction(runtime: ContainerRuntime, action: DockerAction, co
             completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
             freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
             liftFunc: FfiConverterTypeStackOutcome_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Streams the feed of a tmux session: new lines of its session file (`remote_path`, the one
+     * `detect_session_transcript_path` found) as changes of `state`, and the tail of the pane as
+     * live text. One exec channel stays open and the host writes only when something changed;
+     * closing the connection (the app in the background) stops it. Resume with the last cursor.
+     */
+open func watchFeed(sessionName: String, remotePath: String, state: FeedState, cursor: FeedCursor?, listener: FeedListener)async throws  -> FeedWatch  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_watch_feed(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(sessionName),FfiConverterString.lower(remotePath),FfiConverterTypeFeedState_lower(state),FfiConverterOptionTypeFeedCursor.lower(cursor),FfiConverterCallbackInterfaceFeedListener_lower(listener)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_u64,
+            completeFunc: ffi_ssh_core_rust_future_complete_u64,
+            freeFunc: ffi_ssh_core_rust_future_free_u64,
+            liftFunc: FfiConverterTypeFeedWatch_lift,
             errorHandler: FfiConverterTypeSshCoreError_lift
         )
 }
@@ -17322,6 +17480,206 @@ public func FfiConverterTypeWslNetworkRoute_lower(_ value: WslNetworkRoute) -> R
 
 
 /**
+ * Receives what the feed stream reports.
+ */
+public protocol FeedListener: AnyObject, Sendable {
+    
+    /**
+     * Turns changed; the `FeedState` given to `watch_feed` already holds them. `cursor` is where
+     * the host has read to (keep it to resume after the app was in the background).
+     */
+    func onChange(change: FeedChange, cursor: FeedCursor) 
+    
+    /**
+     * The last lines of the pane changed (status line, input box, questions, dialogs).
+     */
+    func onLive(text: String) 
+    
+    /**
+     * The stream ended (the connection dropped, `stop`, or the host said bye); no more events.
+     */
+    func onClosed() 
+    
+}
+
+
+// Put the implementation in a struct so we don't pollute the top-level namespace
+fileprivate struct UniffiCallbackInterfaceFeedListener {
+
+    // Create the VTable using a series of closures.
+    // Swift automatically converts these into C callback functions.
+    //
+    // Store the vtable directly.
+    static let vtable: UniffiVTableCallbackInterfaceFeedListener = UniffiVTableCallbackInterfaceFeedListener(
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            do {
+                try FfiConverterCallbackInterfaceFeedListener.handleMap.remove(handle: uniffiHandle)
+            } catch {
+                print("Uniffi callback interface FeedListener: handle missing in uniffiFree")
+            }
+        },
+        uniffiClone: { (uniffiHandle: UInt64) -> UInt64 in
+            do {
+                return try FfiConverterCallbackInterfaceFeedListener.handleMap.clone(handle: uniffiHandle)
+            } catch {
+                fatalError("Uniffi callback interface FeedListener: handle missing in uniffiClone")
+            }
+        },
+        onChange: { (
+            uniffiHandle: UInt64,
+            change: RustBuffer,
+            cursor: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceFeedListener.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onChange(
+                     change: try FfiConverterTypeFeedChange_lift(change),
+                     cursor: try FfiConverterTypeFeedCursor_lift(cursor)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        onLive: { (
+            uniffiHandle: UInt64,
+            text: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceFeedListener.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onLive(
+                     text: try FfiConverterString.lift(text)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        onClosed: { (
+            uniffiHandle: UInt64,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceFeedListener.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onClosed(
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        }
+    )
+
+    // Rust stores this pointer for future callback invocations, so it must live
+    // for the process lifetime (not just for the init function call).
+    //
+    // `nonisolated(unsafe)` is needed under Swift 6 strict concurrency.
+    // This is safe because the pointee is initialized once during static init
+    // and never mutated by either side of the FFI.  Its fields are C function pointers.
+    nonisolated(unsafe) static let vtablePtr: UnsafePointer<UniffiVTableCallbackInterfaceFeedListener> = {
+        let ptr = UnsafeMutablePointer<UniffiVTableCallbackInterfaceFeedListener>.allocate(capacity: 1)
+        ptr.initialize(to: vtable)
+        return UnsafePointer(ptr)
+    }()
+}
+
+private func uniffiCallbackInitFeedListener() {
+    uniffi_ssh_core_fn_init_callback_vtable_feedlistener(UniffiCallbackInterfaceFeedListener.vtablePtr)
+}
+
+// FfiConverter protocol for callback interfaces
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterCallbackInterfaceFeedListener {
+    fileprivate static let handleMap = UniffiHandleMap<FeedListener>()
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+extension FfiConverterCallbackInterfaceFeedListener : FfiConverter {
+    typealias SwiftType = FeedListener
+    typealias FfiType = UInt64
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func lift(_ handle: UInt64) throws -> SwiftType {
+        try handleMap.get(handle: handle)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func lower(_ v: SwiftType) -> UInt64 {
+        return handleMap.insert(obj: v)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func write(_ v: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(v))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterCallbackInterfaceFeedListener_lift(_ handle: UInt64) throws -> FeedListener {
+    return try FfiConverterCallbackInterfaceFeedListener.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterCallbackInterfaceFeedListener_lower(_ v: FeedListener) -> UInt64 {
+    return FfiConverterCallbackInterfaceFeedListener.lower(v)
+}
+
+
+
+
+/**
  * Receives the live state changes of `watch_host_agent`.
  */
 public protocol HostAgentListener: AnyObject, Sendable {
@@ -22121,6 +22479,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_method_hostagentwatch_stop() != 8202) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_method_feedwatch_stop() != 44384) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_method_portforwardhandle_get_active_connections() != 25377) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -22242,6 +22603,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_runtime_stack_action() != 29552) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_watch_feed() != 56938) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_apply_git_hunks() != 27098) {
@@ -22514,6 +22878,15 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_method_hostagentlistener_on_closed() != 29351) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_method_feedlistener_on_change() != 53566) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_feedlistener_on_live() != 31136) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_feedlistener_on_closed() != 949) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_method_transferprogress_on_progress() != 17866) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -22530,6 +22903,7 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
 
+    uniffiCallbackInitFeedListener()
     uniffiCallbackInitHostAgentListener()
     uniffiCallbackInitSshSessionCallback()
     uniffiCallbackInitTransferProgress()

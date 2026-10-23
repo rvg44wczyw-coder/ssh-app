@@ -413,16 +413,25 @@ public struct StructuredTranscriptView: View {
             if adopting { adopting = false } else { scheduleDraftSync() }
         }
         .onChange(of: viewModel.screenDraft) { _, new in draftChanged(new) }
-        // Live tail: only while this view is on screen (the task ends with it).
+        // Live tail: only while this view is on screen (the task ends with it). The host pushes
+        // changes over one open channel; this loop only keeps that channel alive and, when it
+        // cannot run (Zellij, no agent file, a host without a shell), falls back to polling:
+        // 3 s while the transcript moves; 5 s, then 10 s when it stands still.
         .task {
-            // 3 s while the transcript moves; 5 s, then 10 s when it stands still (each poll is a
-            // remote command, a parse and a layout: that is what warms the phone).
             var quiet = 0
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(quiet >= 6 ? 10 : (quiet >= 2 ? 5 : 3)))
-                quiet = await viewModel.reloadTranscriptQuietly() ? 0 : quiet + 1
+                await viewModel.ensureFeedStream()
+                if viewModel.feedStreaming {
+                    try? await Task.sleep(for: .seconds(20))   // a safety look; events do the work
+                    _ = await viewModel.reloadTranscriptQuietly()
+                    quiet = 0
+                } else {
+                    try? await Task.sleep(for: .seconds(quiet >= 6 ? 10 : (quiet >= 2 ? 5 : 3)))
+                    quiet = await viewModel.reloadTranscriptQuietly() ? 0 : quiet + 1
+                }
             }
         }
+        .onDisappear { viewModel.stopFeedStream() }
     }
 
     private func uploadChip(_ u: FeedUpload) -> some View {

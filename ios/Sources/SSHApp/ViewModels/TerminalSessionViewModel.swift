@@ -119,6 +119,12 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     private let fileFeed = FeedState()
     private var fileCursor: FeedCursor?
     private var fileFeedPath: String?
+    /// The host pushes changes of the session file and of the pane's tail over one open channel
+    /// (`watch_feed`); while it runs nothing is polled.
+    private var feedWatch: FeedWatch?
+    @Published public private(set) var feedStreaming = false
+    private var streamReloadPending = false
+    private var lastStreamAttempt: Date?
     /// The live core session, for host-side management actions (e.g. agent hook install).
     public var sessionHandle: SshSessionHandle? { handle }
     /// Host key fingerprint pinned for this tab's server (nil = trust on first use).
@@ -555,6 +561,8 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     /// The session file as turns, read by cursor: after the first read only the new lines travel and
     /// are added to `fileFeed`; a replaced or shortened file starts again. `fresh` forgets the cursor.
     private func syncFileTurns(_ handle: SshSessionHandle, _ path: String, fresh: Bool = false) async -> [TranscriptTurn]? {
+        // The stream feeds `fileFeed` itself: reading too would add the same lines twice.
+        if feedStreaming, !fresh, fileFeedPath == path { return fileFeed.turns() }
         if fresh || fileFeedPath != path {
             fileFeed.reset()
             fileCursor = nil
@@ -565,6 +573,58 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         _ = fileFeed.applyChunk(chunk: read.text)
         fileCursor = read.cursor
         return fileFeed.turns()
+    }
+
+    /// Starts the push stream of this tab's feed when it can run: tmux, a connected session and an
+    /// agent whose session file is known. Safe to call often; it restarts when the file changed.
+    public func ensureFeedStream() async {
+        guard let handle, state == .connected, multiplexer == .tmux else { return }
+        // Looking for the agent's file walks the host's processes: not more often than every 20 s.
+        if let last = lastStreamAttempt, Date().timeIntervalSince(last) < 20 { return }
+        lastStreamAttempt = Date()
+        guard let found = try? await handle.detectSessionTranscriptPathIn(sessionName: session.sessionName, kind: multiplexer) else { return }
+        if feedStreaming, fileFeedPath == found { return }
+        stopFeedStream()
+        if fileFeedPath != found {
+            fileFeed.reset()
+            fileCursor = nil
+            fileFeedPath = found
+        }
+        let bridge = FeedStreamBridge(self)
+        do {
+            feedWatch = try await handle.watchFeed(sessionName: session.sessionName, remotePath: found, state: fileFeed, cursor: fileCursor, listener: bridge)
+            feedStreaming = true
+        } catch {
+            feedStreaming = false
+        }
+    }
+
+    public func stopFeedStream() {
+        lastStreamAttempt = nil
+        feedWatch?.stop()
+        feedWatch = nil
+        feedStreaming = false
+    }
+
+    fileprivate func streamChanged(_ cursor: FeedCursor) {
+        fileCursor = cursor
+        scheduleStreamReload()
+    }
+
+    /// An event arrived: read the screen once (coalescing bursts), no timer involved.
+    fileprivate func scheduleStreamReload() {
+        guard !streamReloadPending else { return }
+        streamReloadPending = true
+        Task {
+            try? await Task.sleep(for: .milliseconds(150))
+            streamReloadPending = false
+            _ = await reloadTranscriptQuietly()
+        }
+    }
+
+    fileprivate func streamClosed() {
+        feedWatch = nil
+        feedStreaming = false
     }
 
     /// Which container runtimes (and Kubernetes) the host has; `nil` when the host could not be asked.
@@ -770,6 +830,11 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     private func fileTurnsForThinking(_ handle: SshSessionHandle, force: Bool, screen: String) async -> [TranscriptTurn] {
         // New turns on the screen: read the file now, so their thinking appears with them and does
         // not jump in later (and shift the text) when the 15 s refresh comes.
+        if feedStreaming {
+            let turns = fileFeed.turns()
+            thinkingTurns = transcriptMatchesScreen(file: turns, screen: screen) ? turns : []
+            return thinkingTurns
+        }
         if !force, let last = lastThinkingRead, Date().timeIntervalSince(last) < 15 { return thinkingTurns }
         lastThinkingRead = Date()
         didReadFile = true
@@ -983,5 +1048,21 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
             self.errorMessage = message
             self.state = .failed(reason: message)
         }
+    }
+}
+
+
+/// Carries the stream's events to the main actor.
+private final class FeedStreamBridge: FeedListener {
+    private weak var vm: TerminalSessionViewModel?
+    init(_ vm: TerminalSessionViewModel) { self.vm = vm }
+    func onChange(change: FeedChange, cursor: FeedCursor) {
+        Task { @MainActor in vm?.streamChanged(cursor) }
+    }
+    func onLive(text: String) {
+        Task { @MainActor in vm?.scheduleStreamReload() }
+    }
+    func onClosed() {
+        Task { @MainActor in vm?.streamClosed() }
     }
 }
