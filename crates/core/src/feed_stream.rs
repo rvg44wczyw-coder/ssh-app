@@ -56,8 +56,19 @@ return 0"#,
         helper = crate::usage::HELPER_PATH_EXPR,
         digest = crate::hostprobe::SHA256_OF_H,
     );
-    let script = stream_script_around(tmux, &delta);
-    format!("sess=$1\n{script}")
+    // Without the pinned helper, or before the agent has a conversation for this folder, the stream
+    // says bye at once and the app keeps reading the session file.
+    let preamble = format!(
+        r#"sess=$1; PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"; export PATH
+h={helper}
+if [ ! -f "$h" ] || [ -L "$h" ] || [ "{digest}" != '{sha256}' ]; then echo '{{"ev":"bye","why":"nohelper"}}'; exit 0; fi
+cwd=$({tmux} display -p -t "=$sess:" '#{{pane_current_path}}' 2>/dev/null)
+[ -n "$cwd" ] && "$h" agy-conv "$cwd" --raw >/dev/null 2>&1 || {{ echo '{{"ev":"bye","why":"noconv"}}'; exit 0; }}
+"#,
+        helper = crate::usage::HELPER_PATH_EXPR,
+        digest = crate::hostprobe::SHA256_OF_H,
+    );
+    format!("{preamble}{}", stream_script_around(tmux, &delta))
 }
 
 fn stream_script_around(tmux: &str, delta: &str) -> String {
@@ -712,15 +723,25 @@ mod tests {
         let _ = child.kill();
         let _ = child.wait();
 
-        // Another digest: no conversation events at all, the pane still streams.
+        // Another digest: the helper is not run, the stream says bye and the app falls back.
         let (mut child, rx) = start_agy(&p, &home, &"0".repeat(64), ("-", "-"));
-        wait_for(&rx, "live", |e| matches!(e, StreamEvent::Live { .. }));
-        assert!(
-            rx.recv_timeout(Duration::from_millis(1000))
-                .map_or(true, |e| !matches!(e, StreamEvent::Delta(_))),
-            "an unpinned helper must not be run"
+        assert_eq!(
+            wait_for(&rx, "bye", |e| matches!(e, StreamEvent::Bye { .. })),
+            StreamEvent::Bye {
+                why: "nohelper".into()
+            }
         );
-        let _ = child.kill();
+        let _ = child.wait();
+
+        // Pinned helper but no conversation for the folder yet.
+        std::fs::remove_file(home.join("conv")).expect("rm");
+        let (mut child, rx) = start_agy(&p, &home, &sha, ("-", "-"));
+        assert_eq!(
+            wait_for(&rx, "bye", |e| matches!(e, StreamEvent::Bye { .. })),
+            StreamEvent::Bye {
+                why: "noconv".into()
+            }
+        );
         let _ = child.wait();
     }
 
