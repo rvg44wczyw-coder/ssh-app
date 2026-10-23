@@ -75,7 +75,7 @@ pub fn parse_delta_output(out: &str) -> Result<Option<FeedRead>, SshCoreError> {
 }
 
 /// `check_path: false` only in tests, whose temporary folders are under the blocked `/var`.
-fn parse_inner(out: &str, check_path: bool) -> Result<Option<FeedRead>, SshCoreError> {
+pub(crate) fn parse_inner(out: &str, check_path: bool) -> Result<Option<FeedRead>, SshCoreError> {
     if out.trim_start().starts_with("NOFILE") {
         return Ok(None);
     }

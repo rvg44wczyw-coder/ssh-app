@@ -305,6 +305,8 @@ pub(crate) fn parse_attachment_path(out: &str) -> Option<String> {
 
 mod approvals;
 mod docker_ops;
+mod feed_watch;
+pub use feed_watch::{FeedListener, FeedWatch};
 mod git;
 mod helper_install;
 mod hooks;

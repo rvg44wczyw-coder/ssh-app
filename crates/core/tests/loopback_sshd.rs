@@ -4530,3 +4530,211 @@ fn pairing_with_a_password_checks_the_host_key_before_the_password_is_sent() {
         .is_err());
     });
 }
+
+struct FeedEvents {
+    changes: Arc<std::sync::Mutex<Vec<ssh_core::feed::FeedChange>>>,
+    cursors: Arc<std::sync::Mutex<Vec<ssh_core::feed_read::FeedCursor>>>,
+    live: Arc<std::sync::Mutex<Vec<String>>>,
+    closed: Arc<std::sync::atomic::AtomicBool>,
+}
+impl ssh_core::FeedListener for FeedEvents {
+    fn on_change(
+        &self,
+        change: ssh_core::feed::FeedChange,
+        cursor: ssh_core::feed_read::FeedCursor,
+    ) {
+        self.changes.lock().unwrap().push(change);
+        self.cursors.lock().unwrap().push(cursor);
+    }
+    fn on_live(&self, text: String) {
+        self.live.lock().unwrap().push(text);
+    }
+    fn on_closed(&self) {
+        self.closed.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+fn wait_until(what: &str, mut f: impl FnMut() -> bool) {
+    let end = Instant::now() + Duration::from_secs(15);
+    while Instant::now() < end {
+        if f() {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    panic!("timed out: {what}");
+}
+
+#[test]
+fn event_feed_and_stable_capture_against_loopback_sshd() {
+    use ssh_core::feed::FeedState;
+    use std::io::Write;
+    use std::sync::atomic::Ordering;
+    let Some(server) = start_sshd() else {
+        eprintln!("SKIP: sshd/ssh-keygen/tmux unavailable");
+        return;
+    };
+    let handle = connect(&server);
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    // The transcript path must pass the app's checks (not under /var): a throwaway folder in the
+    // user's cache, removed at the end.
+    let home = std::env::var("HOME").expect("HOME");
+    let dir = PathBuf::from(&home).join(format!(".cache/ssh-app-itest-feed-{}", server.port));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("s.jsonl");
+    let user = |n: usize| {
+        format!("{{\"type\":\"user\",\"message\":{{\"role\":\"user\",\"content\":\"m{n}\"}}}}\n")
+    };
+    std::fs::write(&file, format!("{}{}", user(1), user(2))).unwrap();
+    // The sshd-side tmux is the test's private server (TMUX_TMPDIR in sshd's SetEnv).
+    assert!(server
+        .tmux()
+        .args([
+            "new-session",
+            "-d",
+            "-s",
+            "lb-feed",
+            "-x",
+            "100",
+            "-y",
+            "24",
+            "sh"
+        ])
+        .status()
+        .unwrap()
+        .success());
+
+    let ev = FeedEvents {
+        changes: Default::default(),
+        cursors: Default::default(),
+        live: Default::default(),
+        closed: Default::default(),
+    };
+    let (changes, cursors, live, closed) = (
+        ev.changes.clone(),
+        ev.cursors.clone(),
+        ev.live.clone(),
+        ev.closed.clone(),
+    );
+    let state = Arc::new(FeedState::new());
+    let path = file.to_string_lossy().to_string();
+    let watch = rt
+        .block_on(handle.watch_feed(
+            "lb-feed".into(),
+            path.clone(),
+            state.clone(),
+            None,
+            Box::new(ev),
+        ))
+        .expect("watch_feed");
+
+    wait_until("first read", || state.turns().len() == 2);
+    assert_eq!(changes.lock().unwrap()[0].added.len(), 2);
+
+    // The pane's tail arrives as live text.
+    assert!(server
+        .tmux()
+        .args(["send-keys", "-t", "lb-feed", "echo feed-marker", "Enter"])
+        .status()
+        .unwrap()
+        .success());
+    wait_until("live text", || {
+        live.lock()
+            .unwrap()
+            .iter()
+            .any(|t| t.contains("feed-marker"))
+    });
+
+    // A new line of the file arrives as a change with only the new turn.
+    let mut h = std::fs::OpenOptions::new()
+        .append(true)
+        .open(&file)
+        .unwrap();
+    h.write_all(user(3).as_bytes()).unwrap();
+    wait_until("append", || state.turns().len() == 3);
+    let last = changes.lock().unwrap().last().cloned().unwrap();
+    assert_eq!(
+        (last.added.len(), last.updated.len(), last.total),
+        (1, 0, 3)
+    );
+
+    // The stream ends when asked, and a new stream resumes from the cursor without a repeat.
+    let cursor = *cursors.lock().unwrap().last().unwrap();
+    watch.stop();
+    wait_until("closed", || closed.load(Ordering::SeqCst));
+    h.write_all(user(4).as_bytes()).unwrap();
+    let ev2 = FeedEvents {
+        changes: Default::default(),
+        cursors: Default::default(),
+        live: Default::default(),
+        closed: Default::default(),
+    };
+    let changes2 = ev2.changes.clone();
+    let watch2 = rt
+        .block_on(handle.watch_feed(
+            "lb-feed".into(),
+            path.clone(),
+            state.clone(),
+            Some(cursor),
+            Box::new(ev2),
+        ))
+        .expect("watch_feed again");
+    wait_until("resume", || state.turns().len() == 4);
+    assert_eq!(
+        changes2.lock().unwrap()[0].added.len(),
+        1,
+        "only the missed line, no repeat"
+    );
+    watch2.stop();
+
+    // A bad path or session name is refused before anything runs.
+    assert!(rt
+        .block_on(handle.watch_feed(
+            "lb-feed".into(),
+            "../x".into(),
+            state.clone(),
+            None,
+            Box::new(FeedEvents {
+                changes: Default::default(),
+                cursors: Default::default(),
+                live: Default::default(),
+                closed: Default::default()
+            })
+        ))
+        .is_err());
+
+    // Stable, compressed capture: the whole history comes back and a known checksum gives "same".
+    let big = dir.join("big.txt");
+    std::fs::write(&big, "line of an answer with some words\n".repeat(300)).unwrap();
+    assert!(server
+        .tmux()
+        .args([
+            "send-keys",
+            "-t",
+            "lb-feed",
+            &format!("cat '{}'", big.display()),
+            "Enter"
+        ])
+        .status()
+        .unwrap()
+        .success());
+    std::thread::sleep(Duration::from_millis(800));
+    let kind = ssh_core::multiplexer::MultiplexerKind::Tmux;
+    rt.block_on(async {
+        let first = handle
+            .capture_session_screen_in("lb-feed".into(), None, kind)
+            .await
+            .unwrap();
+        let text = first.text.clone().expect("text");
+        assert!(text.lines().count() > 250, "the whole history");
+        let again = handle
+            .capture_session_screen_in("lb-feed".into(), Some(first.checksum.clone()), kind)
+            .await
+            .unwrap();
+        assert!(again.text.is_none(), "same checksum gives same");
+    });
+    let _ = std::fs::remove_dir_all(&dir);
+}
