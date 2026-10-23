@@ -1789,6 +1789,13 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func runtimeStackAction(runtime: ContainerRuntime, action: DockerAction, containerIds: [String]) async throws  -> StackOutcome
     
     /**
+     * Like `watch_feed` for an Antigravity tab: the conversation is read from the agent's own
+     * database by the pinned host helper (`helper_sha256`, as for `watch_host_agent`). The helper
+     * must be installed; otherwise the stream ends at once and the caller keeps its fallback.
+     */
+    func watchAgyFeed(sessionName: String, helperSha256: String, state: FeedState, cursor: FeedCursor?, listener: FeedListener) async throws  -> FeedWatch
+    
+    /**
      * Streams the feed of a tmux session: new lines of its session file (`remote_path`, the one
      * `detect_session_transcript_path` found) as changes of `state`, and the tail of the pane as
      * live text. One exec channel stays open and the host writes only when something changed;
@@ -2833,6 +2840,27 @@ open func runtimeStackAction(runtime: ContainerRuntime, action: DockerAction, co
             completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
             freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
             liftFunc: FfiConverterTypeStackOutcome_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Like `watch_feed` for an Antigravity tab: the conversation is read from the agent's own
+     * database by the pinned host helper (`helper_sha256`, as for `watch_host_agent`). The helper
+     * must be installed; otherwise the stream ends at once and the caller keeps its fallback.
+     */
+open func watchAgyFeed(sessionName: String, helperSha256: String, state: FeedState, cursor: FeedCursor?, listener: FeedListener)async throws  -> FeedWatch  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_watch_agy_feed(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(sessionName),FfiConverterString.lower(helperSha256),FfiConverterTypeFeedState_lower(state),FfiConverterOptionTypeFeedCursor.lower(cursor),FfiConverterCallbackInterfaceFeedListener_lower(listener)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_u64,
+            completeFunc: ffi_ssh_core_rust_future_complete_u64,
+            freeFunc: ffi_ssh_core_rust_future_free_u64,
+            liftFunc: FfiConverterTypeFeedWatch_lift,
             errorHandler: FfiConverterTypeSshCoreError_lift
         )
 }
@@ -22603,6 +22631,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_runtime_stack_action() != 29552) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_watch_agy_feed() != 29763) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_watch_feed() != 56938) {
