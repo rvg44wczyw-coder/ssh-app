@@ -242,6 +242,11 @@ public struct StructuredTranscriptView: View {
                                tab: { viewModel.moveTab(back: $0) })
             }
 
+            if let aside = viewModel.screenAside {
+                FeedAsideCard(aside: aside, close: { viewModel.closeOverlay() },
+                              more: { viewModel.sendDialogKeys([[0x1b, 0x5b, 0x36, 0x7e]]) })
+            }
+
             if let status = viewModel.screenStatus {
                 // Only a loader: the agent's own "Thinking… (12s)" line says nothing the icon does not.
                 ProgressView()
@@ -291,6 +296,10 @@ public struct StructuredTranscriptView: View {
                             .foregroundColor(.appAccent)
                     }
                     .disabled(viewModel.sessionHandle == nil || viewModel.state != .connected)
+                    if viewModel.session.agentType == .claudeCode {
+                        AgentCommandsMenu { viewModel.runAgentCommand($0) }
+                            .disabled(viewModel.sessionHandle == nil || viewModel.state != .connected)
+                    }
                     TextField("Message…", text: $promptText, axis: .vertical)
                         .lineLimit(editorExpanded ? 8...16 : 1...6)
                         .focused($inputFocused)
@@ -360,6 +369,13 @@ public struct StructuredTranscriptView: View {
 
     private func decorated<V: View>(_ content: V) -> some View {
         content
+        .sheet(isPresented: Binding(get: { viewModel.screenDialog != nil },
+                                    set: { if !$0 { viewModel.closeOverlay() } })) {
+            if let dialog = viewModel.screenDialog {
+                CommandScreenView(dialog: dialog, send: { viewModel.sendDialogKeys($0) }, close: { viewModel.closeOverlay() })
+                    .presentationDetents([.medium, .large])
+            }
+        }
         .photosPicker(isPresented: $showPhotoPicker, selection: $pickedPhotos, maxSelectionCount: 6,
                       matching: .any(of: [.images, .videos]))
         .onChange(of: pickedPhotos) { _, items in

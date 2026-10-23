@@ -66,6 +66,9 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     }
     /// A question the agent waits on (permission, choice), read from the screen; shown as a card.
     @Published public var screenPrompt: ScreenPrompt? = nil
+    /// The `/btw` overlay and the dialog of a slash command, as the pane shows them right now.
+    @Published public var screenAside: ScreenAside? = nil
+    @Published public var screenDialog: ScreenDialog? = nil
     /// What is typed in the agent's input box and not sent (read from the screen).
     @Published public var screenDraft: String? = nil
     /// Repository, branch and worktree of the tab's folder, for the feed header.
@@ -526,6 +529,37 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         if turns != transcriptTurns { transcriptTurns = turns }
     }
 
+    /// Types a slash command of the agent at its prompt (the line is cleared first); its dialog
+    /// then shows up on the next screen read.
+    public func runAgentCommand(_ command: String) {
+        guard command.hasPrefix("/"), command.allSatisfy({ $0.isLetter || $0 == "/" || $0 == "-" }) else { return }
+        sendInput(Data([0x15]) + Data(command.utf8) + Data([0x0d]))
+        Task {
+            try? await Task.sleep(for: .milliseconds(600))
+            _ = await reloadTranscriptQuietly()
+        }
+    }
+
+    /// Fixed keys for a dialog (never text of a row); the screen is read again afterwards.
+    public func sendDialogKeys(_ keys: [[UInt8]]) {
+        for k in keys { sendInput(Data(k)) }
+        Task {
+            try? await Task.sleep(for: .milliseconds(500))
+            _ = await reloadTranscriptQuietly()
+        }
+    }
+
+    /// Leaves a dialog or the `/btw` overlay (Esc) and forgets it here at once.
+    public func closeOverlay() {
+        sendInput(Data([0x1b]))
+        screenDialog = nil
+        screenAside = nil
+        Task {
+            try? await Task.sleep(for: .milliseconds(500))
+            _ = await reloadTranscriptQuietly()
+        }
+    }
+
     public func watchPromptOnce() async {
         guard let handle = handle, state == .connected else { return }
         guard let cap = try? await handle.captureSessionScreenIn(sessionName: session.sessionName, knownSum: watchedSum, kind: multiplexer),
@@ -564,6 +598,8 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         if screenDraft != feed.draft { screenDraft = feed.draft }
         if screenStatus != feed.status { screenStatus = feed.status }
         if screenPrompt != feed.prompt { screenPrompt = feed.prompt }
+        if screenAside != feed.aside { screenAside = feed.aside }
+        if screenDialog != feed.dialog { screenDialog = feed.dialog }
         var turns = feed.turns
         // Claude's screen has no thinking: it comes from the session file, in its place. Both
         // agents fold groups of calls ("Ran 5 commands (ctrl+o to expand)") and cut results; the
