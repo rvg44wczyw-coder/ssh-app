@@ -559,15 +559,26 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     /// asked or the tab has no session file. Nothing runs in the background: the list is read when
     /// the subagents screen opens or is refreshed.
     public func fetchSubagents() async -> [SubagentInfo]? {
-        guard let handle, state == .connected, let file = activeTranscriptPath ?? fileFeedPath,
-              file.hasSuffix(".jsonl") else { return nil }
+        guard let handle, state == .connected else { return nil }
+        if screenIsAgy {
+            // Antigravity: child conversations from its index, through the pinned host helper.
+            guard let pin = await helperPin() else { return nil }
+            return try? await handle.listAgySubagents(sessionName: session.sessionName, helperSha256: pin)
+        }
+        guard let file = activeTranscriptPath ?? fileFeedPath, file.hasSuffix(".jsonl") else { return nil }
         return try? await handle.listSubagents(sessionFile: file)
     }
 
-    /// What one subagent's file gained since `cursor` (see `FeedState.newSubagent()`).
+    /// What one subagent's file (or child conversation) gained since `cursor`, read into
+    /// `FeedState.newSubagent()`. Outer `nil`: the host could not be asked; inner `nil`: no such file.
     public func readSubagent(_ agentId: String, cursor: FeedCursor?) async -> FeedRead?? {
-        guard let handle, state == .connected, let file = activeTranscriptPath ?? fileFeedPath else { return nil }
+        guard let handle, state == .connected else { return nil }
         do {
+            if screenIsAgy {
+                guard let pin = await helperPin() else { return nil }
+                return .some(try await handle.readAgySubagentSince(conversationId: agentId, helperSha256: pin, cursor: cursor))
+            }
+            guard let file = activeTranscriptPath ?? fileFeedPath else { return nil }
             return .some(try await handle.readSubagentSince(sessionFile: file, agentId: agentId, cursor: cursor))
         } catch {
             return nil

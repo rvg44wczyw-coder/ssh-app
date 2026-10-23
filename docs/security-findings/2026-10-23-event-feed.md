@@ -47,3 +47,12 @@ Scope: `crates/core/src/subagent_feed.rs`, `FeedState::new_subagent`, `Transcrip
 - Real data (read-only, in memory, three subagent files of the owner's `~/.claude`): 143–287 lines → 77–106 turns, every tool call linked to its result, the worst 32 KB chunk 2 ms; the same files read as a main session give 0 turns (side chain left out).
 
 Findings: none open. Notes (Low, accepted): (1) "running" is "its file grew in the last 60 s" by the host's clock, so a long silent tool call shows as finished until the next line; (2) Antigravity child conversations (`parent_conversation_id`) are not shown yet: the helper's `agy-conv` takes the top-level conversation only.
+
+## Addendum: Antigravity child conversations (rev + hacker, 2026-10-23)
+
+Scope: helper `agy-children`, `agy_list_script` / `agy_read_script` / `parse_agy_children` in `subagent_feed.rs`, Swift hookup.
+
+- The folder is validated as for `agy-conv`; ids in SQL come from the index and pass `valid_uuid` before use; title/agent text travels hex-encoded (tabs and line breaks cannot break the rows), is cleaned of control characters and cut at 300. Depth ≤ 3 (recursive query), killed conversations and the 21st child are left out; verified on a synthetic index (`children_of_the_folders_conversation_are_listed_with_depth_and_caps`) and on the owner's real index (read only: children found with depth 1).
+- The read script runs only the pinned helper (digest compared, not a link); the conversation id given to the one-shot read is checked on the phone (`8-4-4-4-12` lower-case hex) before it reaches the command line, so `../x` and `x; rm -rf /` are refused (tests).
+- A real child conversation (10 steps) decodes to 10 records.
+- Findings: none open. Note (Low): the parent is the conversation of the pane's folder, same limitation as the main agy stream.

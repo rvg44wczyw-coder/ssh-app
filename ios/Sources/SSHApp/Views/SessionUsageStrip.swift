@@ -120,7 +120,7 @@ struct SessionStatusLine: View {
     @State private var showSubagents = false
 
     private var subagentCounts: (running: Int, total: Int) {
-        let calls = viewModel.transcriptTurns.flatMap(\.toolCalls).filter { $0.toolName == "Task" || $0.toolName == "Agent" }
+        let calls = viewModel.transcriptTurns.flatMap(\.toolCalls).filter { $0.toolName == "Task" || $0.toolName == "Agent" || $0.toolName == "invoke_subagent" }
         return (calls.filter { $0.status == .running }.count, calls.count)
     }
 

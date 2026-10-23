@@ -14,7 +14,7 @@ struct SubagentsSheetView: View {
         NavigationStack {
             List {
                 if failed {
-                    Text("The host did not answer, or this tab has no session file.").foregroundColor(.secondary)
+                    Text("The host did not answer, or this tab has no session file (Antigravity needs the host helper).").foregroundColor(.secondary)
                 } else if agents.isEmpty && !loading {
                     Text("No subagents in this session yet.").foregroundColor(.secondary)
                 }

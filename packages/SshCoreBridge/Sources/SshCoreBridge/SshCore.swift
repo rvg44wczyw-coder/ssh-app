@@ -2226,9 +2226,21 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func fetchRemoteShellHistory(limit: UInt32) async throws  -> [String]
     
     /**
+     * The child conversations (subagents) of an Antigravity tab, read by the pinned host helper
+     * (`helper_sha256`) from agy's index. Empty when the helper is missing or there are none.
+     */
+    func listAgySubagents(sessionName: String, helperSha256: String) async throws  -> [SubagentInfo]
+    
+    /**
      * The subagents of a Claude Code session (newest first, at most 20, nesting ≤ 3).
      */
     func listSubagents(sessionFile: String) async throws  -> [SubagentInfo]
+    
+    /**
+     * Reads a child conversation of an Antigravity tab by cursor (feed the text to a `FeedState`).
+     * `None`: the helper or the conversation is not there.
+     */
+    func readAgySubagentSince(conversationId: String, helperSha256: String, cursor: FeedCursor?) async throws  -> FeedRead?
     
     /**
      * Reads and parses the latest transcript from the remote host.
@@ -4322,6 +4334,26 @@ open func fetchRemoteShellHistory(limit: UInt32)async throws  -> [String]  {
 }
     
     /**
+     * The child conversations (subagents) of an Antigravity tab, read by the pinned host helper
+     * (`helper_sha256`) from agy's index. Empty when the helper is missing or there are none.
+     */
+open func listAgySubagents(sessionName: String, helperSha256: String)async throws  -> [SubagentInfo]  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_list_agy_subagents(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(sessionName),FfiConverterString.lower(helperSha256)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceTypeSubagentInfo.lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
      * The subagents of a Claude Code session (newest first, at most 20, nesting ≤ 3).
      */
 open func listSubagents(sessionFile: String)async throws  -> [SubagentInfo]  {
@@ -4336,6 +4368,26 @@ open func listSubagents(sessionFile: String)async throws  -> [SubagentInfo]  {
             completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
             freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
             liftFunc: FfiConverterSequenceTypeSubagentInfo.lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Reads a child conversation of an Antigravity tab by cursor (feed the text to a `FeedState`).
+     * `None`: the helper or the conversation is not there.
+     */
+open func readAgySubagentSince(conversationId: String, helperSha256: String, cursor: FeedCursor?)async throws  -> FeedRead?  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_read_agy_subagent_since(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(conversationId),FfiConverterString.lower(helperSha256),FfiConverterOptionTypeFeedCursor.lower(cursor)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterOptionTypeFeedRead.lift,
             errorHandler: FfiConverterTypeSshCoreError_lift
         )
 }
@@ -12931,7 +12983,7 @@ public func FfiConverterTypeSubagentInfo_lower(_ value: SubagentInfo) -> RustBuf
 
 
 /**
- * Subagents (Claude's `Task` / `Agent` tool) the session has started. Claude hands searching to
+ * Subagents (Claude's `Task` / `Agent` tool, Antigravity's `invoke_subagent`) the session has started. Claude hands searching to
  * them often, so the feed shows how many are working now and how many ran in total.
  */
 public struct SubagentStats: Equatable, Hashable {
@@ -23051,7 +23103,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_fetch_remote_shell_history() != 36502) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_list_agy_subagents() != 16839) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_list_subagents() != 57711) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_read_agy_subagent_since() != 53609) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_read_remote_transcript() != 13423) {
