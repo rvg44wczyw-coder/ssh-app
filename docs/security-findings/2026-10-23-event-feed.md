@@ -35,3 +35,15 @@ Attack classes and what was done:
 - **MetadataLeak** — nothing new is sent to push/relay; the conversation text travels only over the existing SSH channel.
 
 Findings: none open. Notes (Low, accepted): (1) the folder is the pane's current directory, so an agy started in another folder than the pane's is not found and the file fallback is used; (2) a conversation reset (new id in the same folder) restarts the feed from the first step, which the phone shows as a reset.
+
+## Addendum: subagents (rev + hacker, 2026-10-23)
+
+Scope: `crates/core/src/subagent_feed.rs`, `FeedState::new_subagent`, `TranscriptParser::subagent`, `list_subagents` / `read_subagent_since`, `SubagentsSheetView.swift`.
+
+- **PathTraversal** — the phone builds the file as `<session>/subagents/agent-<id>.jsonl` itself; `<id>` must match `^a[0-9a-f]{8,40}$` (tests: `..`, `/`, newline, upper case, too long) and both paths pass `validate_transcript_path`. The host's list script accepts only `*.jsonl` session files outside the blocked folders, does not follow a `subagents` folder or a meta file that is a link (live test with links to a file/folder elsewhere: nothing listed) and prints only ids of that shape, which the phone checks again. The cursor read resolves and re-checks every file as for the main feed.
+- **InputValidation** — meta files are read up to 4 KB, parsed as JSON, text fields lose control characters and are cut at 300 characters; `toolUseId` must be `[A-Za-z0-9_-]`; depth > 3, a 21st agent, duplicates and non-JSON are dropped (tests).
+- **DoS** — at most 20 agents are listed; the sub-feed reads by cursor with the same caps as the main feed (8 MB chunk, 3000 turns); the screen polls every 3 s **only while it is open** (the task ends with the view), nothing runs for background tabs.
+- **Trust** — a subagent's text is display data only; nothing from it is executed or written. Its approvals stay in the main pane.
+- Real data (read-only, in memory, three subagent files of the owner's `~/.claude`): 143–287 lines → 77–106 turns, every tool call linked to its result, the worst 32 KB chunk 2 ms; the same files read as a main session give 0 turns (side chain left out).
+
+Findings: none open. Notes (Low, accepted): (1) "running" is "its file grew in the last 60 s" by the host's clock, so a long silent tool call shows as finished until the next line; (2) Antigravity child conversations (`parent_conversation_id`) are not shown yet: the helper's `agy-conv` takes the top-level conversation only.

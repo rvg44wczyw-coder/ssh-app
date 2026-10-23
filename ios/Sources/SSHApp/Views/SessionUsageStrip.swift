@@ -117,6 +117,7 @@ struct SessionStatusLine: View {
     @AppStorage("debug_feed_timing") private var showTiming = false
     private enum GitSheet: String, Identifiable { case changes, branches, worktrees; var id: String { rawValue } }
     @State private var gitSheet: GitSheet?
+    @State private var showSubagents = false
 
     private var subagentCounts: (running: Int, total: Int) {
         let calls = viewModel.transcriptTurns.flatMap(\.toolCalls).filter { $0.toolName == "Task" || $0.toolName == "Agent" }
@@ -167,13 +168,19 @@ struct SessionStatusLine: View {
             }
             let agents = subagentCounts
             if agents.total > 0 {
-                HStack(spacing: 3) {
-                    Image(systemName: "person.2.fill")
-                    Text(agents.running > 0 ? "\(agents.running) agent\(agents.running == 1 ? "" : "s")" : "\(agents.total) ran")
+                Button { showSubagents = true } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: "person.2.fill")
+                        Text(agents.running > 0 ? "\(agents.running) agent\(agents.running == 1 ? "" : "s")" : "\(agents.total) ran")
+                    }
+                    .frame(minHeight: 22)
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
                 .foregroundColor(agents.running > 0 ? .accentColor : .secondary)
                 .fixedSize()
                 .layoutPriority(2)
+                .accessibilityHint("Shows the subagents")
             }
             Spacer(minLength: 0)
             Button {
@@ -226,6 +233,7 @@ struct SessionStatusLine: View {
             case .worktrees: GitWorktreesSheetView(viewModel: viewModel)
             }
         }
+        .sheet(isPresented: $showSubagents) { SubagentsSheetView(viewModel: viewModel) }
         .task { await viewModel.loadGitContext() }
         .accessibilityElement(children: .combine)
         .accessibilityHint("Tap to refresh")

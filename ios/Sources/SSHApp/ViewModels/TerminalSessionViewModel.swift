@@ -555,6 +555,25 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         }
     }
 
+    /// The subagents of this tab's Claude session (newest first); `nil` when the host could not be
+    /// asked or the tab has no session file. Nothing runs in the background: the list is read when
+    /// the subagents screen opens or is refreshed.
+    public func fetchSubagents() async -> [SubagentInfo]? {
+        guard let handle, state == .connected, let file = activeTranscriptPath ?? fileFeedPath,
+              file.hasSuffix(".jsonl") else { return nil }
+        return try? await handle.listSubagents(sessionFile: file)
+    }
+
+    /// What one subagent's file gained since `cursor` (see `FeedState.newSubagent()`).
+    public func readSubagent(_ agentId: String, cursor: FeedCursor?) async -> FeedRead?? {
+        guard let handle, state == .connected, let file = activeTranscriptPath ?? fileFeedPath else { return nil }
+        do {
+            return .some(try await handle.readSubagentSince(sessionFile: file, agentId: agentId, cursor: cursor))
+        } catch {
+            return nil
+        }
+    }
+
     /// TCP ports the host listens on; `nil` when the host could not be asked.
     public func fetchListeningPorts() async -> [ListeningPort]? {
         guard let handle, state == .connected else { return nil }

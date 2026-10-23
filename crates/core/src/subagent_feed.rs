@@ -327,5 +327,18 @@ mod tests {
         let lone = dir.path().join("lone.jsonl");
         std::fs::write(&lone, "{}\n").expect("w");
         assert!(parse_subagent_list(&run(&lone)).is_empty());
+        // A `subagents` folder that is a link to somewhere else is not followed.
+        let elsewhere = tempfile::tempdir().expect("dir");
+        std::fs::write(
+            elsewhere.path().join(format!("agent-{ID}.meta.json")),
+            r#"{"agentType":"STOLEN"}"#,
+        )
+        .expect("m");
+        let linked = dir.path().join("linked.jsonl");
+        std::fs::write(&linked, "{}\n").expect("w");
+        std::fs::create_dir_all(dir.path().join("linked")).expect("mk");
+        std::os::unix::fs::symlink(elsewhere.path(), dir.path().join("linked/subagents"))
+            .expect("ln");
+        assert!(parse_subagent_list(&run(&linked)).is_empty());
     }
 }

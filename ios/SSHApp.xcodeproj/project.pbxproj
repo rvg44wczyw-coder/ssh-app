@@ -50,6 +50,7 @@
 		AA9F0065 /* SkillsSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB9F0065 /* SkillsSheetView.swift */; };
 		AA9F0066 /* CommandScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB9F0066 /* CommandScreens.swift */; };
 		AA9F0067 /* PortsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB9F0067 /* PortsSection.swift */; };
+		AA9F0068 /* SubagentsSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB9F0068 /* SubagentsSheetView.swift */; };
 		AA9F0062 /* VaultSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB9F0062 /* VaultSync.swift */; };
 		AA9F0060 /* ArtifactViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB9F0060 /* ArtifactViews.swift */; };
 		AA9F0061 /* mermaid.min.js in Resources */ = {isa = PBXBuildFile; fileRef = BB9F0061 /* mermaid.min.js */; };
@@ -124,6 +125,7 @@
 		BB9F0065 /* SkillsSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/SkillsSheetView.swift; sourceTree = "<group>"; };
 		BB9F0066 /* CommandScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/CommandScreens.swift; sourceTree = "<group>"; };
 		BB9F0067 /* PortsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/PortsSection.swift; sourceTree = "<group>"; };
+		BB9F0068 /* SubagentsSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/SubagentsSheetView.swift; sourceTree = "<group>"; };
 		BB9F0062 /* VaultSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/VaultSync.swift; sourceTree = "<group>"; };
 		BB000003 /* KeychainManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/KeychainManager.swift; sourceTree = "<group>"; };
 		BB000004 /* NetworkMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/NetworkMonitor.swift; sourceTree = "<group>"; };
@@ -361,6 +363,7 @@
 				BB9F0065 /* SkillsSheetView.swift */,
 				BB9F0066 /* CommandScreens.swift */,
 				BB9F0067 /* PortsSection.swift */,
+				BB9F0068 /* SubagentsSheetView.swift */,
 				BB000004 /* NetworkMonitor.swift */,
 				BB000005 /* TerminalSessionViewModel.swift */,
 				BB000006 /* ColorExtensions.swift */,
@@ -606,6 +609,7 @@
 				AA9F0065 /* SkillsSheetView.swift in Sources */,
 				AA9F0066 /* CommandScreens.swift in Sources */,
 				AA9F0067 /* PortsSection.swift in Sources */,
+				AA9F0068 /* SubagentsSheetView.swift in Sources */,
 				AA000004 /* NetworkMonitor.swift in Sources */,
 				AA000005 /* TerminalSessionViewModel.swift in Sources */,
 				AA000006 /* ColorExtensions.swift in Sources */,
