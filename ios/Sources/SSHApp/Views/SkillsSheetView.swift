@@ -34,6 +34,15 @@ struct SkillsSheetView: View {
         }
     }
 
+    /// How often the agent invoked each skill in the turns this tab has loaded (`Skill` tool calls).
+    private var uses: [String: Int] {
+        var n: [String: Int] = [:]
+        for call in viewModel.transcriptTurns.flatMap(\.toolCalls) where call.toolName == "Skill" {
+            for s in skills where call.argumentsSummary.contains(s.name) { n[s.name, default: 0] += 1 }
+        }
+        return n
+    }
+
     private var project: [SkillSummary] { skills.filter { $0.scope == "project" } }
     private var user: [SkillSummary] { skills.filter { $0.scope == "user" } }
     /// What the enabled project skills put into the context before any is used: the front matter
@@ -122,6 +131,7 @@ struct SkillsSheetView: View {
                 Text(verbatim: s.name).font(.system(size: 15, weight: .semibold, design: .monospaced))
                     .foregroundColor(s.enabled ? .primary : .secondary)
                 Spacer()
+                if let used = uses[s.name] { Text("used \(used)×").font(.caption2).foregroundColor(.accentColor) }
                 Text("≈\(s.tokens) tok").font(.caption2).foregroundColor(.secondary)
             }
             if !s.description.isEmpty {
