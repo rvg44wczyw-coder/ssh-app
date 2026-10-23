@@ -19,6 +19,12 @@ struct AssistantRoute: Identifiable, Hashable {
 
 public struct MainTerminalView: View {
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+    @AppStorage(CompactChatMode.storageKey) private var compactModeRaw = CompactChatMode.landscape.rawValue
+
+    private var compactChat: Bool {
+        !showHome && (CompactChatMode(rawValue: compactModeRaw) ?? .landscape).isCompact(verticalSizeClass: verticalSizeClass)
+    }
 
     @StateObject var serversManager = ServerProfilesManager()
     @StateObject var tabsManager = TerminalTabsManager()
@@ -81,6 +87,7 @@ public struct MainTerminalView: View {
     @State private var hookAttention: [UUID: SessionAttention] = [:]
     /// Bumped by the watcher so the symbols are read again (the view models are not observed here).
     @State private var attentionTick = 0
+    @State private var unreadRound = 0
     /// Chat and command state of the AI assistant, one per server (outlives tabs and the screen).
     @StateObject var assistants = AssistantStore()
 
@@ -134,6 +141,20 @@ public struct MainTerminalView: View {
                 await vm.watchPromptOnce()
             }
             attentionTick += 1
+            unreadRound += 1
+            if unreadRound % 5 == 0 {
+                for tab in tabsManager.sessions {
+                    await tabsManager.viewModel(for: tab.id)?.refreshUnreadOnce()
+                }
+                attentionTick += 1
+            }
+        }
+    }
+
+    /// Tells every session whether its chat is the one on screen.
+    private func updateViewed() {
+        for tab in tabsManager.sessions {
+            tabsManager.viewModel(for: tab.id)?.setViewed(!showHome && tab.id == tabsManager.selectedSessionId)
         }
     }
 
@@ -467,7 +488,7 @@ public struct MainTerminalView: View {
                     onSessionAction: { runSessionAction($0, $1) },
                     onSetScheme: { tabsManager.setSessionScheme(id: $0, schemeId: $1) }
                 )
-                .frame(height: 32)
+                .frame(height: compactChat ? 26 : 32)
 
 
                 Divider()
@@ -522,6 +543,19 @@ public struct MainTerminalView: View {
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
+            .environment(\.compactChat, compactChat)
+            .toolbar(compactChat ? .hidden : .automatic, for: .navigationBar)
+            .overlay {
+                if compactChat {
+                    FloatingQuickMenu(
+                        isChatMode: tabsManager.activeViewModel?.isChatMode == true,
+                        isConnected: tabsManager.activeViewModel?.state == .connected,
+                        onAllSessions: { dismissKeyboard(); showHome = true },
+                        onAction: { performAction($0) },
+                        onKey: { tabsManager.activeViewModel?.sendInput(Data($0)) }
+                    )
+                }
+            }
             .toolbar {
                 if showHome {
                     ToolbarItem(placement: .topBarLeading) { assistantButton }
@@ -682,8 +716,9 @@ public struct MainTerminalView: View {
             } message: { Text(restartError ?? "") }
             .task { await watchPrompts() }
             .onChange(of: approvals.notices.map(\.id)) { _, _ in deliverNotices() }
-            .onChange(of: tabsManager.selectedSessionId) { _, id in hookAttention[id] = nil }
+            .onChange(of: tabsManager.selectedSessionId) { _, id in hookAttention[id] = nil; updateViewed() }
             .onChange(of: showHome) { _, home in
+                updateViewed()
                 if !home { hookAttention[tabsManager.selectedSessionId] = nil }
             }
             .onChange(of: tabsManager.sessions.count) { old, new in

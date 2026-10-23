@@ -25,12 +25,45 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     public var pasteHandler: (() -> Void)?
     /// Same, for text the system paste button handed over (no pasteboard read, so no "Allow Paste" prompt).
     public var pasteTextHandler: ((String) -> Void)?
-    @Published public var transcriptTurns: [TranscriptTurn] = []
+    @Published public var transcriptTurns: [TranscriptTurn] = [] {
+        didSet { if transcriptTurns != oldValue { recountUnread() } }
+    }
+    /// Messages of the agent to the user (text answers) written after the chat was last open.
+    /// Service entries, tool calls and shell output are not counted.
+    @Published public private(set) var unreadCount = 0
+    private var isViewed = false
+    private var lastOpenedAt: Date {
+        get {
+            let t = UserDefaults.standard.double(forKey: "chat_last_opened_" + session.id.uuidString)
+            if t > 0 { return Date(timeIntervalSince1970: t) }
+            // First sight of this chat: what is already there is not new.
+            let now = Date()
+            UserDefaults.standard.set(now.timeIntervalSince1970, forKey: "chat_last_opened_" + session.id.uuidString)
+            return now
+        }
+        set { UserDefaults.standard.set(newValue.timeIntervalSince1970, forKey: "chat_last_opened_" + session.id.uuidString) }
+    }
     @Published public var isTranscriptLoading: Bool = false
     @Published public var activeTranscriptPath: String? = nil
     @Published public var transcriptError: String? = nil
     /// The live line of the agent on the tmux screen ("✶ Thinking… (12s)"), when the feed is built from the screen.
     @Published public var screenStatus: String? = nil
+    /// How long the last feed refresh took (shown in the status line when "Show feed timing" is on).
+    @Published public private(set) var feedTiming: FeedTiming?
+    private var didReadFile = false
+
+    public struct FeedTiming: Equatable {
+        public let captureMs: Int
+        public let fileMs: Int?
+        public let cycleMs: Int
+        public let fileTurns: Int
+        public let at: Date
+    }
+
+    private static func millis(since start: ContinuousClock.Instant) -> Int {
+        let d = ContinuousClock.now - start
+        return Int(d.components.seconds * 1000 + d.components.attoseconds / 1_000_000_000_000_000)
+    }
     /// A question the agent waits on (permission, choice), read from the screen; shown as a card.
     @Published public var screenPrompt: ScreenPrompt? = nil
     /// What is typed in the agent's input box and not sent (read from the screen).
@@ -437,6 +470,48 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
 
     /// Looks at the pane only for a question the agent waits on (the banner's watcher, for tabs whose
     /// feed is not open). Its own checksum: it never disturbs the feed's reading.
+    /// The chat is on screen (`true`) or left (`false`). Opening and leaving both stamp the time of
+    /// the last opening, so what arrived while it was open is not counted as unread afterwards.
+    public func setViewed(_ viewed: Bool) {
+        guard viewed != isViewed || viewed else { return }
+        isViewed = viewed
+        lastOpenedAt = Date()
+        if unreadCount != 0 { unreadCount = 0 }
+    }
+
+    private func recountUnread() {
+        guard !isViewed else { return }
+        let since = lastOpenedAt
+        let n = transcriptTurns.filter { turn in
+            guard turn.turnType == .assistant,
+                  turn.content?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
+                  let stamp = turn.timestamp, let at = Self.parseStamp(stamp) else { return false }
+            return at > since
+        }.count
+        if n != unreadCount { unreadCount = n }
+    }
+
+    private static func parseStamp(_ s: String) -> Date? {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = f.date(from: s) { return d }
+        f.formatOptions = [.withInternetDateTime]
+        return f.date(from: s)
+    }
+
+    /// For a tab that is not on screen: reads the session file now and then so the unread count
+    /// follows the agent. Does nothing while the chat is open (the feed has its own polling).
+    public func refreshUnreadOnce() async {
+        guard !isViewed, let handle = handle, state == .connected else { return }
+        if activeTranscriptPath == nil,
+           let found = try? await handle.detectSessionTranscriptPathIn(sessionName: session.sessionName, kind: multiplexer) {
+            activeTranscriptPath = found
+        }
+        guard let path = activeTranscriptPath,
+              let turns = try? await handle.readRemoteTranscript(remotePath: path) else { return }
+        if turns != transcriptTurns { transcriptTurns = turns }
+    }
+
     public func watchPromptOnce() async {
         guard let handle = handle, state == .connected else { return }
         guard let cap = try? await handle.captureSessionScreenIn(sessionName: session.sessionName, knownSum: watchedSum, kind: multiplexer),
@@ -452,8 +527,10 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     /// turns shown changed / did not.
     private func reloadFromScreen() async -> Bool? {
         guard let handle = handle, state == .connected else { return nil }
+        let cycleStart = ContinuousClock.now
         guard let first = try? await handle.captureSessionScreenIn(sessionName: session.sessionName, knownSum: lastScreenSum, kind: multiplexer)
         else { return nil }
+        let captureMs = Self.millis(since: cycleStart)
         guard var text = first.text else { return false }   // the same screen as before
         // The agent redraws its last lines while it writes (spinner, a result coming in, a reply
         // being typed): a frame taken in the middle is the "mess" at the end of the feed. Wait
@@ -478,12 +555,17 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         // agents fold groups of calls ("Ran 5 commands (ctrl+o to expand)") and cut results; the
         // file has them whole. agy shows its thinking on screen, so only the calls are taken.
         let grew = feed.turns.count != lastScreenTurnCount
+        let fileStart = ContinuousClock.now
         var file = await fileTurnsForThinking(handle, force: grew, screen: text)
+        let fileMs = didReadFile ? Self.millis(since: fileStart) : nil
+        didReadFile = false
         if feed.dialect == .agy {
             for i in file.indices { file[i].thinking = nil }
         }
         turns = mergeThinking(screen: turns, file: file)
         lastScreenTurnCount = feed.turns.count
+        feedTiming = FeedTiming(captureMs: captureMs, fileMs: fileMs, cycleMs: Self.millis(since: cycleStart),
+                                fileTurns: file.count, at: Date())
         transcriptError = nil
         guard turns != transcriptTurns else { return false }
         transcriptTurns = turns
@@ -591,6 +673,7 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         // not jump in later (and shift the text) when the 15 s refresh comes.
         if !force, let last = lastThinkingRead, Date().timeIntervalSince(last) < 15 { return thinkingTurns }
         lastThinkingRead = Date()
+        didReadFile = true
         if let found = try? await handle.detectSessionTranscriptPathIn(sessionName: session.sessionName, kind: multiplexer),
            let turns = try? await handle.readRemoteTranscript(remotePath: found) {
             // The same agent may also run in this folder elsewhere (the laptop): a file whose

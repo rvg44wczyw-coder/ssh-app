@@ -83,6 +83,11 @@ struct SessionsHomeView: View {
                         }
                         SessionAttentionBadge(attention: a, size: 13)
                     }
+                    if let vm = viewModel(s.id), vm.unreadCount > 0 {
+                        Label("\(vm.unreadCount)", systemImage: "bubble.left.fill")
+                            .font(.caption2.weight(.semibold)).foregroundColor(.appAccent)
+                            .accessibilityLabel("\(vm.unreadCount) unread")
+                    }
                     Circle().fill(stateColor(state)).frame(width: 8, height: 8)
                 }
                 Text([serverName(s), s.sessionName].compactMap { $0 }.joined(separator: " · "))

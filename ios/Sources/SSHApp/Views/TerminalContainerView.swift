@@ -25,7 +25,17 @@ open class AppTerminalView: TerminalView {
         setupScrollConfig()
     }
 
+    /// The terminal only scrolls vertically: a horizontal offset (a drag that drifted, the keyboard
+    /// resizing the view) would push the first column under the left edge.
+    open override func layoutSubviews() {
+        super.layoutSubviews()
+        if contentOffset.x != 0 { contentOffset.x = 0 }
+    }
+
     private func setupScrollConfig() {
+        self.contentInsetAdjustmentBehavior = .never
+        self.alwaysBounceHorizontal = false
+        self.isDirectionalLockEnabled = true
         self.isScrollEnabled = true
         self.alwaysBounceVertical = true
         self.bounces = true
@@ -627,7 +637,9 @@ public struct TerminalContainerView: UIViewRepresentable {
 
         public func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
             print("[TerminalView \(viewModel.instanceId)] sizeChanged cols=\(newCols), rows=\(newRows)")
-            viewModel.resize(cols: UInt16(newCols), rows: UInt16(newRows))
+            // The host gets one column less than the view holds: the last column sits under the
+            // rounded edge and a character drawn there looks like it sticks out of the border.
+            viewModel.resize(cols: UInt16(max(newCols - 1, 2)), rows: UInt16(newRows))
         }
 
         public func setTerminalTitle(source: TerminalView, title: String) {}

@@ -182,6 +182,8 @@ struct FeedTextView: UIViewRepresentable {
 enum FeedToggle: Equatable {
     case thinking(String)
     case tool(String)
+    /// Back from an opened tool call: one stage (`all` false) or all the way closed.
+    case toolBack(String, all: Bool)
 
     var url: URL? {
         var comps = URLComponents()
@@ -189,6 +191,9 @@ enum FeedToggle: Equatable {
         switch self {
         case .thinking(let id): comps.host = "thinking"; comps.queryItems = [URLQueryItem(name: "id", value: id)]
         case .tool(let id): comps.host = "tool"; comps.queryItems = [URLQueryItem(name: "id", value: id)]
+        case .toolBack(let id, let all):
+            comps.host = "toolback"
+            comps.queryItems = [URLQueryItem(name: "id", value: id), URLQueryItem(name: "all", value: all ? "1" : "0")]
         }
         return comps.url
     }
@@ -201,6 +206,7 @@ enum FeedToggle: Equatable {
         switch url.host {
         case "thinking": self = .thinking(id)
         case "tool": self = .tool(id)
+        case "toolback": self = .toolBack(id, all: comps.queryItems?.first(where: { $0.name == "all" })?.value == "1")
         default: return nil
         }
     }
@@ -341,7 +347,8 @@ enum FeedAttributedBuilder {
         return NSMutableAttributedString(string: text, attributes: attrs)
     }
 
-    static func build(turns: [TranscriptTurn], expandedThinking: Set<String>, expandedTools: Set<String>, dark: Bool) -> NSAttributedString {
+    static func build(turns allTurns: [TranscriptTurn], expandedThinking: Set<String>, expandedTools: Set<String>, dark: Bool) -> NSAttributedString {
+        let turns = allTurns.filter { $0.label != TranscriptTurn.permissionModeLabel }
         let out = NSMutableAttributedString()
         blockCounter = 0
         var i = 0
@@ -397,28 +404,37 @@ enum FeedAttributedBuilder {
         }
         out.append(head)
         guard open else { return }
+        // The opened entries sit in one frame that hugs the text and stops short of the right edge,
+        // so a short note is not a wide empty bar.
+        let bodyStart = out.length
         for t in run {
-            out.append(line((t.label ?? "Service") + "\n", font: mono(.semibold, size: 12), color: .tertiaryLabel,
-                            indent: 14, first: 14, after: 3))
+            out.append(line((t.label ?? "Service") + "\n", font: mono(.semibold, size: 11.5), color: .tertiaryLabel,
+                            indent: 10, first: 10, after: 2))
             if let c = t.content?.trimmingCharacters(in: .whitespacesAndNewlines), !c.isEmpty {
                 for part in FeedXML.parts(c) {
                     switch part {
                     case .text(let text):
-                        out.append(line(text.trimmingCharacters(in: .whitespacesAndNewlines) + "\n", font: mono(size: 12),
-                                        color: .secondaryLabel, indent: 14, first: 14, after: 14,
-                                        background: .secondarySystemFill))
+                        out.append(line(text.trimmingCharacters(in: .whitespacesAndNewlines) + "\n", font: mono(size: 11.5),
+                                        color: .secondaryLabel, indent: 10, first: 10, after: 6))
                     case .tags(let tags):
                         for tag in tags {
-                            out.append(line(FeedXML.title(tag.name) + "\n", font: mono(.semibold, size: 11.5), color: .tertiaryLabel,
-                                            indent: 22, first: 22, after: 3))
-                            out.append(line(tag.body.trimmingCharacters(in: .whitespacesAndNewlines) + "\n", font: mono(size: 12),
-                                            color: .secondaryLabel, indent: 22, first: 22, after: 12,
-                                            background: .secondarySystemFill))
+                            out.append(line(FeedXML.title(tag.name) + "\n", font: mono(.semibold, size: 11), color: .tertiaryLabel,
+                                            indent: 10, first: 10, after: 1))
+                            out.append(line(tag.body.trimmingCharacters(in: .whitespacesAndNewlines) + "\n", font: mono(size: 11.5),
+                                            color: .secondaryLabel, indent: 16, first: 16, after: 6))
                         }
                     }
                 }
             }
         }
+        guard out.length > bodyStart else { return }
+        let range = NSRange(location: bodyStart, length: out.length - bodyStart)
+        out.enumerateAttribute(.paragraphStyle, in: range) { value, sub, _ in
+            guard let ps = (value as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle else { return }
+            ps.tailIndent = -max(pad + 56, width * 0.38)
+            out.addAttribute(.paragraphStyle, value: ps, range: sub)
+        }
+        block(out, from: bodyStart, kind: "s")
     }
 
     private static func appendAssistant(_ turn: TranscriptTurn, into out: NSMutableAttributedString,
@@ -608,6 +624,7 @@ enum FeedAttributedBuilder {
                                        full: Bool, dark: Bool) {
         let dot: UIColor = tc.status == .error ? .systemRed : (tc.status == .running ? .systemYellow : .systemGreen)
         let shell = ShellTree.isShell(tc.toolName)
+        defer { if open { appendCollapse(tc.callId, staged: shell && full, into: out) } }
         let tree = ShellTree.nodes(for: tc, always: shell && open)
         let steps = ShellTree.nodes(for: tc, always: false)
         let head = NSMutableAttributedString()
@@ -616,7 +633,10 @@ enum FeedAttributedBuilder {
         if let steps {
             head.append(line("(\(ShellTree.stepCount(steps)) steps)", color: .secondaryLabel))
         } else {
-            head.append(line("(" + clip(tc.argumentsSummary, shell && !open ? 90 : 400) + ")", color: .secondaryLabel))
+            // A folded group the file could not describe has no arguments: no empty brackets.
+            if !tc.argumentsSummary.isEmpty {
+                head.append(line("(" + clip(tc.argumentsSummary, shell && !open ? 90 : 400) + ")", color: .secondaryLabel))
+            }
         }
         if shell { head.append(line(open ? (full ? " ▾" : " ▸") : " ▸", color: .tertiaryLabel)) }
         head.append(line("\n"))
@@ -657,6 +677,26 @@ enum FeedAttributedBuilder {
             }
             out.append(more)
         }
+    }
+
+    /// The way back under an opened tool call: one stage up when it opened further, and all the way closed.
+    private static func appendCollapse(_ id: String, staged: Bool, into out: NSMutableAttributedString) {
+        let row = NSMutableAttributedString()
+        func link(_ title: String, all: Bool) {
+            let part = line(title, font: mono(size: 12), color: .tertiaryLabel)
+            if let url = FeedToggle.toolBack(id, all: all).url {
+                part.addAttribute(.link, value: url, range: NSRange(location: 0, length: part.length))
+            }
+            row.append(part)
+        }
+        if staged {
+            link("▴ less", all: false)
+            row.append(line("    ", font: mono(size: 12)))
+        }
+        link("✕ collapse", all: true)
+        row.append(line("\n", font: mono(size: 12)))
+        row.addAttribute(.paragraphStyle, value: style(indent: 28, first: 28, after: 1), range: NSRange(location: 0, length: row.length))
+        out.append(row)
     }
 
     /// Edit / Write tool calls as a coloured diff: removed lines red, added lines green.
@@ -1115,7 +1155,8 @@ final class FeedLayoutManager: NSLayoutManager {
             enumerateLineFragments(forGlyphRange: glyphs) { _, used, _, _, _ in rect = rect.union(used) }
             guard !rect.isNull else { continue }
             let width = container.size.width
-            var frame = CGRect(x: 1, y: rect.minY - 5, width: width - 2, height: rect.height + 10)
+            let pad: CGFloat = kind.first == "t" ? 2 : (kind.first == "s" ? 3 : 5)
+            var frame = CGRect(x: 1, y: rect.minY - pad, width: width - 2, height: rect.height + 2 * pad)
             var fill: UIColor, stroke: UIColor?
             var radius: CGFloat = 10
             let look = Self.presentation
@@ -1126,10 +1167,16 @@ final class FeedLayoutManager: NSLayoutManager {
                 fill = UIColor.tintColor.withAlphaComponent(look == .assistant ? 0.20 : 0.14)
                 stroke = look == .assistant ? nil : UIColor.tintColor.withAlphaComponent(0.45)
                 radius = look == .assistant ? 18 : (look == .terminal ? 6 : 10)
+            case "s":
+                // Service notes: a frame that fits the text instead of the whole width.
+                frame = CGRect(x: max(1, rect.minX - 2), y: frame.minY, width: min(rect.width + 12, width - 2), height: frame.height)
+                fill = UIColor.secondarySystemFill.withAlphaComponent(0.35)
+                stroke = nil
+                radius = 8
             case "t":
-                fill = UIColor.secondarySystemFill.withAlphaComponent(look == .terminal ? 0.3 : 0.5)
-                stroke = look == .assistant ? nil : UIColor.separator.withAlphaComponent(look == .terminal ? 0.35 : 0.7)
-                radius = look == .assistant ? 12 : (look == .terminal ? 6 : 10)
+                fill = UIColor.secondarySystemFill.withAlphaComponent(0.22)
+                stroke = look == .assistant ? nil : UIColor.separator.withAlphaComponent(0.2)
+                radius = 6
             default:
                 switch look {
                 case .terminal:
@@ -1148,7 +1195,7 @@ final class FeedLayoutManager: NSLayoutManager {
             }
             frame = frame.offsetBy(dx: origin.x, dy: origin.y)
             let path = UIBezierPath(roundedRect: frame, cornerRadius: radius)
-            if look == .assistant, kind.first != "u", let ctx = UIGraphicsGetCurrentContext() {
+            if look == .assistant, kind.first != "u", kind.first != "t", kind.first != "s", let ctx = UIGraphicsGetCurrentContext() {
                 // a soft lift under the cards; this one fill is the card's fill (drawn twice, a
                 // translucent fill would come out darker)
                 ctx.saveGState()

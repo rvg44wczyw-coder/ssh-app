@@ -23,6 +23,7 @@ public struct StructuredTranscriptView: View {
     @State private var scrollToken = 0
     @State private var findToken = 0
     @State private var highlightVersion = 0
+    @Environment(\.compactChat) private var compactChat
     @AppStorage(SyntaxSettings.themeKey) private var syntaxTheme = SyntaxTheme.auto.rawValue
     @AppStorage(SyntaxSettings.enabledKey) private var syntaxOn = true
     @Environment(\.colorScheme) private var colorScheme
@@ -161,6 +162,11 @@ public struct StructuredTranscriptView: View {
                         switch toggle {
                         case .thinking(let id):
                             if expandedThinkingTurns.contains(id) { expandedThinkingTurns.remove(id) } else { expandedThinkingTurns.insert(id) }
+                        case .toolBack(let id, let all):
+                            if all || !expandedToolCalls.contains(id + "+") {
+                                expandedToolCalls.remove(id)
+                            }
+                            expandedToolCalls.remove(id + "+")
                         case .tool(let id):
                             // closed -> open -> fully open -> closed ("id+" marks the last stage)
                             if id.hasPrefix("svc:") || id.contains("#") {
@@ -237,13 +243,13 @@ public struct StructuredTranscriptView: View {
             }
 
             if let status = viewModel.screenStatus {
-                Text(status)
-                    .font(.system(size: 12, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                // Only a loader: the agent's own "Thinking… (12s)" line says nothing the icon does not.
+                ProgressView()
+                    .controlSize(.small)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 4)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 6)
+                    .accessibilityLabel(status)
             }
 
             Divider()
@@ -251,6 +257,7 @@ public struct StructuredTranscriptView: View {
             // Bottom prompt: a multi-line editor with a few control keys above it.
             VStack(spacing: 6) {
                 // The system keyboard has none of these; a row that scrolls sideways, in groups.
+                if !compactChat {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
                         ForEach(FeedKeys.all) { key in
@@ -258,6 +265,7 @@ public struct StructuredTranscriptView: View {
                             if key.endsGroup { Divider().frame(height: 18) }
                         }
                     }
+                }
                 }
                 if let queued = offeredDraft { queuedStrip(queued) }
                 if !uploads.isEmpty {

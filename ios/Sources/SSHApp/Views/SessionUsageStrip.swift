@@ -114,6 +114,7 @@ struct SessionStatusLine: View {
     var onRefresh: (() -> Void)?
     var switchButton: SwitchButton?
     @State private var gitNamesFull = false
+    @AppStorage("debug_feed_timing") private var showTiming = false
     private enum GitSheet: String, Identifiable { case changes, branches, worktrees; var id: String { rawValue } }
     @State private var gitSheet: GitSheet?
 
@@ -149,6 +150,21 @@ struct SessionStatusLine: View {
                 .onTapGesture { withAnimation { gitNamesFull.toggle() } }
             }
             SessionUsageItems(monitor: usage)
+            if let mode = AgentModeBadge.current(in: viewModel.transcriptTurns) {
+                Label(mode.title, systemImage: mode.icon)
+                    .labelStyle(.titleAndIcon)
+                    .foregroundColor(mode.color)
+                    .fixedSize()
+                    .layoutPriority(2)
+                    .accessibilityLabel("Mode: \(mode.title)")
+            }
+            if showTiming, let t = viewModel.feedTiming {
+                Text("\(t.captureMs)/\(t.fileMs.map(String.init) ?? "-")/\(t.cycleMs)ms")
+                    .foregroundColor(.orange)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                    .layoutPriority(0)
+            }
             let agents = subagentCounts
             if agents.total > 0 {
                 HStack(spacing: 3) {
@@ -191,6 +207,7 @@ struct SessionStatusLine: View {
         .padding(.horizontal, 10)
         .frame(minHeight: 22)
         .frame(maxWidth: .infinity)
+        .clipped()
         .background(.bar)
         .contentShape(Rectangle())
         .onTapGesture { onRefresh?(); Task { await viewModel.loadGitContext() } }
@@ -211,5 +228,30 @@ struct SessionStatusLine: View {
         .task { await viewModel.loadGitContext() }
         .accessibilityElement(children: .combine)
         .accessibilityHint("Tap to refresh")
+    }
+}
+
+extension TranscriptTurn {
+    /// Label of the hidden turn that carries the agent's permission mode (see the Rust parser).
+    static let permissionModeLabel = "permission-mode"
+}
+
+/// The mode the CLI agent runs in, from the last mode record of its session file.
+struct AgentModeBadge {
+    let title: String
+    let icon: String
+    let color: Color
+
+    static func current(in turns: [TranscriptTurn]) -> AgentModeBadge? {
+        guard let raw = turns.last(where: { $0.label == TranscriptTurn.permissionModeLabel })?.content else { return nil }
+        switch raw {
+        case "default": return AgentModeBadge(title: "Ask", icon: "hand.raised", color: .secondary)
+        case "plan": return AgentModeBadge(title: "Plan", icon: "list.bullet.clipboard", color: .blue)
+        case "acceptEdits": return AgentModeBadge(title: "Edits", icon: "pencil", color: .green)
+        case "auto": return AgentModeBadge(title: "Auto", icon: "bolt", color: .purple)
+        case "bypassPermissions": return AgentModeBadge(title: "Bypass", icon: "exclamationmark.shield", color: .red)
+        case "dontAsk": return AgentModeBadge(title: "Don't ask", icon: "bolt.slash", color: .orange)
+        default: return AgentModeBadge(title: raw, icon: "gearshape", color: .secondary)
+        }
     }
 }

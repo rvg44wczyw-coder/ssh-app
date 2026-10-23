@@ -16,6 +16,8 @@ public struct SettingsView: View {
     @ObservedObject private var subs = SubscriptionManager.shared
 
     @AppStorage("terminal_font_size") private var terminalFontSize: Double = 13.0
+    @AppStorage("debug_feed_timing") private var showFeedTiming = false
+    @AppStorage(CompactChatMode.storageKey) private var compactChatRaw = CompactChatMode.landscape.rawValue
 
     @Environment(\.dismiss) private var dismiss
 
@@ -253,6 +255,14 @@ public struct SettingsView: View {
                     SyntaxSettingsView()
                 } label: {
                     Label("Syntax highlighting", systemImage: "chevron.left.forwardslash.chevron.right")
+                }
+                Picker(selection: $compactChatRaw) {
+                    ForEach(CompactChatMode.allCases) { Text($0.title).tag($0.rawValue) }
+                } label: {
+                    Label("Compact chat layout", systemImage: "rectangle.compress.vertical")
+                }
+                Toggle(isOn: $showFeedTiming) {
+                    Label("Show feed timing", systemImage: "stopwatch")
                 }
             }
         }

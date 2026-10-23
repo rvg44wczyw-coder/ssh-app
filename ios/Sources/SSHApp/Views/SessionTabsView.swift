@@ -154,14 +154,12 @@ public struct SessionTabsView: View {
         } label: {
             // Fixed-size label with the circle inside it: the menu lifts and re-places its label
             // while opening, and a glyph padded inside a flexible label slid off-centre.
-            ZStack {
-                Circle().fill(Color.appSecondaryBackground)
-                Image(systemName: "plus")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundColor(.appAccent)
-            }
-            .frame(width: 22, height: 22)
-            .contentShape(Circle())
+            Image(systemName: "plus")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundColor(.appAccent)
+                .frame(width: 26, height: 26)
+                .glassEffect(.regular.interactive(), in: Circle())
+                .contentShape(Circle())
         } primaryAction: {
             onAddSession()
         }
@@ -174,7 +172,9 @@ public struct SessionTabsView: View {
 
     private var tabStrip: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 5) {
+            GlassEffectContainer(spacing: 6) {
+            HStack(spacing: 6) {
+                addMenu
                 ForEach(sessions) { session in
                     let isSelected = session.id == selectedSessionId
                     let state = sessionStates[session.id] ?? .disconnected
@@ -209,15 +209,11 @@ public struct SessionTabsView: View {
                                 .frame(width: 5, height: 5)
                         }
                         .foregroundColor(isSelected ? .white : .primary)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(
-                            isSelected
-                                ? Color.appAccent
-                                : Color.appSecondaryBackground
-                        )
-                        .cornerRadius(6)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .glassEffect(isSelected ? .regular.tint(Color.appAccent).interactive() : .regular.interactive(), in: Capsule())
                     }
+                    .buttonStyle(.plain)
                     // Long press opens the same dropdown as a second tap on the selected tab.
                     .simultaneousGesture(LongPressGesture(minimumDuration: 0.4).onEnded { _ in tabForMenu = session })
                     .popover(isPresented: Binding(
@@ -228,8 +224,7 @@ public struct SessionTabsView: View {
                             .presentationCompactAdaptation(.popover)
                     }
                 }
-
-                addMenu
+            }
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 2)
