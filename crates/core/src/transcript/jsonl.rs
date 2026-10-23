@@ -24,15 +24,26 @@ pub(crate) struct TranscriptParser {
     pub turns: Vec<TranscriptTurn>,
     auto_step: u64,
     last_msg_id: Option<String>,
+    /// The file is a subagent's own: its records are all marked `isSidechain` and are the content.
+    sidechain: bool,
 }
 
 impl TranscriptParser {
+    /// A parser for a subagent's file (`<session>/subagents/agent-<id>.jsonl`).
+    pub(crate) fn subagent() -> Self {
+        Self {
+            sidechain: true,
+            ..Self::default()
+        }
+    }
+
     pub(crate) fn feed_line(&mut self, line: &str) {
         if self.auto_step == 0 {
             self.auto_step = 1;
         }
         parse_line(
             line,
+            self.sidechain,
             &mut self.turns,
             &mut self.auto_step,
             &mut self.last_msg_id,
@@ -42,6 +53,7 @@ impl TranscriptParser {
 
 fn parse_line(
     line: &str,
+    sidechain: bool,
     turns: &mut Vec<TranscriptTurn>,
     auto_step: &mut u64,
     last_msg_id: &mut Option<String>,
@@ -51,7 +63,7 @@ fn parse_line(
         return;
     }
 
-    let val: serde_json::Value = match serde_json::from_str(trimmed) {
+    let mut val: serde_json::Value = match serde_json::from_str(trimmed) {
         Ok(v) => v,
         Err(_) => {
             // Skip malformed lines (e.g. partially written lines in active log append)
@@ -61,6 +73,11 @@ fn parse_line(
 
     if !val.is_object() {
         return;
+    }
+    if sidechain {
+        if let Some(map) = val.as_object_mut() {
+            map.remove("isSidechain");
+        }
     }
 
     // 0. Claude Code's own files: `type` in lower case and the message under `message`.

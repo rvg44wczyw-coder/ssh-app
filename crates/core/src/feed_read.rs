@@ -31,7 +31,7 @@ const FILTER: &str = r#"LC_ALL=C grep -aEv '^\{"type":"(api-request-blob|api-req
 /// The folders a session file must never be read from, as `case` patterns for the resolved real
 /// path (the same list as `validate_transcript_path`): a link in an allowed folder cannot lead
 /// the host to read `~/.ssh` and send it over the wire before the app can refuse it.
-const BLOCKED_PATTERNS: &str = "/etc/*|/var/*|/dev/*|/proc/*|/sys/*|/private/etc/*|/private/var/*|*/.ssh/*|*/.gnupg/*|*/.aws/*|*/Library/Keychains/*";
+pub(crate) const BLOCKED_PATTERNS: &str = "/etc/*|/var/*|/dev/*|/proc/*|/sys/*|/private/etc/*|/private/var/*|*/.ssh/*|*/.gnupg/*|*/.aws/*|*/Library/Keychains/*";
 
 /// `$1` path, `$2` inode of the cursor or `-`, `$3` offset of the cursor or `-`.
 pub fn delta_script() -> String {

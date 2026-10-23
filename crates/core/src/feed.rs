@@ -29,6 +29,8 @@ pub struct FeedChange {
 
 #[derive(Default)]
 struct Inner {
+    /// Reading a subagent's file; kept over `reset`.
+    subagent: bool,
     parser: TranscriptParser,
     /// The last line of the data so far when it has no line break yet.
     pending: String,
@@ -52,6 +54,19 @@ impl FeedState {
     pub fn new() -> Self {
         Self {
             inner: Mutex::new(Inner::default()),
+        }
+    }
+
+    /// For the file of a subagent: the same turns, but its records (all marked as a side chain)
+    /// are the content instead of being left out.
+    #[uniffi::constructor]
+    pub fn new_subagent() -> Self {
+        Self {
+            inner: Mutex::new(Inner {
+                parser: TranscriptParser::subagent(),
+                subagent: true,
+                pending: String::new(),
+            }),
         }
     }
 
@@ -100,7 +115,15 @@ impl FeedState {
     /// Forgets everything (the file was replaced): the next chunk starts a new feed.
     pub fn reset(&self) {
         if let Ok(mut inner) = self.inner.lock() {
-            *inner = Inner::default();
+            *inner = if inner.subagent {
+                Inner {
+                    parser: TranscriptParser::subagent(),
+                    subagent: true,
+                    pending: String::new(),
+                }
+            } else {
+                Inner::default()
+            };
         }
     }
 

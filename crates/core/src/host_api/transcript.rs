@@ -57,6 +57,28 @@ impl SshSessionHandle {
         crate::feed_read::parse_delta_output(&out)
     }
 
+    /// The subagents of a Claude Code session (newest first, at most 20, nesting ≤ 3).
+    pub async fn list_subagents(
+        &self,
+        session_file: String,
+    ) -> Result<Vec<crate::subagent_feed::SubagentInfo>, SshCoreError> {
+        let cmd = crate::subagent_feed::build_list_command(&session_file)?;
+        let out = self.execute_command_on_active_session(cmd).await?;
+        Ok(crate::subagent_feed::parse_subagent_list(&out))
+    }
+
+    /// Like `read_remote_transcript_since` for one subagent of the session; feed the text to a
+    /// `FeedState::new_subagent()`. The path is built here from the id, never taken from the host.
+    pub async fn read_subagent_since(
+        &self,
+        session_file: String,
+        agent_id: String,
+        cursor: Option<crate::feed_read::FeedCursor>,
+    ) -> Result<Option<crate::feed_read::FeedRead>, SshCoreError> {
+        let file = crate::subagent_feed::subagent_file(&session_file, &agent_id)?;
+        self.read_remote_transcript_since(file, cursor).await
+    }
+
     /// Automatically detects the path of the active agent transcript on the remote host.
     pub async fn detect_active_transcript_path(
         &self,

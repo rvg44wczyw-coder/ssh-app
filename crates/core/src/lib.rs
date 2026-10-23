@@ -47,6 +47,7 @@ pub mod screen_capture;
 pub mod session;
 pub mod skills;
 pub mod snippets;
+pub mod subagent_feed;
 pub mod telemetry;
 pub mod tmux;
 pub mod transcript;
@@ -130,6 +131,7 @@ pub use snippets::{
     default_developer_snippets, extract_history_commands, extract_snippet_placeholders,
     fuzzy_search_snippets, FuzzyMatchResult, SnippetItem,
 };
+pub use subagent_feed::SubagentInfo;
 pub use telemetry::{
     classify_process_category, parse_host_telemetry, HostTelemetrySnapshot, ProcessCategory,
     RemoteProcessInfo,
