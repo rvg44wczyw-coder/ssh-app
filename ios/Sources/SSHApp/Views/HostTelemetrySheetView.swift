@@ -4,7 +4,7 @@ import SshCoreBridge
 
 /// One screen per quick-menu tile: the host's numbers, its processes, Docker, the helper.
 public enum HostScreen: String {
-    case host, processes, docker, helper
+    case host, processes, docker, helper, ports
 
     var title: String {
         switch self {
@@ -12,6 +12,7 @@ public enum HostScreen: String {
         case .processes: return "Processes"
         case .docker: return "Containers"
         case .helper: return "Host helper"
+        case .ports: return "Ports"
         }
     }
 
@@ -71,6 +72,8 @@ public struct HostTelemetrySheetView: View {
                         ContainersSection(viewModel: viewModel, closeSheet: closeSheet, autoLoad: true)
                     case .helper:
                         HostHelperCard(viewModel: viewModel)
+                    case .ports:
+                        PortsSection(viewModel: viewModel)
                     case .host, .processes:
                         telemetryContent
                     }

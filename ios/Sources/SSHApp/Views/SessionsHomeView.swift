@@ -137,6 +137,7 @@ struct SessionsHomeView: View {
                             serverButton("Kubernetes", "cube.transparent", server.id, enabled: connected) { openKubernetes(server.id) }
                         }
                         serverButton("Processes", "list.bullet.rectangle", server.id, enabled: connected) { onServerScreen(server.id, .processes) }
+                        serverButton("Ports", "network", server.id, enabled: connected) { onServerScreen(server.id, .ports) }
                         serverButton("Monitor", "gauge.with.dots.needle.67percent", server.id, enabled: connected) { onServerScreen(server.id, .host) }
                     }
                 }

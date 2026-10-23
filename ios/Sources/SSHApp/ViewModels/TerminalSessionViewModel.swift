@@ -540,6 +540,12 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         }
     }
 
+    /// TCP ports the host listens on; `nil` when the host could not be asked.
+    public func fetchListeningPorts() async -> [ListeningPort]? {
+        guard let handle, state == .connected else { return nil }
+        return try? await handle.fetchListeningPorts()
+    }
+
     /// Which container runtimes (and Kubernetes) the host has; `nil` when the host could not be asked.
     public func probeRuntimes() async -> [ContainerRuntime]? {
         guard let handle, state == .connected else { return nil }

@@ -24,8 +24,9 @@ public struct WebPreviewSheetView: View {
 
     private let quickPorts: [UInt16] = [3000, 5173, 8000, 8080]
 
-    public init(viewModel: TerminalSessionViewModel) {
+    public init(viewModel: TerminalSessionViewModel, port: UInt16? = nil) {
         self.viewModel = viewModel
+        _selectedPort = State(initialValue: port ?? 3000)
     }
 
     public var body: some View {
