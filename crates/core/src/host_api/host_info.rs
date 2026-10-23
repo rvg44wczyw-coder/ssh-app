@@ -28,6 +28,16 @@ impl SshSessionHandle {
         Ok(crate::telemetry::parse_host_telemetry(raw_output))
     }
 
+    /// TCP ports the host listens on, with the program behind each (`ss`, or `lsof` on macOS).
+    pub async fn fetch_listening_ports(
+        &self,
+    ) -> Result<Vec<crate::ports::ListeningPort>, SshCoreError> {
+        let out = self
+            .execute_command_on_active_session(crate::ports::LISTENING_PORTS_COMMAND.to_string())
+            .await?;
+        Ok(crate::ports::parse_listening_ports(&out))
+    }
+
     /// Safely terminates a remote process by PID (`SIGTERM` or `SIGKILL`), rejecting reserved PIDs <= 1.
     /// With the app's pin the pinned host helper does it and refuses the dangerous targets (this
     /// connection's own processes, other accounts, the tmux server, a reused pid when `started` is

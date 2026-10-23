@@ -36,6 +36,7 @@ pub mod onboarding;
 pub mod pane_context;
 pub mod permissions;
 pub mod port_forward;
+pub mod ports;
 pub mod push;
 pub mod remote_fs;
 pub mod screen;
