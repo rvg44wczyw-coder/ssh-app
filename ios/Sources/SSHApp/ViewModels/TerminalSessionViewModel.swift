@@ -119,6 +119,9 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     private let fileFeed = FeedState()
     private var fileCursor: FeedCursor?
     private var fileFeedPath: String?
+    /// `fileFeed` holds turns read from the agent's own database (Antigravity), not from its file.
+    private var feedFromDatabase = false
+    private var screenIsAgy = false
     /// The host pushes changes of the session file and of the pane's tail over one open channel
     /// (`watch_feed`); while it runs nothing is polled.
     private var feedWatch: FeedWatch?
@@ -563,7 +566,8 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     private func syncFileTurns(_ handle: SshSessionHandle, _ path: String, fresh: Bool = false) async -> [TranscriptTurn]? {
         // The stream feeds `fileFeed` itself: reading too would add the same lines twice.
         if feedStreaming, !fresh, fileFeedPath == path { return fileFeed.turns() }
-        if fresh || fileFeedPath != path {
+        if fresh || fileFeedPath != path || feedFromDatabase {
+            feedFromDatabase = false
             fileFeed.reset()
             fileCursor = nil
             fileFeedPath = path
@@ -591,8 +595,21 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
             fileFeedPath = found
         }
         let bridge = FeedStreamBridge(self)
+        // Antigravity keeps its conversation in a database the pinned host helper reads; without the
+        // helper (or a conversation yet) that stream ends at once and the file is read as before.
+        let fromDatabase = screenIsAgy
+        if fromDatabase != feedFromDatabase {
+            fileFeed.reset()
+            fileCursor = nil
+            feedFromDatabase = fromDatabase
+        }
         do {
-            feedWatch = try await handle.watchFeed(sessionName: session.sessionName, remotePath: found, state: fileFeed, cursor: fileCursor, listener: bridge)
+            if fromDatabase {
+                guard let pin = await helperPin() else { feedFromDatabase = false; return }
+                feedWatch = try await handle.watchAgyFeed(sessionName: session.sessionName, helperSha256: pin, state: fileFeed, cursor: fileCursor, listener: bridge)
+            } else {
+                feedWatch = try await handle.watchFeed(sessionName: session.sessionName, remotePath: found, state: fileFeed, cursor: fileCursor, listener: bridge)
+            }
             feedStreaming = true
         } catch {
             feedStreaming = false
@@ -702,6 +719,7 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         }
         let feed = parseScreenFeed(text: text)
         feedRecognized = feed.dialect != .unknown
+        screenIsAgy = feed.dialect == .agy
         guard feed.dialect != .unknown else { lastScreenSum = nil; return nil }
         lastScreenSum = cap.checksum
         if screenDraft != feed.draft { screenDraft = feed.draft }
