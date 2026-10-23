@@ -1,6 +1,6 @@
 # Feature 55: Event feed (incremental updates instead of re-sending the whole screen)
 
-- **Status**: Reviewed 2026-10-23 (`rev` of the doc: changes applied, see Revision notes). Implementation not started. Follows `docs/architecture/performance-audit-2026-10-23.md`, bottlenecks 1, 2, 3, 6, 7.
+- **Status**: Reviewed 2026-10-23 (`rev` of the doc: changes applied, see Revision notes). Implementation started (core: incremental parser, `FeedState`, read by cursor). Follows `docs/architecture/performance-audit-2026-10-23.md`, bottlenecks 1, 2, 3, 6, 7.
 - **Agents**: Claude Code first (its session file is already JSON lines). Antigravity: studied 2026-10-23, see §8; events are possible through its SQLite store, but only after a spike.
 
 ## 1. Purpose
@@ -109,3 +109,21 @@ Applied from the review:
 - **Phases 1–2 may be enough.** A stat-guarded incremental read plus one tail-limited stable-frame script removes the largest costs (1.1 s / 3.8 MB per read, 1.7 MB per capture) without a new protocol, helper process or SQLite dependency. Phase 3 (streaming) mainly saves polling radio time and latency. *Resolution*: phase 3 starts only after phases 1–2 are measured on the phone with the in-app label; the spec keeps it as the target, not a commitment.
 - **The file as the source of turns risks regressions** (tool groups, system lines, `/btw` come from the screen today). *Resolution*: phases 1–2 keep the screen as the source; phase 3 switches per item behind a setting, with the screen path always available.
 - **`rusqlite` (bundled C SQLite) in the pinned helper** enlarges the binary and the audited surface for one agent whose format is private. *Resolution*: agy stays on the screen path until the spike shows a clear gain; the helper change is isolated in a feature-gated module.
+
+## 9. Subagents (owner decision 2026-10-23: in the release, as a separate item)
+
+Subagents are delivered as their own item after the main feed works (phases 1–4), with their own tests and review; the main feed ignores sidechain records as today until then.
+
+**Claude Code.** A subagent (`Agent` / `Task` tool, forks) writes its own file next to the session: `<session-uuid>/subagents/agent-<agentId>.jsonl` plus `agent-<agentId>.meta.json` (`agentType`, `description`, `toolUseId` = the id of the parent's `Agent` tool call, `spawnDepth`, `model`, `requestShape` such as `background`). Its records carry `isSidechain: true` and `agentId`; the first record may be a `fork-context-ref` (a pointer, not content). The parent's tool result carries the same `agentId` (`async_launched` for background agents). So a subagent is *a second session file with the same line format*: the cursor read, `FeedState` and replay rules of phases 1–3 apply unchanged, one `FeedState` per agent id.
+
+**Antigravity.** `conversation_summaries` has `parent_conversation_id` and `nesting_depth`; a child conversation is another `.db` read exactly like the parent (see the agy analysis).
+
+**Behaviour**
+- The parent's tool-call card for `Agent` shows the subagent's description, model, state (running while its file grows or the parent call has no final result) and opens a **sub-feed** (the same feed view bound to that agent's `FeedState`); a header chip shows "N subagents working" (the existing `SubagentStats`).
+- Discovery on the host: the helper lists `<session>/subagents/*.meta.json` (new files only, by mtime) while a stream is open and announces `{"ev":"sub_open","agent":"<id>","tool_use":"<id>","type":…,"description":…,"depth":n}`; `sub_close` when the parent call completes and the file stops growing for 60 s.
+- Sub-feed events are the same `append`/`update`/`reset` with an `agent` field; the app opens a sub-feed's stream **only while its screen is open** (zero battery use otherwise); the card shows the last known text.
+- Caps: at most 20 subagents tracked per session, nesting depth ≤ 3, same event and turn caps as the main feed; an unknown or malformed id is ignored.
+- Safety: agent ids must match `^a[0-9a-f]{8,40}$`, the path is built by the helper as `<session dir>/subagents/agent-<id>.jsonl` and resolved inside that directory (no `..`, no symlink leaving it); descriptions and prompts are display text only; the prompt of a subagent can be long: shown folded.
+- Approvals: a subagent's permission question appears in the main pane (the screen live part), so the existing approval card stays the way to answer; the sub-feed is read-only.
+
+**Tests (written first)**: replay of a sanitised subagent file equals its whole-file parse; `meta.json` with a hostile id/path is refused; a fork with a `fork-context-ref` first line; the parent call linking by `toolUseId`; depth and count caps; the 60 s close rule with a fake clock; agy: parent/child conversations from a synthetic database.

@@ -52,7 +52,7 @@ What stays on the screen: the input box draft, the spinner line, permission ques
 2. **Concurrent writer.** WAL allows a read-only reader while agy writes; the helper opens with `SQLITE_OPEN_READONLY`, never writes, never checkpoints, and treats `SQLITE_BUSY` as "try later". The database must be copied-free and not on a network share.
 3. **Size and privacy.** Each payload carries the context (skills, tool lists, file paths). The helper extracts the fields above and **never sends the raw payload**; text caps as in feature 55; control characters stripped on the phone.
 4. **SQLite in the helper.** `rusqlite` with the bundled C library, feature-gated; the pinned helper grows by about 1 MB. The system `sqlite3` binary is not assumed.
-5. **Subagents.** `parent_conversation_id` / `nesting_depth` exist; first release shows only the conversation of nesting depth 0 and ignores children (like Claude's sidechains).
+5. **Subagents.** `parent_conversation_id` / `nesting_depth` exist. Owner decision 2026-10-23: subagents are in the release as a separate item (`docs/features/55-event-feed.md` §9): a child conversation is read like the parent and shown as a sub-feed linked from the parent's tool call.
 6. **Hosts.** Only hosts where agy runs and the helper is installed (macOS and Linux). Windows/WSL unverified.
 7. **Path safety.** The helper reads only `~/.gemini/antigravity-cli/{conversation_summaries.db,conversations/<uuid>.db}` where `<uuid>` is a canonical UUID taken from the summaries row, resolved to a real path inside that folder, never a path from the app.
 
