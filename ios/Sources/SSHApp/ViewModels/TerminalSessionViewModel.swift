@@ -628,15 +628,17 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         let captureMs = Self.millis(since: cycleStart)
         guard var text = first.text else { return false }   // the same screen as before
         // The agent redraws its last lines while it writes (spinner, a result coming in, a reply
-        // being typed): a frame taken in the middle is the "mess" at the end of the feed. Wait
-        // until two captures in a row are the same (at most three more looks, ~1 s).
+        // being typed). With tmux the host waits for a stable frame itself and sends it once;
+        // only Zellij's capture still needs the looks here (until two in a row are the same).
         var cap = first
-        for _ in 0..<3 {
-            try? await Task.sleep(for: .milliseconds(350))
-            guard let again = try? await handle.captureSessionScreenIn(sessionName: session.sessionName, knownSum: cap.checksum, kind: multiplexer),
-                  let newer = again.text else { break }   // unchanged: the frame is stable
-            cap = again
-            text = newer
+        if multiplexer != .tmux {
+            for _ in 0..<3 {
+                try? await Task.sleep(for: .milliseconds(350))
+                guard let again = try? await handle.captureSessionScreenIn(sessionName: session.sessionName, knownSum: cap.checksum, kind: multiplexer),
+                      let newer = again.text else { break }   // unchanged: the frame is stable
+                cap = again
+                text = newer
+            }
         }
         let feed = parseScreenFeed(text: text)
         feedRecognized = feed.dialect != .unknown

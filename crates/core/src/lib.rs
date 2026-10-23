@@ -42,6 +42,7 @@ pub mod ports;
 pub mod push;
 pub mod remote_fs;
 pub mod screen;
+pub mod screen_capture;
 pub mod session;
 pub mod skills;
 pub mod snippets;

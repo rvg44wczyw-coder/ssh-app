@@ -114,38 +114,75 @@ impl SshSessionHandle {
                 reason: "Invalid checksum".to_string(),
             });
         }
-        let body = if program == "zellij" {
-            crate::zellij_feed::zellij_capture_script()
-        } else {
-            CAPTURE_SCREEN_SCRIPT.to_string()
-        };
-        let script = crate::hostprobe::login_sh_script(
-            &body,
-            &[
-                crate::tmux::shell_quote(session_name.trim()),
-                crate::tmux::shell_quote(&known),
-            ],
-            10,
-        );
-        let output = self.execute_command_on_active_session(script).await?;
-        let (first, rest) = output.split_once('\n').unwrap_or((output.as_str(), ""));
-        if let Some(sum) = first.strip_prefix("SAME ") {
-            return Ok(ScreenCapture {
-                checksum: sum.trim().to_string(),
-                text: None,
-            });
+        if program == "zellij" {
+            let script = crate::hostprobe::login_sh_script(
+                &crate::zellij_feed::zellij_capture_script(),
+                &[
+                    crate::tmux::shell_quote(session_name.trim()),
+                    crate::tmux::shell_quote(&known),
+                ],
+                10,
+            );
+            let output = self.execute_command_on_active_session(script).await?;
+            return match crate::screen_capture::parse_capture_output(&output)? {
+                crate::screen_capture::CaptureAnswer::Same(checksum) => Ok(ScreenCapture {
+                    checksum,
+                    text: None,
+                }),
+                crate::screen_capture::CaptureAnswer::Text { checksum, text } => {
+                    Ok(ScreenCapture {
+                        checksum,
+                        text: Some(text),
+                    })
+                }
+                crate::screen_capture::CaptureAnswer::NoTmux => Err(SshCoreError::IoError {
+                    reason: "The pane could not be read".to_string(),
+                }),
+            };
         }
-        let sum = first
-            .strip_prefix("SUM ")
-            .ok_or_else(|| SshCoreError::IoError {
-                reason: "The pane could not be read".to_string(),
-            })?;
-        // The pane is untrusted display data: bounded like a transcript.
-        let text: String = rest.chars().take(3_000_000).collect();
-        Ok(ScreenCapture {
-            checksum: sum.trim().to_string(),
-            text: Some(text),
-        })
+        // tmux: one script waits for a stable frame on the host and sends it compressed. It runs
+        // under plain `sh`; a host where that does not find tmux is asked through the login shell
+        // from then on.
+        let name = crate::tmux::shell_quote(session_name.trim());
+        let quoted_known = crate::tmux::shell_quote(&known);
+        let script = crate::screen_capture::capture_script("tmux");
+        let plain = format!(
+            "exec sh -c {} sh {} {}",
+            crate::tmux::shell_quote(&script),
+            name,
+            quoted_known
+        );
+        let login = || {
+            crate::hostprobe::login_sh_script(&script, &[name.clone(), quoted_known.clone()], 10)
+        };
+        let use_login = self
+            .capture_via_login
+            .load(std::sync::atomic::Ordering::Relaxed);
+        let output = self
+            .execute_command_on_active_session(if use_login { login() } else { plain })
+            .await?;
+        let answer = match crate::screen_capture::parse_capture_output(&output)? {
+            crate::screen_capture::CaptureAnswer::NoTmux if !use_login => {
+                self.capture_via_login
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
+                let again = self.execute_command_on_active_session(login()).await?;
+                crate::screen_capture::parse_capture_output(&again)?
+            }
+            other => other,
+        };
+        match answer {
+            crate::screen_capture::CaptureAnswer::Same(checksum) => Ok(ScreenCapture {
+                checksum,
+                text: None,
+            }),
+            crate::screen_capture::CaptureAnswer::Text { checksum, text } => Ok(ScreenCapture {
+                checksum,
+                text: Some(text),
+            }),
+            crate::screen_capture::CaptureAnswer::NoTmux => Err(SshCoreError::IoError {
+                reason: "tmux was not found on the host".to_string(),
+            }),
+        }
     }
 
     /// The transcript of the agent running in this tab's own tmux session: Claude Code by the

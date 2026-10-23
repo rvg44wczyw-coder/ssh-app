@@ -80,6 +80,8 @@ pub struct SshSessionHandle {
     host_key: Arc<Mutex<Option<String>>>,
     /// Uploads in flight by the id the app gave them: set to `true` to stop one (`cancel_upload`).
     pub(crate) upload_cancels: Arc<Mutex<std::collections::HashMap<String, Arc<AtomicBool>>>>,
+    /// The screen capture needs the login shell on this host (tmux is not on a plain `PATH`).
+    pub(crate) capture_via_login: AtomicBool,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -97,6 +99,7 @@ impl SshSessionHandle {
             ssh_client: Arc::new(tokio::sync::Mutex::new(None)),
             host_key: Arc::new(Mutex::new(None)),
             upload_cancels: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            capture_via_login: AtomicBool::new(false),
         })
     }
 

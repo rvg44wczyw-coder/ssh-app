@@ -17,12 +17,6 @@ pub struct ScreenCapture {
     pub text: Option<String>,
 }
 
-const CAPTURE_SCREEN_SCRIPT: &str = r#"PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"; export PATH
-out=$(tmux capture-pane -e -p -J -S - -t "=$1:" 2>/dev/null) || exit 1
-sum=$(printf '%s' "$out" | cksum | cut -d' ' -f1)
-if [ "$sum" = "$2" ]; then echo "SAME $sum"; else echo "SUM $sum"; printf '%s\n' "$out"; fi
-exit 0"#;
-
 /// Restarts what runs in a tmux session's pane with a new command (`respawn-pane -k`): the session,
 /// its window and the attached clients stay, the old process is killed.
 const RESTART_PANE_SCRIPT: &str = r#"PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"; export PATH
