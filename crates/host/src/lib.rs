@@ -1,6 +1,7 @@
 //! Library half of `ssh-app-host` so tests can call the readers directly.
 
 pub mod agent;
+pub mod agyfeed;
 pub mod auto;
 pub mod ctl;
 pub mod doctor;

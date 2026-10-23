@@ -7,8 +7,8 @@
 use serde_json::json;
 use ssh_app_host::queue::{install_signal_handlers, Paths};
 use ssh_app_host::{
-    agent, ctl, doctor, files, hook, models, pair, procs, push, rpc, skills, statusline, telemetry,
-    usage,
+    agent, agyfeed, ctl, doctor, files, hook, models, pair, procs, push, rpc, skills, statusline,
+    telemetry, usage,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -22,9 +22,37 @@ fn main() {
         Some("hello") => {
             println!(
                 "{}",
-                json!({"v": 1, "name": "ssh-app-host", "version": VERSION, "caps": ["usage", "hook", "agent", "push", "models", "telemetry", "fs", "read", "kill", "pair", "doctor", "skills"]})
+                json!({"v": 1, "name": "ssh-app-host", "version": VERSION, "caps": ["usage", "hook", "agent", "push", "models", "telemetry", "fs", "read", "kill", "pair", "doctor", "skills", "agy-events"]})
             );
             0
+        }
+        Some("agy-jsonl") if args.last().map(String::as_str) == Some("--raw") => {
+            match agyfeed::jsonl_raw(&args[1..args.len() - 1]) {
+                Some(out) => {
+                    print!("{out}");
+                    0
+                }
+                None => 1,
+            }
+        }
+        Some("agy-conv") if args.last().map(String::as_str) == Some("--raw") => {
+            match agyfeed::conv_raw(&args[1..args.len() - 1]) {
+                Some(id) => {
+                    println!("{id}");
+                    0
+                }
+                None => 1,
+            }
+        }
+        Some("agy-jsonl") => {
+            let reply = agyfeed::jsonl_reply(&args[1..]);
+            println!("{reply}");
+            i32::from(reply["ok"] != true)
+        }
+        Some("agy-conv") => {
+            let reply = agyfeed::conv_reply(&args[1..]);
+            println!("{reply}");
+            i32::from(reply["ok"] != true)
         }
         Some("usage") => {
             // `--agent` asks the host agent (cached, started on demand) and falls back to scanning.

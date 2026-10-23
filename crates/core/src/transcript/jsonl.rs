@@ -98,6 +98,21 @@ fn parse_line(
                 .and_then(|v| v.as_str())
                 .map(|s| strip_agy_result_header(&strip_ansi_codes(s.to_string())));
 
+            // A result that names its call (agy's database feed does) goes to that call, however
+            // many calls the step made.
+            if let Some(id) = val.get("tool_call_id").and_then(|v| v.as_str()) {
+                if let Some(call) = turns
+                    .iter_mut()
+                    .rev()
+                    .flat_map(|t| t.tool_calls.iter_mut())
+                    .find(|c| c.call_id == id && c.result.is_none())
+                {
+                    call.result = tool_content.clone();
+                    call.status = status;
+                    call.is_error = status == TranscriptStatus::Error;
+                    return;
+                }
+            }
             if let Some(last_turn) = turns
                 .iter_mut()
                 .rev()

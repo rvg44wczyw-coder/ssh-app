@@ -244,3 +244,18 @@ fn permission_mode_records_become_one_hidden_turn_per_change() {
         .iter()
         .all(|t| t.label.as_deref() == Some("permission-mode")));
 }
+
+#[test]
+fn an_agy_result_that_names_its_call_goes_to_that_call() {
+    let jsonl = r#"{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","content":"go"}
+{"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","content":null,"thinking":"t","tool_calls":[{"id":"a","name":"run_command","args":{"CommandLine":"ls"}},{"id":"b","name":"run_command","args":{"CommandLine":"pwd"}}]}
+{"step_index":2,"source":"TOOL","type":"TOOL_RESPONSE","content":"result b","tool_call_id":"b","status":"DONE"}
+{"step_index":3,"source":"TOOL","type":"TOOL_RESPONSE","content":"result a","tool_call_id":"a","status":"ERROR"}
+"#;
+    let turns = parse_transcript_jsonl(jsonl.to_string()).unwrap();
+    let calls = &turns[1].tool_calls;
+    assert_eq!(calls[0].result.as_deref(), Some("result a"));
+    assert!(calls[0].is_error);
+    assert_eq!(calls[1].result.as_deref(), Some("result b"));
+    assert!(!calls[1].is_error);
+}
