@@ -1,6 +1,6 @@
 # Feature 52: `/btw` answers and native screens for slash-command menus
 
-- **Status**: Draft 2026-10-22 (owner request: "catch the `/btw` output; every command with its own menu and settings should be a session-settings screen"). Not reviewed yet.
+- **Status**: Implemented 2026-10-23 (core parser, bindings, UI; findings in `docs/security-findings/2026-10-23-slash-command-screens.md`). Differences from the draft: a known dialog is recognised before the prompt parser (the `/mcp` footer looks like a prompt); the commands are opened from a menu next to the paperclip in the feed composer instead of a settings group; `/mcp` and `/status` are read only; tabs other than the open one are shown but switch in the terminal.
 - **Agent**: Claude Code first (dialect `Claude` of `crates/core/src/screen`). Antigravity and Ollama have no such menus; they are untouched.
 - **Builds on**: the screen feed (`screen/`, feature 03/17), `ScreenPrompt` cards, the session settings sheet (`SessionPermissionsSheetView` and the tab dropdown).
 
