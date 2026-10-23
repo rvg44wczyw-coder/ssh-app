@@ -33,6 +33,8 @@ struct SessionsHomeView: View {
     var servers: [(id: UUID, name: String)] = []
     /// The server a session belongs to (a session without one runs on the active server).
     var serverOf: (TabSession) -> UUID? = { $0.serverId }
+    /// Which runtimes a server's host has (`nil`: could not ask). Containers and Kubernetes are hidden when it found none.
+    var probeRuntimes: (UUID) async -> [ContainerRuntime]? = { _ in nil }
     /// Opens a full screen of the server (containers, processes, host monitor).
     var onServerScreen: (UUID, HostScreen) -> Void = { _, _ in }
     /// Opens the containers screen on Kubernetes pods (the runtime is remembered per server).
@@ -45,6 +47,21 @@ struct SessionsHomeView: View {
     private func openContainers(_ server: UUID) {
         if ContainerRuntimePrefs.chosen(server: server) == .kubernetes { ContainerRuntimePrefs.choose(.docker, server: server) }
         onServerScreen(server, .docker)
+    }
+
+    /// Runtimes found per server this time the screen is open; pull to refresh asks again.
+    @State private var found: [UUID: [ContainerRuntime]] = [:]
+
+    private var connectedServers: [UUID] {
+        servers.map(\.id).filter { id in
+            sessions.contains { serverOf($0) == id && (states[$0.id] ?? .disconnected) == .connected }
+        }
+    }
+
+    private func probeConnected() async {
+        for id in connectedServers where found[id] == nil {
+            if let r = await probeRuntimes(id) { found[id] = r }
+        }
     }
 
     @State private var renaming: TabSession?
@@ -84,6 +101,8 @@ struct SessionsHomeView: View {
             }
         }
         .background(Color.appBackground)
+        .task(id: connectedServers) { await probeConnected() }
+        .refreshable { found = [:]; await probeConnected() }
         .alert("Rename session", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
             TextField("Name", text: $renameText)
             Button("Cancel", role: .cancel) {}
@@ -105,8 +124,18 @@ struct SessionsHomeView: View {
             GlassEffectContainer(spacing: 8) {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
-                        serverButton("Containers", "shippingbox.fill", server.id, enabled: connected) { openContainers(server.id) }
-                        serverButton("Kubernetes", "cube.transparent", server.id, enabled: connected) { openKubernetes(server.id) }
+                        if let r = found[server.id] {
+                            // Probed: a button shows only when its host can answer.
+                            if r.contains(where: { $0 != .kubernetes }) {
+                                serverButton("Containers", "shippingbox.fill", server.id, enabled: connected) { openContainers(server.id) }
+                            }
+                            if r.contains(.kubernetes) {
+                                serverButton("Kubernetes", "cube.transparent", server.id, enabled: connected) { openKubernetes(server.id) }
+                            }
+                        } else {
+                            serverButton("Containers", "shippingbox.fill", server.id, enabled: connected) { openContainers(server.id) }
+                            serverButton("Kubernetes", "cube.transparent", server.id, enabled: connected) { openKubernetes(server.id) }
+                        }
                         serverButton("Processes", "list.bullet.rectangle", server.id, enabled: connected) { onServerScreen(server.id, .processes) }
                         serverButton("Monitor", "gauge.with.dots.needle.67percent", server.id, enabled: connected) { onServerScreen(server.id, .host) }
                     }

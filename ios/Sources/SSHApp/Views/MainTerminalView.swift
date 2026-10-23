@@ -164,6 +164,16 @@ public struct MainTerminalView: View {
         serverScreen = ServerScreenRoute(screen: screen, viewModel: vm)
     }
 
+    /// Asks a connected session of the server which runtimes its host has (feeds the server buttons).
+    private func probeServerRuntimes(_ server: UUID) async -> [ContainerRuntime]? {
+        let tab = tabsManager.sessions.first { t in
+            (t.serverId ?? serversManager.activeProfile?.id) == server
+                && tabsManager.sessionStates[t.id] == .connected
+        }
+        guard let tab, let vm = tabsManager.viewModel(for: tab.id) else { return nil }
+        return await vm.probeRuntimes()
+    }
+
     /// Tells every session whether its chat is the one on screen.
     private func updateViewed() {
         for tab in tabsManager.sessions {
@@ -459,6 +469,7 @@ public struct MainTerminalView: View {
                     onClearAssistant: { id in assistants.session(for: id).clearAll() },
                     servers: serversManager.profiles.map { (id: $0.id, name: $0.name) },
                     serverOf: { $0.serverId ?? serversManager.activeProfile?.id },
+                    probeRuntimes: { server in await probeServerRuntimes(server) },
                     onServerScreen: { server, screen in openServerScreen(server, screen) }
                 )
                 }

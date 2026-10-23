@@ -540,6 +540,12 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         }
     }
 
+    /// Which container runtimes (and Kubernetes) the host has; `nil` when the host could not be asked.
+    public func probeRuntimes() async -> [ContainerRuntime]? {
+        guard let handle, state == .connected else { return nil }
+        return try? await handle.probeContainerRuntimes()
+    }
+
     /// Runs Claude's `/context` in the pane and reads the report from the screen. `nil`: the agent is
     /// busy (its input is not free), not connected, or the report did not appear in time.
     public func measureContext() async -> ContextUsage? {
