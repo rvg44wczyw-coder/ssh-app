@@ -29,6 +29,13 @@ struct SessionsHomeView: View {
     let onOpenAssistant: (UUID) -> Void
     let onClearAssistant: (UUID) -> Void
 
+    /// Servers in the order they are shown (every server, also one without sessions).
+    var servers: [(id: UUID, name: String)] = []
+    /// The server a session belongs to (a session without one runs on the active server).
+    var serverOf: (TabSession) -> UUID? = { $0.serverId }
+    /// Opens a full screen of the server (containers, processes, host monitor).
+    var onServerScreen: (UUID, HostScreen) -> Void = { _, _ in }
+
     @State private var renaming: TabSession?
     @State private var renameText = ""
     private let columns = [GridItem(.adaptive(minimum: 160), spacing: 12)]
@@ -46,13 +53,21 @@ struct SessionsHomeView: View {
         ScrollView {
             // Previews are re-rendered every few seconds while this screen is visible.
             TimelineView(.periodic(from: .now, by: 3)) { _ in
+                VStack(alignment: .leading, spacing: 14) {
+                    ForEach(servers, id: \.id) { server in
+                        serverSection(server)
+                    }
+                    let orphans = sessions.filter { s in !servers.contains(where: { $0.id == serverOf(s) }) }
+                    if !orphans.isEmpty {
+                        LazyVGrid(columns: columns, spacing: 12) { ForEach(orphans) { s in card(s) } }
+                    }
                 LazyVGrid(columns: columns, spacing: 12) {
-                    ForEach(sessions) { s in card(s) }
                     ForEach(assistants) { a in
                         AssistantCard(assistant: a, serverName: assistantServerName(a.serverId),
                                       onOpen: { onOpenAssistant(a.serverId) }, onClear: { onClearAssistant(a.serverId) })
                     }
                     addCard
+                }
                 }
                 .padding(12)
             }
@@ -63,6 +78,46 @@ struct SessionsHomeView: View {
             Button("Cancel", role: .cancel) {}
             Button("Save") { if let r = renaming { onRename(r.id, renameText) } }
         }
+    }
+
+    /// A server's sessions with the screens that belong to the server, not to one session.
+    @ViewBuilder
+    private func serverSection(_ server: (id: UUID, name: String)) -> some View {
+        let mine = sessions.filter { serverOf($0) == server.id }
+        let connected = mine.contains { (states[$0.id] ?? .disconnected) == .connected }
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Circle().fill(connected ? Color.green : Color.gray).frame(width: 8, height: 8)
+                Text(server.name).font(.headline).lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            GlassEffectContainer(spacing: 8) {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        serverButton("Containers", "shippingbox.fill", .docker, server.id, enabled: connected)
+                        serverButton("Processes", "list.bullet.rectangle", .processes, server.id, enabled: connected)
+                        serverButton("Monitor", "gauge.with.dots.needle.67percent", .host, server.id, enabled: connected)
+                    }
+                }
+            }
+            if !connected {
+                Text("Open a session on this server to use its screens.")
+                    .font(.caption2).foregroundColor(.secondary)
+            }
+            if !mine.isEmpty {
+                LazyVGrid(columns: columns, spacing: 12) { ForEach(mine) { s in card(s) } }
+            }
+        }
+    }
+
+    private func serverButton(_ title: String, _ symbol: String, _ screen: HostScreen, _ id: UUID, enabled: Bool) -> some View {
+        Button { onServerScreen(id, screen) } label: {
+            Label(title, systemImage: symbol).font(.subheadline.weight(.medium)).padding(.horizontal, 12).padding(.vertical, 7)
+        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: Capsule())
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.45)
     }
 
     @ViewBuilder

@@ -87,6 +87,8 @@ public struct MainTerminalView: View {
     @State private var hookAttention: [UUID: SessionAttention] = [:]
     /// Bumped by the watcher so the symbols are read again (the view models are not observed here).
     @State private var attentionTick = 0
+    /// A full screen of one server (containers, processes, monitor), opened from the sessions screen.
+    @State private var serverScreen: ServerScreenRoute?
     @State private var unreadRound = 0
     /// Chat and command state of the AI assistant, one per server (outlives tabs and the screen).
     @StateObject var assistants = AssistantStore()
@@ -149,6 +151,16 @@ public struct MainTerminalView: View {
                 attentionTick += 1
             }
         }
+    }
+
+    /// Opens a server's screen over one of its connected sessions (its SSH channel carries the calls).
+    private func openServerScreen(_ server: UUID, _ screen: HostScreen) {
+        let tab = tabsManager.sessions.first { t in
+            (t.serverId ?? serversManager.activeProfile?.id) == server
+                && tabsManager.sessionStates[t.id] == .connected
+        }
+        guard let tab, let vm = tabsManager.viewModel(for: tab.id) else { return }
+        serverScreen = ServerScreenRoute(screen: screen, viewModel: vm)
     }
 
     /// Tells every session whether its chat is the one on screen.
@@ -443,7 +455,10 @@ public struct MainTerminalView: View {
                     assistants: assistants.withHistory(in: serversManager.profiles.map(\.id)),
                     assistantServerName: { id in serversManager.profile(for: id)?.name ?? "" },
                     onOpenAssistant: { id in openAssistant(on: serversManager.profile(for: id)) },
-                    onClearAssistant: { id in assistants.session(for: id).clearAll() }
+                    onClearAssistant: { id in assistants.session(for: id).clearAll() },
+                    servers: serversManager.profiles.map { (id: $0.id, name: $0.name) },
+                    serverOf: { $0.serverId ?? serversManager.activeProfile?.id },
+                    onServerScreen: { server, screen in openServerScreen(server, screen) }
                 )
                 }
             } else {
@@ -622,6 +637,9 @@ public struct MainTerminalView: View {
                     }
                 }
                 }
+            }
+            .sheet(item: $serverScreen) { route in
+                HostTelemetrySheetView(viewModel: route.viewModel, screen: route.screen) { serverScreen = nil }
             }
             .sheet(isPresented: $showPaywall) {
                 PaywallView(reason: "The free version keeps up to \(FreeTier.maxSessions) open sessions. Pro removes the limit.")
@@ -1032,4 +1050,12 @@ public struct MainTerminalView: View {
             break
         }
     }
+}
+
+
+/// What the server-level sheet shows and the session channel it runs over.
+struct ServerScreenRoute: Identifiable {
+    let id = UUID()
+    let screen: HostScreen
+    let viewModel: TerminalSessionViewModel
 }
