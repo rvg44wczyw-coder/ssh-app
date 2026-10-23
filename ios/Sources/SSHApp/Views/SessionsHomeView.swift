@@ -106,7 +106,7 @@ struct SessionsHomeView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         serverButton("Containers", "shippingbox.fill", server.id, enabled: connected) { openContainers(server.id) }
-                        serverButton("Kubernetes", "helm", server.id, enabled: connected) { openKubernetes(server.id) }
+                        serverButton("Kubernetes", "cube.transparent", server.id, enabled: connected) { openKubernetes(server.id) }
                         serverButton("Processes", "list.bullet.rectangle", server.id, enabled: connected) { onServerScreen(server.id, .processes) }
                         serverButton("Monitor", "gauge.with.dots.needle.67percent", server.id, enabled: connected) { onServerScreen(server.id, .host) }
                     }
