@@ -334,6 +334,8 @@ impl Builder {
 
 // MARK: questions the agent waits on
 
+mod context;
+pub use context::{parse_context_usage, ContextCategory, ContextSkill, ContextUsage};
 mod dialog;
 use dialog::*;
 pub use dialog::{DialogKind, DialogRow, DialogTab, RowState, ScreenAside, ScreenDialog};

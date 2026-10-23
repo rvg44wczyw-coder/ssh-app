@@ -1164,3 +1164,50 @@ fn dialog_text_is_capped() {
     assert_eq!(d.rows.len(), 50);
     assert!(d.rows.iter().all(|r| r.label.chars().count() <= 200));
 }
+
+#[test]
+fn context_report_is_read_from_a_real_capture() {
+    let u = parse_context_usage(include_str!("../../tests/data/claude_context.txt").to_string())
+        .expect("report");
+    assert_eq!(u.model, "Sonnet 5.5");
+    assert_eq!((u.used_tokens, u.window_tokens), (30_000, 400_000));
+    let skills = u
+        .categories
+        .iter()
+        .find(|c| c.name == "Skills")
+        .expect("skills category");
+    assert_eq!(skills.tokens, 10_000);
+    assert!((skills.percent - 2.5).abs() < 0.01);
+    assert!(u
+        .categories
+        .iter()
+        .any(|c| c.name == "System tools" && c.tokens == 13_200));
+    assert!(u.categories.iter().any(|c| c.name == "Free space"));
+    let rev = u.skills.iter().find(|s| s.name == "rev").expect("rev");
+    assert_eq!((rev.group.as_str(), rev.tokens), ("User", 170));
+    let small = u.skills.iter().find(|s| s.name == "docx").expect("docx");
+    assert_eq!(small.tokens, 10);
+    assert!(u
+        .skills
+        .iter()
+        .any(|s| s.group == "Built-in" && s.name == "code-review" && s.tokens == 330));
+    // The memory files and MCP trees are not skills.
+    assert!(!u
+        .skills
+        .iter()
+        .any(|s| s.name.contains("MEMORY") || s.name.starts_with("mcp__")));
+}
+
+#[test]
+fn context_report_absent_or_hostile_gives_none_or_bounded_values() {
+    assert!(parse_context_usage("just a shell\n$ ls".to_string()).is_none());
+    let hostile = "Context Usage\n  999999999999999999999k/1m tokens (7%)\n  ⛁ X: 1e9 tokens (5%)\n  ⛁ Y: 5 tokens (99999%)\n";
+    let u = parse_context_usage(hostile.to_string());
+    assert!(u.is_none_or(|u| u.categories.is_empty() && u.window_tokens == 0));
+    let mut many =
+        String::from("Context Usage\n  1k/2k tokens (1%)\n  Skills · /skills\n\n     User\n");
+    for i in 0..1000 {
+        many.push_str(&format!("     ├ s{i}: ~10 tokens\n"));
+    }
+    assert!(parse_context_usage(many).expect("report").skills.len() <= 300);
+}

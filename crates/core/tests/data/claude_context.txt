@@ -1,0 +1,157 @@
+ ▐▛███▛█   Claude Code v2.1.308
+▝▜██████▀  Sonnet 5.5 · Claude Pro
+ ▝▝   ▝▝   ~/rust/ssh-app
+
+  Switched back to the classic renderer
+
+⚠ Your login expires in 3 days · run /login to renew
+
+❯ /context                                                                                          
+  ⎿  Context Usage
+     ⛁ ⛁ ⛁ ⛁ ⛀ ⛀ ⛀ ⛁ ⛁ ⛀   Sonnet 5.5                                                               
+     ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶   claude-sonnet-5-5                                                      
+     ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶   30k/400k tokens (7%)                                                     
+     ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶                                                                          
+     ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶   Estimated usage by category                                              
+     ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶   ⛁ System prompt: 3k tokens (0.7%)                                      
+     ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶   ⛁ System tools: 13.2k tokens (3.3%)
+     ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶   ⛁ MCP tools: 772 tokens (0.2%)
+     ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶   ⛁ MCP server instructions: 717 tokens (0.2%)
+     ⛶ ⛶ ⛝ ⛝ ⛝ ⛝ ⛝ ⛝ ⛝ ⛝   ⛁ Memory files: 2.3k tokens (0.6%)
+                           ⛁ Skills: 10k tokens (2.5%)
+                           ⛁ Messages: 10 tokens (0.0%)
+                           ⛶ Free space: 337k (84.3%)
+                           ⛝ Autocompact buffer: 33k tokens (8.3%)
+
+     Auto-compact window: 400k tokens
+
+     MCP tools · /mcp (loaded on-demand)
+
+     Loaded
+     ├ mcp__claude_ai_Claude_Docs__batch: 190 tokens
+     ├ mcp__claude_ai_Claude_Docs__guide: 240 tokens
+     └ mcp__claude_ai_Claude_Docs__update: 342 tokens
+
+     Available
+     ├ mcp__claude_ai_Claude_Docs__create
+     ├ mcp__claude_ai_Claude_Docs__delete
+     ├ mcp__claude_ai_Claude_Docs__export
+     ├ mcp__claude_ai_Claude_Docs__query
+     ├ mcp__claude_ai_Claude_Docs__read
+     ├ mcp__plugin_design_figma__authenticate
+     ├ mcp__plugin_design_figma__complete_authentication
+     ├ mcp__plugin_design_intercom__authenticate
+     ├ mcp__plugin_design_intercom__complete_authentication
+     ├ mcp__plugin_engineering_atlassian__authenticate
+     ├ mcp__plugin_engineering_atlassian__complete_authentication
+     ├ mcp__plugin_engineering_datadog__authenticate
+     ├ mcp__plugin_engineering_datadog__complete_authentication
+     ├ mcp__plugin_engineering_linear__authenticate
+     ├ mcp__plugin_engineering_linear__complete_authentication
+     ├ mcp__plugin_engineering_notion__authenticate
+     ├ mcp__plugin_engineering_notion__complete_authentication
+     ├ mcp__plugin_engineering_slack__authenticate
+     └ mcp__plugin_engineering_slack__complete_authentication
+
+     Memory files · /memory
+     ├ ~/.claude-personal/projects/-Users-ivs-rust-ssh-app/memory/MEMORY.md: 361 tokens
+     └ AGENTS.md: 2k tokens
+
+     Skills · /skills
+
+     User
+     ├ dev-chain: ~220 tokens
+     ├ hacker: ~210 tokens
+     └ rev: ~170 tokens
+
+     claude.ai sync
+     ├ built-in-browser: ~290 tokens
+     ├ chrome-browser: ~260 tokens
+     ├ morning: ~120 tokens
+     ├ import-memory: ~60 tokens
+     ├ google-workspace: < 20 tokens
+     ├ deep-research: < 20 tokens
+     ├ skill-creator: < 20 tokens
+     ├ computer-use: < 20 tokens
+     ├ docs: < 20 tokens
+     ├ docx: < 20 tokens
+     ├ pptx: < 20 tokens
+     ├ xlsx: < 20 tokens
+     └ pdf: < 20 tokens
+
+     Plugin (brightdata-plugin)
+     ├ brightdata-plugin:scraper-studio: ~420 tokens
+     ├ brightdata-plugin:brd-browser-debug: ~340 tokens
+     ├ brightdata-plugin:brightdata-proxy: ~310 tokens
+     ├ brightdata-plugin:live-research: ~300 tokens
+     ├ brightdata-plugin:seo-audit: ~290 tokens
+     ├ brightdata-plugin:price-comparison: ~270 tokens
+     ├ brightdata-plugin:brand-listening: ~270 tokens
+     ├ brightdata-plugin:rag-pipeline: ~270 tokens
+     ├ brightdata-plugin:discover-api: ~270 tokens
+     ├ brightdata-plugin:brightdata-sdk-js: ~240 tokens
+     ├ brightdata-plugin:competitive-intel: ~240 tokens
+     ├ brightdata-plugin:bright-data-mcp: ~240 tokens
+     ├ brightdata-plugin:scraper-builder: ~230 tokens
+     ├ brightdata-plugin:brightdata-cli: ~220 tokens
+     ├ brightdata-plugin:design-mirror: ~180 tokens
+     ├ brightdata-plugin:brightdata-sdk: ~180 tokens
+     ├ brightdata-plugin:search: ~170 tokens
+     ├ brightdata-plugin:data-feeds: ~160 tokens
+     ├ brightdata-plugin:agent-onboarding: ~160 tokens
+     ├ brightdata-plugin:scrape: ~150 tokens
+     └ brightdata-plugin:bright-data-best-practices: ~130 tokens
+
+     Plugin (cowork-plugin-management)
+     ├ cowork-plugin-management:create-cowork-plugin: ~130 tokens
+     └ cowork-plugin-management:cowork-plugin-customizer: ~110 tokens
+
+     Plugin (design)
+     ├ design:design-critique: ~100 tokens
+     ├ design:design-system: ~100 tokens
+     ├ design:research-synthesis: ~100 tokens
+     ├ design:accessibility-review: ~100 tokens
+     ├ design:ux-copy: ~100 tokens
+     ├ design:user-research: ~90 tokens
+     └ design:design-handoff: ~90 tokens
+
+     Plugin (engineering)
+     ├ engineering:architecture: ~100 tokens
+     ├ engineering:documentation: ~100 tokens
+     ├ engineering:incident-response: ~100 tokens
+     ├ engineering:debug: ~90 tokens
+     ├ engineering:code-review: ~90 tokens
+     ├ engineering:deploy-checklist: ~90 tokens
+     ├ engineering:system-design: ~90 tokens
+     ├ engineering:standup: ~90 tokens
+     ├ engineering:testing-strategy: ~90 tokens
+     └ engineering:tech-debt: ~90 tokens
+
+     Plugin (finance)
+     ├ finance:financial-statements: ~140 tokens
+     ├ finance:sox-testing: ~100 tokens
+     ├ finance:journal-entry: ~100 tokens
+     ├ finance:audit-support: ~90 tokens
+     ├ finance:journal-entry-prep: ~90 tokens
+     ├ finance:reconciliation: ~90 tokens
+     ├ finance:variance-analysis: ~90 tokens
+     └ finance:close-management: ~80 tokens
+
+     Built-in
+     ├ code-review: ~330 tokens
+     ├ update-config: ~240 tokens
+     ├ plugin-authoring: ~90 tokens
+     ├ artifact-diagramming: ~70 tokens
+     ├ fewer-permission-prompts: ~60 tokens
+     ├ simplify: ~60 tokens
+     ├ security-review: ~30 tokens
+     └ init: ~20 tokens
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  Sonnet 5.5 · 5h 14% · 7d 45%                                                                    
+  ⏵⏵ auto mode on (shift+tab to cycle)               
+                                            Update available! Run: brew upgrade claude-code@latest
+  tmux focus-events off · add 'set -g focus-events on' to ~/.tmux.conf and reattach for focus tra…
+
