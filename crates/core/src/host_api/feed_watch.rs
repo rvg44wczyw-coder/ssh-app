@@ -47,6 +47,35 @@ impl SshSessionHandle {
         debug_assert_eq!(program, "tmux");
         let command =
             crate::feed_stream::build_stream_command(&session_name, &remote_path, cursor)?;
+        self.run_feed_stream(command, state, listener).await
+    }
+
+    /// Like `watch_feed` for an Antigravity tab: the conversation is read from the agent's own
+    /// database by the pinned host helper (`helper_sha256`, as for `watch_host_agent`). The helper
+    /// must be installed; otherwise the stream ends at once and the caller keeps its fallback.
+    pub async fn watch_agy_feed(
+        &self,
+        session_name: String,
+        helper_sha256: String,
+        state: Arc<FeedState>,
+        cursor: Option<FeedCursor>,
+        listener: Box<dyn FeedListener>,
+    ) -> Result<Arc<FeedWatch>, SshCoreError> {
+        let program = crate::zellij_feed::mux_arg(MultiplexerKind::Tmux, &session_name)?;
+        debug_assert_eq!(program, "tmux");
+        let command =
+            crate::feed_stream::build_agy_stream_command(&session_name, &helper_sha256, cursor)?;
+        self.run_feed_stream(command, state, listener).await
+    }
+}
+
+impl SshSessionHandle {
+    async fn run_feed_stream(
+        &self,
+        command: String,
+        state: Arc<FeedState>,
+        listener: Box<dyn FeedListener>,
+    ) -> Result<Arc<FeedWatch>, SshCoreError> {
         let channel = self
             .exec_open(&crate::hostprobe::cancellable_sh(&command))
             .await?;

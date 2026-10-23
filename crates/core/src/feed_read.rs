@@ -89,6 +89,12 @@ pub fn parse_delta_output(out: &str) -> Result<Option<FeedRead>, SshCoreError> {
     parse_inner(out, true)
 }
 
+/// The virtual path of an Antigravity conversation read from the agent's database.
+pub(crate) fn is_agy_path(path: &str) -> bool {
+    path.strip_prefix("agy:")
+        .is_some_and(|id| id.len() == 36 && id.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-'))
+}
+
 /// `check_path: false` only in tests, whose temporary folders are under the blocked `/var`.
 pub(crate) fn parse_inner(out: &str, check_path: bool) -> Result<Option<FeedRead>, SshCoreError> {
     if out.trim_start().starts_with("NOFILE") {
@@ -111,7 +117,7 @@ pub(crate) fn parse_inner(out: &str, check_path: bool) -> Result<Option<FeedRead
         .and_then(|l| l.strip_prefix("CUR "))
         .ok_or_else(bad)?;
     let (ino, off) = cur.split_once(' ').ok_or_else(bad)?;
-    if check_path {
+    if check_path && !is_agy_path(path) {
         crate::transcript::validate_transcript_path(path).map_err(|e| {
             SshCoreError::TranscriptError {
                 reason: e.to_string(),

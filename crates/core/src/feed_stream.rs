@@ -26,6 +26,41 @@ pub fn stream_script(tmux: &str) -> String {
 /// `guard: false` only in tests (their temporary folders are under the blocked `/var`).
 pub(crate) fn stream_script_with(tmux: &str, guard: bool) -> String {
     let delta = crate::feed_read::delta_script_with(guard).replace("exit 0", "return 0");
+    stream_script_around(tmux, &delta)
+}
+
+/// The stream for an Antigravity session: instead of a file it follows the conversation the
+/// pinned helper finds for the pane's folder in the agent's database (`agy-conv`, `agy-jsonl`).
+/// Same arguments as [`stream_script`]; `$2` is ignored. The "file" is `agy:<conversation>`, its
+/// inode the first 8 hex digits of the id and its offset the next step to read.
+pub(crate) fn agy_stream_script(tmux: &str, sha256: &str) -> String {
+    let delta = format!(
+        r#"h={helper}
+if [ ! -f "$h" ] || [ -L "$h" ] || [ "{digest}" != '{sha256}' ]; then echo NOFILE; return 0; fi
+cwd=$({tmux} display -p -t "=$sess:" '#{{pane_current_path}}' 2>/dev/null) && [ -n "$cwd" ] || {{ echo NOFILE; return 0; }}
+conv=$("$h" agy-conv "$cwd" --raw 2>/dev/null) || {{ echo NOFILE; return 0; }}
+case "$conv" in *[!0-9a-f-]*|"") echo NOFILE; return 0;; esac
+ino=$(printf '%d' "0x$(printf %s "$conv" | tr -d - | cut -c1-8)" 2>/dev/null) || {{ echo NOFILE; return 0; }}
+if [ "$2" = - ] || [ "$3" = - ] || [ "$2" != "$ino" ]; then mode=full; off=0; else mode=delta; off=$3; fi
+a=$(mktemp "${{TMPDIR:-/tmp}}/ssh-app-agy.XXXXXX") || return 0
+"$h" agy-jsonl "$conv" "$off" --raw > "$a" 2>/dev/null || {{ rm -f "$a"; echo NOFILE; return 0; }}
+next=$(sed -n '1s/^CUR //p' "$a")
+case "$next" in ""|*[!0-9]*) rm -f "$a"; echo NOFILE; return 0;; esac
+printf 'TP_PATH=agy:%s
+MODE %s
+CUR %s %s
+' "$conv" "$mode" "$ino" "$next"
+sed 1d "$a"
+rm -f "$a"
+return 0"#,
+        helper = crate::usage::HELPER_PATH_EXPR,
+        digest = crate::hostprobe::SHA256_OF_H,
+    );
+    let script = stream_script_around(tmux, &delta);
+    format!("sess=$1\n{script}")
+}
+
+fn stream_script_around(tmux: &str, delta: &str) -> String {
     format!(
         r#"PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"; export PATH
 command -v tmux >/dev/null 2>&1 || {{ echo '{{"ev":"bye","why":"notmux"}}'; exit 0; }}
@@ -67,6 +102,27 @@ while :; do
 done"#,
         live = LIVE_LINES
     )
+}
+
+/// Like [`build_stream_command`] for an Antigravity session; `sha256` is the digest the app pins
+/// for the host helper, which is the only program the script runs from the agent's data.
+pub fn build_agy_stream_command(
+    session_name: &str,
+    sha256: &str,
+    cursor: Option<crate::feed_read::FeedCursor>,
+) -> Result<String, SshCoreError> {
+    crate::usage::validate_sha256(sha256)?;
+    let (ino, off) = match cursor {
+        Some(c) => (c.inode.to_string(), c.offset.to_string()),
+        None => ("-".to_string(), "-".to_string()),
+    };
+    Ok(format!(
+        "exec sh -c {} sh {} agy {} {}",
+        shell_quote(&agy_stream_script("tmux", sha256)),
+        shell_quote(session_name.trim()),
+        ino,
+        off
+    ))
 }
 
 /// The command that starts the stream on the host (plain `sh`, arguments quoted; the caller wraps
@@ -516,5 +572,166 @@ mod tests {
             }
             assert!(!marker.exists(), "{name} / {path} ran a command");
         }
+    }
+
+    /// A fake helper that answers like `ssh-app-host agy-conv/agy-jsonl --raw` from files, so the
+    /// script's own logic (pin, inode, cursor, reset) is tested without the owner's agy data.
+    fn fake_agy_home(p: &Private) -> (std::path::PathBuf, String) {
+        let home = p.dir.path().join("home");
+        let bin = home.join(".ssh-app/bin");
+        std::fs::create_dir_all(&bin).expect("dirs");
+        let helper = bin.join("ssh-app-host");
+        std::fs::write(
+            &helper,
+            "#!/bin/sh\ncase \"$1\" in\nagy-conv) cat \"$HOME/conv\" ;;\nagy-jsonl) printf 'CUR %s\\n' \"$(wc -l < \"$HOME/records\" | tr -d ' ')\"; tail -n +$(($3+1)) \"$HOME/records\" ;;\nesac\n",
+        )
+        .expect("helper");
+        std::fs::set_permissions(&helper, std::os::unix::fs::PermissionsExt::from_mode(0o700))
+            .expect("chmod");
+        use sha2::{Digest, Sha256};
+        let sha = hex::encode(Sha256::digest(std::fs::read(&helper).expect("read")));
+        std::fs::write(home.join("conv"), "0123abcd-0000-4000-8000-000000000001\n").expect("conv");
+        std::fs::write(home.join("records"), "r0\nr1\n").expect("records");
+        (home, sha)
+    }
+
+    fn start_agy(
+        p: &Private,
+        home: &std::path::Path,
+        sha: &str,
+        cursor: (&str, &str),
+    ) -> (std::process::Child, mpsc::Receiver<StreamEvent>) {
+        let script = agy_stream_script(&format!("tmux -S '{}'", p.sock()), sha);
+        let mut child = Command::new("sh")
+            .env_remove("TMUX")
+            .env_remove("TMUX_PANE")
+            .env("HOME", home)
+            .args(["-c", &script, "sh", "cap", "agy", cursor.0, cursor.1])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .spawn()
+            .expect("sh");
+        let mut out = child.stdout.take().expect("stdout");
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let mut parser = FrameParser::default();
+            let mut buf = [0u8; 4096];
+            while let Ok(n) = out.read(&mut buf) {
+                if n == 0 {
+                    break;
+                }
+                for ev in parser.push(&buf[..n]).unwrap_or_default() {
+                    if tx.send(ev).is_err() {
+                        return;
+                    }
+                }
+            }
+        });
+        (child, rx)
+    }
+
+    fn agy_delta(rx: &mpsc::Receiver<StreamEvent>) -> crate::feed_read::FeedRead {
+        let StreamEvent::Delta(d) =
+            wait_for(rx, "agy delta", |e| matches!(e, StreamEvent::Delta(_)))
+        else {
+            unreachable!()
+        };
+        crate::feed_read::parse_inner(&d, true)
+            .expect("parse")
+            .expect("conversation")
+    }
+
+    #[test]
+    fn the_agy_stream_follows_the_conversation_by_step_and_resets_on_a_new_one() {
+        let p = Private::new();
+        let (home, sha) = fake_agy_home(&p);
+        p.tmux(&[
+            "new-session",
+            "-d",
+            "-s",
+            "cap",
+            "-x",
+            "100",
+            "-y",
+            "20",
+            "-c",
+            &home.to_string_lossy(),
+            "sh",
+        ]);
+        let (mut child, rx) = start_agy(&p, &home, &sha, ("-", "-"));
+
+        let first = agy_delta(&rx);
+        assert!(first.reset);
+        assert_eq!(first.text, "r0\nr1\n");
+        assert_eq!(first.path, "agy:0123abcd-0000-4000-8000-000000000001");
+        assert_eq!(first.cursor.inode, 0x0123_abcd);
+        assert_eq!(first.cursor.offset, 2);
+
+        let mut h = std::fs::OpenOptions::new()
+            .append(true)
+            .open(home.join("records"))
+            .expect("open");
+        h.write_all(b"r2\n").expect("w");
+        let next = agy_delta(&rx);
+        assert!(!next.reset);
+        assert_eq!(next.text, "r2\n");
+        assert_eq!(next.cursor.offset, 3);
+
+        // A new conversation in the same folder: the feed starts again.
+        std::fs::write(home.join("conv"), "0fffabcd-0000-4000-8000-000000000002\n").expect("conv");
+        std::fs::write(home.join("records"), "n0\n").expect("records");
+        let other = agy_delta(&rx);
+        assert!(other.reset);
+        assert_eq!(other.text, "n0\n");
+        assert_eq!(other.cursor.inode, 0x0fff_abcd);
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+
+    #[test]
+    fn the_agy_stream_resumes_from_a_cursor_and_refuses_a_helper_that_is_not_the_pinned_one() {
+        let p = Private::new();
+        let (home, sha) = fake_agy_home(&p);
+        p.tmux(&[
+            "new-session",
+            "-d",
+            "-s",
+            "cap",
+            "-x",
+            "100",
+            "-y",
+            "20",
+            "-c",
+            &home.to_string_lossy(),
+            "sh",
+        ]);
+        let (mut child, rx) = start_agy(&p, &home, &sha, ("19114957", "1"));
+        let resumed = agy_delta(&rx);
+        assert!(!resumed.reset);
+        assert_eq!(resumed.text, "r1\n");
+        let _ = child.kill();
+        let _ = child.wait();
+
+        // Another digest: no conversation events at all, the pane still streams.
+        let (mut child, rx) = start_agy(&p, &home, &"0".repeat(64), ("-", "-"));
+        wait_for(&rx, "live", |e| matches!(e, StreamEvent::Live { .. }));
+        assert!(
+            rx.recv_timeout(Duration::from_millis(1000))
+                .map_or(true, |e| !matches!(e, StreamEvent::Delta(_))),
+            "an unpinned helper must not be run"
+        );
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+
+    #[test]
+    fn the_agy_command_needs_a_valid_pin_and_quotes_the_session() {
+        assert!(build_agy_stream_command("s", "zz", None).is_err());
+        let c = build_agy_stream_command("my session", &"a".repeat(64), None).expect("ok");
+        assert!(
+            c.contains("'my session' agy - -"),
+            "{}",
+            &c[c.len().saturating_sub(40)..]
+        );
     }
 }
