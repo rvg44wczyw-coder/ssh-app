@@ -6082,6 +6082,203 @@ public func FfiConverterTypeConfigImport_lower(_ value: ConfigImport) -> RustBuf
 }
 
 
+/**
+ * One line of "Estimated usage by category".
+ */
+public struct ContextCategory: Equatable, Hashable {
+    public var name: String
+    public var tokens: UInt64
+    public var percent: Float
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(name: String, tokens: UInt64, percent: Float) {
+        self.name = name
+        self.tokens = tokens
+        self.percent = percent
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ContextCategory: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeContextCategory: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ContextCategory {
+        return
+            try ContextCategory(
+                name: FfiConverterString.read(from: &buf), 
+                tokens: FfiConverterUInt64.read(from: &buf), 
+                percent: FfiConverterFloat.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ContextCategory, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.name, into: &buf)
+        FfiConverterUInt64.write(value.tokens, into: &buf)
+        FfiConverterFloat.write(value.percent, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeContextCategory_lift(_ buf: RustBuffer) throws -> ContextCategory {
+    return try FfiConverterTypeContextCategory.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeContextCategory_lower(_ value: ContextCategory) -> RustBuffer {
+    return FfiConverterTypeContextCategory.lower(value)
+}
+
+
+/**
+ * One skill of the "Skills" tree with the group it comes from ("User", "Plugin (design)").
+ */
+public struct ContextSkill: Equatable, Hashable {
+    public var group: String
+    public var name: String
+    /**
+     * `< 20 tokens` is reported as 10.
+     */
+    public var tokens: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(group: String, name: String, 
+        /**
+         * `< 20 tokens` is reported as 10.
+         */tokens: UInt64) {
+        self.group = group
+        self.name = name
+        self.tokens = tokens
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ContextSkill: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeContextSkill: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ContextSkill {
+        return
+            try ContextSkill(
+                group: FfiConverterString.read(from: &buf), 
+                name: FfiConverterString.read(from: &buf), 
+                tokens: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ContextSkill, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.group, into: &buf)
+        FfiConverterString.write(value.name, into: &buf)
+        FfiConverterUInt64.write(value.tokens, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeContextSkill_lift(_ buf: RustBuffer) throws -> ContextSkill {
+    return try FfiConverterTypeContextSkill.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeContextSkill_lower(_ value: ContextSkill) -> RustBuffer {
+    return FfiConverterTypeContextSkill.lower(value)
+}
+
+
+/**
+ * A `/context` report.
+ */
+public struct ContextUsage: Equatable, Hashable {
+    public var model: String
+    public var usedTokens: UInt64
+    public var windowTokens: UInt64
+    public var categories: [ContextCategory]
+    public var skills: [ContextSkill]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(model: String, usedTokens: UInt64, windowTokens: UInt64, categories: [ContextCategory], skills: [ContextSkill]) {
+        self.model = model
+        self.usedTokens = usedTokens
+        self.windowTokens = windowTokens
+        self.categories = categories
+        self.skills = skills
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ContextUsage: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeContextUsage: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ContextUsage {
+        return
+            try ContextUsage(
+                model: FfiConverterString.read(from: &buf), 
+                usedTokens: FfiConverterUInt64.read(from: &buf), 
+                windowTokens: FfiConverterUInt64.read(from: &buf), 
+                categories: FfiConverterSequenceTypeContextCategory.read(from: &buf), 
+                skills: FfiConverterSequenceTypeContextSkill.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ContextUsage, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.model, into: &buf)
+        FfiConverterUInt64.write(value.usedTokens, into: &buf)
+        FfiConverterUInt64.write(value.windowTokens, into: &buf)
+        FfiConverterSequenceTypeContextCategory.write(value.categories, into: &buf)
+        FfiConverterSequenceTypeContextSkill.write(value.skills, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeContextUsage_lift(_ buf: RustBuffer) throws -> ContextUsage {
+    return try FfiConverterTypeContextUsage.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeContextUsage_lower(_ value: ContextUsage) -> RustBuffer {
+    return FfiConverterTypeContextUsage.lower(value)
+}
+
+
 public struct DialogRow: Equatable, Hashable {
     public var number: UInt32?
     public var label: String
@@ -17326,6 +17523,30 @@ fileprivate struct FfiConverterOptionTypeAutoTrustOffer: FfiConverterRustBuffer 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeContextUsage: FfiConverterRustBuffer {
+    typealias SwiftType = ContextUsage?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeContextUsage.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeContextUsage.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeHostAgentState: FfiConverterRustBuffer {
     typealias SwiftType = HostAgentState?
 
@@ -17909,6 +18130,56 @@ fileprivate struct FfiConverterSequenceTypeChatMessage: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeChatMessage.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeContextCategory: FfiConverterRustBuffer {
+    typealias SwiftType = [ContextCategory]
+
+    public static func write(_ value: [ContextCategory], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeContextCategory.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [ContextCategory] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [ContextCategory]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeContextCategory.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeContextSkill: FfiConverterRustBuffer {
+    typealias SwiftType = [ContextSkill]
+
+    public static func write(_ value: [ContextSkill], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeContextSkill.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [ContextSkill] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [ContextSkill]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeContextSkill.read(from: &buf))
         }
         return seq
     }
@@ -20321,6 +20592,17 @@ public func parseScreenFeed(text: String) -> ScreenFeed  {
 })
 }
 /**
+ * Reads the last `/context` report on the pane. `None`: there is none on the screen.
+ */
+public func parseContextUsage(text: String) -> ContextUsage?  {
+    return try!  FfiConverterOptionTypeContextUsage.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_parse_context_usage(
+        FfiConverterString.lower(text),uniffiCallStatus
+    )
+})
+}
+/**
  * Thinking whose turn is not found goes before the next one that is; thinking after the last
  * match is dropped rather than put in a wrong place.
  */
@@ -21086,6 +21368,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_parse_screen_feed() != 18858) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_parse_context_usage() != 17212) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_merge_thinking() != 14909) {
