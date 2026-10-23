@@ -21,3 +21,17 @@ Verdict: one Low found and fixed; clean after the fix.
 ## Controversial
 - The quiet-time ping period (15 s) is a compromise between noticing a dead reader and waking the radio; it only matters when the channel is half-open, because normal closes stop the loop immediately.
 - On every event the phone still reads the whole (compressed) screen: the change set is used for the file part (thinking) and to avoid polling, not yet to splice only the new lines of the screen. Phase 4b (tail splice) is open and measured first.
+
+## Addendum: Antigravity from its database (rev + hacker, 2026-10-23)
+
+Scope: `crates/host/src/agyfeed.rs` (decoder, `--raw` modes), `feed_stream.rs::agy_stream_script`, `feed_read::is_agy_path`, `host_api/feed_watch.rs::watch_agy_feed`, Swift hookup.
+
+Attack classes and what was done:
+
+- **InputValidation / injection** — the folder reaches SQL only after `workspace_uri` (absolute, plain characters `[A-Za-z0-9/._- ]`, no `..`, ≤1024); conversation ids pass `valid_uuid` before they become a file name; `from` is a number. Live: the real helper was run with `/a'b`, `/tmp/../etc`, `../../etc/passwd`, `abc`, a 20-digit offset and missing arguments (`--raw`): every call printed nothing and exited non-zero. The script additionally refuses a conversation id that is not `[0-9a-f-]`.
+- **Sandbox / privilege** — the script runs only the pinned helper (`-f`, not a symlink, SHA-256 equal to the app's pin); without it the stream says `bye nohelper` and the app reads the session file as before. The helper opens agy's databases with `sqlite3 -readonly` and never writes.
+- **DoS** — protobuf walker is bounded (4096 fields, 400 KB blobs, 200 000 chars of text), one answer ≤ 1 MB, the reader never blocks on a running step; the phone side keeps the 8 MB frame cap and the 3000-turn window. A hostile database yields truncated text, not a crash (test `hostile_payloads_do_not_panic_or_blow_up`).
+- **Path** — the virtual path `agy:<uuid>` is accepted by the phone only in that exact shape (`is_agy_path`); any other path still goes through `validate_transcript_path`.
+- **MetadataLeak** — nothing new is sent to push/relay; the conversation text travels only over the existing SSH channel.
+
+Findings: none open. Notes (Low, accepted): (1) the folder is the pane's current directory, so an agy started in another folder than the pane's is not found and the file fallback is used; (2) a conversation reset (new id in the same folder) restarts the feed from the first step, which the phone shows as a reset.
