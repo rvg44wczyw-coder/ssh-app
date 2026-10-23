@@ -89,3 +89,21 @@ fn any_first_event_registers_the_session_for_every_agent() {
         assert_eq!(n, 1, "{agent} was not registered by its first event");
     }
 }
+
+#[test]
+fn a_question_of_claude_gets_no_phone_popup_because_the_app_draws_its_own_card() {
+    let h = home();
+    let payload = br#"{"tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"Which one?"}]},"cwd":"/tmp","session_id":"s1"}"#;
+    for event in ["PermissionRequest", "PreToolUse"] {
+        assert_eq!(
+            hook(h.path(), "claude", event, payload),
+            (String::new(), Some(0))
+        );
+    }
+    assert_eq!(
+        std::fs::read_dir(h.path().join("run/pending"))
+            .unwrap()
+            .count(),
+        0
+    );
+}

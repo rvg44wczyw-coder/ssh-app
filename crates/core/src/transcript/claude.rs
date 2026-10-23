@@ -222,7 +222,7 @@ pub(super) fn parse_claude_record(
         let step_index = *auto_step;
         *auto_step += 1;
         // The record's own uuid keeps a turn's id (and what the app remembers about it, like
-        // "expanded") the same when the 500-line window of the live tail slides.
+        // "expanded") the same when the window of the live tail slides.
         let id = match val.get("uuid").and_then(|v| v.as_str()) {
             Some(u) if !u.is_empty() => format!("turn_{u}"),
             _ => format!("turn_{}", step_index),
@@ -443,7 +443,34 @@ pub(super) fn parse_claude_record(
                 );
             }
         }
-        // api-request*, mode, last-prompt, ai-title, queue-operation, file-history-* ...
+        // The permission mode the session runs in (default, plan, acceptEdits, auto, bypassPermissions
+        // ...): kept as a hidden service turn labelled `permission-mode`, the app shows the last one
+        // in its status line and leaves these out of the feed.
+        "permission-mode" => {
+            let mode = val
+                .get("permissionMode")
+                .and_then(|v| v.as_str())
+                .filter(|m| {
+                    !m.is_empty()
+                        && m.len() <= 32
+                        && m.chars()
+                            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+                });
+            let repeated = turns.last().is_some_and(|t| {
+                t.label.as_deref() == Some("permission-mode") && t.content.as_deref() == mode
+            });
+            if let (Some(mode), false) = (mode, repeated) {
+                push(
+                    turns,
+                    TranscriptTurnType::System,
+                    Some(mode.to_string()),
+                    None,
+                    vec![],
+                    Some("permission-mode".to_string()),
+                );
+            }
+        }
+        // api-request*, last-prompt, ai-title, queue-operation, file-history-* ...
         _ => {}
     }
 }

@@ -229,3 +229,18 @@ fn a_message_typed_while_the_agent_works_is_a_user_turn() {
     assert_eq!(turns[0].content.as_deref(), Some("собери билд"));
     assert_eq!(turns[1].turn_type, TranscriptTurnType::System);
 }
+
+#[test]
+fn permission_mode_records_become_one_hidden_turn_per_change() {
+    let mut turns = Vec::new();
+    let (mut step, mut last) = (0u64, None);
+    for mode in ["plan", "plan", "acceptEdits", "bad mode!", ""] {
+        let rec = serde_json::json!({"type": "permission-mode", "permissionMode": mode});
+        claude::parse_claude_record(&rec, &mut turns, &mut step, &mut last);
+    }
+    let modes: Vec<_> = turns.iter().map(|t| t.content.as_deref()).collect();
+    assert_eq!(modes, vec![Some("plan"), Some("acceptEdits")]);
+    assert!(turns
+        .iter()
+        .all(|t| t.label.as_deref() == Some("permission-mode")));
+}

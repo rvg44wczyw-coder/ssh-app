@@ -1252,6 +1252,10 @@ def main():
         return 0
 
     if event in ("PermissionRequest", "PreToolUse"):
+        if agent == "claude" and tool == "AskUserQuestion":
+            # Claude's own question dialog is answered from the question card the app draws from the
+            # screen; a second popup for the same question would only duplicate it.
+            return 0
         if garbled:
             # Not JSON (or not an object): the phone would be asked about a blank request that
             # stands for the real tool call. Nothing legitimate sends this: fail closed.

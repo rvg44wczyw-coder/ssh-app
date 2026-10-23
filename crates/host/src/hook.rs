@@ -291,6 +291,11 @@ pub fn run(p: &Paths, args: &[String]) -> i32 {
         return 0;
     }
     if event == "PermissionRequest" || event == "PreToolUse" {
+        // Claude's own question dialog (AskUserQuestion) is answered from the question card the app
+        // draws from the screen; a second popup for the same question would only duplicate it.
+        if agent == "claude" && call.tool == "AskUserQuestion" {
+            return 0;
+        }
         permission(p, agent, event, &call, &base, too_big, unreadable);
         return 0;
     }
