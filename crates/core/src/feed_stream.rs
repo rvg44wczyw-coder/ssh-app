@@ -439,7 +439,12 @@ mod tests {
         // The reader goes away: the script ends by itself (a write fails or the pipe is gone).
         drop(rx);
         let end = Instant::now() + Duration::from_secs(8);
-        p.tmux(&["send-keys", "-t", "cap", "echo more", "Enter"]);
+        // The first change makes the reader thread notice that nobody listens and close the pipe;
+        // the next change makes the script's write fail, and it ends.
+        for word in ["echo more", "echo more2", "echo more3"] {
+            p.tmux(&["send-keys", "-t", "cap", word, "Enter"]);
+            std::thread::sleep(Duration::from_millis(900));
+        }
         loop {
             if child.try_wait().expect("wait").is_some() {
                 break;
