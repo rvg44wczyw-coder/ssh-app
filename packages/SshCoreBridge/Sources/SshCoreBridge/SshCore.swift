@@ -775,6 +775,18 @@ public convenience init() {
     }
 
     
+    /**
+     * For the file of a subagent: the same turns, but its records (all marked as a side chain)
+     * are the content instead of being left out.
+     */
+public static func newSubagent() -> FeedState  {
+    return try!  FfiConverterTypeFeedState_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_constructor_feedstate_new_subagent(uniffiCallStatus
+    )
+})
+}
+    
 
     
     /**
@@ -2214,6 +2226,11 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func fetchRemoteShellHistory(limit: UInt32) async throws  -> [String]
     
     /**
+     * The subagents of a Claude Code session (newest first, at most 20, nesting ≤ 3).
+     */
+    func listSubagents(sessionFile: String) async throws  -> [SubagentInfo]
+    
+    /**
      * Reads and parses the latest transcript from the remote host.
      */
     func readRemoteTranscript(remotePath: String) async throws  -> [TranscriptTurn]
@@ -2224,6 +2241,12 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
      * the text to a `FeedState` and keeps the returned cursor. `None`: no such file.
      */
     func readRemoteTranscriptSince(remotePath: String, cursor: FeedCursor?) async throws  -> FeedRead?
+    
+    /**
+     * Like `read_remote_transcript_since` for one subagent of the session; feed the text to a
+     * `FeedState::new_subagent()`. The path is built here from the id, never taken from the host.
+     */
+    func readSubagentSince(sessionFile: String, agentId: String, cursor: FeedCursor?) async throws  -> FeedRead?
     
     /**
      * Establishes the SSH connection, launches tmux, and starts streaming I/O.
@@ -4299,6 +4322,25 @@ open func fetchRemoteShellHistory(limit: UInt32)async throws  -> [String]  {
 }
     
     /**
+     * The subagents of a Claude Code session (newest first, at most 20, nesting ≤ 3).
+     */
+open func listSubagents(sessionFile: String)async throws  -> [SubagentInfo]  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_list_subagents(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(sessionFile)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceTypeSubagentInfo.lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
      * Reads and parses the latest transcript from the remote host.
      */
 open func readRemoteTranscript(remotePath: String)async throws  -> [TranscriptTurn]  {
@@ -4328,6 +4370,26 @@ open func readRemoteTranscriptSince(remotePath: String, cursor: FeedCursor?)asyn
             rustFutureFunc: {
                 uniffi_ssh_core_fn_method_sshsessionhandle_read_remote_transcript_since(
                         self.uniffiCloneHandle(),FfiConverterString.lower(remotePath),FfiConverterOptionTypeFeedCursor.lower(cursor)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterOptionTypeFeedRead.lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Like `read_remote_transcript_since` for one subagent of the session; feed the text to a
+     * `FeedState::new_subagent()`. The path is built here from the id, never taken from the host.
+     */
+open func readSubagentSince(sessionFile: String, agentId: String, cursor: FeedCursor?)async throws  -> FeedRead?  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_read_subagent_since(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(sessionFile),FfiConverterString.lower(agentId),FfiConverterOptionTypeFeedCursor.lower(cursor)
                 )
             },
             pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
@@ -12760,6 +12822,115 @@ public func FfiConverterTypeStackOutcome_lower(_ value: StackOutcome) -> RustBuf
 
 
 /**
+ * One subagent the host knows of.
+ */
+public struct SubagentInfo: Equatable, Hashable {
+    public var agentId: String
+    /**
+     * `Explore`, `general-purpose`, ... (display text).
+     */
+    public var agentType: String
+    public var description: String
+    /**
+     * Id of the parent's `Agent` tool call that started it (empty when unknown).
+     */
+    public var toolUseId: String
+    public var depth: UInt32
+    public var model: String
+    public var background: Bool
+    /**
+     * Seconds since its file last grew, by the host's clock.
+     */
+    public var idleSeconds: UInt64
+    /**
+     * Its file grew within the last minute.
+     */
+    public var running: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(agentId: String, 
+        /**
+         * `Explore`, `general-purpose`, ... (display text).
+         */agentType: String, description: String, 
+        /**
+         * Id of the parent's `Agent` tool call that started it (empty when unknown).
+         */toolUseId: String, depth: UInt32, model: String, background: Bool, 
+        /**
+         * Seconds since its file last grew, by the host's clock.
+         */idleSeconds: UInt64, 
+        /**
+         * Its file grew within the last minute.
+         */running: Bool) {
+        self.agentId = agentId
+        self.agentType = agentType
+        self.description = description
+        self.toolUseId = toolUseId
+        self.depth = depth
+        self.model = model
+        self.background = background
+        self.idleSeconds = idleSeconds
+        self.running = running
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension SubagentInfo: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSubagentInfo: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SubagentInfo {
+        return
+            try SubagentInfo(
+                agentId: FfiConverterString.read(from: &buf), 
+                agentType: FfiConverterString.read(from: &buf), 
+                description: FfiConverterString.read(from: &buf), 
+                toolUseId: FfiConverterString.read(from: &buf), 
+                depth: FfiConverterUInt32.read(from: &buf), 
+                model: FfiConverterString.read(from: &buf), 
+                background: FfiConverterBool.read(from: &buf), 
+                idleSeconds: FfiConverterUInt64.read(from: &buf), 
+                running: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SubagentInfo, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.agentId, into: &buf)
+        FfiConverterString.write(value.agentType, into: &buf)
+        FfiConverterString.write(value.description, into: &buf)
+        FfiConverterString.write(value.toolUseId, into: &buf)
+        FfiConverterUInt32.write(value.depth, into: &buf)
+        FfiConverterString.write(value.model, into: &buf)
+        FfiConverterBool.write(value.background, into: &buf)
+        FfiConverterUInt64.write(value.idleSeconds, into: &buf)
+        FfiConverterBool.write(value.running, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSubagentInfo_lift(_ buf: RustBuffer) throws -> SubagentInfo {
+    return try FfiConverterTypeSubagentInfo.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSubagentInfo_lower(_ value: SubagentInfo) -> RustBuffer {
+    return FfiConverterTypeSubagentInfo.lower(value)
+}
+
+
+/**
  * Subagents (Claude's `Task` / `Agent` tool) the session has started. Claude hands searching to
  * them often, so the feed shows how many are working now and how many ran in total.
  */
@@ -20020,6 +20191,31 @@ fileprivate struct FfiConverterSequenceTypeSnippetItem: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeSubagentInfo: FfiConverterRustBuffer {
+    typealias SwiftType = [SubagentInfo]
+
+    public static func write(_ value: [SubagentInfo], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeSubagentInfo.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [SubagentInfo] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [SubagentInfo]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeSubagentInfo.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeTmuxSessionInfo: FfiConverterRustBuffer {
     typealias SwiftType = [TmuxSessionInfo]
 
@@ -22855,10 +23051,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_fetch_remote_shell_history() != 36502) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_list_subagents() != 57711) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_read_remote_transcript() != 13423) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_read_remote_transcript_since() != 56880) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_read_subagent_since() != 1220) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_connect() != 11069) {
@@ -22895,6 +23097,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_constructor_feedstate_new() != 13109) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_constructor_feedstate_new_subagent() != 32573) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_constructor_remotefsclient_new() != 41766) {
