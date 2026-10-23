@@ -80,6 +80,8 @@ pub struct Cursor { pub inode: u64, pub offset: u64 }
 
 ## 8. Antigravity (agy) — what its storage looks like (studied 2026-10-23, read-only, on a copy)
 
+**Update (owner asked to sync with agy's database):** the full analysis with the field map, status codes, conversation lookup and risks is in `docs/architecture/agy-db-sync-analysis-2026-10-23.md`. Corrections to the text below: the agy process does **not** keep its conversation database open, so the tab's conversation is found through `conversation_summaries.db` (workspace folder, newest, not killed); statuses are 3 done, 9 running/waiting, 7 failed/denied; thinking is `20.3`, the answer `20.1`, tool output `140.2.1`.
+
 - agy (CLI) writes **no JSONL transcript**. Each conversation is a SQLite database `~/.gemini/antigravity-cli/conversations/<uuid>.db` (journal mode WAL, 31 files, 0.5–60 MB). The app's agy feed is therefore built from the screen only, and the thinking comes from the screen too.
 - Tables: `steps` (`idx` integer primary key, `step_type`, `status`, `step_payload` blob, `metadata` blob, `render_info`, …), `gen_metadata`, `executor_metadata`, `trajectory_meta`, `parent_references`. A 282-step conversation was 4.7 MB.
 - **Append-only by `idx`**: the natural cursor is `max(idx)`. Status is a column (3 = done; one other value was seen on the last step), so a step that is still running changes in place; the query `WHERE idx > :cursor OR status <> 3` (indexed) gives exactly the `append` and `update` events. Cost: microseconds, no file tail.
