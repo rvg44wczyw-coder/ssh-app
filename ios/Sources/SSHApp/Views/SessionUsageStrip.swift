@@ -207,6 +207,7 @@ struct SessionStatusLine: View {
         .padding(.horizontal, 10)
         .frame(minHeight: 22)
         .frame(maxWidth: .infinity)
+        .containerRelativeFrame(.horizontal)
         .clipped()
         .background(.bar)
         .contentShape(Rectangle())

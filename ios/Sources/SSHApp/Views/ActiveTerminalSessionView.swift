@@ -178,5 +178,8 @@ struct ActiveTerminalSessionView: View {
             }
             #endif
         }
+        // Never wider than the screen, whatever a child asks for: a wider column shifts the
+        // terminal's first column under the left edge.
+        .containerRelativeFrame(.horizontal)
     }
 }
