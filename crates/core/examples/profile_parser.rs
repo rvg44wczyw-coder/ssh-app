@@ -170,7 +170,12 @@ pub fn jsonl(path: &str) {
         worst = worst.max(t1.elapsed().as_secs_f64() * 1000.0);
         at = end;
     }
-    println!("  replay in 32 KB chunks: {:.1} ms total, worst chunk {:.2} ms, equals whole file: {}", t.elapsed().as_secs_f64() * 1000.0, worst, feed.turns() == turns);
+    println!(
+        "  replay in 32 KB chunks: {:.1} ms total, worst chunk {:.2} ms, equals whole file: {}",
+        t.elapsed().as_secs_f64() * 1000.0,
+        worst,
+        feed.turns() == turns
+    );
     let t = Instant::now();
     let same = turns == turns.clone();
     println!(

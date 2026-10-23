@@ -14,6 +14,7 @@ pub mod container_runtime;
 pub mod docker;
 pub mod error;
 pub mod feed;
+pub mod feed_read;
 pub mod file_browser;
 pub mod gitbranch;
 pub mod gitcommit;

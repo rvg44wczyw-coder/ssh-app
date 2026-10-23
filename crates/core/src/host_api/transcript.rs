@@ -44,6 +44,19 @@ impl SshSessionHandle {
         })
     }
 
+    /// Reads what a session file gained since `cursor` (complete lines only), or its usual window
+    /// when there is no cursor or the file was replaced or shortened (`reset`). The caller feeds
+    /// the text to a `FeedState` and keeps the returned cursor. `None`: no such file.
+    pub async fn read_remote_transcript_since(
+        &self,
+        remote_path: String,
+        cursor: Option<crate::feed_read::FeedCursor>,
+    ) -> Result<Option<crate::feed_read::FeedRead>, SshCoreError> {
+        let cmd = crate::feed_read::build_delta_command(&remote_path, cursor)?;
+        let out = self.execute_command_on_active_session(cmd).await?;
+        crate::feed_read::parse_delta_output(&out)
+    }
+
     /// Automatically detects the path of the active agent transcript on the remote host.
     pub async fn detect_active_transcript_path(
         &self,
