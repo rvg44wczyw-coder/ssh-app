@@ -1,6 +1,6 @@
 # Feature 55: Event feed (incremental updates instead of re-sending the whole screen)
 
-- **Status**: Draft 2026-10-23 (owner idea; follows `docs/architecture/performance-audit-2026-10-23.md`, bottlenecks 1, 2, 3, 6, 7). Not reviewed yet.
+- **Status**: Reviewed 2026-10-23 (`rev` of the doc: changes applied, see Revision notes). Implementation not started. Follows `docs/architecture/performance-audit-2026-10-23.md`, bottlenecks 1, 2, 3, 6, 7.
 - **Agents**: Claude Code first (its session file is already JSON lines). Antigravity: studied 2026-10-23, see §8; events are possible through its SQLite store, but only after a spike.
 
 ## 1. Purpose
@@ -16,7 +16,9 @@ Two independent streams, both as small events with a sequence number:
 | **Turns** | the agent's session file (JSONL), read from a saved byte offset | `append` (new turns), `update` (a turn whose tool call got its result or whose text grew), `reset` (file replaced or shorter) | typed turns with stable ids |
 | **Live** | the pane (the last ~60 lines only) | `live` with `status`, `draft`, `prompt`, `dialog`, `aside` — sent only when they differ from the last one | what the screen shows and the file does not (spinner, input box, questions, `/btw`, dialogs) |
 
-The feed on the phone is `turns` (from events, keyed by id) plus the live part. Older history stays on the host until the user scrolls up (`history(before: id, n)`).
+The feed on the phone is `turns` (from events, keyed by id) plus the live part. Older history stays on the host; loading it on scroll (`history`) is **not** part of the first release (the window is today's last 3000 records).
+
+![Sequence](../architecture/diagrams/55-event-feed-sequence.png)
 
 ```
 host helper (long-lived exec, NDJSON)        core (Rust)                  Swift
@@ -26,12 +28,18 @@ host helper (long-lived exec, NDJSON)        core (Rust)                  Swift
 
 ## 3. Behaviour
 
-- **Cursor**: the app keeps `(inode, offset, seq)` per session. On start and after every foreground return it sends the cursor; the host answers with the missed events as one batch (`since`), then continues streaming while the connection lives. Background: the socket is closed as today (zero battery drain); nothing runs on the host without a phone session.
+- **Cursor**: the app keeps `(inode, offset)` per session; `seq` numbers events **within one helper process** only (a new process starts at 1 and says so in its `hello`), so it orders events but is not a resume key. On start and after every foreground return it sends the cursor; the host answers with the missed events as one batch (`since`), then continues streaming while the connection lives. Background: the socket is closed as today (zero battery drain); nothing runs on the host without a phone session.
 - **Gap or mismatch** (seq jump, inode change, offset beyond the file): the host sends `reset` with the last N turns; the app replaces its list once. Same path when the file is rotated or `/clear` starts a new file.
+- **What `update` means for a file**: the Claude file is append-only and a record is complete when written; a tool result arrives as a *later* record that belongs to an earlier turn (matched by tool-call id), and records of one assistant message share a message id. `update` is therefore "a later record changed an earlier turn", not "text grew". Text that is still being typed exists only on the screen (live part).
 - **Update by id**: the app replaces one row by id; SwiftUI re-renders that row only. Appends add rows at the end; the scroll position is kept unless the user is at the bottom.
 - **Live part** is polled **on the host** (local, no radio) every 300 ms while a phone is connected; an event is sent only on change. This replaces the 350 ms stability loop of the phone.
 - **Fallback**: a host without the helper, an agent without a file, or a protocol mismatch uses today's screen path unchanged. The helper's `hello` caps list `"feed-events"`.
-- **Caps**: one event ≤ 256 KB, one turn text ≤ 100 KB (longer is cut with a mark), ≤ 200 turns per `append`, ≤ 50 events per second (coalesced). The helper reads only the transcript path it detected itself for the session (never a path given by the app) and refuses symlinks outside `~/.claude/projects`.
+- **Reading rule (no gaps, no half lines)**: the helper takes `stat` (inode, size) *first*, reads `[offset, size)` and consumes only up to the last newline; a partial last line stays for the next read. The first read (no cursor) keeps today's window (last 3000 records after the same record filter, ≤ 4 MB) and returns the end offset.
+- **Caps**: one event ≤ 256 KB (an `append` is split into several events; one turn text ≤ 100 KB, longer is cut with a mark), ≤ 50 events per second per stream. When the channel is full the helper stops reading, and the backlog is coalesced into one `reset` (never an unbounded queue).
+- **Which file**: the helper detects the transcript itself for the session (the pane's agent process and its folder, the logic of today's `TRANSCRIPT_DETECT_SCRIPT` ported to the helper) and never takes a path from the app. Allowed roots are `$CLAUDE_CONFIG_DIR/projects` of that process (launch profiles use other config dirs, e.g. `~/.claude-personal`), default `~/.claude/projects`; the resolved real path must stay inside the root and pass the same blocklist as `validate_transcript_path`.
+- **Lifetime**: the helper exits on a write error or stdin EOF (the phone closed the channel), after 10 minutes without a reader, and never outlives its SSH connection. The host-side live poll is 300 ms while the app is in the foreground and the agent is busy, 1 s when quiet; it costs about 5 ms of tmux time per look.
+- **Versioning**: the stream starts with `{"ev":"hello","proto":1}`; the app ignores unknown event kinds and unknown fields; a higher `proto` than the app knows means fallback to the screen path.
+- **Other hosts**: Zellij tabs use the existing Zellij capture for the live part; Windows/WSL hosts and hosts without the helper use the screen path.
 
 ## 4. Interface (sketch)
 
@@ -48,19 +56,19 @@ pub struct Cursor { pub inode: u64, pub offset: u64 }
 // UniFFI: `watch_feed(session, cursor, listener)`, `FeedListener::on_change(change, turns_by_id)`
 ```
 
-Parsing of file lines stays in `ssh-core` (`parse_transcript_jsonl`, 16 ms for 3.8 MB today); the helper may send raw new JSON lines and let the core parse them, which keeps one parser.
+**Incremental parsing**: `parse_transcript_jsonl` is a whole-file function; merging records into turns (message ids, tool results matched to calls) needs state. `FeedState` therefore holds the parser state (open tool calls by id, current message id), and `apply(chunk)` must produce the same turns as parsing everything. Parsing of file lines stays in `ssh-core` (`parse_transcript_jsonl`, 16 ms for 3.8 MB today); the helper may send raw new JSON lines and let the core parse them, which keeps one parser.
 
 ## 5. Constraints and invariants
 
 - Events are untrusted display data on the phone (same caps and control-character stripping as the screen path).
 - Idempotent apply: the same event twice (after a reconnect) changes nothing; out-of-order events are rejected by `seq`.
-- Sequence of events equals the full read: a test replays a real session file as events and checks that the final turns equal `parse_transcript_jsonl` of the whole file.
+- Sequence of events equals the full read, also when a chunk ends in the middle of a line or between a tool call and its result: a test replays a real session file as events and checks that the final turns equal `parse_transcript_jsonl` of the whole file.
 - Tests never touch the real tmux (private sockets) and never read the owner's real session files, only fixtures.
 - Battery: no timers on the phone for this feed while the stream is open; the helper stops with the connection.
 
 ## 6. Plan (dev-chain)
 
-1. **Phase 1 (host read, no protocol change)**: `read_remote_transcript` takes `(inode, offset)` and returns only new bytes; `stat` guard for background tabs (bottleneck 1). Core keeps the parsed turns and appends.
+1. **Phase 1 (host read, no protocol change)**: `read_remote_transcript` gets a variant with `(inode, offset)` that returns the new complete lines and the new cursor (`stat -f` on macOS, `stat -c` on Linux, chosen by a probe); background tabs use a bare `stat` first and read only if size or inode changed (bottleneck 1). Core keeps the incremental parser state. Phase 1 is a plain exec: no helper, no new binary.
 2. **Phase 2**: one host script for the live tail: stable frame, tail only, plain `sh` (bottlenecks 2–4).
 3. **Phase 3**: the streaming helper command `feed`, `FeedState`, `watch_feed`, events to Swift.
 4. **Phase 4**: SwiftUI keyed by id, change sets instead of whole-array replace; measure with the in-app timing label before and after.
@@ -82,3 +90,20 @@ Parsing of file lines stays in `ssh-core` (`parse_transcript_jsonl`, 16 ms for 3
   - The helper needs SQLite: `rusqlite` (bundled) in `ssh-app-host`, opened **read-only** (WAL needs the `-shm` file; never write, never checkpoint). The system `sqlite3` binary is not assumed to exist on Linux hosts.
   - Which database belongs to the tab: the one the agy process of the pane has open (as in the current detection), never "the newest file".
 - **Plan for agy** (after Claude phases 1–3): spike with a decoder over fixtures taken from real conversations (sanitised), compare its turns with the screen feed on the same conversation, and only then switch agy per item. The live part (status, draft, prompts) stays screen-based for both agents.
+
+## Revision notes (2026-10-23, after `rev`)
+
+Applied from the review:
+1. `seq` was both an ordering and a resume key although the host keeps no state between helper processes: now connection-scoped, the cursor is `(inode, offset)`.
+2. `update "text grew"` does not exist for an append-only file: defined as a later record changing an earlier turn; streaming text stays in the live part.
+3. Incremental parsing needs parser state (message ids, tool results): stated, with a replay test that includes cuts mid-line and between call and result.
+4. Reading rule added: `stat` first, read to the last newline, no gaps and no half lines; first read keeps today's window.
+5. The caps contradicted each other (200 turns × 100 KB vs 256 KB per event): events are split; back-pressure coalesces into one `reset`.
+6. The allowed root `~/.claude/projects` ignored launch profiles with another `CLAUDE_CONFIG_DIR`: root is taken from the pane's process.
+7. Helper lifetime (exit on EOF / write error / idle), host poll rates, protocol version and unknown-event handling, other hosts (Zellij, Windows/WSL) and the diagram were missing: added. `history` on scroll removed from the first release.
+
+## Controversial points (reviewer's disagreements, not blocking)
+
+- **Phases 1–2 may be enough.** A stat-guarded incremental read plus one tail-limited stable-frame script removes the largest costs (1.1 s / 3.8 MB per read, 1.7 MB per capture) without a new protocol, helper process or SQLite dependency. Phase 3 (streaming) mainly saves polling radio time and latency. *Resolution*: phase 3 starts only after phases 1–2 are measured on the phone with the in-app label; the spec keeps it as the target, not a commitment.
+- **The file as the source of turns risks regressions** (tool groups, system lines, `/btw` come from the screen today). *Resolution*: phases 1–2 keep the screen as the source; phase 3 switches per item behind a setting, with the screen path always available.
+- **`rusqlite` (bundled C SQLite) in the pinned helper** enlarges the binary and the audited surface for one agent whose format is private. *Resolution*: agy stays on the screen path until the spike shows a clear gain; the helper change is isolated in a feature-gated module.

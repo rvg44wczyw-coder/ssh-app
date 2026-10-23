@@ -1,0 +1,29 @@
+@startuml
+title Event feed: resume, stream, fall back
+participant "SwiftUI feed" as UI
+participant "Core FeedState" as Core
+participant "Host helper `feed`" as H
+database "Session file / agy .db" as F
+UI -> Core: open(session, saved cursor)
+Core -> H: exec `feed --session S --since inode:offset` (one channel)
+H -> F: stat (inode, size) then read [offset, size) up to last newline
+H --> Core: hello {proto:1}
+alt cursor valid
+  H --> Core: append/update events (batch of what was missed)
+else file replaced, shorter or unknown cursor
+  H --> Core: reset {last N turns, new cursor}
+end
+loop while the connection lives
+  F -> H: new bytes / changed steps
+  H --> Core: append | update (coalesced, <= 256 KB each)
+  H --> Core: live {status, draft, prompt} only when changed
+  Core -> UI: change set (added ids, updated ids)
+  UI -> UI: insert / replace rows by id
+end
+UI -> Core: app goes to background
+Core -> H: channel closed (helper exits on write error or EOF)
+note over Core: cursor kept; foreground repeats `open`
+alt helper missing or proto mismatch
+  Core -> Core: screen path (today's behaviour)
+end
+@enduml
