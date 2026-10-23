@@ -688,6 +688,195 @@ fileprivate struct FfiConverterData: FfiConverterRustBuffer {
 
 
 /**
+ * Turns of one session, updated by events.
+ */
+public protocol FeedStateProtocol: AnyObject, Sendable {
+    
+    /**
+     * Adds new data of the session file (any length, cut anywhere). Returns what changed.
+     */
+    func applyChunk(chunk: String)  -> FeedChange
+    
+    /**
+     * Forgets everything (the file was replaced): the next chunk starts a new feed.
+     */
+    func reset() 
+    
+    /**
+     * One turn by id.
+     */
+    func turn(id: String)  -> TranscriptTurn?
+    
+    /**
+     * All turns now, in feed order.
+     */
+    func turns()  -> [TranscriptTurn]
+    
+}
+/**
+ * Turns of one session, updated by events.
+ */
+open class FeedState: FeedStateProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_ssh_core_fn_clone_feedstate(self.handle, $0) }
+    }
+public convenience init() {
+    let handle =
+        try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_constructor_feedstate_new(uniffiCallStatus
+    )
+}
+    self.init(unsafeFromHandle: handle)
+}
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_ssh_core_fn_free_feedstate(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * Adds new data of the session file (any length, cut anywhere). Returns what changed.
+     */
+open func applyChunk(chunk: String) -> FeedChange  {
+    return try!  FfiConverterTypeFeedChange_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_method_feedstate_apply_chunk(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(chunk),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * Forgets everything (the file was replaced): the next chunk starts a new feed.
+     */
+open func reset()  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_method_feedstate_reset(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+}
+}
+    
+    /**
+     * One turn by id.
+     */
+open func turn(id: String) -> TranscriptTurn?  {
+    return try!  FfiConverterOptionTypeTranscriptTurn.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_method_feedstate_turn(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(id),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * All turns now, in feed order.
+     */
+open func turns() -> [TranscriptTurn]  {
+    return try!  FfiConverterSequenceTypeTranscriptTurn.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_method_feedstate_turns(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFeedState: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = FeedState
+
+    public static func lift(_ handle: UInt64) throws -> FeedState {
+        return FeedState(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: FeedState) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FeedState {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: FeedState, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFeedState_lift(_ handle: UInt64) throws -> FeedState {
+    return try FfiConverterTypeFeedState.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFeedState_lower(_ value: FeedState) -> UInt64 {
+    return FfiConverterTypeFeedState.lower(value)
+}
+
+
+
+
+
+
+/**
  * Handle of a running `watch_host_agent` stream.
  */
 public protocol HostAgentWatchProtocol: AnyObject, Sendable {
@@ -1885,6 +2074,13 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
      * Reads and parses the latest transcript from the remote host.
      */
     func readRemoteTranscript(remotePath: String) async throws  -> [TranscriptTurn]
+    
+    /**
+     * Reads what a session file gained since `cursor` (complete lines only), or its usual window
+     * when there is no cursor or the file was replaced or shortened (`reset`). The caller feeds
+     * the text to a `FeedState` and keeps the returned cursor. `None`: no such file.
+     */
+    func readRemoteTranscriptSince(remotePath: String, cursor: FeedCursor?) async throws  -> FeedRead?
     
     /**
      * Establishes the SSH connection, launches tmux, and starts streaming I/O.
@@ -3931,6 +4127,27 @@ open func readRemoteTranscript(remotePath: String)async throws  -> [TranscriptTu
             completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
             freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
             liftFunc: FfiConverterSequenceTypeTranscriptTurn.lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Reads what a session file gained since `cursor` (complete lines only), or its usual window
+     * when there is no cursor or the file was replaced or shortened (`reset`). The caller feeds
+     * the text to a `FeedState` and keeps the returned cursor. `None`: no such file.
+     */
+open func readRemoteTranscriptSince(remotePath: String, cursor: FeedCursor?)async throws  -> FeedRead?  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_read_remote_transcript_since(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(remotePath),FfiConverterOptionTypeFeedCursor.lower(cursor)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterOptionTypeFeedRead.lift,
             errorHandler: FfiConverterTypeSshCoreError_lift
         )
 }
@@ -6978,6 +7195,237 @@ public func FfiConverterTypeExtractedArtifact_lift(_ buf: RustBuffer) throws -> 
 #endif
 public func FfiConverterTypeExtractedArtifact_lower(_ value: ExtractedArtifact) -> RustBuffer {
     return FfiConverterTypeExtractedArtifact.lower(value)
+}
+
+
+/**
+ * What one chunk changed, by turn id, in feed order.
+ */
+public struct FeedChange: Equatable, Hashable {
+    /**
+     * New turns appended at the end.
+     */
+    public var added: [String]
+    /**
+     * Earlier turns changed by a later record (a tool result, the next block of the same message).
+     */
+    public var updated: [String]
+    /**
+     * Turns dropped from the front because the window is full.
+     */
+    public var dropped: UInt32
+    /**
+     * Number of turns now.
+     */
+    public var total: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * New turns appended at the end.
+         */added: [String], 
+        /**
+         * Earlier turns changed by a later record (a tool result, the next block of the same message).
+         */updated: [String], 
+        /**
+         * Turns dropped from the front because the window is full.
+         */dropped: UInt32, 
+        /**
+         * Number of turns now.
+         */total: UInt32) {
+        self.added = added
+        self.updated = updated
+        self.dropped = dropped
+        self.total = total
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FeedChange: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFeedChange: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FeedChange {
+        return
+            try FeedChange(
+                added: FfiConverterSequenceString.read(from: &buf), 
+                updated: FfiConverterSequenceString.read(from: &buf), 
+                dropped: FfiConverterUInt32.read(from: &buf), 
+                total: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FeedChange, into buf: inout [UInt8]) {
+        FfiConverterSequenceString.write(value.added, into: &buf)
+        FfiConverterSequenceString.write(value.updated, into: &buf)
+        FfiConverterUInt32.write(value.dropped, into: &buf)
+        FfiConverterUInt32.write(value.total, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFeedChange_lift(_ buf: RustBuffer) throws -> FeedChange {
+    return try FfiConverterTypeFeedChange.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFeedChange_lower(_ value: FeedChange) -> RustBuffer {
+    return FfiConverterTypeFeedChange.lower(value)
+}
+
+
+/**
+ * Where the app has read to: the file's inode and the byte offset after the last complete line.
+ */
+public struct FeedCursor: Equatable, Hashable {
+    public var inode: UInt64
+    public var offset: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(inode: UInt64, offset: UInt64) {
+        self.inode = inode
+        self.offset = offset
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FeedCursor: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFeedCursor: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FeedCursor {
+        return
+            try FeedCursor(
+                inode: FfiConverterUInt64.read(from: &buf), 
+                offset: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FeedCursor, into buf: inout [UInt8]) {
+        FfiConverterUInt64.write(value.inode, into: &buf)
+        FfiConverterUInt64.write(value.offset, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFeedCursor_lift(_ buf: RustBuffer) throws -> FeedCursor {
+    return try FfiConverterTypeFeedCursor.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFeedCursor_lower(_ value: FeedCursor) -> RustBuffer {
+    return FfiConverterTypeFeedCursor.lower(value)
+}
+
+
+/**
+ * The answer of a read by cursor.
+ */
+public struct FeedRead: Equatable, Hashable {
+    /**
+     * The data replaces what the app has (first read, file replaced or shorter): call
+     * `FeedState::reset` before applying it.
+     */
+    public var reset: Bool
+    public var cursor: FeedCursor
+    /**
+     * New complete lines (may be empty).
+     */
+    public var text: String
+    /**
+     * The resolved real path, to be checked by the caller.
+     */
+    public var path: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The data replaces what the app has (first read, file replaced or shorter): call
+         * `FeedState::reset` before applying it.
+         */reset: Bool, cursor: FeedCursor, 
+        /**
+         * New complete lines (may be empty).
+         */text: String, 
+        /**
+         * The resolved real path, to be checked by the caller.
+         */path: String) {
+        self.reset = reset
+        self.cursor = cursor
+        self.text = text
+        self.path = path
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FeedRead: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFeedRead: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FeedRead {
+        return
+            try FeedRead(
+                reset: FfiConverterBool.read(from: &buf), 
+                cursor: FfiConverterTypeFeedCursor.read(from: &buf), 
+                text: FfiConverterString.read(from: &buf), 
+                path: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FeedRead, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.reset, into: &buf)
+        FfiConverterTypeFeedCursor.write(value.cursor, into: &buf)
+        FfiConverterString.write(value.text, into: &buf)
+        FfiConverterString.write(value.path, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFeedRead_lift(_ buf: RustBuffer) throws -> FeedRead {
+    return try FfiConverterTypeFeedRead.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFeedRead_lower(_ value: FeedRead) -> RustBuffer {
+    return FfiConverterTypeFeedRead.lower(value)
 }
 
 
@@ -17648,6 +18096,54 @@ fileprivate struct FfiConverterOptionTypeContextUsage: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeFeedCursor: FfiConverterRustBuffer {
+    typealias SwiftType = FeedCursor?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeFeedCursor.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeFeedCursor.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeFeedRead: FfiConverterRustBuffer {
+    typealias SwiftType = FeedRead?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeFeedRead.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeFeedRead.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeHostAgentState: FfiConverterRustBuffer {
     typealias SwiftType = HostAgentState?
 
@@ -17808,6 +18304,30 @@ fileprivate struct FfiConverterOptionTypeScreenPrompt: FfiConverterRustBuffer {
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterTypeScreenPrompt.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeTranscriptTurn: FfiConverterRustBuffer {
+    typealias SwiftType = TranscriptTurn?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeTranscriptTurn.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeTranscriptTurn.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -21586,6 +22106,18 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_func_wsl_setup_snippets() != 13857) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_method_feedstate_apply_chunk() != 2513) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_feedstate_reset() != 61323) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_feedstate_turn() != 39793) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_feedstate_turns() != 57387) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_method_hostagentwatch_stop() != 8202) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -21931,6 +22463,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_read_remote_transcript() != 13423) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_read_remote_transcript_since() != 56880) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_connect() != 11069) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -21962,6 +22497,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_stop_all_port_forwards() != 215) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_constructor_feedstate_new() != 13109) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_constructor_remotefsclient_new() != 41766) {

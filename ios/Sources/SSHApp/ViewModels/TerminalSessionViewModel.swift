@@ -115,6 +115,10 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     public var hostCacheKey: String { hostKey }
 
     private var handle: SshSessionHandle?
+    /// The session file kept as turns and the place read to (see `syncFileTurns`).
+    private let fileFeed = FeedState()
+    private var fileCursor: FeedCursor?
+    private var fileFeedPath: String?
     /// The live core session, for host-side management actions (e.g. agent hook install).
     public var sessionHandle: SshSessionHandle? { handle }
     /// Host key fingerprint pinned for this tab's server (nil = trust on first use).
@@ -388,7 +392,9 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
                     return
                 }
 
-                let turns = try await handle.readRemoteTranscript(remotePath: validPath)
+                guard let turns = await self.syncFileTurns(handle, validPath, fresh: true) else {
+                    throw SshCoreError.TranscriptError(reason: "Transcript file not found")
+                }
                 self.transcriptTurns = turns
                 self.isTranscriptLoading = false
             } catch {
@@ -525,7 +531,7 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
             activeTranscriptPath = found
         }
         guard let path = activeTranscriptPath,
-              let turns = try? await handle.readRemoteTranscript(remotePath: path) else { return }
+              let turns = await syncFileTurns(handle, path) else { return }
         if turns != transcriptTurns { transcriptTurns = turns }
     }
 
@@ -544,6 +550,21 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     public func fetchListeningPorts() async -> [ListeningPort]? {
         guard let handle, state == .connected else { return nil }
         return try? await handle.fetchListeningPorts()
+    }
+
+    /// The session file as turns, read by cursor: after the first read only the new lines travel and
+    /// are added to `fileFeed`; a replaced or shortened file starts again. `fresh` forgets the cursor.
+    private func syncFileTurns(_ handle: SshSessionHandle, _ path: String, fresh: Bool = false) async -> [TranscriptTurn]? {
+        if fresh || fileFeedPath != path {
+            fileFeed.reset()
+            fileCursor = nil
+            fileFeedPath = path
+        }
+        guard let read = try? await handle.readRemoteTranscriptSince(remotePath: path, cursor: fileCursor) else { return nil }
+        if read.reset { fileFeed.reset() }
+        _ = fileFeed.applyChunk(chunk: read.text)
+        fileCursor = read.cursor
+        return fileFeed.turns()
     }
 
     /// Which container runtimes (and Kubernetes) the host has; `nil` when the host could not be asked.
@@ -751,7 +772,7 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         lastThinkingRead = Date()
         didReadFile = true
         if let found = try? await handle.detectSessionTranscriptPathIn(sessionName: session.sessionName, kind: multiplexer),
-           let turns = try? await handle.readRemoteTranscript(remotePath: found) {
+           let turns = await syncFileTurns(handle, found) {
             // The same agent may also run in this folder elsewhere (the laptop): a file whose
             // conversation is not the one on the screen is not used.
             thinkingTurns = transcriptMatchesScreen(file: turns, screen: screen) ? turns : []
@@ -780,7 +801,7 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
                 transcriptTurns = []
             }
         }
-        guard let path = activeTranscriptPath, let turns = try? await handle.readRemoteTranscript(remotePath: path) else { return false }
+        guard let path = activeTranscriptPath, let turns = await syncFileTurns(handle, path) else { return false }
         var changed = false
         if turns != transcriptTurns { transcriptTurns = turns; changed = true }
         if transcriptError != nil, !turns.isEmpty { transcriptError = nil }
