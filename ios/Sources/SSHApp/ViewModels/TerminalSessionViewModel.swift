@@ -540,6 +540,20 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         }
     }
 
+    /// Runs Claude's `/context` in the pane and reads the report from the screen. `nil`: the agent is
+    /// busy (its input is not free), not connected, or the report did not appear in time.
+    public func measureContext() async -> ContextUsage? {
+        guard let handle, state == .connected, screenStatus == nil, screenPrompt == nil, screenDialog == nil else { return nil }
+        runAgentCommand("/context")
+        for _ in 0..<6 {
+            try? await Task.sleep(for: .milliseconds(700))
+            guard let cap = try? await handle.captureSessionScreenIn(sessionName: session.sessionName, knownSum: nil, kind: multiplexer),
+                  let text = cap.text else { continue }
+            if let usage = parseContextUsage(text: text), usage.windowTokens > 0 { return usage }
+        }
+        return nil
+    }
+
     /// Fixed keys for a dialog (never text of a row); the screen is read again afterwards.
     public func sendDialogKeys(_ keys: [[UInt8]]) {
         for k in keys { sendInput(Data(k)) }

@@ -18,6 +18,9 @@ struct SkillsSheetView: View {
     @State private var newName = ""
     @State private var newDescription = ""
     @State private var deleting: SkillSummary?
+    @State private var context: ContextUsage?
+    @State private var measuring = false
+    @State private var contextNote: String?
 
     private struct EditTarget: Identifiable {
         let id = UUID()
@@ -66,6 +69,7 @@ struct SkillsSheetView: View {
                             LabeledContent("Project skills", value: "\(project.filter(\.enabled).count) on · ≈\(activeTokens) tokens")
                         }
                     }
+                    if agent == .claudeCode { contextSection }
                     Section("Project skills") {
                         if project.isEmpty && !loading { Text("None yet. Tap + to create one.").foregroundColor(.secondary) }
                         ForEach(project, id: \.name) { s in row(s) }
@@ -118,6 +122,50 @@ struct SkillsSheetView: View {
                                 titleVisibility: .visible, presenting: deleting) { s in
                 Button("Move \(s.name) to the trash", role: .destructive) { Task { await delete(s) } }
             } message: { _ in Text("It stays in the trash for 30 days and can be restored here.") }
+        }
+    }
+
+    /// What the context costs, from Claude's own `/context` (typed into the pane when the agent is idle).
+    @ViewBuilder private var contextSection: some View {
+        Section("Context cost") {
+            Button {
+                Task {
+                    measuring = true
+                    contextNote = nil
+                    context = await viewModel.measureContext()
+                    if context == nil { contextNote = "The agent is busy or did not answer. Try again when it is idle." }
+                    measuring = false
+                }
+            } label: {
+                HStack {
+                    Label("Measure with /context", systemImage: "chart.bar.doc.horizontal")
+                    Spacer()
+                    if measuring { ProgressView() }
+                }
+            }
+            .disabled(measuring)
+            if let contextNote { Text(contextNote).font(.caption).foregroundColor(.secondary) }
+            if let c = context {
+                LabeledContent("Used", value: "\(c.usedTokens.formatted()) of \(c.windowTokens.formatted()) tokens")
+                ForEach(c.categories.filter { $0.name != "Free space" }, id: \.name) { cat in
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text(verbatim: cat.name).font(.subheadline)
+                            Spacer()
+                            Text("\(cat.tokens.formatted()) · \(String(format: "%.1f", cat.percent))%").font(.caption).foregroundColor(.secondary)
+                        }
+                        ProgressView(value: min(Double(cat.tokens), Double(max(c.windowTokens, 1))), total: Double(max(c.windowTokens, 1)))
+                    }
+                }
+                let top = c.skills.sorted { $0.tokens > $1.tokens }.prefix(5)
+                if !top.isEmpty {
+                    Text("Costliest skills").font(.footnote.weight(.semibold)).foregroundColor(.secondary)
+                    ForEach(Array(top), id: \.name) { s in
+                        LabeledContent(s.name, value: "≈\(s.tokens) · \(s.group)")
+                            .font(.system(size: 13, design: .monospaced))
+                    }
+                }
+            }
         }
     }
 

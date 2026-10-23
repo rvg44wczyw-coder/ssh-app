@@ -1,6 +1,6 @@
 # Feature 53: Agent skills manager
 
-- **Status**: Draft 2026-10-23 (owner request). Not reviewed yet.
+- **Status**: Implemented 2026-10-23. Deviation: `/context` is measured on demand (a button in the Skills screen, only when the agent is idle), not every 90 s, so the pane is never typed into without a tap. Findings: `docs/security-findings/2026-10-23-context-report.md`.
 - **Design**: every new screen uses system components in Liquid Glass (`glassEffect`, `GlassEffectContainer`, system `List`/`Form`), see `prefer-system-ui-components`.
 - **Agents**: Claude Code first (`SKILL.md` in `<project>/.claude/skills/<name>/` and `~/.claude/skills/<name>/`, or the profile's `CLAUDE_CONFIG_DIR`); Antigravity (`agy`) uses the project's `.agents/skills/<name>/SKILL.md`. Ollama has no skills.
 
