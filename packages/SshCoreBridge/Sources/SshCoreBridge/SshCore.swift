@@ -1760,6 +1760,33 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func watchHostAgent(expectedSha256: String, listener: HostAgentListener) async throws  -> HostAgentWatch
     
     /**
+     * Moves a project skill to the trash folder; returns the trash entry to restore it by.
+     */
+    func deleteSkill(agent: AgentKind, projectDir: String, name: String, helperSha256: String) async throws  -> String
+    
+    /**
+     * Trash entries (`<skill>-<unix time>`), kept 30 days.
+     */
+    func listSkillTrash(agent: AgentKind, projectDir: String, helperSha256: String) async throws  -> [String]
+    
+    /**
+     * Skills of the project for this agent (project ones editable, user ones read only).
+     */
+    func listSkills(agent: AgentKind, projectDir: String, helperSha256: String) async throws  -> [SkillSummary]
+    
+    func readSkill(agent: AgentKind, projectDir: String, name: String, userScope: Bool, helperSha256: String) async throws  -> SkillDocument
+    
+    func restoreSkill(agent: AgentKind, projectDir: String, trashEntry: String, helperSha256: String) async throws 
+    
+    /**
+     * Saves a project skill: `create` makes a new one (it must not exist), otherwise it replaces
+     * the text of an existing one (the old text stays as `SKILL.md.bak`).
+     */
+    func saveSkill(agent: AgentKind, projectDir: String, name: String, content: String, create: Bool, helperSha256: String) async throws 
+    
+    func setSkillEnabled(agent: AgentKind, projectDir: String, name: String, enabled: Bool, helperSha256: String) async throws 
+    
+    /**
      * Whether the plan-limits status line wrapper is in the Claude profile's `settings.json`.
      */
     func claudeStatuslineStatus(configDir: String?) async throws  -> Bool
@@ -3422,6 +3449,131 @@ open func watchHostAgent(expectedSha256: String, listener: HostAgentListener)asy
             completeFunc: ffi_ssh_core_rust_future_complete_u64,
             freeFunc: ffi_ssh_core_rust_future_free_u64,
             liftFunc: FfiConverterTypeHostAgentWatch_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Moves a project skill to the trash folder; returns the trash entry to restore it by.
+     */
+open func deleteSkill(agent: AgentKind, projectDir: String, name: String, helperSha256: String)async throws  -> String  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_delete_skill(
+                        self.uniffiCloneHandle(),FfiConverterTypeAgentKind_lower(agent),FfiConverterString.lower(projectDir),FfiConverterString.lower(name),FfiConverterString.lower(helperSha256)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterString.lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Trash entries (`<skill>-<unix time>`), kept 30 days.
+     */
+open func listSkillTrash(agent: AgentKind, projectDir: String, helperSha256: String)async throws  -> [String]  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_list_skill_trash(
+                        self.uniffiCloneHandle(),FfiConverterTypeAgentKind_lower(agent),FfiConverterString.lower(projectDir),FfiConverterString.lower(helperSha256)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceString.lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Skills of the project for this agent (project ones editable, user ones read only).
+     */
+open func listSkills(agent: AgentKind, projectDir: String, helperSha256: String)async throws  -> [SkillSummary]  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_list_skills(
+                        self.uniffiCloneHandle(),FfiConverterTypeAgentKind_lower(agent),FfiConverterString.lower(projectDir),FfiConverterString.lower(helperSha256)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceTypeSkillSummary.lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+open func readSkill(agent: AgentKind, projectDir: String, name: String, userScope: Bool, helperSha256: String)async throws  -> SkillDocument  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_read_skill(
+                        self.uniffiCloneHandle(),FfiConverterTypeAgentKind_lower(agent),FfiConverterString.lower(projectDir),FfiConverterString.lower(name),FfiConverterBool.lower(userScope),FfiConverterString.lower(helperSha256)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeSkillDocument_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+open func restoreSkill(agent: AgentKind, projectDir: String, trashEntry: String, helperSha256: String)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_restore_skill(
+                        self.uniffiCloneHandle(),FfiConverterTypeAgentKind_lower(agent),FfiConverterString.lower(projectDir),FfiConverterString.lower(trashEntry),FfiConverterString.lower(helperSha256)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_void,
+            completeFunc: ffi_ssh_core_rust_future_complete_void,
+            freeFunc: ffi_ssh_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Saves a project skill: `create` makes a new one (it must not exist), otherwise it replaces
+     * the text of an existing one (the old text stays as `SKILL.md.bak`).
+     */
+open func saveSkill(agent: AgentKind, projectDir: String, name: String, content: String, create: Bool, helperSha256: String)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_save_skill(
+                        self.uniffiCloneHandle(),FfiConverterTypeAgentKind_lower(agent),FfiConverterString.lower(projectDir),FfiConverterString.lower(name),FfiConverterString.lower(content),FfiConverterBool.lower(create),FfiConverterString.lower(helperSha256)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_void,
+            completeFunc: ffi_ssh_core_rust_future_complete_void,
+            freeFunc: ffi_ssh_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+open func setSkillEnabled(agent: AgentKind, projectDir: String, name: String, enabled: Bool, helperSha256: String)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_set_skill_enabled(
+                        self.uniffiCloneHandle(),FfiConverterTypeAgentKind_lower(agent),FfiConverterString.lower(projectDir),FfiConverterString.lower(name),FfiConverterBool.lower(enabled),FfiConverterString.lower(helperSha256)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_void,
+            completeFunc: ffi_ssh_core_rust_future_complete_void,
+            freeFunc: ffi_ssh_core_rust_future_free_void,
+            liftFunc: { $0 },
             errorHandler: FfiConverterTypeSshCoreError_lift
         )
 }
@@ -11048,6 +11200,158 @@ public func FfiConverterTypeSessionUsage_lower(_ value: SessionUsage) -> RustBuf
 }
 
 
+public struct SkillDocument: Equatable, Hashable {
+    /**
+     * The whole `SKILL.md`, front matter included.
+     */
+    public var content: String
+    /**
+     * Other files in the skill's folder (names only).
+     */
+    public var files: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The whole `SKILL.md`, front matter included.
+         */content: String, 
+        /**
+         * Other files in the skill's folder (names only).
+         */files: [String]) {
+        self.content = content
+        self.files = files
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension SkillDocument: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSkillDocument: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SkillDocument {
+        return
+            try SkillDocument(
+                content: FfiConverterString.read(from: &buf), 
+                files: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SkillDocument, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.content, into: &buf)
+        FfiConverterSequenceString.write(value.files, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSkillDocument_lift(_ buf: RustBuffer) throws -> SkillDocument {
+    return try FfiConverterTypeSkillDocument.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSkillDocument_lower(_ value: SkillDocument) -> RustBuffer {
+    return FfiConverterTypeSkillDocument.lower(value)
+}
+
+
+public struct SkillSummary: Equatable, Hashable {
+    public var name: String
+    /**
+     * `project` (editable) or `user` (read only).
+     */
+    public var scope: String
+    public var description: String
+    public var bytes: UInt64
+    /**
+     * Estimated tokens of the whole file (about four bytes each).
+     */
+    public var tokens: UInt64
+    public var enabled: Bool
+    public var readOnly: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(name: String, 
+        /**
+         * `project` (editable) or `user` (read only).
+         */scope: String, description: String, bytes: UInt64, 
+        /**
+         * Estimated tokens of the whole file (about four bytes each).
+         */tokens: UInt64, enabled: Bool, readOnly: Bool) {
+        self.name = name
+        self.scope = scope
+        self.description = description
+        self.bytes = bytes
+        self.tokens = tokens
+        self.enabled = enabled
+        self.readOnly = readOnly
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension SkillSummary: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSkillSummary: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SkillSummary {
+        return
+            try SkillSummary(
+                name: FfiConverterString.read(from: &buf), 
+                scope: FfiConverterString.read(from: &buf), 
+                description: FfiConverterString.read(from: &buf), 
+                bytes: FfiConverterUInt64.read(from: &buf), 
+                tokens: FfiConverterUInt64.read(from: &buf), 
+                enabled: FfiConverterBool.read(from: &buf), 
+                readOnly: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SkillSummary, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.name, into: &buf)
+        FfiConverterString.write(value.scope, into: &buf)
+        FfiConverterString.write(value.description, into: &buf)
+        FfiConverterUInt64.write(value.bytes, into: &buf)
+        FfiConverterUInt64.write(value.tokens, into: &buf)
+        FfiConverterBool.write(value.enabled, into: &buf)
+        FfiConverterBool.write(value.readOnly, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSkillSummary_lift(_ buf: RustBuffer) throws -> SkillSummary {
+    return try FfiConverterTypeSkillSummary.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSkillSummary_lower(_ value: SkillSummary) -> RustBuffer {
+    return FfiConverterTypeSkillSummary.lower(value)
+}
+
+
 /**
  * Represents a reusable shell command snippet or history entry.
  */
@@ -17742,6 +18046,31 @@ fileprivate struct FfiConverterSequenceTypeSessionUsage: FfiConverterRustBuffer 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeSkillSummary: FfiConverterRustBuffer {
+    typealias SwiftType = [SkillSummary]
+
+    public static func write(_ value: [SkillSummary], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeSkillSummary.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [SkillSummary] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [SkillSummary]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeSkillSummary.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeSnippetItem: FfiConverterRustBuffer {
     typealias SwiftType = [SnippetItem]
 
@@ -20493,6 +20822,27 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_watch_host_agent() != 12850) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_delete_skill() != 65462) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_list_skill_trash() != 40924) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_list_skills() != 18982) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_read_skill() != 15089) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_restore_skill() != 46910) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_save_skill() != 52094) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_set_skill_enabled() != 50104) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_claude_statusline_status() != 55485) {
