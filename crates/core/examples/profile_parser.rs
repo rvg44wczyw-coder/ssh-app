@@ -156,6 +156,21 @@ pub fn jsonl(path: &str) {
         turns.len(),
         t.elapsed().as_secs_f64() * 1000.0
     );
+    let feed = ssh_core::feed::FeedState::new();
+    let t = Instant::now();
+    let mut worst = 0.0f64;
+    let mut at = 0;
+    while at < raw.len() {
+        let mut end = (at + 32 * 1024).min(raw.len());
+        while !raw.is_char_boundary(end) {
+            end += 1;
+        }
+        let t1 = Instant::now();
+        feed.apply_chunk(raw[at..end].to_string());
+        worst = worst.max(t1.elapsed().as_secs_f64() * 1000.0);
+        at = end;
+    }
+    println!("  replay in 32 KB chunks: {:.1} ms total, worst chunk {:.2} ms, equals whole file: {}", t.elapsed().as_secs_f64() * 1000.0, worst, feed.turns() == turns);
     let t = Instant::now();
     let same = turns == turns.clone();
     println!(

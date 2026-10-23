@@ -13,6 +13,7 @@ pub mod config_engine;
 pub mod container_runtime;
 pub mod docker;
 pub mod error;
+pub mod feed;
 pub mod file_browser;
 pub mod gitbranch;
 pub mod gitcommit;
