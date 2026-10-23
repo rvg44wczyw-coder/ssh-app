@@ -1,7 +1,7 @@
 # Feature 55: Event feed (incremental updates instead of re-sending the whole screen)
 
 - **Status**: Draft 2026-10-23 (owner idea; follows `docs/architecture/performance-audit-2026-10-23.md`, bottlenecks 1, 2, 3, 6, 7). Not reviewed yet.
-- **Agents**: Claude Code first (its session file is already JSON lines); Antigravity keeps the screen path until its files are understood.
+- **Agents**: Claude Code first (its session file is already JSON lines). Antigravity: studied 2026-10-23, see §8; events are possible through its SQLite store, but only after a spike.
 
 ## 1. Purpose
 
@@ -69,3 +69,16 @@ Parsing of file lines stays in `ssh-core` (`parse_transcript_jsonl`, 16 ms for 3
 ## 7. Open questions for the owner
 
 - Claude's feed is built from the screen today (it shows tool groups, system lines and `/btw` that the file lacks). With events, the file becomes the source of turns and the screen only the live part. Some screen-only items would need to be rebuilt from the live stream. Phase 1–2 keep the screen as the source, so nothing regresses; phase 3 decides per item.
+
+## 8. Antigravity (agy) — what its storage looks like (studied 2026-10-23, read-only, on a copy)
+
+- agy (CLI) writes **no JSONL transcript**. Each conversation is a SQLite database `~/.gemini/antigravity-cli/conversations/<uuid>.db` (journal mode WAL, 31 files, 0.5–60 MB). The app's agy feed is therefore built from the screen only, and the thinking comes from the screen too.
+- Tables: `steps` (`idx` integer primary key, `step_type`, `status`, `step_payload` blob, `metadata` blob, `render_info`, …), `gen_metadata`, `executor_metadata`, `trajectory_meta`, `parent_references`. A 282-step conversation was 4.7 MB.
+- **Append-only by `idx`**: the natural cursor is `max(idx)`. Status is a column (3 = done; one other value was seen on the last step), so a step that is still running changes in place; the query `WHERE idx > :cursor OR status <> 3` (indexed) gives exactly the `append` and `update` events. Cost: microseconds, no file tail.
+- Payloads are **protobuf** with no schema shipped. By decoding the wire format (no schema): field 1 = step type (14 user input with the text at 19.2, 15 model step, 132 tool call with the tool name `run_command`, its call id and JSON arguments at 5.4, 101 task notification), field 5 = timestamps and ids (conversation id, step number). Texts of model steps and thinking sit in nested fields (20.x, 140.x) that are not named anywhere.
+- **Consequences**
+  - Good: a tail of steps is tiny and ordered; thinking, tool calls with results and timestamps exist in structured form (better than the screen, which only shows "Ran 5 commands (…)").
+  - Risk: the format is private and unversioned; a field renumbering in an agy update silently breaks the decoder. Mitigation: decode only a few well-tested fields, treat anything unknown as "unrecognised step → fall back to the screen path for that turn", a fixture per agy version, and `hello` reports `agy-events` only when the decoder recognises the database's `user_version`/step shapes.
+  - The helper needs SQLite: `rusqlite` (bundled) in `ssh-app-host`, opened **read-only** (WAL needs the `-shm` file; never write, never checkpoint). The system `sqlite3` binary is not assumed to exist on Linux hosts.
+  - Which database belongs to the tab: the one the agy process of the pane has open (as in the current detection), never "the newest file".
+- **Plan for agy** (after Claude phases 1–3): spike with a decoder over fixtures taken from real conversations (sanitised), compare its turns with the screen feed on the same conversation, and only then switch agy per item. The live part (status, draft, prompts) stays screen-based for both agents.
