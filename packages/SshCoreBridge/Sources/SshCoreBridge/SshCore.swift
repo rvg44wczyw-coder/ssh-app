@@ -6082,6 +6082,126 @@ public func FfiConverterTypeConfigImport_lower(_ value: ConfigImport) -> RustBuf
 }
 
 
+public struct DialogRow: Equatable, Hashable {
+    public var number: UInt32?
+    public var label: String
+    public var value: String?
+    public var detail: String
+    public var state: RowState
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(number: UInt32?, label: String, value: String?, detail: String, state: RowState) {
+        self.number = number
+        self.label = label
+        self.value = value
+        self.detail = detail
+        self.state = state
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension DialogRow: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeDialogRow: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> DialogRow {
+        return
+            try DialogRow(
+                number: FfiConverterOptionUInt32.read(from: &buf), 
+                label: FfiConverterString.read(from: &buf), 
+                value: FfiConverterOptionString.read(from: &buf), 
+                detail: FfiConverterString.read(from: &buf), 
+                state: FfiConverterTypeRowState.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: DialogRow, into buf: inout [UInt8]) {
+        FfiConverterOptionUInt32.write(value.number, into: &buf)
+        FfiConverterString.write(value.label, into: &buf)
+        FfiConverterOptionString.write(value.value, into: &buf)
+        FfiConverterString.write(value.detail, into: &buf)
+        FfiConverterTypeRowState.write(value.state, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDialogRow_lift(_ buf: RustBuffer) throws -> DialogRow {
+    return try FfiConverterTypeDialogRow.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDialogRow_lower(_ value: DialogRow) -> RustBuffer {
+    return FfiConverterTypeDialogRow.lower(value)
+}
+
+
+public struct DialogTab: Equatable, Hashable {
+    public var name: String
+    public var active: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(name: String, active: Bool) {
+        self.name = name
+        self.active = active
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension DialogTab: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeDialogTab: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> DialogTab {
+        return
+            try DialogTab(
+                name: FfiConverterString.read(from: &buf), 
+                active: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: DialogTab, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.name, into: &buf)
+        FfiConverterBool.write(value.active, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDialogTab_lift(_ buf: RustBuffer) throws -> DialogTab {
+    return try FfiConverterTypeDialogTab.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDialogTab_lower(_ value: DialogTab) -> RustBuffer {
+    return FfiConverterTypeDialogTab.lower(value)
+}
+
+
 public struct DockerContainerInfo: Equatable, Hashable {
     public var id: String
     public var name: String
@@ -10654,6 +10774,83 @@ public func FfiConverterTypeRuntimeCaps_lower(_ value: RuntimeCaps) -> RustBuffe
 
 
 /**
+ * The `/btw` side question and its answer (the overlay closes with `Esc`).
+ */
+public struct ScreenAside: Equatable, Hashable {
+    public var question: String
+    public var answer: String
+    /**
+     * "· Answering…" is still on screen.
+     */
+    public var pending: Bool
+    /**
+     * The footer offers `↑/↓ to scroll`: more of the answer than the pane shows.
+     */
+    public var scrollable: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(question: String, answer: String, 
+        /**
+         * "· Answering…" is still on screen.
+         */pending: Bool, 
+        /**
+         * The footer offers `↑/↓ to scroll`: more of the answer than the pane shows.
+         */scrollable: Bool) {
+        self.question = question
+        self.answer = answer
+        self.pending = pending
+        self.scrollable = scrollable
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ScreenAside: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeScreenAside: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ScreenAside {
+        return
+            try ScreenAside(
+                question: FfiConverterString.read(from: &buf), 
+                answer: FfiConverterString.read(from: &buf), 
+                pending: FfiConverterBool.read(from: &buf), 
+                scrollable: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ScreenAside, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.question, into: &buf)
+        FfiConverterString.write(value.answer, into: &buf)
+        FfiConverterBool.write(value.pending, into: &buf)
+        FfiConverterBool.write(value.scrollable, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeScreenAside_lift(_ buf: RustBuffer) throws -> ScreenAside {
+    return try FfiConverterTypeScreenAside.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeScreenAside_lower(_ value: ScreenAside) -> RustBuffer {
+    return FfiConverterTypeScreenAside.lower(value)
+}
+
+
+/**
  * The answer of `capture_session_screen`.
  */
 public struct ScreenCapture: Equatable, Hashable {
@@ -10716,6 +10913,116 @@ public func FfiConverterTypeScreenCapture_lower(_ value: ScreenCapture) -> RustB
 }
 
 
+public struct ScreenDialog: Equatable, Hashable {
+    public var kind: DialogKind
+    public var title: String
+    public var tabs: [DialogTab]
+    /**
+     * The text of the search box, empty while it only shows its placeholder; `None`: no box.
+     */
+    public var search: String?
+    /**
+     * Explanation lines under the title and the effort line of `/model`.
+     */
+    public var note: String
+    public var rows: [DialogRow]
+    /**
+     * Index into `rows` of the row under the `❯` cursor (0 when none is marked).
+     */
+    public var selected: UInt32
+    /**
+     * The footer line of keys ("Enter to set as default · … · Esc to cancel").
+     */
+    public var hints: String
+    public var moreAbove: Bool
+    public var moreBelow: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(kind: DialogKind, title: String, tabs: [DialogTab], 
+        /**
+         * The text of the search box, empty while it only shows its placeholder; `None`: no box.
+         */search: String?, 
+        /**
+         * Explanation lines under the title and the effort line of `/model`.
+         */note: String, rows: [DialogRow], 
+        /**
+         * Index into `rows` of the row under the `❯` cursor (0 when none is marked).
+         */selected: UInt32, 
+        /**
+         * The footer line of keys ("Enter to set as default · … · Esc to cancel").
+         */hints: String, moreAbove: Bool, moreBelow: Bool) {
+        self.kind = kind
+        self.title = title
+        self.tabs = tabs
+        self.search = search
+        self.note = note
+        self.rows = rows
+        self.selected = selected
+        self.hints = hints
+        self.moreAbove = moreAbove
+        self.moreBelow = moreBelow
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ScreenDialog: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeScreenDialog: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ScreenDialog {
+        return
+            try ScreenDialog(
+                kind: FfiConverterTypeDialogKind.read(from: &buf), 
+                title: FfiConverterString.read(from: &buf), 
+                tabs: FfiConverterSequenceTypeDialogTab.read(from: &buf), 
+                search: FfiConverterOptionString.read(from: &buf), 
+                note: FfiConverterString.read(from: &buf), 
+                rows: FfiConverterSequenceTypeDialogRow.read(from: &buf), 
+                selected: FfiConverterUInt32.read(from: &buf), 
+                hints: FfiConverterString.read(from: &buf), 
+                moreAbove: FfiConverterBool.read(from: &buf), 
+                moreBelow: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ScreenDialog, into buf: inout [UInt8]) {
+        FfiConverterTypeDialogKind.write(value.kind, into: &buf)
+        FfiConverterString.write(value.title, into: &buf)
+        FfiConverterSequenceTypeDialogTab.write(value.tabs, into: &buf)
+        FfiConverterOptionString.write(value.search, into: &buf)
+        FfiConverterString.write(value.note, into: &buf)
+        FfiConverterSequenceTypeDialogRow.write(value.rows, into: &buf)
+        FfiConverterUInt32.write(value.selected, into: &buf)
+        FfiConverterString.write(value.hints, into: &buf)
+        FfiConverterBool.write(value.moreAbove, into: &buf)
+        FfiConverterBool.write(value.moreBelow, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeScreenDialog_lift(_ buf: RustBuffer) throws -> ScreenDialog {
+    return try FfiConverterTypeScreenDialog.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeScreenDialog_lower(_ value: ScreenDialog) -> RustBuffer {
+    return FfiConverterTypeScreenDialog.lower(value)
+}
+
+
 /**
  * The screen read as a feed.
  */
@@ -10737,6 +11044,14 @@ public struct ScreenFeed: Equatable, Hashable {
      * A question on screen that waits for an answer.
      */
     public var prompt: ScreenPrompt?
+    /**
+     * The `/btw` overlay (Claude Code): the side question and its answer.
+     */
+    public var aside: ScreenAside?
+    /**
+     * A full-screen dialog of a slash command (`/model`, `/permissions`, `/config`, `/mcp`, `/status`).
+     */
+    public var dialog: ScreenDialog?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -10752,12 +11067,20 @@ public struct ScreenFeed: Equatable, Hashable {
          */draft: String?, 
         /**
          * A question on screen that waits for an answer.
-         */prompt: ScreenPrompt?) {
+         */prompt: ScreenPrompt?, 
+        /**
+         * The `/btw` overlay (Claude Code): the side question and its answer.
+         */aside: ScreenAside?, 
+        /**
+         * A full-screen dialog of a slash command (`/model`, `/permissions`, `/config`, `/mcp`, `/status`).
+         */dialog: ScreenDialog?) {
         self.dialect = dialect
         self.turns = turns
         self.status = status
         self.draft = draft
         self.prompt = prompt
+        self.aside = aside
+        self.dialog = dialog
     }
 
     
@@ -10780,7 +11103,9 @@ public struct FfiConverterTypeScreenFeed: FfiConverterRustBuffer {
                 turns: FfiConverterSequenceTypeTranscriptTurn.read(from: &buf), 
                 status: FfiConverterOptionString.read(from: &buf), 
                 draft: FfiConverterOptionString.read(from: &buf), 
-                prompt: FfiConverterOptionTypeScreenPrompt.read(from: &buf)
+                prompt: FfiConverterOptionTypeScreenPrompt.read(from: &buf), 
+                aside: FfiConverterOptionTypeScreenAside.read(from: &buf), 
+                dialog: FfiConverterOptionTypeScreenDialog.read(from: &buf)
         )
     }
 
@@ -10790,6 +11115,8 @@ public struct FfiConverterTypeScreenFeed: FfiConverterRustBuffer {
         FfiConverterOptionString.write(value.status, into: &buf)
         FfiConverterOptionString.write(value.draft, into: &buf)
         FfiConverterOptionTypeScreenPrompt.write(value.prompt, into: &buf)
+        FfiConverterOptionTypeScreenAside.write(value.aside, into: &buf)
+        FfiConverterOptionTypeScreenDialog.write(value.dialog, into: &buf)
     }
 }
 
@@ -13042,6 +13369,93 @@ public func FfiConverterTypeContainerState_lower(_ value: ContainerState) -> Rus
 
 
 
+public enum DialogKind: Equatable, Hashable {
+    
+    case model
+    case permissions
+    case config
+    case mcp
+    case status
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension DialogKind: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeDialogKind: FfiConverterRustBuffer {
+    typealias SwiftType = DialogKind
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> DialogKind {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .model
+        
+        case 2: return .permissions
+        
+        case 3: return .config
+        
+        case 4: return .mcp
+        
+        case 5: return .status
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: DialogKind, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .model:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .permissions:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .config:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .mcp:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .status:
+            writeInt(&buf, Int32(5))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDialogKind_lift(_ buf: RustBuffer) throws -> DialogKind {
+    return try FfiConverterTypeDialogKind.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDialogKind_lower(_ value: DialogKind) -> RustBuffer {
+    return FfiConverterTypeDialogKind.lower(value)
+}
+
+
+
+
 public enum DockerAction: Equatable, Hashable {
     
     case start
@@ -15211,6 +15625,115 @@ public func FfiConverterTypeRemoteFileKind_lower(_ value: RemoteFileKind) -> Rus
 
 
 
+
+public enum RowState: Equatable, Hashable {
+    
+    case plain
+    /**
+     * `✔`: the value in effect (the current model, a connected server).
+     */
+    case current
+    /**
+     * `true` of a setting.
+     */
+    case on
+    /**
+     * `false` of a setting, or `◯` (not configured).
+     */
+    case off
+    /**
+     * `⚠`.
+     */
+    case warning
+    /**
+     * A group title that is not selectable.
+     */
+    case header
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension RowState: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRowState: FfiConverterRustBuffer {
+    typealias SwiftType = RowState
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RowState {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .plain
+        
+        case 2: return .current
+        
+        case 3: return .on
+        
+        case 4: return .off
+        
+        case 5: return .warning
+        
+        case 6: return .header
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: RowState, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .plain:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .current:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .on:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .off:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .warning:
+            writeInt(&buf, Int32(5))
+        
+        
+        case .header:
+            writeInt(&buf, Int32(6))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRowState_lift(_ buf: RustBuffer) throws -> RowState {
+    return try FfiConverterTypeRowState.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRowState_lower(_ value: RowState) -> RustBuffer {
+    return FfiConverterTypeRowState.lower(value)
+}
+
+
+
 /**
  * Which agent's terminal UI the screen was recognised as.
  */
@@ -16899,6 +17422,54 @@ fileprivate struct FfiConverterOptionTypeOllamaLoad: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeScreenAside: FfiConverterRustBuffer {
+    typealias SwiftType = ScreenAside?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeScreenAside.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeScreenAside.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeScreenDialog: FfiConverterRustBuffer {
+    typealias SwiftType = ScreenDialog?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeScreenDialog.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeScreenDialog.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeScreenPrompt: FfiConverterRustBuffer {
     typealias SwiftType = ScreenPrompt?
 
@@ -17338,6 +17909,56 @@ fileprivate struct FfiConverterSequenceTypeChatMessage: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeChatMessage.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeDialogRow: FfiConverterRustBuffer {
+    typealias SwiftType = [DialogRow]
+
+    public static func write(_ value: [DialogRow], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeDialogRow.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [DialogRow] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [DialogRow]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeDialogRow.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeDialogTab: FfiConverterRustBuffer {
+    typealias SwiftType = [DialogTab]
+
+    public static func write(_ value: [DialogTab], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeDialogTab.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [DialogTab] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [DialogTab]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeDialogTab.read(from: &buf))
         }
         return seq
     }
