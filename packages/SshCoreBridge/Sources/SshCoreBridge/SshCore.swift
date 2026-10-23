@@ -1684,6 +1684,11 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func fetchHostTelemetry(helperSha256: String?) async throws  -> HostTelemetrySnapshot
     
     /**
+     * TCP ports the host listens on, with the program behind each (`ss`, or `lsof` on macOS).
+     */
+    func fetchListeningPorts() async throws  -> [ListeningPort]
+    
+    /**
      * Safely terminates a remote process by PID (`SIGTERM` or `SIGKILL`), rejecting reserved PIDs <= 1.
      * With the app's pin the pinned host helper does it and refuses the dangerous targets (this
      * connection's own processes, other accounts, the tmux server, a reused pid when `started` is
@@ -3226,6 +3231,25 @@ open func fetchHostTelemetry(helperSha256: String?)async throws  -> HostTelemetr
             completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
             freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
             liftFunc: FfiConverterTypeHostTelemetrySnapshot_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * TCP ports the host listens on, with the program behind each (`ss`, or `lsof` on macOS).
+     */
+open func fetchListeningPorts()async throws  -> [ListeningPort]  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_fetch_listening_ports(
+                        self.uniffiCloneHandle()
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceTypeListeningPort.lift,
             errorHandler: FfiConverterTypeSshCoreError_lift
         )
 }
@@ -9537,6 +9561,83 @@ public func FfiConverterTypeLimitWindow_lift(_ buf: RustBuffer) throws -> LimitW
 #endif
 public func FfiConverterTypeLimitWindow_lower(_ value: LimitWindow) -> RustBuffer {
     return FfiConverterTypeLimitWindow.lower(value)
+}
+
+
+/**
+ * One listening port (IPv4 and IPv6 sockets of the same program are merged).
+ */
+public struct ListeningPort: Equatable, Hashable {
+    public var port: UInt16
+    /**
+     * Program name; empty when the host did not say (other accounts' sockets).
+     */
+    public var process: String
+    public var pid: UInt32?
+    /**
+     * Only reachable from the host itself (127.0.0.1 / ::1): a dev server, not an open service.
+     */
+    public var localOnly: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(port: UInt16, 
+        /**
+         * Program name; empty when the host did not say (other accounts' sockets).
+         */process: String, pid: UInt32?, 
+        /**
+         * Only reachable from the host itself (127.0.0.1 / ::1): a dev server, not an open service.
+         */localOnly: Bool) {
+        self.port = port
+        self.process = process
+        self.pid = pid
+        self.localOnly = localOnly
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ListeningPort: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeListeningPort: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ListeningPort {
+        return
+            try ListeningPort(
+                port: FfiConverterUInt16.read(from: &buf), 
+                process: FfiConverterString.read(from: &buf), 
+                pid: FfiConverterOptionUInt32.read(from: &buf), 
+                localOnly: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ListeningPort, into buf: inout [UInt8]) {
+        FfiConverterUInt16.write(value.port, into: &buf)
+        FfiConverterString.write(value.process, into: &buf)
+        FfiConverterOptionUInt32.write(value.pid, into: &buf)
+        FfiConverterBool.write(value.localOnly, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeListeningPort_lift(_ buf: RustBuffer) throws -> ListeningPort {
+    return try FfiConverterTypeListeningPort.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeListeningPort_lower(_ value: ListeningPort) -> RustBuffer {
+    return FfiConverterTypeListeningPort.lower(value)
 }
 
 
@@ -18638,6 +18739,31 @@ fileprivate struct FfiConverterSequenceTypeLimitWindow: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeListeningPort: FfiConverterRustBuffer {
+    typealias SwiftType = [ListeningPort]
+
+    public static func write(_ value: [ListeningPort], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeListeningPort.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [ListeningPort] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [ListeningPort]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeListeningPort.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeLocalAgentTool: FfiConverterRustBuffer {
     typealias SwiftType = [LocalAgentTool]
 
@@ -21695,6 +21821,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_fetch_host_telemetry() != 21895) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_fetch_listening_ports() != 13571) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_kill_remote_process() != 33291) {
