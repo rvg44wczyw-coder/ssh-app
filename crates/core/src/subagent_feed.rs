@@ -176,6 +176,122 @@ pub fn parse_subagent_list(out: &str) -> Vec<SubagentInfo> {
     list
 }
 
+/// Child conversations of an Antigravity tab (feature 55 §9). The pinned helper reads them from
+/// agy's index; the answer is `parse_agy_children`. `$1` is the tmux session, whose pane folder
+/// names the parent conversation.
+pub(crate) fn agy_list_script(tmux: &str, sha256: &str) -> String {
+    format!(
+        r#"PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"; export PATH
+h={helper}
+if [ ! -f "$h" ] || [ -L "$h" ] || [ "{digest}" != '{sha256}' ]; then echo NOHELPER; exit 0; fi
+cwd=$({tmux} display -p -t "=$1:" '#{{pane_current_path}}' 2>/dev/null) && [ -n "$cwd" ] || {{ echo NOHELPER; exit 0; }}
+"$h" agy-children "$cwd" 2>/dev/null | head -c 200000"#,
+        helper = crate::usage::HELPER_PATH_EXPR,
+        digest = crate::hostprobe::SHA256_OF_H,
+    )
+}
+
+pub fn build_agy_list_command(session_name: &str, sha256: &str) -> Result<String, SshCoreError> {
+    crate::usage::validate_sha256(sha256)?;
+    Ok(format!(
+        "exec sh -c {} sh {}",
+        shell_quote(&agy_list_script("tmux", sha256)),
+        shell_quote(session_name.trim())
+    ))
+}
+
+/// Reads one child conversation: `$1` its id, `$2 $3` the cursor (`-` for none).
+pub(crate) fn agy_read_script(sha256: &str) -> String {
+    format!(
+        r#"h={helper}
+if [ ! -f "$h" ] || [ -L "$h" ] || [ "{digest}" != '{sha256}' ]; then echo NOFILE; exit 0; fi
+conv=$1
+f() {{
+{tail}
+}}
+f x "$2" "$3""#,
+        helper = crate::usage::HELPER_PATH_EXPR,
+        digest = crate::hostprobe::SHA256_OF_H,
+        tail = crate::feed_stream::AGY_READ_TAIL,
+    )
+}
+
+pub fn build_agy_read_command(
+    conversation: &str,
+    sha256: &str,
+    cursor: Option<crate::feed_read::FeedCursor>,
+) -> Result<String, SshCoreError> {
+    crate::usage::validate_sha256(sha256)?;
+    if !valid_conversation_id(conversation) {
+        return Err(SshCoreError::InvalidInput {
+            reason: "Invalid conversation id".into(),
+        });
+    }
+    let (ino, off) = match cursor {
+        Some(c) => (c.inode.to_string(), c.offset.to_string()),
+        None => ("-".to_string(), "-".to_string()),
+    };
+    Ok(format!(
+        "exec sh -c {} sh {conversation} {ino} {off}",
+        shell_quote(&agy_read_script(sha256)),
+    ))
+}
+
+/// `8-4-4-4-12` lower-case hex.
+pub fn valid_conversation_id(id: &str) -> bool {
+    id.len() == 36
+        && id.bytes().enumerate().all(|(i, b)| match i {
+            8 | 13 | 18 | 23 => b == b'-',
+            _ => b.is_ascii_digit() || (b'a'..=b'f').contains(&b),
+        })
+}
+
+/// Reads the helper's `agy-children` answer. Same caps as the Claude list; ids are checked again.
+pub fn parse_agy_children(out: &str) -> Vec<SubagentInfo> {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(out.trim()) else {
+        return Vec::new();
+    };
+    let now = v.get("now").and_then(|n| n.as_u64()).unwrap_or(0);
+    let text = |c: &serde_json::Value, k: &str| {
+        c.get(k)
+            .and_then(|x| x.as_str())
+            .map(clean)
+            .unwrap_or_default()
+    };
+    let mut list: Vec<SubagentInfo> = Vec::new();
+    for c in v
+        .get("children")
+        .and_then(|c| c.as_array())
+        .map(Vec::as_slice)
+        .unwrap_or_default()
+    {
+        let Some(id) = c.get("id").and_then(|i| i.as_str()) else {
+            continue;
+        };
+        let depth = c.get("depth").and_then(|d| d.as_u64()).unwrap_or(1) as u32;
+        if !valid_conversation_id(id)
+            || depth > MAX_DEPTH
+            || list.len() >= MAX_SUBAGENTS
+            || list.iter().any(|s| s.agent_id == id)
+        {
+            continue;
+        }
+        let mtime = c.get("mtime").and_then(|m| m.as_u64()).unwrap_or(0);
+        list.push(SubagentInfo {
+            agent_id: id.to_string(),
+            agent_type: text(c, "agent"),
+            description: text(c, "title"),
+            tool_use_id: String::new(),
+            depth,
+            model: String::new(),
+            background: false,
+            idle_seconds: now.saturating_sub(mtime),
+            running: c.get("running").and_then(|r| r.as_bool()) == Some(true),
+        });
+    }
+    list
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -340,5 +456,76 @@ mod tests {
         std::os::unix::fs::symlink(elsewhere.path(), dir.path().join("linked/subagents"))
             .expect("ln");
         assert!(parse_subagent_list(&run(&linked)).is_empty());
+    }
+
+    #[test]
+    fn agy_children_are_read_with_caps_and_checked_ids() {
+        let id = |n: u32| format!("{n:08}-0000-4000-8000-000000000000");
+        let child = |i: String, depth: u32| serde_json::json!({"id": i, "agent": "image-generator", "title": "Draw\u{7}", "running": true, "mtime": 990, "depth": depth});
+        let mut kids = vec![
+            child(id(1), 1),
+            child(id(2), 4),
+            child("../etc".into(), 1),
+            child(id(1), 1),
+        ];
+        kids.extend((10..40).map(|n| child(id(n), 1)));
+        let out = serde_json::json!({"ok": true, "now": 1000, "children": kids}).to_string();
+        let list = parse_agy_children(&out);
+        assert_eq!(list.len(), MAX_SUBAGENTS);
+        assert_eq!(list[0].agent_id, id(1));
+        assert_eq!(list[0].description, "Draw");
+        assert_eq!(list[0].idle_seconds, 10);
+        assert!(list[0].running);
+        assert!(list
+            .iter()
+            .all(|s| s.depth <= MAX_DEPTH && valid_conversation_id(&s.agent_id)));
+        assert!(parse_agy_children("NOHELPER").is_empty());
+        assert!(parse_agy_children("").is_empty());
+        let sha = "a".repeat(64);
+        assert!(build_agy_list_command("s", "zz").is_err());
+        assert!(build_agy_read_command("../x", &sha, None).is_err());
+        assert!(build_agy_read_command("x; rm -rf /", &sha, None).is_err());
+        let c = build_agy_read_command(&id(1), &sha, None).expect("ok");
+        assert!(c.ends_with(&format!(" {} - -", id(1))), "{c}");
+    }
+
+    #[test]
+    fn a_child_conversation_is_read_by_cursor_through_the_pinned_helper_only() {
+        use sha2::{Digest, Sha256};
+        let dir = tempfile::tempdir().expect("dir");
+        let bin = dir.path().join(".ssh-app/bin");
+        std::fs::create_dir_all(&bin).expect("mk");
+        let helper = bin.join("ssh-app-host");
+        std::fs::write(
+            &helper,
+            "#!/bin/sh\nprintf 'CUR %s\\n' \"$(wc -l < \"$HOME/records\" | tr -d ' ')\"; tail -n +$(($3+1)) \"$HOME/records\"\n",
+        )
+        .expect("helper");
+        std::fs::set_permissions(&helper, std::os::unix::fs::PermissionsExt::from_mode(0o700))
+            .expect("chmod");
+        std::fs::write(dir.path().join("records"), "a\nb\n").expect("records");
+        let sha = hex::encode(Sha256::digest(std::fs::read(&helper).expect("read")));
+        let id = "0123abcd-0000-4000-8000-000000000001";
+        let run = |sha: &str, ino: &str, off: &str| {
+            let o = Command::new("sh")
+                .env("HOME", dir.path())
+                .args(["-c", &agy_read_script(sha), "sh", id, ino, off])
+                .output()
+                .expect("sh");
+            crate::feed_read::parse_delta_output(&String::from_utf8_lossy(&o.stdout))
+        };
+        let first = run(&sha, "-", "-").expect("ok").expect("conversation");
+        assert!(first.reset);
+        assert_eq!(first.text, "a\nb\n");
+        assert_eq!(first.path, format!("agy:{id}"));
+        assert_eq!(first.cursor.offset, 2);
+        std::fs::write(dir.path().join("records"), "a\nb\nc\n").expect("records");
+        let next = run(&sha, &first.cursor.inode.to_string(), "2")
+            .expect("ok")
+            .expect("conversation");
+        assert!(!next.reset);
+        assert_eq!(next.text, "c\n");
+        // A helper that is not the pinned one is never run.
+        assert!(run(&"0".repeat(64), "-", "-").expect("ok").is_none());
     }
 }

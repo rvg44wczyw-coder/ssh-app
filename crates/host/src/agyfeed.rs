@@ -293,6 +293,73 @@ pub fn conv_raw(args: &[String]) -> Option<String> {
     reply["conversation"].as_str().map(str::to_string)
 }
 
+/// `agy-children <cwd>`: the child conversations (subagents) of the folder's conversation, newest
+/// first, at most 20, nesting depth <= 3, from agy's own index. Text fields are cut and cleaned.
+pub fn children_reply(args: &[String]) -> Value {
+    let Some(uri) = args.first().and_then(|c| workspace_uri(c)) else {
+        return json!({"ok": false, "error": "not a plain folder path"});
+    };
+    let db = home().join(".gemini/antigravity-cli/conversation_summaries.db");
+    children_reply_for(&db, &uri)
+}
+
+pub fn children_reply_for(db: &std::path::Path, uri: &str) -> Value {
+    let parent = conv_reply_for(db, uri);
+    let Some(parent_id) = parent["conversation"].as_str() else {
+        return json!({"ok": true, "children": []});
+    };
+    // Text columns travel as hex: they may hold tabs and line breaks.
+    let sql = format!(
+        "WITH RECURSIVE d(id, depth) AS (\
+           SELECT conversation_id, 1 FROM conversation_summaries \
+             WHERE parent_conversation_id = '{parent_id}' AND killed = 0 \
+           UNION ALL \
+           SELECT c.conversation_id, d.depth + 1 FROM conversation_summaries c JOIN d ON c.parent_conversation_id = d.id \
+             WHERE d.depth < 3 AND c.killed = 0) \
+         SELECT c.conversation_id, hex(substr(c.agent_name, 1, 100)), hex(substr(c.title, 1, 300)), \
+                hex(substr(c.preview, 1, 300)), c.step_count, c.status, \
+                ifnull(cast(strftime('%s', c.last_modified_time) AS integer), 0), d.depth \
+         FROM d JOIN conversation_summaries c ON c.conversation_id = d.id \
+         ORDER BY c.last_modified_time DESC LIMIT 20;"
+    );
+    let Some(out) = sqlite(db, &sql) else {
+        return json!({"ok": false, "error": "the index could not be read"});
+    };
+    let text = |h: &str| -> String {
+        unhex(h)
+            .map(|b| String::from_utf8_lossy(&b).to_string())
+            .unwrap_or_default()
+            .chars()
+            .filter(|c| !c.is_control())
+            .take(300)
+            .collect()
+    };
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    let children: Vec<Value> = out
+        .lines()
+        .filter_map(|row| {
+            let c: Vec<&str> = row.split('\t').collect();
+            if c.len() < 8 || !valid_uuid(c[0]) {
+                return None;
+            }
+            let title = text(c[2]);
+            let title = if title.is_empty() { text(c[3]) } else { title };
+            Some(json!({
+                "id": c[0],
+                "agent": text(c[1]),
+                "title": title,
+                "steps": c[4].parse::<u64>().unwrap_or(0),
+                "running": c[5].ends_with("RUNNING"),
+                "mtime": c[6].parse::<u64>().unwrap_or(0),
+                "depth": c[7].parse::<u64>().unwrap_or(1),
+            }))
+        })
+        .collect();
+    json!({"ok": true, "parent": parent_id, "now": now, "children": children})
+}
+
 /// `agy-jsonl <conversation-uuid> <from>`: `from` is the cursor of the last answer (0 at the start).
 pub fn jsonl_reply(args: &[String]) -> Value {
     let (Some(id), Some(from)) = (

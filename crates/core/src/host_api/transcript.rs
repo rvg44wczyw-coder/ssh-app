@@ -79,6 +79,32 @@ impl SshSessionHandle {
         self.read_remote_transcript_since(file, cursor).await
     }
 
+    /// The child conversations (subagents) of an Antigravity tab, read by the pinned host helper
+    /// (`helper_sha256`) from agy's index. Empty when the helper is missing or there are none.
+    pub async fn list_agy_subagents(
+        &self,
+        session_name: String,
+        helper_sha256: String,
+    ) -> Result<Vec<crate::subagent_feed::SubagentInfo>, SshCoreError> {
+        let cmd = crate::subagent_feed::build_agy_list_command(&session_name, &helper_sha256)?;
+        let out = self.execute_command_on_active_session(cmd).await?;
+        Ok(crate::subagent_feed::parse_agy_children(&out))
+    }
+
+    /// Reads a child conversation of an Antigravity tab by cursor (feed the text to a `FeedState`).
+    /// `None`: the helper or the conversation is not there.
+    pub async fn read_agy_subagent_since(
+        &self,
+        conversation_id: String,
+        helper_sha256: String,
+        cursor: Option<crate::feed_read::FeedCursor>,
+    ) -> Result<Option<crate::feed_read::FeedRead>, SshCoreError> {
+        let cmd =
+            crate::subagent_feed::build_agy_read_command(&conversation_id, &helper_sha256, cursor)?;
+        let out = self.execute_command_on_active_session(cmd).await?;
+        crate::feed_read::parse_delta_output(&out)
+    }
+
     /// Automatically detects the path of the active agent transcript on the remote host.
     pub async fn detect_active_transcript_path(
         &self,

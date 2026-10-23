@@ -1,6 +1,6 @@
 use super::*;
 
-/// Subagents (Claude's `Task` / `Agent` tool) the session has started. Claude hands searching to
+/// Subagents (Claude's `Task` / `Agent` tool, Antigravity's `invoke_subagent`) the session has started. Claude hands searching to
 /// them often, so the feed shows how many are working now and how many ran in total.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, uniffi::Record)]
 pub struct SubagentStats {
@@ -9,7 +9,7 @@ pub struct SubagentStats {
 }
 
 pub(super) fn is_subagent_call(tool_name: &str) -> bool {
-    matches!(tool_name, "Task" | "Agent")
+    matches!(tool_name, "Task" | "Agent" | "invoke_subagent")
 }
 
 /// Counts subagent calls in the turns; a call without a result yet is running.

@@ -49,6 +49,10 @@ fn main() {
             println!("{reply}");
             i32::from(reply["ok"] != true)
         }
+        Some("agy-children") => {
+            println!("{}", agyfeed::children_reply(&args[1..]));
+            0
+        }
         Some("agy-conv") => {
             let reply = agyfeed::conv_reply(&args[1..]);
             println!("{reply}");

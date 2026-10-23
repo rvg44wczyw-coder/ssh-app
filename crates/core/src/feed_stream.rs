@@ -29,6 +29,24 @@ pub(crate) fn stream_script_with(tmux: &str, guard: bool) -> String {
     stream_script_around(tmux, &delta)
 }
 
+/// The part of the Antigravity read that follows once `$h` (the pinned helper) and `$conv` are
+/// known: the cursor `$2 $3` (inode, next step) against the conversation, in the `feed_read` shape.
+/// A function body: it ends with `return`.
+pub(crate) const AGY_READ_TAIL: &str = r#"case "$conv" in *[!0-9a-f-]*|"") echo NOFILE; return 0;; esac
+ino=$(printf '%d' "0x$(printf %s "$conv" | tr -d - | cut -c1-8)" 2>/dev/null) || { echo NOFILE; return 0; }
+if [ "$2" = - ] || [ "$3" = - ] || [ "$2" != "$ino" ]; then mode=full; off=0; else mode=delta; off=$3; fi
+a=$(mktemp "${TMPDIR:-/tmp}/ssh-app-agy.XXXXXX") || return 0
+"$h" agy-jsonl "$conv" "$off" --raw > "$a" 2>/dev/null || { rm -f "$a"; echo NOFILE; return 0; }
+next=$(sed -n '1s/^CUR //p' "$a")
+case "$next" in ""|*[!0-9]*) rm -f "$a"; echo NOFILE; return 0;; esac
+printf 'TP_PATH=agy:%s
+MODE %s
+CUR %s %s
+' "$conv" "$mode" "$ino" "$next"
+sed 1d "$a"
+rm -f "$a"
+return 0"#;
+
 /// The stream for an Antigravity session: instead of a file it follows the conversation the
 /// pinned helper finds for the pane's folder in the agent's database (`agy-conv`, `agy-jsonl`).
 /// Same arguments as [`stream_script`]; `$2` is ignored. The "file" is `agy:<conversation>`, its
@@ -39,20 +57,7 @@ pub(crate) fn agy_stream_script(tmux: &str, sha256: &str) -> String {
 if [ ! -f "$h" ] || [ -L "$h" ] || [ "{digest}" != '{sha256}' ]; then echo NOFILE; return 0; fi
 cwd=$({tmux} display -p -t "=$sess:" '#{{pane_current_path}}' 2>/dev/null) && [ -n "$cwd" ] || {{ echo NOFILE; return 0; }}
 conv=$("$h" agy-conv "$cwd" --raw 2>/dev/null) || {{ echo NOFILE; return 0; }}
-case "$conv" in *[!0-9a-f-]*|"") echo NOFILE; return 0;; esac
-ino=$(printf '%d' "0x$(printf %s "$conv" | tr -d - | cut -c1-8)" 2>/dev/null) || {{ echo NOFILE; return 0; }}
-if [ "$2" = - ] || [ "$3" = - ] || [ "$2" != "$ino" ]; then mode=full; off=0; else mode=delta; off=$3; fi
-a=$(mktemp "${{TMPDIR:-/tmp}}/ssh-app-agy.XXXXXX") || return 0
-"$h" agy-jsonl "$conv" "$off" --raw > "$a" 2>/dev/null || {{ rm -f "$a"; echo NOFILE; return 0; }}
-next=$(sed -n '1s/^CUR //p' "$a")
-case "$next" in ""|*[!0-9]*) rm -f "$a"; echo NOFILE; return 0;; esac
-printf 'TP_PATH=agy:%s
-MODE %s
-CUR %s %s
-' "$conv" "$mode" "$ino" "$next"
-sed 1d "$a"
-rm -f "$a"
-return 0"#,
+{AGY_READ_TAIL}"#,
         helper = crate::usage::HELPER_PATH_EXPR,
         digest = crate::hostprobe::SHA256_OF_H,
     );

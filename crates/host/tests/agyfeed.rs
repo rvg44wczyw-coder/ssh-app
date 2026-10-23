@@ -317,3 +317,147 @@ fn hostile_payloads_do_not_panic_or_blow_up() {
     }
     assert!(step_record(1, 14, 3, &flood, b"").is_none());
 }
+
+#[test]
+fn children_of_the_folders_conversation_are_listed_with_depth_and_caps() {
+    if !have_sqlite() {
+        return;
+    }
+    let dir = tempfile::tempdir().expect("dir");
+    let db = dir.path().join("cs.db");
+    let u = |n: u32| format!("{n:08}-0000-4000-8000-000000000000");
+    let mut sql = String::from(
+        "CREATE TABLE conversation_summaries (conversation_id text, title text, preview text, agent_name text, step_count integer, status text, workspace_uris text, last_modified_time text, killed numeric, nesting_depth integer, parent_conversation_id text);",
+    );
+    let row = |id: &str,
+               title: &str,
+               agent: &str,
+               status: &str,
+               t: &str,
+               killed: u8,
+               depth: u8,
+               parent: &str| {
+        format!(
+            "INSERT INTO conversation_summaries VALUES ('{id}', '{title}', 'pv', '{agent}', 5, '{status}', '[\"file:///work/p\"]', '{t}', {killed}, {depth}, '{parent}');"
+        )
+    };
+    let root = u(1);
+    sql += &row(
+        &root,
+        "",
+        "",
+        "CASCADE_RUN_STATUS_IDLE",
+        "2026-10-01 10:00:00+00:00",
+        0,
+        0,
+        "",
+    );
+    sql += &row(
+        &u(2),
+        "Draw\tit",
+        "image-generator",
+        "CASCADE_RUN_STATUS_RUNNING",
+        "2026-10-01 10:05:00+00:00",
+        0,
+        1,
+        &root,
+    );
+    sql += &row(
+        &u(3),
+        "",
+        "worker",
+        "CASCADE_RUN_STATUS_IDLE",
+        "2026-10-01 10:04:00+00:00",
+        0,
+        1,
+        &root,
+    );
+    sql += &row(
+        &u(4),
+        "gone",
+        "worker",
+        "CASCADE_RUN_STATUS_IDLE",
+        "2026-10-01 10:06:00+00:00",
+        1,
+        1,
+        &root,
+    );
+    sql += &row(
+        &u(5),
+        "grandchild",
+        "worker",
+        "CASCADE_RUN_STATUS_IDLE",
+        "2026-10-01 10:03:00+00:00",
+        0,
+        2,
+        &u(3),
+    );
+    sql += &row(
+        &u(6),
+        "g2",
+        "w",
+        "CASCADE_RUN_STATUS_IDLE",
+        "2026-10-01 10:02:00+00:00",
+        0,
+        3,
+        &u(5),
+    );
+    sql += &row(
+        &u(7),
+        "too deep",
+        "w",
+        "CASCADE_RUN_STATUS_IDLE",
+        "2026-10-01 10:01:00+00:00",
+        0,
+        4,
+        &u(6),
+    );
+    sql += &row(
+        &u(8),
+        "other root",
+        "w",
+        "CASCADE_RUN_STATUS_IDLE",
+        "2026-10-01 10:07:00+00:00",
+        0,
+        1,
+        &u(99),
+    );
+    assert!(Command::new("sqlite3")
+        .arg(&db)
+        .arg(sql)
+        .status()
+        .unwrap()
+        .success());
+    let r = ssh_app_host::agyfeed::children_reply_for(&db, "file:///work/p");
+    assert_eq!(r["ok"], true);
+    assert_eq!(r["parent"], root);
+    let ids: Vec<&str> = r["children"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        ids,
+        [u(2), u(3), u(5), u(6)]
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        "newest first; not killed, not deeper than 3, not another root's"
+    );
+    let first = &r["children"][0];
+    assert_eq!(first["running"], true);
+    assert_eq!(first["title"], "Drawit");
+    assert_eq!(first["agent"], "image-generator");
+    assert_eq!(first["depth"], 1);
+    assert!(first["mtime"].as_u64().unwrap() > 1_700_000_000);
+    assert_eq!(r["children"][1]["title"], "pv", "falls back to the preview");
+    // No conversation for the folder: an empty list, not an error.
+    let none = ssh_app_host::agyfeed::children_reply_for(&db, "file:///work/other");
+    assert_eq!(none["children"].as_array().unwrap().len(), 0);
+    // Hostile folder.
+    assert_eq!(
+        ssh_app_host::agyfeed::children_reply(&["/a'b".to_string()])["ok"],
+        false
+    );
+}
