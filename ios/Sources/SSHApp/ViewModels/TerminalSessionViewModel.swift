@@ -1218,8 +1218,11 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         }
     }
 
-    /// Opens a file named in the feed. An absolute path is read as it is; `~/` is resolved to the host's home folder; a relative one is tried
-    /// under the repository root and then under the pane's folder. The sheet opens at once and fills
+    /// Opens a file named in the feed, however the agent wrote it. An absolute path is read as it is;
+    /// `~/` is resolved to the host's home folder; anything else is looked up in the files the session
+    /// has touched, then under the pane's folder, the folder the session started in and the repository
+    /// root, and last by a search of the project on the host (`FileRefResolver`). When several files
+    /// fit, the best opens and the others are offered in the sheet. The sheet opens at once and fills
     /// when the file arrives (or shows what went wrong).
     public func openFileReference(path: String, line: Int?) {
         guard let handle = handle, state == .connected else {
@@ -1231,6 +1234,8 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         fileReference = FileReferenceTarget(path: path, line: line)
         Task {
             var candidates: [String] = []
+            var touched: [String] = []
+            var searchRoot: String?
             if path.hasPrefix("/") {
                 candidates = [path]
             } else if path.hasPrefix("~/") {
@@ -1239,25 +1244,52 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
                     candidates = [home.trimmingCharacters(in: CharacterSet(charactersIn: "/")).isEmpty ? path : home + "/" + path.dropFirst(2)]
                 }
             } else {
-                // A relative name is the agent's own: it is taken from the session's folder (where the
-                // pane is now, then where the session started), and only then from the repository root.
                 let rel = path.hasPrefix("./") ? String(path.dropFirst(2)) : path
-                func add(_ dir: String?) {
-                    guard let dir, dir.hasPrefix("/") else { return }
-                    let full = dir.hasSuffix("/") ? dir + rel : dir + "/" + rel
+                // 1. What the agent itself touched in this session: its absolute paths are exact.
+                touched = FileRefResolver.matches(rel, in: FileRefResolver.touchedPaths(in: transcriptTurns))
+                candidates = touched
+                // 2. The session's folders.
+                let cwd = try? await handle.listRemoteDirectory(path: nil, includeHidden: false, helperSha256: await helperPin()).currentPath
+                for dir in [cwd, startDir, gitRepoRoot] {
+                    guard let dir, dir.hasPrefix("/") else { continue }
+                    let full = (dir.hasSuffix("/") ? dir : dir + "/") + rel
                     if !candidates.contains(full) { candidates.append(full) }
                 }
-                add(try? await handle.listRemoteDirectory(path: nil, includeHidden: false, helperSha256: await helperPin()).currentPath)
-                add(startDir)
-                add(gitRepoRoot)
+                searchRoot = [gitRepoRoot, cwd, startDir].compactMap { $0 }.first { $0.hasPrefix("/") }
             }
-            for candidate in candidates {
-                if let preview = try? await handle.readRemoteFilePreview(path: candidate, maxBytes: 131_072, helperSha256: await helperPin()) {
-                    self.filePreview = preview
-                    return
+            if await openFirstReadable(candidates, alternatives: touched, from: handle) { return }
+            // 3. Ask the host to look for the name in the project.
+            if let root = searchRoot, let cmd = FileRefResolver.searchCommand(root: root, ref: path),
+               let out = try? await handle.executeCommandOnActiveSession(command: cmd) {
+                let found = FileRefResolver.parseSearch(out, root: root, ref: path).filter { !candidates.contains($0) }
+                if await openFirstReadable(found, alternatives: found, from: handle) { return }
+            }
+            self.fileBrowserError = "Could not open \(path): no file with that name in the session folder or the project"
+        }
+    }
+
+    /// Reads the first of `paths` the host can give; the other fitting ones are offered in the sheet.
+    private func openFirstReadable(_ paths: [String], alternatives: [String], from handle: SshSessionHandle) async -> Bool {
+        for candidate in paths {
+            if let preview = try? await handle.readRemoteFilePreview(path: candidate, maxBytes: 131_072, helperSha256: await helperPin()) {
+                filePreview = preview
+                if var target = fileReference {
+                    target.alternatives = alternatives.filter { $0 != candidate }
+                    fileReference = target
                 }
+                return true
             }
-            self.fileBrowserError = "Could not open \(path): the file is not in the session folder or the project"
+        }
+        return false
+    }
+
+    /// Shows another file that fits the same mention (the sheet's "Other matches").
+    public func openAlternative(_ path: String) {
+        guard let handle = handle, state == .connected else { return }
+        Task {
+            if let preview = try? await handle.readRemoteFilePreview(path: path, maxBytes: 131_072, helperSha256: await helperPin()) {
+                filePreview = preview
+            }
         }
     }
 
@@ -1361,5 +1393,7 @@ extension TranscriptTurn {
 public struct FileReferenceTarget: Identifiable, Equatable {
     public let path: String
     public let line: Int?
+    /// Other files that fit the same mention, offered next to the one that opened.
+    public var alternatives: [String] = []
     public var id: String { path + ":" + (line.map(String.init) ?? "") }
 }

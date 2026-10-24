@@ -322,6 +322,13 @@ struct FilePreviewView: View {
                     if let preview = viewModel.filePreview, !preview.isBinary {
                         Toggle(isOn: $wrap) { Label("Wrap lines", systemImage: "text.word.spacing") }
                             .toggleStyle(.button)
+                        if let others = viewModel.fileReference?.alternatives, !others.isEmpty {
+                            Menu {
+                                ForEach(others, id: \.self) { path in
+                                    Button(path) { viewModel.openAlternative(path) }
+                                }
+                            } label: { Label("Other matches", systemImage: "doc.on.doc") }
+                        }
                         Button("Copy") {
                             #if canImport(UIKit)
                             UIPasteboard.general.string = preview.content
