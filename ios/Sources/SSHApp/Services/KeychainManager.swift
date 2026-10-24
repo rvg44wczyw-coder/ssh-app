@@ -255,6 +255,20 @@ public final class SSHKeyStore: ObservableObject {
         return info
     }
 
+    /// A key that arrived through the encrypted vault (feature 56). It is stored like an imported
+    /// one: this device only, not synchronizable.
+    func adoptSynced(id: String?, name: String, privateKey: String, publicKey: String) {
+        try? KeychainManager.shared.savePrivateKey(privateKey, id: id, overwrite: true)
+        try? KeychainManager.shared.savePublicKey(publicKey, id: id, overwrite: true)
+        guard let id else { return }
+        if let i = extra.firstIndex(where: { $0.id == id }) {
+            extra[i].name = name
+        } else {
+            extra.append(SSHKeyInfo(id: id, name: name))
+        }
+        persist()
+    }
+
     public func rename(id: String, to name: String) {
         guard let i = extra.firstIndex(where: { $0.id == id }) else { return }
         let n = name.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -102,56 +102,29 @@ enum VaultSyncEngine {
     }
 }
 
-/// Where the merged list lives: one synchronizable Keychain item, which iCloud Keychain carries
-/// end to end encrypted. Items without `kSecAttrSynchronizable` (the keys) never match it.
-protocol VaultStore {
-    func load() -> Data?
-    func save(_ data: Data) -> Bool
-}
-
-struct KeychainVaultStore: VaultStore {
-    private var base: [String: Any] {
-        [kSecClass as String: kSecClassGenericPassword,
-         kSecAttrService as String: "com.sshapp.vault",
-         kSecAttrAccount as String: "servers",
-         kSecAttrSynchronizable as String: kCFBooleanTrue as Any]
-    }
-
-    func load() -> Data? {
-        var q = base
-        q[kSecReturnData as String] = true
-        q[kSecMatchLimit as String] = kSecMatchLimitOne
-        var item: CFTypeRef?
-        guard SecItemCopyMatching(q as CFDictionary, &item) == errSecSuccess else { return nil }
-        return item as? Data
-    }
-
-    func save(_ data: Data) -> Bool {
-        let update = SecItemUpdate(base as CFDictionary, [kSecValueData as String: data] as CFDictionary)
-        if update == errSecSuccess { return true }
-        var add = base
-        add[kSecValueData as String] = data
-        add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-        return SecItemAdd(add as CFDictionary, nil) == errSecSuccess
-    }
-}
-
 /// Keeps the server list the same on every device of the same iCloud account. The phone itself
 /// does not touch the network: the Keychain item is moved by the system.
 @MainActor
 final class VaultSync: ObservableObject {
     static let shared = VaultSync()
+    /// The master switch (feature 56): off by default, nothing touches iCloud while it is off.
+    static let enabledKey = "vault_sync_enabled"
+    static let noticeKey = "vault_sync_notice"
+    private static let migratedKey = "vault_sync_v2_migrated"
     static let serversKey = "vault_sync_servers"
     static let fingerprintsKey = "vault_sync_fingerprints"
     private static let tombstonesKey = "vault_tombstones"
     /// A blob larger than this is not read: the item is shared with other devices.
-    private static let maxBlobBytes = 512 * 1024
 
     @Published private(set) var lastSync: Date?
     @Published private(set) var fingerprintConflicts: [String] = []
     @Published private(set) var lastError: String?
+    /// Entries in iCloud that were ignored because the vault key did not sign them.
+    @Published private(set) var rejectedEntries = 0
+    @Published private(set) var secretsRejected = 0
 
-    var store: VaultStore = KeychainVaultStore()
+    var store: VaultItemStore = KeychainVaultStore()
+    var vault: EncryptedVault = .shared
     private weak var manager: ServerProfilesManager?
     private let defaults: UserDefaults
 
@@ -159,10 +132,23 @@ final class VaultSync: ObservableObject {
         self.defaults = defaults
     }
 
+    var enabled: Bool { defaults.bool(forKey: Self.enabledKey) }
     var serversEnabled: Bool { defaults.object(forKey: Self.serversKey) as? Bool ?? true }
     var fingerprintsEnabled: Bool { defaults.bool(forKey: Self.fingerprintsKey) }
 
+    /// The update that introduced the master switch turns sync off for everyone (the user decides);
+    /// whoever had it running gets a notice in Settings until they open the sync page.
+    func migrateIfNeeded() {
+        guard !defaults.bool(forKey: Self.migratedKey) else { return }
+        defaults.set(true, forKey: Self.migratedKey)
+        let used = store.load(VaultAccount.servers) != nil || defaults.object(forKey: "vault_tombstones") != nil
+            || defaults.object(forKey: "vault_state_profiles") != nil || defaults.object(forKey: "vault_state_snippets") != nil
+        defaults.set(false, forKey: Self.enabledKey)
+        if used { defaults.set(true, forKey: Self.noticeKey) }
+    }
+
     func attach(_ manager: ServerProfilesManager) {
+        migrateIfNeeded()
         self.manager = manager
     }
 
@@ -175,8 +161,22 @@ final class VaultSync: ObservableObject {
     /// Merges the vault with the local lists and writes the result to both: servers, launch
     /// profiles and snippets, each switched on or off on its own.
     func sync(now: Date = Date()) {
-        guard let manager else { return }
-        let remote = readRemote()
+        guard enabled, let manager else { return }
+        vault.refresh()
+        switch vault.state {
+        case .needsJoin:
+            lastError = vault.replaced
+                ? "The vault was reset or replaced. Unlock it with its passphrase, or reset it."
+                : "Enter the vault passphrase on this device to continue syncing."
+            return
+        case .removed:
+            lastError = "The vault is gone from iCloud. Sync is paused until you set it up again or forget it on this device."
+            return
+        case .off, .ready:
+            break
+        }
+        let vaultKey = vault.key
+        let remote = readRemote(key: vaultKey)
         let isOther: (VaultEntry) -> Bool = { $0.id.hasPrefix(SyncedProfile.prefix) || $0.id.hasPrefix(SyncedSnippet.prefix) }
         var entries: [VaultEntry] = []
 
@@ -239,9 +239,12 @@ final class VaultSync: ObservableObject {
             entries += remote.filter { $0.id.hasPrefix(SyncedSnippet.prefix) }
         }
 
-        if entries.sorted(by: { $0.id < $1.id }) != remote.sorted(by: { $0.id < $1.id }) {
-            writeRemote(entries)
+        if entries.sorted(by: { $0.id < $1.id }) != remote.sorted(by: { $0.id < $1.id }) || rejectedEntries > 0 {
+            writeRemote(entries, key: vaultKey)
+        } else {
+            lastError = nil
         }
+        if let vaultKey { syncSecrets(key: vaultKey, now: now) }
         lastSync = now
     }
 
@@ -292,31 +295,117 @@ final class VaultSync: ObservableObject {
         if let data = try? JSONEncoder().encode(state) { defaults.set(data, forKey: key) }
     }
 
-    private func readRemote() -> [VaultEntry] {
-        guard let data = store.load(), data.count <= Self.maxBlobBytes,
-              let wire = try? JSONDecoder().decode([WireEntry].self, from: data) else { return [] }
-        return wire.map(\.entry)
+    // MARK: Secrets (tier B)
+
+    static let secretKeysKey = "vault_sync_secret_keys"
+    static let secretEnvKey = "vault_sync_secret_env"
+    private static let secretStateKey = "vault_state_secrets"
+
+    var secretKeysEnabled: Bool { defaults.bool(forKey: Self.secretKeysKey) }
+    var secretEnvEnabled: Bool { defaults.bool(forKey: Self.secretEnvKey) }
+
+    private var secretState: SecretState {
+        get {
+            guard let data = defaults.data(forKey: Self.secretStateKey),
+                  let st = try? JSONDecoder().decode(SecretState.self, from: data) else { return SecretState() }
+            return st
+        }
+        set { if let data = try? JSONEncoder().encode(newValue) { defaults.set(data, forKey: Self.secretStateKey) } }
     }
 
-    private func writeRemote(_ entries: [VaultEntry]) {
-        guard let data = try? JSONEncoder().encode(entries.map(WireEntry.init)), data.count <= Self.maxBlobBytes else {
-            lastError = "The server list is too large to sync"
+    /// What this device could share, for the lists in the sync page.
+    func secretOffers() -> (keys: [SecretItem], env: [SecretItem]) {
+        (VaultSecretItems.keyItems(default: KeychainManager.shared.hasPrivateKey(), extra: SSHKeyStore.shared.extra),
+         VaultSecretItems.envItems(agentProfiles?.profiles ?? []))
+    }
+
+    func secretEnabled(_ id: String) -> Bool { secretState.enabled.contains(id) }
+
+    /// Turning an item off removes its copy in iCloud on the next sync; other devices keep theirs.
+    func setSecret(_ id: String, enabled on: Bool) {
+        var st = secretState
+        if on {
+            st.enabled.insert(id)
+            st.dismissed.remove(id)
+            st.drop.remove(id)
+        } else {
+            st.enabled.remove(id)
+            st.dismissed.insert(id)
+            st.drop.insert(id)
+            st.payloads[id] = nil
+            st.stamps[id] = nil
+        }
+        secretState = st
+        sync()
+    }
+
+    private func syncSecrets(key: Data, now: Date) {
+        let keysOn = secretKeysEnabled, envOn = secretEnvEnabled
+        guard keysOn || envOn, let agents = agentProfiles else { return }
+        let stored = store.load(VaultAccount.secrets)
+        let opened = stored.map { VaultWire.decodeSealed($0, key: key) } ?? (entries: [], rejected: 0)
+        secretsRejected = opened.rejected
+        let offers = secretOffers()
+        let known = Set(agents.profiles.map(\.id))
+        let hasDefault = KeychainManager.shared.hasPrivateKey()
+        let outcome = SecretSyncEngine.reconcile(
+            local: (keysOn ? offers.keys : []) + (envOn ? offers.env : []),
+            remote: opened.entries, state: secretState, now: now,
+            inScope: { ($0.hasPrefix(SecretIDs.keyPrefix) && keysOn) || ($0.hasPrefix(SecretIDs.envPrefix) && envOn) },
+            accept: { VaultSecretItems.accepts($0, knownProfiles: known, hasDefaultKey: hasDefault) })
+        for item in outcome.upserts {
+            VaultSecretItems.apply(item, agents: agents, keys: SSHKeyStore.shared)
+        }
+        secretState = outcome.state
+        if outcome.remote != opened.entries.sorted(by: { $0.id < $1.id }) || opened.rejected > 0 {
+            guard let data = VaultWire.encodeSealed(outcome.remote, key: key) else {
+                lastError = "The secrets are too large to sync"
+                return
+            }
+            if !store.save(data, VaultAccount.secrets) { lastError = "iCloud Keychain is not available" }
+        }
+    }
+
+    /// What the next sync would carry, for "What will be sent".
+    func outgoingSummary() -> [(title: String, count: Int)] {
+        var out: [(String, Int)] = []
+        if serversEnabled { out.append(("Servers", manager?.profiles.count ?? 0)) }
+        if profilesEnabled { out.append(("Launch profiles", SyncedProfile.outgoing(agentProfiles?.profiles ?? []).count)) }
+        if snippetsEnabled { out.append(("Snippets", storedSnippets().count)) }
+        let st = secretState
+        if secretKeysEnabled { out.append(("Private keys", st.enabled.filter { $0.hasPrefix(SecretIDs.keyPrefix) }.count)) }
+        if secretEnvEnabled { out.append(("Secret values", st.enabled.filter { $0.hasPrefix(SecretIDs.envPrefix) }.count)) }
+        return out
+    }
+
+    /// Deletes everything this app put in iCloud (the lists and the sealed secrets) and switches
+    /// sync off. The vault itself stays until it is turned off; local data is untouched.
+    func removeFromICloud() {
+        store.delete(VaultAccount.servers)
+        store.delete(VaultAccount.secrets)
+        defaults.set(false, forKey: Self.enabledKey)
+        lastSync = nil
+        lastError = nil
+    }
+
+    private func readRemote(key: Data?) -> [VaultEntry] {
+        guard let data = store.load(VaultAccount.servers) else { rejectedEntries = 0; return [] }
+        let result = VaultWire.decodeSigned(data, key: key)
+        rejectedEntries = result.rejected
+        return result.entries
+    }
+
+    private func writeRemote(_ entries: [VaultEntry], key: Data?) {
+        guard let data = VaultWire.encodeSigned(entries, key: key) else {
+            lastError = "The synced list is too large"
             return
         }
-        lastError = store.save(data) ? nil : "iCloud Keychain is not available"
+        lastError = store.save(data, VaultAccount.servers) ? nil : "iCloud Keychain is not available"
+        if lastError == nil { rejectedEntries = 0 }
     }
 
     private var tombstones: [String: UInt64] {
         get { (defaults.dictionary(forKey: Self.tombstonesKey) as? [String: NSNumber])?.mapValues { $0.uint64Value } ?? [:] }
         set { defaults.set(newValue.mapValues { NSNumber(value: $0) }, forKey: Self.tombstonesKey) }
-    }
-
-    private struct WireEntry: Codable {
-        var id: String
-        var at: UInt64
-        var deleted: Bool
-        var payload: String
-        init(_ e: VaultEntry) { id = e.id; at = e.updatedAtMs; deleted = e.deleted; payload = e.payload }
-        var entry: VaultEntry { VaultEntry(id: id, updatedAtMs: at, deleted: deleted, payload: payload) }
     }
 }

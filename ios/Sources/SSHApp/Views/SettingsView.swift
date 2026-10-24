@@ -15,6 +15,8 @@ public struct SettingsView: View {
     @State private var showPaywall: Bool = false
     @ObservedObject private var subs = SubscriptionManager.shared
 
+    @AppStorage(VaultSync.enabledKey) private var syncEnabled = false
+    @AppStorage(VaultSync.noticeKey) private var syncNotice = false
     @AppStorage("terminal_font_size") private var terminalFontSize: Double = 13.0
     @AppStorage("debug_feed_timing") private var showFeedTiming = false
     @AppStorage(CompactChatMode.storageKey) private var compactChatRaw = CompactChatMode.landscape.rawValue
@@ -29,7 +31,7 @@ public struct SettingsView: View {
         self.agentsPage = agentsPage
     }
 
-    private enum Page: Hashable { case servers, keys, terminal, appearance, agents, subscription, modules }
+    private enum Page: Hashable { case servers, keys, terminal, appearance, agents, subscription, modules, sync }
 
     public var body: some View {
         NavigationStack {
@@ -54,6 +56,13 @@ public struct SettingsView: View {
                 }
                 NavigationLink(value: Page.terminal) { Label("Terminal", systemImage: "terminal") }
                 NavigationLink(value: Page.appearance) { Label("Appearance", systemImage: "paintpalette") }
+                NavigationLink(value: Page.sync) {
+                    HStack {
+                        Label("iCloud sync", systemImage: "icloud")
+                        Spacer()
+                        Text(syncNotice ? "Turned off" : (syncEnabled ? "On" : "Off")).foregroundColor(syncNotice ? .orange : .secondary)
+                    }
+                }
                 NavigationLink(value: Page.modules) { Label("Modules & backup", systemImage: "slider.horizontal.3") }
             }
             .navigationTitle("Settings")
@@ -71,6 +80,7 @@ public struct SettingsView: View {
                 case .agents: if let agentsPage { agentsPage }
                 case .subscription: PaywallView(embedded: true)
                 case .modules: ModuleSettingsView()
+                case .sync: SyncSettingsView()
                 }
             }
         }
@@ -488,7 +498,6 @@ public struct SettingsView: View {
                 }
 
                 additionalKeysSection
-                VaultSyncSection()
 
                 if let err = errorMessage {
                     Section {
@@ -797,42 +806,6 @@ struct ModuleSettingsView: View {
         .confirmationDialog("Reset all module settings?", isPresented: $confirmResetAll, titleVisibility: .visible) {
             Button("Reset all", role: .destructive) { store.replace(defaultAppConfig()); notice = "Settings reset." }
             Button("Cancel", role: .cancel) {}
-        }
-    }
-}
-
-/// iCloud sync of the server list (feature 43). Private keys never sync; the list travels in an end
-/// to end encrypted iCloud Keychain item.
-private struct VaultSyncSection: View {
-    @ObservedObject private var vault = VaultSync.shared
-    @AppStorage(VaultSync.serversKey) private var syncServers = true
-    @AppStorage(VaultSync.fingerprintsKey) private var syncFingerprints = false
-    @AppStorage(VaultSync.profilesKey) private var syncProfiles = true
-    @AppStorage(VaultSync.snippetsKey) private var syncSnippets = true
-
-    var body: some View {
-        Section(
-            header: Text("iCloud sync"),
-            footer: Text("Servers (name, address, port, user), launch profiles and snippets are shared with your other devices through iCloud Keychain, which needs iCloud Keychain to be on. Private keys never leave this device; each device has its own key. Environment values that look like secrets, profiles with a custom hook command and snippets that contain a secret stay on this device. Pinned host fingerprints are not shared unless you turn that on: sharing them tells the other device to trust the same host key.")
-        ) {
-            Toggle("Sync launch profiles", isOn: $syncProfiles)
-            Toggle("Sync snippets", isOn: $syncSnippets)
-            Toggle("Sync servers", isOn: $syncServers)
-            Toggle("Also sync pinned host fingerprints", isOn: $syncFingerprints)
-                .disabled(!syncServers)
-            Button("Sync now") { vault.sync() }
-                .disabled(!syncServers && !syncProfiles && !syncSnippets)
-            if let last = vault.lastSync, syncServers || syncProfiles || syncSnippets {
-                Text("Last synced \(last.formatted(date: .omitted, time: .shortened))")
-                    .font(.caption).foregroundColor(.secondary)
-            }
-            if let err = vault.lastError {
-                Text(err).font(.caption).foregroundColor(.orange)
-            }
-            if !vault.fingerprintConflicts.isEmpty {
-                Text("The host key differs from the one pinned on another device for: \(vault.fingerprintConflicts.joined(separator: ", ")). This device keeps its own pin; check the server before trusting either.")
-                    .font(.caption).foregroundColor(.red)
-            }
         }
     }
 }
