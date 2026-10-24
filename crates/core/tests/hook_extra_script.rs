@@ -384,5 +384,83 @@ fn a_missing_hook_and_a_huge_input_do_not_crash_the_wrapper() {
         &big,
     );
     assert_eq!(code, 0);
-    assert_eq!(out.len(), 1 << 20, "input is capped at 1 MB");
+    assert_eq!(
+        out.len(),
+        3 << 20,
+        "the hook gets the whole event: a cut-off one would make it fail to parse and let a guarded call through"
+    );
+}
+
+#[test]
+fn the_extra_command_sees_at_most_one_megabyte() {
+    if !have_python() {
+        return;
+    }
+    let e = Env::new();
+    let hook = e.hook(0);
+    let seen = e.path("seen");
+    let cmd = format!("wc -c > '{}'", seen.display());
+    let big = "x".repeat(3 << 20);
+    go(
+        &e,
+        args(&cmd, "before", "0", "10", "claude", "Stop", &hook),
+        &big,
+    );
+    let n: usize = std::fs::read_to_string(&seen)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    assert_eq!(n, 1 << 20);
+}
+
+#[test]
+fn a_child_left_in_the_background_does_not_hold_the_wrapper() {
+    if !have_python() {
+        return;
+    }
+    let e = Env::new();
+    let hook = e.hook(0);
+    let (out, code, secs) = go(
+        &e,
+        args(
+            "sleep 5 & true",
+            "before",
+            "1",
+            "20",
+            "claude",
+            "PreToolUse",
+            &hook,
+        ),
+        "{}",
+    );
+    assert!(secs < 2.0, "returned at once, took {secs}s");
+    assert_eq!(code, 0);
+    assert!(!out.contains("deny"), "the command itself succeeded: {out}");
+}
+
+#[test]
+fn a_flood_on_stderr_is_not_kept_and_escapes_do_not_reach_the_log() {
+    if !have_python() {
+        return;
+    }
+    let e = Env::new();
+    let hook = e.hook(0);
+    go(
+        &e,
+        args(
+            "head -c 50000000 /dev/zero >&2; printf '\\033]0;x\\007' >&2; exit 1",
+            "before",
+            "0",
+            "20",
+            "claude",
+            "Stop",
+            &hook,
+        ),
+        "{}",
+    );
+    let log = e.log();
+    assert!(log.contains("extra: exit 1"), "{log}");
+    assert!(log.len() < 1000, "the log line is short: {}", log.len());
+    assert!(!log.contains('\u{1b}') && !log.contains('\u{7}'), "{log:?}");
 }

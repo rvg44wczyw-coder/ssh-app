@@ -18,8 +18,12 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 
-MAX_STDIN = 1 << 20
+# The extra command sees at most this much of the event; the hook always sees all of it (a cut-off
+# event would make the hook fail to parse it and have no opinion, which lets a guarded call through).
+MAX_EXTRA_STDIN = 1 << 20
+MAX_ERR = 300
 MAX_LOG = 64 * 1024
 BLOCKING = ("PermissionRequest", "PreToolUse")
 CLAUDE_STYLE = ("claude", "codex", "qwen")
@@ -38,7 +42,7 @@ def log(line):
             pass
         fd = os.open(LOG, os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o600)
         with os.fdopen(fd, "w") as f:
-            f.write(line.replace("\n", " ")[:300] + "\n")
+            f.write("".join(c if c.isprintable() else " " for c in line)[:300] + "\n")
     except Exception:
         pass
 
@@ -79,28 +83,59 @@ def parse(argv):
 
 
 def run_extra(cmd, data, timeout):
-    """True when the command exited 0 in time. The whole process group is killed on a timeout."""
+    """True when the command exited 0 in time. The whole process group is killed on a timeout; a
+    child it leaves behind in the background does not hold the wrapper (stderr is drained by a thread
+    that keeps only the first bytes)."""
     try:
         proc = subprocess.Popen(["/bin/sh", "-c", cmd], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
                                 stderr=subprocess.PIPE, start_new_session=True)
     except Exception as e:
         log("extra: cannot start: %s" % e)
         return False
+    kept = bytearray()
+
+    def drain():
+        try:
+            while True:
+                chunk = proc.stderr.read(4096)
+                if not chunk:
+                    return
+                if len(kept) < MAX_ERR:
+                    kept.extend(chunk[:MAX_ERR - len(kept)])
+        except Exception:
+            pass
+
+    reader = threading.Thread(target=drain, daemon=True)
+    reader.start()
+
+    def feed():
+        try:
+            proc.stdin.write(data)
+        except Exception:
+            pass
+        try:
+            proc.stdin.close()
+        except Exception:
+            pass
+
+    writer = threading.Thread(target=feed, daemon=True)
+    writer.start()
     try:
-        _, err = proc.communicate(data, timeout=timeout)
+        code = proc.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
         try:
             os.killpg(proc.pid, signal.SIGKILL)
         except Exception:
             pass
-        proc.communicate()
+        proc.wait()
         log("extra: timed out after %ss" % timeout)
         return False
     except Exception as e:
         log("extra: %s" % e)
         return False
-    if proc.returncode != 0:
-        log("extra: exit %s: %s" % (proc.returncode, (err or b"")[:300].decode("utf-8", "replace")))
+    reader.join(0.2)
+    if code != 0:
+        log("extra: exit %s: %s" % (code, bytes(kept).decode("utf-8", "replace")))
         return False
     return True
 
@@ -119,9 +154,10 @@ def main(argv):
     cfg = parse(argv)
     if cfg is None:
         return 0  # no opinion: the agent applies its own policy
-    data = sys.stdin.buffer.read(MAX_STDIN)
+    data = sys.stdin.buffer.read()
+    extra_data = data[:MAX_EXTRA_STDIN]
     if cfg["order"] == "before":
-        ok = run_extra(cfg["cmd"], data, cfg["timeout"])
+        ok = run_extra(cfg["cmd"], extra_data, cfg["timeout"])
         if not ok and cfg["stop"]:
             sys.stdout.write(json.dumps(deny_output(cfg["agent"], cfg["event"], "Blocked by the extra hook command")))
             sys.stdout.flush()
@@ -129,7 +165,7 @@ def main(argv):
         out, code = run_hook(cfg["inner"], data)
     else:
         out, code = run_hook(cfg["inner"], data)
-        run_extra(cfg["cmd"], data, cfg["timeout"])
+        run_extra(cfg["cmd"], extra_data, cfg["timeout"])
     sys.stdout.buffer.write(out)
     sys.stdout.flush()
     return code

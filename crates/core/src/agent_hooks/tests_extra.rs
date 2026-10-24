@@ -262,3 +262,13 @@ fn the_wrapper_script_is_embedded_and_not_the_hook() {
     );
     assert!(!is_our_hook_script(&w));
 }
+
+#[test]
+fn the_agents_time_limit_covers_the_extra_command_and_the_hooks_own_wait() {
+    let plain = hook_command("~/.ssh-app/bin", "claude", "PreToolUse");
+    assert_eq!(handler(plain)["timeout"], HOOK_TIMEOUT_SECS);
+    let mut x = extra("PreToolUse", "true");
+    x.timeout_secs = 25;
+    let wrapped = extra_command("~/.ssh-app/bin", "claude", "PreToolUse", &x);
+    assert_eq!(handler(wrapped)["timeout"], HOOK_TIMEOUT_SECS + 25);
+}

@@ -250,7 +250,24 @@ pub(crate) fn render(map: Map<String, Value>) -> Result<String, SshCoreError> {
 }
 
 pub(super) fn handler(command: String) -> Value {
-    json!({ "type": "command", "command": command, "timeout": HOOK_TIMEOUT_SECS })
+    json!({ "type": "command", "command": command, "timeout": handler_timeout(&command) })
+}
+
+/// The agent's time limit for a hook: the hook's own wait, plus the extra command's time when the
+/// wrapper runs one first (otherwise the agent would cut the wrapper off during the hook's wait).
+fn handler_timeout(command: &str) -> u64 {
+    let mut tokens = command.split_whitespace();
+    let extra = if command.contains(EXTRA_WRAPPER) {
+        tokens
+            .by_ref()
+            .skip_while(|t| *t != "--timeout")
+            .nth(1)
+            .and_then(|v| v.parse::<u64>().ok())
+            .map_or(0, |v| v.min(60))
+    } else {
+        0
+    };
+    HOOK_TIMEOUT_SECS + extra
 }
 
 /// Removes only our handlers from `<key>.<event>` (keeping everyone else's, including siblings in
