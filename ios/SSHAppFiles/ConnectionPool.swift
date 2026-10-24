@@ -1,5 +1,6 @@
 import Foundation
 import FileProvider
+import LocalAuthentication
 import SshCoreBridge
 
 /// One SSH connection per server, opened on demand and closed after a short idle window, so there
@@ -20,9 +21,18 @@ actor ConnectionPool {
     }
 
     private func makeClient() throws -> RemoteFsClient {
-        guard let pem = SharedStore.privateKey(id: server.keyId, group: keyGroup) else {
-            throw NSFileProviderError(.notAuthenticated)
+        let pem: String?
+        if server.guarded {
+            // The owner's presence is asked by the system; a minute of reuse keeps a folder with many
+            // requests (and the quick reconnects after the idle close) from asking each time.
+            let context = LAContext()
+            context.touchIDAuthenticationAllowableReuseDuration = 60
+            context.localizedReason = "Open \(server.name) in Files"
+            pem = SharedStore.privateKey(id: server.keyId, group: keyGroup, guarded: true, context: context)
+        } else {
+            pem = SharedStore.privateKey(id: server.keyId, group: keyGroup)
         }
+        guard let pem else { throw NSFileProviderError(.notAuthenticated) }
         return try RemoteFsClient(config: RemoteServerConfig(
             host: server.host, port: server.port, username: server.username,
             privateKeyPem: pem, pinnedHostKey: server.hostKey

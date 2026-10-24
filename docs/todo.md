@@ -19,7 +19,7 @@ Install with `make iphone-full` only on the owner's word. Check on the device:
 - [ ] Files extension, Watch registration and Developer Mode.
 - [ ] M33: one continuous onboarding wizard and colour blocks for the host fingerprint (the spec says after a device run).
 - [ ] M24 watch: the app already shows "iPhone not reachable", never approves without the phone and plays haptics; open is only the run on a paired watch.
-- [ ] Files extension: Face ID per server (an extension cannot show the prompt itself, needs a design), favourites, Linux `stat` run.
+- [ ] Files extension: does the Face ID sheet appear inside the extension (`docs/security-findings/2026-10-24-files-face-id.md`, item 5; if not, fall back to the in-app unlock window), favourites, Linux `stat` run.
 - [ ] M44 phase 4b: splice only the new screen lines into the feed (a performance change, measure with the in-app timing label before and after).
 
 ## Waits for live agents
