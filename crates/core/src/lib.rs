@@ -7,6 +7,7 @@ pub mod approval;
 pub mod approval_queue;
 pub mod artifacts;
 pub mod auto_approval;
+pub mod backup;
 pub mod buffer;
 pub mod config;
 pub mod config_engine;

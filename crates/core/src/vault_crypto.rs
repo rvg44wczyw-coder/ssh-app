@@ -63,7 +63,6 @@ const MAC_ENTRY: &[u8] = b"ssh-app/vault/entry-mac";
 pub(crate) enum Kind {
     Vault,
     /// Used by the encrypted backup file (spec 56 section 5).
-    #[allow(dead_code)]
     Backup,
 }
 
@@ -347,7 +346,7 @@ pub fn passphrases_match(a: Vec<u8>, b: Vec<u8>) -> bool {
     a.len() == b.len() && bool::from(a.ct_eq(&b))
 }
 
-fn require_acceptable(passphrase: &[u8]) -> Result<(), SshCoreError> {
+pub(crate) fn require_acceptable(passphrase: &[u8]) -> Result<(), SshCoreError> {
     if passphrase_strength(passphrase.to_vec()).acceptable {
         Ok(())
     } else {
