@@ -4,38 +4,33 @@ Everything not finished to the end in `docs/roadmap.md` lives here. Review it at
 
 ## Next (can be done without the owner)
 
-- [ ] M45: more vault categories: pinned fingerprints, quick commands, appearance. Hook commands stay out of the iCloud sync (code that runs on the host); they travel only in the backup file.
-- [ ] M45: Argon2id cost tuning measured on the phone.
-- [ ] M44: tail splice of the screen into the feed.
-- [ ] M43: the server's own connection for the server-level screens (today they use a connected session).
-- [ ] M27: Ollama multimodal uploads.
-- [ ] M33: one continuous onboarding wizard, colour blocks for the fingerprint.
-- [ ] Files extension extras: Face ID per server, favourites; Linux `stat` run.
 - [ ] Glass pass: check dark / light / Reduce Transparency / large text on every new screen.
-- [ ] File links in the subagent feed (only the main feed has them).
-- [ ] agy dialog tabs.
-- [ ] Host service P2: `tmux -C` and the usage index (see roadmap, host-side service).
-- [ ] M24 watch: "open iPhone" state when the phone is unreachable (never auto-approve), haptics, watchOS target in `project.pbxproj`.
 
 ## Waits for the phone (device run pending)
 
 Install with `make iphone-full` only on the owner's word. Check on the device:
 
+- [ ] M45: Argon2id cost measured on the phone; quick commands and accent colour in the iCloud sync (two devices).
 - [ ] M45 backup (export, encrypted file, import with Skip / Add new / Replace same) and the Face ID app lock.
 - [ ] M46 hooks screen; M44 feed (Claude, agy, subagents); delivery marks and queue actions; file links; pinch zoom; light bar.
 - [ ] M21, M27, M30 (PNG/SVG share), M33, M34, M37, M38, M39, M41, M42, M43 (see their roadmap rows).
 - [ ] Push relay T4 on the iPhone.
 - [ ] Files extension, Watch registration and Developer Mode.
+- [ ] M33: one continuous onboarding wizard and colour blocks for the host fingerprint (the spec says after a device run).
+- [ ] M24 watch: the app already shows "iPhone not reachable", never approves without the phone and plays haptics; open is only the run on a paired watch.
+- [ ] Files extension: Face ID per server (an extension cannot show the prompt itself, needs a design), favourites, Linux `stat` run.
+- [ ] M44 phase 4b: splice only the new screen lines into the feed (a performance change, measure with the in-app timing label before and after).
 
 ## Waits for live agents
 
-- [ ] agy: run the "Auto with blocked commands" template live; agy database feed run (owner's go-ahead on permissions).
+- [ ] agy dialog tabs (needs a recorded dialog); Ollama multimodal uploads; host usage index; agy: run the "Auto with blocked commands" template live; agy database feed run (owner's go-ahead on permissions).
 - [ ] Live hook checks: Codex, Grok, Qwen, Crush, OpenCode, `ollama launch`.
 
 ## Waits for the owner's decision
 
 - [ ] Push relay: the shared secret must become a per-install App Attest before any distributed build.
 - [ ] M32: FIDO2 / YubiKey spike (needs a real key), Secure Enclave P-256 key.
+- [ ] M43: the server's own SSH connection for the server-level screens. Today every screen (Containers, Processes, Ports, Monitor) calls through a session's view model, so this needs a session-less exec handle in the core and a connection lifecycle that respects Zero Battery Drain (connect when a screen opens, close on leaving or backgrounding). A design step first.
 - [ ] M47: macOS app (no spec yet; `doc-dev` first; sandbox question).
 - [ ] M28 Live Activities and M31 iPad: specs reviewed, implementation deferred by the owner.
 - [ ] M26 / M40 (`feature/mesh`, local branch): deferred.

@@ -23,6 +23,8 @@ enum DebugRoutes {
         case "settings-appearance": NavigationStack { AppearanceSettingsPage() }
         case "settings-modules": NavigationStack { ModuleSettingsView() }
         case "settings-sync": NavigationStack { SyncSettingsView() }
+        case "settings-security": NavigationStack { SecuritySettingsPage() }
+        case "settings-backup": NavigationStack { BackupSettingsPage(serversManager: servers, agentsManager: AgentProfilesManager()) }
         case "hooks": DebugHooks()
         default: Text("Unknown screen: \(route)")
         }

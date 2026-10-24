@@ -66,6 +66,7 @@ struct FeedTextView: UIViewRepresentable {
             tv.findInteraction?.presentFindNavigator(showingReplace: false)
         }
         var jump = false
+        var softAppend = false
         if scrollToken != c.lastToken {
             c.lastToken = scrollToken
             jump = true
@@ -76,6 +77,9 @@ struct FeedTextView: UIViewRepresentable {
             // stays exactly as it is (the Latest button carries the news); it is applied when they
             // come back to the end or tap Latest. Folding, size or colour changes apply at once.
             if shown.sameLook(as: key) && !atEnd && !jump { return }
+            // New output at the end of the feed eases in (cross-fade, then a short glide down) instead
+            // of the text and the scroll position snapping at once.
+            softAppend = shown.sameLook(as: key) && atEnd && !jump && !UIAccessibility.isReduceMotionEnabled
         } else if c.shownInputs != nil {
             if jump { c.scrollToEnd(tv) }   // nothing changed: SwiftUI only called us for another reason
             return
@@ -94,12 +98,21 @@ struct FeedTextView: UIViewRepresentable {
         // Replacing the text resets the scroll position for a moment: that must not flip
         // "at the bottom" (and with it the Latest button) before the position is put back.
         c.updating = true
-        tv.attributedText = text
-        if selection.location + selection.length <= text.length { tv.selectedRange = selection }
-        // Lay the whole text out first: scrolling to an estimated end is what made the view jump.
-        tv.layoutManager.ensureLayout(for: tv.textContainer)
-        tv.layoutIfNeeded()
-        if atEnd || jump {
+        let place = {
+            tv.attributedText = text
+            if selection.location + selection.length <= text.length { tv.selectedRange = selection }
+            // Lay the whole text out first: scrolling to an estimated end is what made the view jump.
+            tv.layoutManager.ensureLayout(for: tv.textContainer)
+            tv.layoutIfNeeded()
+        }
+        if softAppend {
+            UIView.transition(with: tv, duration: 0.22, options: [.transitionCrossDissolve, .allowUserInteraction], animations: place)
+        } else {
+            place()
+        }
+        if softAppend {
+            c.glideToEnd(tv, from: offset)
+        } else if atEnd || jump {
             c.scrollToEnd(tv)
         } else {
             tv.setContentOffset(offset, animated: false)
@@ -164,8 +177,28 @@ struct FeedTextView: UIViewRepresentable {
             report(tv)
         }
 
+        private var glides = 0
+
+        /// Keeps the reader where they were, then slides to the new end: the news arrives as motion
+        /// rather than a jump. `report` stays quiet meanwhile so the Latest button does not flicker.
+        func glideToEnd(_ tv: UITextView, from old: CGPoint) {
+            let end = max(-tv.adjustedContentInset.top,
+                          tv.contentSize.height - tv.bounds.height + tv.adjustedContentInset.bottom)
+            guard end - old.y > 1 else { scrollToEnd(tv); return }
+            glides += 1
+            tv.setContentOffset(CGPoint(x: 0, y: old.y), animated: false)
+            UIView.animate(withDuration: 0.3, delay: 0,
+                           options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]) {
+                tv.contentOffset = CGPoint(x: 0, y: end)
+            } completion: { [weak self, weak tv] _ in
+                guard let self, let tv else { return }
+                self.glides -= 1
+                if self.glides == 0 { self.report(tv) }
+            }
+        }
+
         func report(_ tv: UIScrollView) {
-            if updating { return }
+            if updating || glides > 0 { return }
             let now = isAtBottom(tv)
             if now != parent.atBottom {
                 DispatchQueue.main.async { self.parent.atBottom = now }

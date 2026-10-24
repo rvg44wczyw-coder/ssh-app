@@ -177,7 +177,7 @@ final class VaultSync: ObservableObject {
         }
         let vaultKey = vault.key
         let remote = readRemote(key: vaultKey)
-        let isOther: (VaultEntry) -> Bool = { $0.id.hasPrefix(SyncedProfile.prefix) || $0.id.hasPrefix(SyncedSnippet.prefix) }
+        let isOther: (VaultEntry) -> Bool = { e in [SyncedProfile.prefix, SyncedSnippet.prefix, SyncedQuickCommand.prefix, SyncedAppearance.prefix].contains { e.id.hasPrefix($0) } }
         var entries: [VaultEntry] = []
 
         let serverRemote = remote.filter { !isOther($0) }
@@ -239,6 +239,31 @@ final class VaultSync: ObservableObject {
             entries += remote.filter { $0.id.hasPrefix(SyncedSnippet.prefix) }
         }
 
+        entries += syncCollection(
+            prefix: SyncedQuickCommand.prefix, enabled: quickCommandsEnabled, stateKey: Self.quickStateKey,
+            local: SyncedQuickCommand.outgoing(QuickCommandStore.shared.commands), remote: remote, now: now,
+            accept: { SyncedQuickCommand.decode($0) != nil },
+            apply: { upserts, deletes in
+                let store = QuickCommandStore.shared
+                var list = store.commands
+                list.removeAll { c in deletes.contains(SyncedQuickCommand(c).id) }
+                for item in upserts {
+                    guard let s = SyncedQuickCommand.decode(item), !list.contains(where: { SyncedQuickCommand($0).id == s.id }) else { continue }
+                    list.append(s.command)
+                }
+                if list != store.commands { store.commands = list }
+            })
+        entries += syncCollection(
+            prefix: SyncedAppearance.prefix, enabled: appearanceEnabled, stateKey: Self.appearanceStateKey,
+            local: SyncedAppearance.outgoing(defaults: defaults), remote: remote, now: now,
+            accept: { SyncedAppearance.decode($0) != nil },
+            apply: { upserts, _ in
+                // A deletion never resets the colour on this device.
+                if let item = upserts.last, let accent = SyncedAppearance.decode(item) {
+                    defaults.set(accent, forKey: AppAccent.storageKey)
+                }
+            })
+
         if entries.sorted(by: { $0.id < $1.id }) != remote.sorted(by: { $0.id < $1.id }) || rejectedEntries > 0 {
             writeRemote(entries, key: vaultKey)
         } else {
@@ -255,6 +280,27 @@ final class VaultSync: ObservableObject {
     private static let profileStateKey = "vault_state_profiles"
     private static let snippetStateKey = "vault_state_snippets"
     static let snippetsStorageKey = "ssh_app.custom_snippets.v1"
+
+    static let quickCommandsKey = "vault_sync_quick_commands"
+    static let appearanceKey = "vault_sync_appearance"
+    private static let quickStateKey = "vault_state_quick_commands"
+    private static let appearanceStateKey = "vault_state_appearance"
+    var quickCommandsEnabled: Bool { defaults.object(forKey: Self.quickCommandsKey) as? Bool ?? true }
+    var appearanceEnabled: Bool { defaults.object(forKey: Self.appearanceKey) as? Bool ?? true }
+
+    /// One synced list: merged with the vault, changes applied locally, the entries to write back.
+    /// Switched off, the list is left in the vault as it is.
+    private func syncCollection(
+        prefix: String, enabled: Bool, stateKey: String, local: [CollectionItem], remote: [VaultEntry], now: Date,
+        accept: (CollectionItem) -> Bool, apply: ([CollectionItem], [String]) -> Void
+    ) -> [VaultEntry] {
+        guard enabled else { return remote.filter { $0.id.hasPrefix(prefix) } }
+        let outcome = VaultCollectionEngine.reconcile(
+            prefix: prefix, local: local, remote: remote, state: collectionState(stateKey), now: now, accept: accept)
+        if !outcome.upserts.isEmpty || !outcome.deletes.isEmpty { apply(outcome.upserts, outcome.deletes) }
+        setCollectionState(outcome.state, stateKey)
+        return outcome.entries
+    }
 
     var profilesEnabled: Bool { defaults.object(forKey: Self.profilesKey) as? Bool ?? true }
     var snippetsEnabled: Bool { defaults.object(forKey: Self.snippetsKey) as? Bool ?? true }
@@ -372,6 +418,8 @@ final class VaultSync: ObservableObject {
         if serversEnabled { out.append(("Servers", manager?.profiles.count ?? 0)) }
         if profilesEnabled { out.append(("Launch profiles", SyncedProfile.outgoing(agentProfiles?.profiles ?? []).count)) }
         if snippetsEnabled { out.append(("Snippets", storedSnippets().count)) }
+        if quickCommandsEnabled { out.append(("Quick commands", SyncedQuickCommand.outgoing(QuickCommandStore.shared.commands).count)) }
+        if appearanceEnabled { out.append(("Accent colour", SyncedAppearance.outgoing(defaults: defaults).count)) }
         let st = secretState
         if secretKeysEnabled { out.append(("Private keys", st.enabled.filter { $0.hasPrefix(SecretIDs.keyPrefix) }.count)) }
         if secretEnvEnabled { out.append(("Secret values", st.enabled.filter { $0.hasPrefix(SecretIDs.envPrefix) }.count)) }

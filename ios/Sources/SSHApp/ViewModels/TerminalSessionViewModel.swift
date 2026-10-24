@@ -1209,12 +1209,17 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
                     candidates = [home.trimmingCharacters(in: CharacterSet(charactersIn: "/")).isEmpty ? path : home + "/" + path.dropFirst(2)]
                 }
             } else {
+                // A relative name is the agent's own: it is taken from the session's folder (where the
+                // pane is now, then where the session started), and only then from the repository root.
                 let rel = path.hasPrefix("./") ? String(path.dropFirst(2)) : path
-                if let root = gitRepoRoot { candidates.append(root + "/" + rel) }
-                if let cwd = try? await handle.listRemoteDirectory(path: nil, includeHidden: false, helperSha256: await helperPin()).currentPath,
-                   !candidates.contains(cwd + "/" + rel) {
-                    candidates.append(cwd + "/" + rel)
+                func add(_ dir: String?) {
+                    guard let dir, dir.hasPrefix("/") else { return }
+                    let full = dir.hasSuffix("/") ? dir + rel : dir + "/" + rel
+                    if !candidates.contains(full) { candidates.append(full) }
                 }
+                add(try? await handle.listRemoteDirectory(path: nil, includeHidden: false, helperSha256: await helperPin()).currentPath)
+                add(startDir)
+                add(gitRepoRoot)
             }
             for candidate in candidates {
                 if let preview = try? await handle.readRemoteFilePreview(path: candidate, maxBytes: 131_072, helperSha256: await helperPin()) {
@@ -1222,7 +1227,7 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
                     return
                 }
             }
-            self.fileBrowserError = "Could not open \(path): the file is not under the project or the current folder"
+            self.fileBrowserError = "Could not open \(path): the file is not in the session folder or the project"
         }
     }
 

@@ -106,8 +106,12 @@ struct SubagentFeedView: View {
             highlightVersion: 0,
             textScale: CGFloat(feedTextScale),
             onScale: { feedTextScale = Double($0) },
-            presentation: FeedPresentationStyle.resolved(feedStyleRaw)
+            presentation: FeedPresentationStyle.resolved(feedStyleRaw),
+            onOpenFile: { viewModel.openFileReference(path: $0, line: $1) }
         )
+        .sheet(item: $viewModel.fileReference, onDismiss: { viewModel.filePreview = nil }) { target in
+            FilePreviewView(viewModel: viewModel, focusLine: target.line)
+        }
         .background(Color.appBackground)
         .overlay {
             if missing && turns.isEmpty {

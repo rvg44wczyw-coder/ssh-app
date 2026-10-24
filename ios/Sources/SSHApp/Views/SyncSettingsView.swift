@@ -12,6 +12,8 @@ struct SyncSettingsView: View {
     @AppStorage(VaultSync.fingerprintsKey) private var syncFingerprints = false
     @AppStorage(VaultSync.profilesKey) private var syncProfiles = true
     @AppStorage(VaultSync.snippetsKey) private var syncSnippets = true
+    @AppStorage(VaultSync.quickCommandsKey) private var syncQuick = true
+    @AppStorage(VaultSync.appearanceKey) private var syncAppearance = true
     @AppStorage(VaultSync.secretKeysKey) private var syncKeys = false
     @AppStorage(VaultSync.secretEnvKey) private var syncEnv = false
 
@@ -80,6 +82,8 @@ struct SyncSettingsView: View {
                 Toggle("Servers", isOn: $syncServers)
                 Toggle("Launch profiles", isOn: $syncProfiles)
                 Toggle("Snippets", isOn: $syncSnippets)
+                Toggle("Quick commands", isOn: $syncQuick)
+                Toggle("Accent colour", isOn: $syncAppearance)
                 Toggle("Pinned host fingerprints", isOn: $syncFingerprints).disabled(!syncServers)
                 Text("Sharing a fingerprint tells the other device to trust the same host key.")
                     .font(.caption).foregroundColor(.secondary)
