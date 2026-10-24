@@ -254,7 +254,7 @@ final class VaultSync: ObservableObject {
     static let snippetsKey = "vault_sync_snippets"
     private static let profileStateKey = "vault_state_profiles"
     private static let snippetStateKey = "vault_state_snippets"
-    private static let snippetsStorageKey = "ssh_app.custom_snippets.v1"
+    static let snippetsStorageKey = "ssh_app.custom_snippets.v1"
 
     var profilesEnabled: Bool { defaults.object(forKey: Self.profilesKey) as? Bool ?? true }
     var snippetsEnabled: Bool { defaults.object(forKey: Self.snippetsKey) as? Bool ?? true }

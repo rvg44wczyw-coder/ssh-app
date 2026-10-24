@@ -13,12 +13,15 @@ public struct SettingsView: View {
     /// The agent profile manager, supplied by the main screen (needs the live session).
     private let agentsPage: AnyView?
 
-    public init(serversManager: ServerProfilesManager, agentsPage: AnyView? = nil) {
+    private let agentProfiles: AgentProfilesManager?
+
+    public init(serversManager: ServerProfilesManager, agentProfiles: AgentProfilesManager? = nil, agentsPage: AnyView? = nil) {
         self.serversManager = serversManager
+        self.agentProfiles = agentProfiles
         self.agentsPage = agentsPage
     }
 
-    private enum Page: Hashable { case servers, keys, terminal, appearance, agents, subscription, modules, sync }
+    private enum Page: Hashable { case servers, keys, terminal, appearance, agents, subscription, modules, sync, security, backup }
 
     public var body: some View {
         NavigationStack {
@@ -47,6 +50,9 @@ public struct SettingsView: View {
                     NavigationLink(value: Page.terminal) { SettingsLabel("Terminal", "terminal", tint: .gray) }
                     NavigationLink(value: Page.appearance) { SettingsLabel("Appearance", "paintpalette", tint: .pink) }
                 }
+                Section("Security") {
+                    NavigationLink(value: Page.security) { SettingsLabel("App lock", "faceid", tint: .red) }
+                }
                 Section("Data") {
                     NavigationLink(value: Page.sync) {
                         HStack {
@@ -55,6 +61,9 @@ public struct SettingsView: View {
                             Text(syncNotice ? "Turned off" : (syncEnabled ? "On" : "Off"))
                                 .foregroundColor(syncNotice ? .orange : .secondary)
                         }
+                    }
+                    if agentProfiles != nil {
+                        NavigationLink(value: Page.backup) { SettingsLabel("Backup", "externaldrive.badge.timemachine", tint: .indigo) }
                     }
                     NavigationLink(value: Page.modules) { SettingsLabel("Modules & backup", "slider.horizontal.3", tint: .green) }
                 }
@@ -75,6 +84,8 @@ public struct SettingsView: View {
                 case .subscription: PaywallView(embedded: true)
                 case .modules: ModuleSettingsView()
                 case .sync: SyncSettingsView()
+                case .security: SecuritySettingsPage()
+                case .backup: if let agentProfiles { BackupSettingsPage(serversManager: serversManager, agentsManager: agentProfiles) }
                 }
             }
         }

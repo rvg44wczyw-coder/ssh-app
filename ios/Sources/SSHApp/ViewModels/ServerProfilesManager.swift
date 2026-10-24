@@ -62,6 +62,30 @@ public final class ServerProfilesManager: ObservableObject {
         return newProfile
     }
 
+    /// Servers from a backup (feature 56): a server with an id already here is kept as it is, or
+    /// replaced when `overwrite` is set; new ones are added. Nothing is ever removed. Returns how many
+    /// were added or replaced.
+    @discardableResult
+    public func restore(_ incoming: [ServerProfile], overwrite: Bool) -> Int {
+        var changed = 0
+        for p in incoming {
+            var q = p
+            q.isDefault = false
+            if let i = profiles.firstIndex(where: { $0.id == p.id }) {
+                guard overwrite else { continue }
+                q.isDefault = profiles[i].isDefault
+                q.keyId = profiles[i].keyId
+                profiles[i] = q
+            } else {
+                profiles.append(q)
+            }
+            changed += 1
+        }
+        if !profiles.isEmpty, !profiles.contains(where: { $0.isDefault }) { profiles[0].isDefault = true }
+        if changed > 0 { saveProfiles() }
+        return changed
+    }
+
     public func updateProfile(_ updated: ServerProfile) {
         guard let index = profiles.firstIndex(where: { $0.id == updated.id }) else { return }
 

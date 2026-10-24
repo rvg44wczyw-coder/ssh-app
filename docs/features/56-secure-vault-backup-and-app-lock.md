@@ -190,3 +190,12 @@ Ruled out: network protocol attacks (no new network protocol), downgrade (versio
 - Deleting or switching off a tier B item removes only its copy in iCloud; nothing in tier B ever deletes data on another device. A device that still has the item switched on uploads it again; the sync page says so.
 - Private keys and secret values go through the vault only; the Face ID (or passcode) check runs before a key's switch is turned on and before the vault is created, reset or its passphrase changed.
 - Open: hook commands, pinned fingerprints, quick commands and appearance as vault categories; the Face ID app lock; backup export/import; Argon2id cost tuning on the device.
+
+## Implementation notes: backup and app lock (2026-10-24)
+
+- **Core** `crates/core/src/backup.rs`: plain `SSHBK` file (checksum) or encrypted `SSHB` container (Argon2id + ChaCha20-Poly1305, label `ssh-app/backup/enc`). Groups `private-keys`, `secret-values`, `hook-commands` are secret whatever the file says; a plain file with a secret group is refused. Limits: 4 MB, depth 24, 32 groups, KDF cost bounds checked before deriving.
+- **Swift** `BackupService` (build and validate groups, every record is checked again on import), `BackupController` (export with Face ID, import with per-group Skip / Add new / Replace same, nothing is ever deleted, settings only on Replace, private keys only when their public half is not already present, hook commands listed and confirmed with an explicit switch), `SettingsBackupPage`.
+- **App lock** `AppLock`: policy `deviceOwnerAuthentication`, lock after immediately / 1 / 5 / 15 min, separate window above sheets, hidden in the app switcher; with no passcode on the phone the lock cannot be turned on and an existing lock opens rather than locking the owner out.
+- Face ID also guards: export and import of secrets, key sharing through iCloud, vault change. The app never shows a private key, so there is no "show key" gate.
+- Findings: `docs/security-findings/2026-10-24-backup-and-app-lock.md`.
+- Not done: backup of hook commands/fingerprints as vault categories, device run (owner's command).

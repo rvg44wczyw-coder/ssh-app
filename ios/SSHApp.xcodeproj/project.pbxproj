@@ -62,6 +62,11 @@
 		AA9F0080 /* AgentHooksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB9F0080 /* AgentHooksView.swift */; };
 		AA9F0081 /* FeedFileRef.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB9F0081 /* FeedFileRef.swift */; };
 		AA9F0082 /* AgentTraits.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB9F0082 /* AgentTraits.swift */; };
+		AA9F0083 /* AppLock.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB9F0083 /* AppLock.swift */; };
+		AA9F0084 /* SettingsSecurityPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB9F0084 /* SettingsSecurityPage.swift */; };
+		AA9F0085 /* BackupService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB9F0085 /* BackupService.swift */; };
+		AA9F0086 /* BackupController.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB9F0086 /* BackupController.swift */; };
+		AA9F0087 /* SettingsBackupPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB9F0087 /* SettingsBackupPage.swift */; };
 		AA9F0073 /* SyncSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB9F0073 /* SyncSettingsView.swift */; };
 		AA9F0072 /* Biometrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB9F0072 /* Biometrics.swift */; };
 		AA9F0071 /* VaultSecrets.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB9F0071 /* VaultSecrets.swift */; };
@@ -151,6 +156,11 @@
 		BB9F0080 /* AgentHooksView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/AgentHooksView.swift; sourceTree = "<group>"; };
 		BB9F0081 /* FeedFileRef.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/FeedFileRef.swift; sourceTree = "<group>"; };
 		BB9F0082 /* AgentTraits.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models/AgentTraits.swift; sourceTree = "<group>"; };
+		BB9F0083 /* AppLock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/AppLock.swift; sourceTree = "<group>"; };
+		BB9F0084 /* SettingsSecurityPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/SettingsSecurityPage.swift; sourceTree = "<group>"; };
+		BB9F0085 /* BackupService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/BackupService.swift; sourceTree = "<group>"; };
+		BB9F0086 /* BackupController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/BackupController.swift; sourceTree = "<group>"; };
+		BB9F0087 /* SettingsBackupPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/SettingsBackupPage.swift; sourceTree = "<group>"; };
 		BB9F0073 /* SyncSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/SyncSettingsView.swift; sourceTree = "<group>"; };
 		BB9F0072 /* Biometrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Biometrics.swift; sourceTree = "<group>"; };
 		BB9F0071 /* VaultSecrets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/VaultSecrets.swift; sourceTree = "<group>"; };
@@ -396,6 +406,11 @@
 				BB9F0080 /* AgentHooksView.swift */,
 				BB9F0081 /* FeedFileRef.swift */,
 				BB9F0082 /* AgentTraits.swift */,
+				BB9F0083 /* AppLock.swift */,
+				BB9F0084 /* SettingsSecurityPage.swift */,
+				BB9F0085 /* BackupService.swift */,
+				BB9F0086 /* BackupController.swift */,
+				BB9F0087 /* SettingsBackupPage.swift */,
 				BB9F0073 /* SyncSettingsView.swift */,
 				BB9F0072 /* Biometrics.swift */,
 				BB9F0071 /* VaultSecrets.swift */,
@@ -656,6 +671,11 @@
 				AA9F0080 /* AgentHooksView.swift in Sources */,
 				AA9F0081 /* FeedFileRef.swift in Sources */,
 				AA9F0082 /* AgentTraits.swift in Sources */,
+				AA9F0083 /* AppLock.swift in Sources */,
+				AA9F0084 /* SettingsSecurityPage.swift in Sources */,
+				AA9F0085 /* BackupService.swift in Sources */,
+				AA9F0086 /* BackupController.swift in Sources */,
+				AA9F0087 /* SettingsBackupPage.swift in Sources */,
 				AA9F0073 /* SyncSettingsView.swift in Sources */,
 				AA9F0072 /* Biometrics.swift in Sources */,
 				AA9F0071 /* VaultSecrets.swift in Sources */,

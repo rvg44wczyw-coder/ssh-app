@@ -126,7 +126,7 @@ enum SyncedProfile {
     }
 
     /// The other side is not trusted: everything a launch would use is checked again.
-    static func decode(_ item: CollectionItem) -> SavedAgentProfile? {
+    static func decode(_ item: CollectionItem, allowHooks: Bool = false) -> SavedAgentProfile? {
         guard let p = try? JSONDecoder().decode(SavedAgentProfile.self, from: Data(item.payload.utf8)),
               p.id == item.id, plain(p.id, max: 64, allowEmpty: false),
               plain(p.name, max: 100, allowEmpty: false),
@@ -143,7 +143,7 @@ enum SyncedProfile {
               plain(p.iconSymbol, max: 80), plain(p.iconColor, max: 40),
               plain(p.localTool, max: 40), plain(p.localModel, max: 200),
               plain(p.approvalMatcher, max: 200), p.approvalEvents.count <= 32,
-              p.hookKindRaw != "custom", p.hookExtras.isEmpty, p.hookOwn.isEmpty
+              allowHooks || (p.hookKindRaw != "custom" && p.hookExtras.isEmpty && p.hookOwn.isEmpty)
         else { return nil }
         return p
     }

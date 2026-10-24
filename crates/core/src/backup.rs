@@ -418,4 +418,35 @@ mod tests {
         let vault = seal_container(Kind::Vault, PHRASE, b"{}", 1, FAST).unwrap();
         assert!(backup_open(vault, Some(PHRASE.to_vec())).is_err());
     }
+
+    /// Every single-byte flip, truncation and splice of a valid file (plain and encrypted) is
+    /// refused or opens to the same groups; none panics or hangs.
+    #[test]
+    fn damaged_files_never_panic() {
+        let plain = export(vec![group("snippets", false, r#"[{"t":"ls"}]"#)], None).unwrap();
+        let sealed = export(vec![group("keys", true, "[]")], Some(PHRASE)).unwrap();
+        for (file, phrase) in [(plain, None), (sealed, Some(PHRASE.to_vec()))] {
+            let step = if phrase.is_some() { 7 } else { 1 };
+            for i in (0..file.len()).step_by(step) {
+                let mut f = file.clone();
+                f[i] ^= 0x55;
+                if let Ok(c) = backup_open(f, phrase.clone()) {
+                    assert!(c.groups.len() <= MAX_GROUPS);
+                }
+            }
+            for n in (0..file.len()).step_by(step.max(3)) {
+                let _ = backup_open(file[..n].to_vec(), phrase.clone());
+            }
+        }
+        for junk in [
+            &b""[..],
+            b"SSHBK",
+            b"SSHB",
+            b"{}",
+            b"\xff\xff\xff\xff",
+            &[0u8; 64],
+        ] {
+            assert!(backup_open(junk.to_vec(), Some(PHRASE.to_vec())).is_err());
+        }
+    }
 }

@@ -18,6 +18,7 @@ extension MainTerminalView {
         case .settings:
             SettingsView(
                 serversManager: serversManager,
+                agentProfiles: agentProfiles,
                 agentsPage: tabsManager.activeViewModel.map { vm in
                     AnyView(
                         AgentProfilesSheetView(

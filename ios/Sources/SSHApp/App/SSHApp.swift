@@ -33,7 +33,9 @@ private struct RootView: View {
     var body: some View {
         content
             .tint(AppAccent.color(for: accentRaw))
+            .onAppear { AppLock.shared.launch() }
             .onChange(of: scenePhase) { _, phase in
+                AppLock.shared.scenePhaseChanged(phase)
                 if phase == .active { VaultSync.shared.sync() }
             }
             .overlay {

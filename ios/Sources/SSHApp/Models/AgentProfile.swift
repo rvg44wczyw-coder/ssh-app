@@ -389,6 +389,52 @@ public final class AgentProfilesManager: ObservableObject {
         Task { @MainActor in VaultSync.shared.sync() }
     }
 
+    /// Profiles from a backup (feature 56): ids already here keep what they have unless `overwrite`;
+    /// the secret values of an overwritten profile stay (they have their own group). Returns the count.
+    @discardableResult
+    func restore(_ incoming: [SavedAgentProfile], overwrite: Bool, keepLocalHooks: Bool = true) -> Int {
+        var changed = 0
+        for p in incoming {
+            if let i = profiles.firstIndex(where: { $0.id == p.id }) {
+                guard overwrite else { continue }
+                var q = SyncedProfile.merged(p, into: profiles[i])
+                if !keepLocalHooks {
+                    q.customHookCommand = p.customHookCommand
+                    q.customHookEvents = p.customHookEvents
+                    q.customHookMatcher = p.customHookMatcher
+                }
+                profiles[i] = q
+            } else {
+                profiles.append(p)
+            }
+            changed += 1
+        }
+        if changed > 0 { save() }
+        return changed
+    }
+
+    /// Secret environment values from a backup, for profiles that exist here; a value for a key the
+    /// profile already has is replaced only with `overwrite`.
+    @discardableResult
+    func restoreSecretValues(_ values: [BackupService.SecretValues], overwrite: Bool) -> Int {
+        var changed = 0
+        for v in values {
+            guard let i = profiles.firstIndex(where: { $0.id == v.profileId }) else { continue }
+            for e in v.env {
+                let key = String(e.prefix { $0 != "=" })
+                if let j = profiles[i].env.firstIndex(where: { String($0.prefix { $0 != "=" }) == key }) {
+                    guard overwrite else { continue }
+                    profiles[i].env[j] = e
+                } else {
+                    profiles[i].env.append(e)
+                }
+                changed += 1
+            }
+        }
+        if changed > 0 { save() }
+        return changed
+    }
+
     /// The list after an iCloud sync (feature 43): replaces the profiles without syncing again.
     func applySynced(_ list: [SavedAgentProfile]) {
         profiles = list
