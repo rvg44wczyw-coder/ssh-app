@@ -445,3 +445,46 @@ final class DialogTabKeysTests: XCTestCase {
         XCTAssertEqual(DialogKeys.switchTab(from: 3, to: 0), Array(repeating: DialogKeys.left, count: 3))
     }
 }
+
+final class FeedFileRefTests: XCTestCase {
+    func testWholeCodeSpans() {
+        XCTAssertEqual(FeedFileRef.parse("src/main.rs"), FeedFileRef(path: "src/main.rs", line: nil))
+        XCTAssertEqual(FeedFileRef.parse("Cargo.toml:12"), FeedFileRef(path: "Cargo.toml", line: 12))
+        XCTAssertEqual(FeedFileRef.parse("a/b/lib.rs:40:7"), FeedFileRef(path: "a/b/lib.rs", line: 40))
+        XCTAssertEqual(FeedFileRef.parse("/etc/app/config.yaml#L9"), FeedFileRef(path: "/etc/app/config.yaml", line: 9))
+        XCTAssertNil(FeedFileRef.parse("git push --force"))
+        XCTAssertNil(FeedFileRef.parse("e.g."))
+        XCTAssertNil(FeedFileRef.parse("v1.2"))
+        XCTAssertNil(FeedFileRef.parse("foo.bar"))
+        XCTAssertNil(FeedFileRef.parse("https://example.com/a.rs"))
+    }
+
+    func testMentionsInPlainText() {
+        let text = "See crates/core/src/screen/mod.rs:277 and Package.swift, but not e.g. v1.2 or https://x.io/y.rs."
+        let found = FeedFileRef.scan(text)
+        XCTAssertEqual(found.map(\.ref), [
+            FeedFileRef(path: "crates/core/src/screen/mod.rs", line: 277),
+            FeedFileRef(path: "Package.swift", line: nil),
+        ])
+        let ns = text as NSString
+        XCTAssertEqual(ns.substring(with: found[0].range), "crates/core/src/screen/mod.rs:277")
+    }
+
+    func testEncodingRoundTrip() {
+        let r = FeedFileRef(path: "a/b.rs", line: 3)
+        XCTAssertEqual(FeedFileRef(encoded: r.encoded), r)
+        XCTAssertEqual(FeedFileRef(encoded: FeedFileRef(path: "x.rs", line: nil).encoded)?.line, nil)
+    }
+
+    @MainActor
+    func testBuilderMarksMentionsInCodeAndText() {
+        let turn = TranscriptTurn(id: "t1", stepIndex: 0, turnType: .assistant, timestamp: nil, content: "Edit `src/lib.rs:5` and notes.md now; `cargo test` stays code.",
+                                  thinking: nil, toolCalls: [], status: .done, label: nil)
+        let text = FeedAttributedBuilder.build(turns: [turn], expandedThinking: [], expandedTools: [], dark: false)
+        var marked: [String] = []
+        text.enumerateAttribute(FeedFileRef.key, in: NSRange(location: 0, length: text.length)) { v, _, _ in
+            if let v = v as? String { marked.append(v) }
+        }
+        XCTAssertEqual(marked, ["src/lib.rs\u{0}5", "notes.md\u{0}"])
+    }
+}

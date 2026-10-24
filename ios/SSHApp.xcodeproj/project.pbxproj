@@ -60,6 +60,7 @@
 		AA9F0075 /* SettingsServersPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB9F0075 /* SettingsServersPage.swift */; };
 		AA9F0074 /* GlassStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB9F0074 /* GlassStyle.swift */; };
 		AA9F0080 /* AgentHooksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB9F0080 /* AgentHooksView.swift */; };
+		AA9F0081 /* FeedFileRef.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB9F0081 /* FeedFileRef.swift */; };
 		AA9F0073 /* SyncSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB9F0073 /* SyncSettingsView.swift */; };
 		AA9F0072 /* Biometrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB9F0072 /* Biometrics.swift */; };
 		AA9F0071 /* VaultSecrets.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB9F0071 /* VaultSecrets.swift */; };
@@ -147,6 +148,7 @@
 		BB9F0075 /* SettingsServersPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/SettingsServersPage.swift; sourceTree = "<group>"; };
 		BB9F0074 /* GlassStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/GlassStyle.swift; sourceTree = "<group>"; };
 		BB9F0080 /* AgentHooksView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/AgentHooksView.swift; sourceTree = "<group>"; };
+		BB9F0081 /* FeedFileRef.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/FeedFileRef.swift; sourceTree = "<group>"; };
 		BB9F0073 /* SyncSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/SyncSettingsView.swift; sourceTree = "<group>"; };
 		BB9F0072 /* Biometrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Biometrics.swift; sourceTree = "<group>"; };
 		BB9F0071 /* VaultSecrets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/VaultSecrets.swift; sourceTree = "<group>"; };
@@ -390,6 +392,7 @@
 				BB9F0075 /* SettingsServersPage.swift */,
 				BB9F0074 /* GlassStyle.swift */,
 				BB9F0080 /* AgentHooksView.swift */,
+				BB9F0081 /* FeedFileRef.swift */,
 				BB9F0073 /* SyncSettingsView.swift */,
 				BB9F0072 /* Biometrics.swift */,
 				BB9F0071 /* VaultSecrets.swift */,
@@ -648,6 +651,7 @@
 				AA9F0075 /* SettingsServersPage.swift in Sources */,
 				AA9F0074 /* GlassStyle.swift in Sources */,
 				AA9F0080 /* AgentHooksView.swift in Sources */,
+				AA9F0081 /* FeedFileRef.swift in Sources */,
 				AA9F0073 /* SyncSettingsView.swift in Sources */,
 				AA9F0072 /* Biometrics.swift in Sources */,
 				AA9F0071 /* VaultSecrets.swift in Sources */,

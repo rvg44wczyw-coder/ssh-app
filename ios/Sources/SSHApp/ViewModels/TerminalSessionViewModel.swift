@@ -116,6 +116,10 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     // Remote File Browser State
     @Published public var fileListing: RemoteDirectoryListing? = nil
     @Published public var filePreview: RemoteFilePreview? = nil
+    /// A file opened from a mention in the feed: the sheet shows `filePreview` at `line`.
+    @Published public var fileReference: FileReferenceTarget? = nil
+    /// Repository root of the tab (from the git probe), the first place a relative path is looked for.
+    private var gitRepoRoot: String?
     @Published public var isFileBrowserLoading: Bool = false
     /// Git state of the repository around the listed folder (nil outside a repository).
     @Published public var gitStatus: GitStatusResult? = nil
@@ -456,6 +460,7 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         guard let handle, state == .connected,
               let result = try? await handle.fetchGitWorktrees(sessionName: session.sessionName) else { return }
         let next = GitSessionContext(result)
+        gitRepoRoot = result.status == .ok ? result.repoRoot : nil
         if next != gitContext { gitContext = next }
         if next.isGit, let changes = try? await handle.fetchGitChanges(sessionName: session.sessionName) {
             let n = changes.status == .ok ? changes.entries.count : 0
@@ -1117,6 +1122,44 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         }
     }
 
+    /// Opens a file named in the feed. An absolute path is read as it is; `~/` is resolved to the host's home folder; a relative one is tried
+    /// under the repository root and then under the pane's folder. The sheet opens at once and fills
+    /// when the file arrives (or shows what went wrong).
+    public func openFileReference(path: String, line: Int?) {
+        guard let handle = handle, state == .connected else {
+            fileBrowserError = "Session is not connected"
+            return
+        }
+        filePreview = nil
+        fileBrowserError = nil
+        fileReference = FileReferenceTarget(path: path, line: line)
+        Task {
+            var candidates: [String] = []
+            if path.hasPrefix("/") {
+                candidates = [path]
+            } else if path.hasPrefix("~/") {
+                // The host's own answer for `~` (a listing of the home folder names it), not a guess.
+                if let home = try? await handle.listRemoteDirectory(path: "~", includeHidden: false, helperSha256: await helperPin()).currentPath {
+                    candidates = [home.trimmingCharacters(in: CharacterSet(charactersIn: "/")).isEmpty ? path : home + "/" + path.dropFirst(2)]
+                }
+            } else {
+                let rel = path.hasPrefix("./") ? String(path.dropFirst(2)) : path
+                if let root = gitRepoRoot { candidates.append(root + "/" + rel) }
+                if let cwd = try? await handle.listRemoteDirectory(path: nil, includeHidden: false, helperSha256: await helperPin()).currentPath,
+                   !candidates.contains(cwd + "/" + rel) {
+                    candidates.append(cwd + "/" + rel)
+                }
+            }
+            for candidate in candidates {
+                if let preview = try? await handle.readRemoteFilePreview(path: candidate, maxBytes: 131_072, helperSha256: await helperPin()) {
+                    self.filePreview = preview
+                    return
+                }
+            }
+            self.fileBrowserError = "Could not open \(path): the file is not under the project or the current folder"
+        }
+    }
+
     /// Types `cd '<path>'` + Enter into the active terminal.
     public func changeDirectory(to path: String) {
         executeAiCommand("cd " + quoteRemotePathForShell(path: path))
@@ -1204,4 +1247,12 @@ private final class FeedStreamBridge: FeedListener {
     func onClosed() {
         Task { @MainActor in vm?.streamClosed() }
     }
+}
+
+
+/// What the feed asked to open: the path as written and the line to show.
+public struct FileReferenceTarget: Identifiable, Equatable {
+    public let path: String
+    public let line: Int?
+    public var id: String { path + ":" + (line.map(String.init) ?? "") }
 }

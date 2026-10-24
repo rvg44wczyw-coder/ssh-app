@@ -244,15 +244,19 @@ struct FilePreviewView: View {
     @AppStorage(SyntaxSettings.themeKey) private var syntaxTheme = SyntaxTheme.auto.rawValue
     @AppStorage(SyntaxSettings.maxKBKey) private var syntaxMaxKB = 200
     @State private var highlighted: [HighlightedLine]?
+    /// The line to bring into view and mark (a file opened from a mention in the feed).
+    var focusLine: Int? = nil
 
     var body: some View {
         NavigationStack {
             Group {
                 if let preview = viewModel.filePreview {
+                    ScrollViewReader { proxy in
                     ScrollView([.vertical, .horizontal]) {
                         let lines = preview.content.components(separatedBy: "\n")
+                        let shown = max(500, (focusLine ?? 0) + 200)
                         VStack(alignment: .leading, spacing: 0) {
-                            ForEach(Array(lines.prefix(500).enumerated()), id: \.offset) { idx, line in
+                            ForEach(Array(lines.prefix(shown).enumerated()), id: \.offset) { idx, line in
                                 HStack(alignment: .top, spacing: 8) {
                                     Text("\(idx + 1)")
                                         .foregroundColor(.secondary)
@@ -264,8 +268,16 @@ struct FilePreviewView: View {
                                     }
                                 }
                                 .font(.system(size: 12, design: .monospaced))
+                                .background(focusLine == idx + 1 ? Color.appAccent.opacity(0.25) : Color.clear)
+                                .id(idx)
                             }
-                            if preview.isTruncated || lines.count > 500 {
+                            if let l = focusLine, l > lines.count {
+                                Text("Line \(l) is beyond the part of the file that was loaded")
+                                    .font(.caption)
+                                    .foregroundColor(.orange)
+                                    .padding(.top, 8)
+                            }
+                            if preview.isTruncated || lines.count > shown {
                                 Text("… truncated")
                                     .font(.caption)
                                     .foregroundColor(.orange)
@@ -273,6 +285,12 @@ struct FilePreviewView: View {
                             }
                         }
                         .padding(8)
+                    }
+                    .task(id: preview.path) {
+                        guard let l = focusLine, l >= 1 else { return }
+                        try? await Task.sleep(for: .milliseconds(150))
+                        proxy.scrollTo(l - 1, anchor: .center)
+                    }
                     }
                 } else if let error = viewModel.fileBrowserError {
                     Text(error).font(.caption).padding()

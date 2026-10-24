@@ -20,10 +20,12 @@ struct FeedTextView: UIViewRepresentable {
     let dark: Bool
     /// Bumped when syntax colours for code blocks arrived, so the text is rebuilt.
     let highlightVersion: Int
-    /// Text size factor (pinch to change); `onScale` reports the new one when the gesture ends.
+    /// Text size factor (pinch to change); `onScale` reports the new one while the gesture runs and when it ends.
     let textScale: CGFloat
     let onScale: (CGFloat) -> Void
     var presentation: FeedPresentationStyle = .assistant
+    /// A tap on a file name in the text: the path as written and the line, if one was given.
+    var onOpenFile: (String, Int?) -> Void = { _, _ in }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -119,9 +121,12 @@ struct FeedTextView: UIViewRepresentable {
         @objc func pinched(_ g: UIPinchGestureRecognizer) {
             switch g.state {
             case .began: pinchBase = parent.textScale
-            case .ended:
+            case .changed, .ended:
+                // Live: the text follows the fingers in small steps (each step rebuilds the text, so
+                // not every touch event); the end applies the exact size.
                 let next = min(max(pinchBase * g.scale, Self.range.lowerBound), Self.range.upperBound)
-                if abs(next - parent.textScale) > 0.02 { parent.onScale(next) }
+                let step: CGFloat = g.state == .ended ? 0.02 : 0.04
+                if abs(next - parent.textScale) > step { parent.onScale(next) }
             default: break
             }
         }
@@ -235,7 +240,14 @@ struct FeedTextView: UIViewRepresentable {
         @objc private func tapped(_ g: UITapGestureRecognizer) {
             guard g.state == .ended, let tv = g.view as? UITextView,
                   let i = characterIndex(tv, at: g.location(in: tv)),
-                  let word = tv.textStorage.attribute(FeedCopy.inlineKey, at: i, effectiveRange: nil) as? String
+                  let tapStorage = tv.textStorage as NSAttributedString? else { return }
+            if let enc = tapStorage.attribute(FeedFileRef.key, at: i, effectiveRange: nil) as? String,
+               let ref = FeedFileRef(encoded: enc) {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                parent.onOpenFile(ref.path, ref.line)
+                return
+            }
+            guard let word = tapStorage.attribute(FeedCopy.inlineKey, at: i, effectiveRange: nil) as? String
             else { return }
             pendingInline = word
             menuInteraction?.presentEditMenu(with: UIEditMenuConfiguration(identifier: nil, sourcePoint: g.location(in: tv)))
@@ -1079,6 +1091,33 @@ enum FeedAttributedBuilder {
         f.fontDescriptor.withSymbolicTraits(.traitItalic).map { UIFont(descriptor: $0, size: f.pointSize) } ?? f
     }
 
+    /// Plain text with the file names in it drawn as links that open the file (see `FeedFileRef`).
+    private static func appendLinked(_ piece: String, attrs: [NSAttributedString.Key: Any],
+                                     into out: NSMutableAttributedString) {
+        let found = FeedFileRef.scan(piece)
+        guard !found.isEmpty else {
+            out.append(NSAttributedString(string: piece, attributes: attrs))
+            return
+        }
+        let s = piece as NSString
+        var cursor = 0
+        for (range, ref) in found {
+            if range.location > cursor {
+                out.append(NSAttributedString(string: s.substring(with: NSRange(location: cursor, length: range.location - cursor)), attributes: attrs))
+            }
+            var linked = attrs
+            linked[FeedFileRef.key] = ref.encoded
+            linked[.foregroundColor] = UIColor.tintColor
+            linked[.underlineStyle] = NSUnderlineStyle.single.rawValue
+            linked[.underlineColor] = UIColor.tintColor.withAlphaComponent(0.6)
+            out.append(NSAttributedString(string: s.substring(with: range), attributes: linked))
+            cursor = range.location + range.length
+        }
+        if cursor < s.length {
+            out.append(NSAttributedString(string: s.substring(from: cursor), attributes: attrs))
+        }
+    }
+
     /// Bold, italic, `code` and strike-through as UIKit attributes; links stay plain text.
     static func inline(_ markdown: String, base: UIFont? = nil, color: UIColor = .label,
                        indent: CGFloat = 0, first: CGFloat = 0, after: CGFloat = 2) -> NSAttributedString {
@@ -1100,6 +1139,14 @@ enum FeedAttributedBuilder {
                     extra[.underlineStyle] = NSUnderlineStyle.single.rawValue | NSUnderlineStyle.patternDot.rawValue
                     extra[.underlineColor] = UIColor.systemOrange.withAlphaComponent(0.6)
                     extra[FeedCopy.inlineKey] = piece
+                    if let ref = FeedFileRef.parse(piece) {
+                        // A file mention: a tap opens the file at its line (copying stays on triple tap).
+                        extra[FeedFileRef.key] = ref.encoded
+                        extra[.underlineStyle] = NSUnderlineStyle.single.rawValue
+                        extra[.underlineColor] = UIColor.tintColor
+                        extra[.foregroundColor] = UIColor.tintColor
+                        extra[FeedCopy.inlineKey] = nil
+                    }
                 }
                 if intent.contains(.strikethrough) { extra[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
             }
@@ -1108,7 +1155,12 @@ enum FeedAttributedBuilder {
                 .paragraphStyle: style(indent: indent, first: first, after: after),
             ]
             attrs.merge(extra) { $1 }
-            out.append(NSAttributedString(string: piece, attributes: attrs))
+            attrs[FeedCopy.inlineKey] = extra[FeedCopy.inlineKey]
+            if extra[.backgroundColor] == nil, extra[.strikethroughStyle] == nil {
+                appendLinked(piece, attrs: attrs, into: out)
+            } else {
+                out.append(NSAttributedString(string: piece, attributes: attrs))
+            }
         }
         return out
     }

@@ -193,7 +193,8 @@ public struct StructuredTranscriptView: View {
                     highlightVersion: highlightVersion,
                     textScale: CGFloat(feedTextScale),
                     onScale: { feedTextScale = Double($0) },
-                    presentation: look
+                    presentation: look,
+                    onOpenFile: { viewModel.openFileReference(path: $0, line: $1) }
                 )
                 .background(Color.appBackground)
                 .task(id: "\(viewModel.transcriptTurns.count)|\(viewModel.transcriptTurns.last?.content?.count ?? 0)|\(colorScheme == .dark)|\(syntaxTheme)|\(syntaxOn)") {
@@ -251,16 +252,6 @@ public struct StructuredTranscriptView: View {
             if let aside = viewModel.screenAside {
                 FeedAsideCard(aside: aside, close: { viewModel.closeOverlay() },
                               more: { viewModel.sendDialogKeys([[0x1b, 0x5b, 0x36, 0x7e]]) })
-            }
-
-            if let status = viewModel.screenStatus {
-                // Only a loader: the agent's own "Thinking… (12s)" line says nothing the icon does not.
-                ProgressView()
-                    .controlSize(.small)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 6)
-                    .accessibilityLabel(status)
             }
 
             Divider()
@@ -363,6 +354,10 @@ public struct StructuredTranscriptView: View {
                     .disabled(!canSend)
                 }
                 }
+                // The agent works: a band of light runs along the line under the field and back.
+                if let status = viewModel.screenStatus {
+                    WorkingLightBar().accessibilityElement().accessibilityLabel(status)
+                }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
@@ -389,6 +384,9 @@ public struct StructuredTranscriptView: View {
                 CommandScreenView(dialog: dialog, send: { viewModel.sendDialogKeys($0) }, close: { viewModel.closeOverlay() })
                     .presentationDetents([.medium, .large])
             }
+        }
+        .sheet(item: $viewModel.fileReference, onDismiss: { viewModel.filePreview = nil }) { target in
+            FilePreviewView(viewModel: viewModel, focusLine: target.line)
         }
         .photosPicker(isPresented: $showPhotoPicker, selection: $pickedPhotos, maxSelectionCount: 6,
                       matching: .any(of: [.images, .videos]))
@@ -1240,5 +1238,35 @@ struct CameraPicker: UIViewControllerRepresentable {
             parent.onDone(nil)
             parent.dismiss()
         }
+    }
+}
+
+
+/// A thin solid line with a band of light that runs from left to right and back while the agent
+/// works. Keeps still (a plain line) with Reduce Motion.
+struct WorkingLightBar: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private let period = 1.6
+
+    var body: some View {
+        TimelineView(.animation(paused: reduceMotion)) { context in
+            let t = context.date.timeIntervalSinceReferenceDate / period
+            // 0...1...0 with soft ends.
+            let phase = 0.5 - 0.5 * cos(t * 2 * .pi)
+            GeometryReader { geo in
+                let band = max(60, geo.size.width * 0.28)
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color.appAccent.opacity(0.28))
+                    Capsule()
+                        .fill(LinearGradient(colors: [.clear, Color.appAccent, .white.opacity(0.9), Color.appAccent, .clear],
+                                             startPoint: .leading, endPoint: .trailing))
+                        .frame(width: band)
+                        .offset(x: (geo.size.width - band) * (reduceMotion ? 0.5 : phase))
+                }
+                .clipShape(Capsule())
+            }
+        }
+        .frame(height: 3)
+        .padding(.horizontal, 4)
     }
 }
