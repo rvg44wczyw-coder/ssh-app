@@ -336,6 +336,10 @@ enum FeedToggle: Equatable {
     case tool(String)
     /// Back from an opened tool call: one stage (`all` false) or all the way closed.
     case toolBack(String, all: Bool)
+    /// A message that waits in the agent's queue: interrupt and send it, or send it again as a new one.
+    case resend(String, interrupt: Bool)
+    /// Takes a queued message back.
+    case cancelQueued(String)
 
     var url: URL? {
         var comps = URLComponents()
@@ -346,6 +350,10 @@ enum FeedToggle: Equatable {
         case .toolBack(let id, let all):
             comps.host = "toolback"
             comps.queryItems = [URLQueryItem(name: "id", value: id), URLQueryItem(name: "all", value: all ? "1" : "0")]
+        case .cancelQueued(let id): comps.host = "cancelqueued"; comps.queryItems = [URLQueryItem(name: "id", value: id)]
+        case .resend(let id, let interrupt):
+            comps.host = "resend"
+            comps.queryItems = [URLQueryItem(name: "id", value: id), URLQueryItem(name: "interrupt", value: interrupt ? "1" : "0")]
         }
         return comps.url
     }
@@ -359,6 +367,8 @@ enum FeedToggle: Equatable {
         case "thinking": self = .thinking(id)
         case "tool": self = .tool(id)
         case "toolback": self = .toolBack(id, all: comps.queryItems?.first(where: { $0.name == "all" })?.value == "1")
+        case "cancelqueued": self = .cancelQueued(id)
+        case "resend": self = .resend(id, interrupt: comps.queryItems?.first(where: { $0.name == "interrupt" })?.value == "1")
         default: return nil
         }
     }
@@ -501,6 +511,10 @@ enum FeedAttributedBuilder {
 
     static func build(turns allTurns: [TranscriptTurn], expandedThinking: Set<String>, expandedTools: Set<String>, dark: Bool) -> NSAttributedString {
         let turns = allTurns.filter { $0.label != TranscriptTurn.permissionModeLabel }
+        // Delivery marks: the last two of your messages the agent has shown in its file say "Delivered";
+        // one it has not shown yet says "Sent" or, once it waits in the queue, offers to push it.
+        let delivered = Set(turns.filter { $0.turnType == .user && !($0.content ?? "").isEmpty && !$0.id.hasPrefix("echo_") }
+            .suffix(2).map(\.id))
         let out = NSMutableAttributedString()
         blockCounter = 0
         var i = 0
@@ -512,6 +526,7 @@ enum FeedAttributedBuilder {
                 if let c = turn.content, !c.isEmpty {
                     if out.length > 0 { gap(out, blockGap) }   // air between the agent's text and your message
                     appendUser(turn, c, into: out, expandedTools)
+                    appendDelivery(turn, delivered: delivered.contains(turn.id), into: out)
                 }
             case .system:
                 // Service entries (hooks, attachments, durations, checkpoints) in a row: ONE folded line.
@@ -695,6 +710,47 @@ enum FeedAttributedBuilder {
                 appendTags(tags, id: id, into: out, open: expandedTools.contains(id), indent: margin, right: false)
             }
         }
+    }
+
+    /// The small line under one of your latest messages, icons only: a check (delivered), an arrow
+    /// (sent), or a clock with three buttons while it waits in the agent's queue: bolt (interrupt and
+    /// send), circular arrow (send again), cross (cancel).
+    private static func appendDelivery(_ turn: TranscriptTurn, delivered: Bool, into out: NSMutableAttributedString) {
+        let right = NSMutableParagraphStyle()
+        right.alignment = .right
+        right.paragraphSpacing = 10
+        let font = UIFont.systemFont(ofSize: 14)
+        func icon(_ name: String, _ color: UIColor, label: String, link: URL? = nil) -> NSAttributedString {
+            let config = UIImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
+            let attachment = NSTextAttachment()
+            attachment.image = UIImage(systemName: name, withConfiguration: config)?.withTintColor(color, renderingMode: .alwaysOriginal)
+            attachment.accessibilityLabel = label
+            let s = NSMutableAttributedString(attachment: attachment)
+            s.addAttributes([.font: font, .paragraphStyle: right], range: NSRange(location: 0, length: s.length))
+            if let link { s.addAttribute(.link, value: link, range: NSRange(location: 0, length: s.length)) }
+            return s
+        }
+        func gap() -> NSAttributedString {
+            NSAttributedString(string: "   ", attributes: [.font: font, .paragraphStyle: right])
+        }
+        let line = NSMutableAttributedString()
+        switch turn.label {
+        case TranscriptTurn.echoSentLabel:
+            line.append(icon("arrow.up", .tertiaryLabel, label: "Sent"))
+        case TranscriptTurn.echoQueuedLabel:
+            line.append(icon("clock", .systemOrange, label: "Waiting in the agent's queue"))
+            line.append(gap())
+            line.append(icon("bolt.fill", .systemYellow, label: "Interrupt and send", link: FeedToggle.resend(turn.id, interrupt: true).url))
+            line.append(gap())
+            line.append(icon("arrow.clockwise", .secondaryLabel, label: "Send again", link: FeedToggle.resend(turn.id, interrupt: false).url))
+            line.append(gap())
+            line.append(icon("xmark.circle.fill", .systemRed, label: "Cancel", link: FeedToggle.cancelQueued(turn.id).url))
+        default:
+            guard delivered else { return }
+            line.append(icon("checkmark", .tertiaryLabel, label: "Delivered"))
+        }
+        line.append(NSAttributedString(string: "\n", attributes: [.font: font, .paragraphStyle: right]))
+        out.append(line)
     }
 
     /// A run of XML-ish blocks (`<system-reminder>…</system-reminder>`, `<command-name>…`) as ONE dim line

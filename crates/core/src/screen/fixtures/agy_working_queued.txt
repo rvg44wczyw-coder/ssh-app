@@ -1,0 +1,16 @@
+      ▄▀▀▄        Antigravity CLI 1.4.7
+     ▀▀▀▀▀▀       user@example.com (Google AI Pro)
+    ▀▀▀▀▀▀▀▀      Gemini 3.8 Flash (Medium)
+   ▄▀▀    ▀▀▄     /tmp/project
+  ▄▀▀      ▀▀▄
+
+────────────────────────────────────────────────────────────
+> write a 700 word story about a ship captain, no tools
+⣻  Now, starting with the captain's character. Thinking about a setting for the story....
+└ Tip: Use /btw to ask a question without breaking context.
+▸ queued one
+▸ urgent: reply with only the word pong (alt+m to send immediately)
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+>
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Press up to edit queued messages                                                   Gemini 3.8 Flash · medium

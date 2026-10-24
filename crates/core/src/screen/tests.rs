@@ -1320,3 +1320,35 @@ mod agy_dialogs {
         assert!(feed("context").dialog.is_none());
     }
 }
+
+mod agy_working {
+    use super::*;
+
+    #[test]
+    fn the_spinner_is_the_status_and_the_queue_under_it_is_not_conversation() {
+        let f = parse_screen_feed(include_str!("fixtures/agy_working_queued.txt").to_string());
+        assert_eq!(f.dialect, ScreenDialect::Agy);
+        let status = f.status.expect("agy is working");
+        assert!(
+            status.starts_with('⣻') && status.contains("captain"),
+            "{status}"
+        );
+        let all: String = f
+            .turns
+            .iter()
+            .filter_map(|t| t.content.clone())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            !all.contains("queued one") && !all.contains("Tip:"),
+            "{all}"
+        );
+        assert_eq!(f.draft, None, "the footer hint is not a draft");
+    }
+
+    #[test]
+    fn a_steps_line_with_a_triangle_is_not_a_spinner() {
+        let f = parse_screen_feed(include_str!("fixtures/agy_idle.txt").to_string());
+        assert_eq!(f.status, None);
+    }
+}

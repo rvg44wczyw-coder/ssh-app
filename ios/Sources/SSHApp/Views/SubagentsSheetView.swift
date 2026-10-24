@@ -90,6 +90,8 @@ struct SubagentFeedView: View {
                 switch toggle {
                 case .thinking(let id):
                     if expandedThinking.contains(id) { expandedThinking.remove(id) } else { expandedThinking.insert(id) }
+                case .resend, .cancelQueued:
+                    break
                 case .toolBack(let id, _):
                     expandedTools.remove(id)
                     expandedTools.remove(id + "+")

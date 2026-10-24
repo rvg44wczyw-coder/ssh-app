@@ -141,8 +141,12 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     /// `fileFeed` holds turns read from the agent's own database (Antigravity), not from its file.
     private var feedFromDatabase = false
     private var screenIsAgy = false
+    /// The pane's screen looks like Claude Code's (a plain tab it was started in by hand).
+    private var screenIsClaude = false
     /// The agent in this tab speaks Antigravity's commands (a tab made for it, or one it was started in by hand).
     public var isAgyAgent: Bool { session.agentType == .antigravity || screenIsAgy }
+    /// The keys this tab's agent answers to (queue, send now, suggestions); see `AgentTraits`.
+    var traits: AgentTraits { AgentTraits.resolve(agentType: session.agentType, detectedAgy: screenIsAgy, detectedClaude: screenIsClaude) }
     /// The host pushes changes of the session file and of the pane's tail over one open channel
     /// (`watch_feed`); while it runs nothing is polled.
     private var feedWatch: FeedWatch?
@@ -527,10 +531,70 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
             if userCount(of: e.text) > e.baseCount { continue }
             if screenStatus == nil, Date().timeIntervalSince(e.sentAt) > 30 { continue }
             out.append(TranscriptTurn(id: e.id, stepIndex: step, turnType: .user, timestamp: nil, content: e.text,
-                                      thinking: nil, toolCalls: [], status: .done, label: nil))
+                                      thinking: nil, toolCalls: [], status: .done, label: echoLabel(for: e)))
             step += 1
         }
         return out
+    }
+
+    /// Label of an echo turn, read by the feed: `echo:sent` (typed into the agent, nothing seen yet) or
+    /// `echo:queued` (the agent is working and has not taken it for a few seconds: it waits in the
+    /// agent's queue).
+    private func echoLabel(for e: PendingEcho) -> String {
+        screenStatus != nil && Date().timeIntervalSince(e.sentAt) > 3 ? TranscriptTurn.echoQueuedLabel : TranscriptTurn.echoSentLabel
+    }
+
+    /// Takes a queued message back out of the agent's queue: Up pulls the queued text into the box,
+    /// then the box is emptied (Ctrl+U, checked by reading the pane) and the echo goes.
+    public func cancelEcho(id: String) {
+        pendingEchoes.removeAll { $0.id == id }
+        queuedNote = nil
+        draftIsBeingSent()
+        Task {
+            sendInput(Data(traits.pullQueueKeys))
+            try? await Task.sleep(for: .milliseconds(500))
+            for _ in 0..<8 {
+                guard let left = await currentBoxDraft(), !left.isEmpty else { break }
+                sendInput(Data(traits.clearLineKeys))
+                try? await Task.sleep(for: .milliseconds(300))
+            }
+            draftWasSent()
+            _ = await reloadTranscriptQuietly()
+        }
+    }
+
+    /// "Interrupt and send" or "Send again" for a message that waits in the queue.
+    /// Interrupting uses the agent's own "send now" (the queued message goes first); sending again
+    /// types the text once more as an additional message and drops the old echo.
+    public func resendEcho(id: String, interrupt: Bool) {
+        guard let e = pendingEchoes.first(where: { $0.id == id }) else { return }
+        if interrupt {
+            queuedNote = nil
+            guard traits.sendNowKeys != nil else {
+                // No send-now key known for this agent: interrupt it (Esc) and send the text again.
+                pendingEchoes.removeAll { $0.id == id }
+                echoSent(e.text)
+                Task { _ = await sendImmediately(e.text) }
+                return
+            }
+            sendQueuedNow()
+            Task {
+                try? await Task.sleep(for: .seconds(1))
+                _ = await reloadTranscriptQuietly()
+            }
+            return
+        }
+        pendingEchoes.removeAll { $0.id == id }
+        draftIsBeingSent()
+        echoSent(e.text)
+        Task {
+            sendInput(Data(Array(e.text.utf8)))
+            try? await Task.sleep(for: .milliseconds(150))
+            sendInput(Data([0x0d]))
+            draftWasSent()
+            try? await Task.sleep(for: .seconds(1))
+            _ = await reloadTranscriptQuietly()
+        }
     }
 
     /// Drops echoes the file has shown already (called when the transcript changes).
@@ -553,8 +617,8 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     /// With `acceptSuggestion` Tab goes first: Claude's own suggestion for the next prompt is only a
     /// grey hint that Enter does not send; Tab turns it into real text (on real text it does nothing).
     public func submitBox(acceptSuggestion: Bool = false) async {
-        if acceptSuggestion {
-            sendInput(Data([0x09]))
+        if acceptSuggestion, let keys = traits.acceptSuggestionKeys {
+            sendInput(Data(keys))
             try? await Task.sleep(for: .milliseconds(250))
         }
         for attempt in 0..<3 {
@@ -567,7 +631,8 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     /// The agent's own "send now" for a queued message (Ctrl+X, Ctrl+S): it stops the turn and the
     /// queued message goes first.
     public func sendQueuedNow() {
-        sendInput(Data([0x18, 0x13]))
+        guard let keys = traits.sendNowKeys else { return }
+        sendInput(Data(keys))
     }
 
     /// The box was submitted: it is empty now.
@@ -845,6 +910,7 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         let feed = parseScreenFeed(text: text)
         feedRecognized = feed.dialect != .unknown
         screenIsAgy = feed.dialect == .agy
+        screenIsClaude = feed.dialect == .claude
         guard feed.dialect != .unknown else { lastScreenSum = nil; return nil }
         lastScreenSum = cap.checksum
         if screenDraft != feed.draft { screenDraft = feed.draft }
@@ -1249,6 +1315,12 @@ private final class FeedStreamBridge: FeedListener {
     }
 }
 
+
+extension TranscriptTurn {
+    /// Labels of the not yet delivered echo turns (see `echoLabel`).
+    static let echoSentLabel = "echo:sent"
+    static let echoQueuedLabel = "echo:queued"
+}
 
 /// What the feed asked to open: the path as written and the line to show.
 public struct FileReferenceTarget: Identifiable, Equatable {

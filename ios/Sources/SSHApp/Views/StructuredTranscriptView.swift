@@ -167,6 +167,10 @@ public struct StructuredTranscriptView: View {
                         switch toggle {
                         case .thinking(let id):
                             if expandedThinkingTurns.contains(id) { expandedThinkingTurns.remove(id) } else { expandedThinkingTurns.insert(id) }
+                        case .cancelQueued(let id):
+                            viewModel.cancelEcho(id: id)
+                        case .resend(let id, let interrupt):
+                            viewModel.resendEcho(id: id, interrupt: interrupt)
                         case .toolBack(let id, let all):
                             if all || !expandedToolCalls.contains(id + "+") {
                                 expandedToolCalls.remove(id)
@@ -593,7 +597,7 @@ public struct StructuredTranscriptView: View {
             // the path goes into the message where the cursor was left: on its own, space-separated
             let sep = promptText.isEmpty || promptText.hasSuffix(" ") || promptText.hasSuffix("\n") ? "" : " "
             // Claude Code reads a picture it is given as @<path>; other agents get the bare path.
-            let ref = isImage && viewModel.session.agentType == .claudeCode ? "@" + path : path
+            let ref = isImage ? viewModel.traits.imageReferencePrefix + path : path
             promptText += sep + ref + " "
             UINotificationFeedbackGenerator().notificationOccurred(.success)
         } catch {

@@ -127,3 +127,27 @@ Subagents are delivered as their own item after the main feed works (phases 1–
 - Approvals: a subagent's permission question appears in the main pane (the screen live part), so the existing approval card stays the way to answer; the sub-feed is read-only.
 
 **Tests (written first)**: replay of a sanitised subagent file equals its whole-file parse; `meta.json` with a hostile id/path is refused; a fork with a `fork-context-ref` first line; the parent call linking by `toolUseId`; depth and count caps; the 60 s close rule with a fake clock; agy: parent/child conversations from a synthetic database.
+
+## Agent traits (2026-10-24)
+
+Everything the feed does to an agent's terminal with keys lives in one table, `ios/Sources/SSHApp/Models/AgentTraits.swift`:
+the key that pushes a queued message now, the key that brings the queue back into the box, how a line is emptied, the
+key that accepts the grey next-prompt suggestion, and the prefix of a picture reference. The views and the view model
+ask `viewModel.traits`; they never branch on the agent. Adding Grok, Codex or another agent means one new entry in that
+file, a line in `AgentTraits.resolve`, and its screen dialect in `crates/core/src/screen` (status line, box, queue lines).
+
+Verified live (private tmux, own temp folder, no dangerous flags):
+
+| | Claude Code | Antigravity |
+|---|---|---|
+| Message typed while working | queued, box shows "Press up to edit queued messages" | queued, listed under the spinner as `▸ text`, footer says the same |
+| Send now | Ctrl+X Ctrl+S | Alt+M (`alt+m to send immediately`) |
+| Bring the queue back | Up (all queued messages, one per line) | Up (same) |
+| Empty the box | Ctrl+U per line | Ctrl+U per line |
+| Next-prompt suggestion | grey text, Tab accepts it, then Enter | none seen |
+| Working line | `✶ Verb… (12s)` | braille spinner + `Generating...` |
+
+Delivery marks under your latest messages are icons only: check (in the agent's file), arrow (sent), clock with bolt
+(interrupt and send), circular arrow (send again) and cross (cancel) while it waits in the queue. Cancelling brings
+back **all** queued messages of the agent (that is what Up does) and empties the box, so every queued message goes, not
+only the one tapped.

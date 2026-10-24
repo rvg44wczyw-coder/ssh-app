@@ -488,3 +488,54 @@ final class FeedFileRefTests: XCTestCase {
         XCTAssertEqual(marked, ["src/lib.rs\u{0}5", "notes.md\u{0}"])
     }
 }
+
+final class FeedDeliveryTests: XCTestCase {
+    private func user(_ id: String, _ text: String, label: String? = nil) -> TranscriptTurn {
+        TranscriptTurn(id: id, stepIndex: 0, turnType: .user, timestamp: nil, content: text,
+                       thinking: nil, toolCalls: [], status: .done, label: label)
+    }
+
+    @MainActor
+    func testDeliveredSentAndQueuedMarksAreIconsOnly() {
+        let turns = [user("a", "one"), user("b", "two"), user("c", "three"),
+                     user("echo_1", "four", label: TranscriptTurn.echoSentLabel),
+                     user("echo_2", "five", label: TranscriptTurn.echoQueuedLabel)]
+        let text = FeedAttributedBuilder.build(turns: turns, expandedThinking: [], expandedTools: [], dark: false)
+        var labels: [String] = []
+        var links: [String] = []
+        text.enumerateAttributes(in: NSRange(location: 0, length: text.length)) { attrs, _, _ in
+            guard let a = attrs[.attachment] as? NSTextAttachment, let l = a.accessibilityLabel else { return }
+            labels.append(l)
+            if let url = attrs[.link] as? URL { links.append(url.host ?? "") }
+        }
+        XCTAssertEqual(labels, ["Delivered", "Delivered", "Sent", "Waiting in the agent's queue",
+                                "Interrupt and send", "Send again", "Cancel"])
+        XCTAssertEqual(links, ["resend", "resend", "cancelqueued"])
+        let plain = text.string
+        XCTAssertFalse(plain.contains("Delivered") || plain.contains("Waiting") || plain.contains("Cancel"), "no words next to the icons")
+    }
+
+    func testResendLinksRoundTrip() {
+        for toggle in [FeedToggle.resend("echo_x", interrupt: true), .resend("echo_x", interrupt: false), .cancelQueued("echo_x")] {
+            XCTAssertEqual(toggle.url.flatMap(FeedToggle.init(url:)), toggle)
+        }
+    }
+}
+
+final class AgentTraitsTests: XCTestCase {
+    func testKeysPerAgent() {
+        XCTAssertEqual(AgentTraits.claude.sendNowKeys, [0x18, 0x13])
+        XCTAssertEqual(AgentTraits.antigravity.sendNowKeys, [0x1b, 0x6d])
+        XCTAssertNil(AgentTraits.generic.sendNowKeys)
+        XCTAssertNil(AgentTraits.antigravity.acceptSuggestionKeys)
+        XCTAssertEqual(AgentTraits.claude.imageReferencePrefix, "@")
+    }
+
+    func testResolveByTabAndByWhatRunsInIt() {
+        XCTAssertEqual(AgentTraits.resolve(agentType: .claudeCode, detectedAgy: false), .claude)
+        XCTAssertEqual(AgentTraits.resolve(agentType: .antigravity, detectedAgy: false), .antigravity)
+        XCTAssertEqual(AgentTraits.resolve(agentType: .customShell, detectedAgy: true), .antigravity)
+        XCTAssertEqual(AgentTraits.resolve(agentType: .customShell, detectedAgy: false, detectedClaude: true), .claude)
+        XCTAssertEqual(AgentTraits.resolve(agentType: .customShell, detectedAgy: false), .generic)
+    }
+}

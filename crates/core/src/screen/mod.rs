@@ -230,8 +230,26 @@ fn is_box_hint(l: &str) -> bool {
 
 /// The spinner line just above the input box ("✶ Thinking… (12s · esc to interrupt)").
 fn take_status(lines: &mut Vec<String>) -> Option<String> {
-    let idx = lines.iter().rposition(|l| !l.is_empty())?;
+    let mut idx = lines.iter().rposition(|l| !l.is_empty())?;
+    // Antigravity draws its queue under the spinner ("▸ next question (alt+m to send immediately)"),
+    // a tip ("└ Tip: …") and the send-now note: they are not part of the conversation. They are cut
+    // together with the spinner line, and only when a spinner is really above them.
+    let mut cut = idx;
+    while is_agy_under_spinner(&lines[cut]) {
+        cut = lines[..cut].iter().rposition(|l| !l.is_empty())?;
+    }
+    if cut != idx {
+        if is_agy_spinner(&lines[cut]) {
+            idx = cut;
+        } else {
+            return None;
+        }
+    }
     let l = lines[idx].clone();
+    if is_agy_spinner(&l) {
+        lines.truncate(idx);
+        return Some(l.trim().to_string());
+    }
     let mut chars = l.chars();
     let first = chars.next()?;
     let rest: String = chars.collect();
@@ -249,6 +267,24 @@ fn take_status(lines: &mut Vec<String>) -> Option<String> {
         return Some(l.trim().to_string());
     }
     None
+}
+
+/// Antigravity's working line: a braille spinner, spaces, then what it is doing ("⣾  Generating...").
+fn is_agy_spinner(l: &str) -> bool {
+    let mut chars = l.chars();
+    match chars.next() {
+        Some(c) if ('\u{2800}'..='\u{28ff}').contains(&c) => {
+            let rest = chars.as_str();
+            rest.starts_with(' ') && !rest.trim().is_empty()
+        }
+        _ => false,
+    }
+}
+
+/// Lines Antigravity puts under its spinner: queued messages, the tip, the send-now note.
+fn is_agy_under_spinner(l: &str) -> bool {
+    let t = l.trim_start();
+    t.starts_with("▸ ") || t.starts_with("└ ") || t.starts_with("⎿  Sending to agent")
 }
 
 #[derive(Default)]
