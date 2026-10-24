@@ -4,7 +4,7 @@
 - **Target Release**: Milestone 32 (Enterprise Security & Cross-Device Key Management)
 - **Roles**: `doc-dev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `rev`, `hacker`
 - **Hacker Gate**: Yes (cryptographic key import, FIDO2/WebAuthn assertions, iCloud sync encryption, Secure Enclave)
-- **Status**: Reviewed and corrected (`rev`, 2026-10-20). **Implemented 2026-10-22: passphrase key import and the iCloud server sync** (section 6). Hardware keys (FIDO2) and the Secure Enclave key stay "not ready": the first needs the spike of section 2.3 with a real YubiKey, the second its own signing path. Neither can be proved without a device.
+- **Status**: (iCloud sync is superseded by spec 56: off by default, passphrase vault, selective sync.) Reviewed and corrected (`rev`, 2026-10-20). **Implemented 2026-10-22: passphrase key import and the iCloud server sync** (section 6). Hardware keys (FIDO2) and the Secure Enclave key stay "not ready": the first needs the spike of section 2.3 with a real YubiKey, the second its own signing path. Neither can be proved without a device.
 
 ---
 
