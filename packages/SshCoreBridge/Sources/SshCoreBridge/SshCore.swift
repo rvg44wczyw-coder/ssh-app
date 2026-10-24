@@ -10807,6 +10807,72 @@ public func FfiConverterTypePaneContext_lower(_ value: PaneContext) -> RustBuffe
 }
 
 
+public struct PassphraseCheck: Equatable, Hashable {
+    /**
+     * False: the passphrase is refused (too short or trivially repetitive).
+     */
+    public var acceptable: Bool
+    /**
+     * Shown to the user; may be non-empty even when `acceptable`.
+     */
+    public var warnings: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * False: the passphrase is refused (too short or trivially repetitive).
+         */acceptable: Bool, 
+        /**
+         * Shown to the user; may be non-empty even when `acceptable`.
+         */warnings: [String]) {
+        self.acceptable = acceptable
+        self.warnings = warnings
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension PassphraseCheck: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePassphraseCheck: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PassphraseCheck {
+        return
+            try PassphraseCheck(
+                acceptable: FfiConverterBool.read(from: &buf), 
+                warnings: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: PassphraseCheck, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.acceptable, into: &buf)
+        FfiConverterSequenceString.write(value.warnings, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePassphraseCheck_lift(_ buf: RustBuffer) throws -> PassphraseCheck {
+    return try FfiConverterTypePassphraseCheck.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePassphraseCheck_lower(_ value: PassphraseCheck) -> RustBuffer {
+    return FfiConverterTypePassphraseCheck.lower(value)
+}
+
+
 /**
  * One request the host hook is waiting on or an informational notice. All text fields are
  * display-safe (see the module docs).
@@ -13523,6 +13589,72 @@ public func FfiConverterTypeUsageWindow_lower(_ value: UsageWindow) -> RustBuffe
 }
 
 
+public struct VaultCreated: Equatable, Hashable {
+    /**
+     * Goes to iCloud.
+     */
+    public var container: Data
+    /**
+     * Stays on the device (local Keychain, this device only).
+     */
+    public var vaultKey: Data
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Goes to iCloud.
+         */container: Data, 
+        /**
+         * Stays on the device (local Keychain, this device only).
+         */vaultKey: Data) {
+        self.container = container
+        self.vaultKey = vaultKey
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension VaultCreated: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeVaultCreated: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> VaultCreated {
+        return
+            try VaultCreated(
+                container: FfiConverterData.read(from: &buf), 
+                vaultKey: FfiConverterData.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: VaultCreated, into buf: inout [UInt8]) {
+        FfiConverterData.write(value.container, into: &buf)
+        FfiConverterData.write(value.vaultKey, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeVaultCreated_lift(_ buf: RustBuffer) throws -> VaultCreated {
+    return try FfiConverterTypeVaultCreated.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeVaultCreated_lower(_ value: VaultCreated) -> RustBuffer {
+    return FfiConverterTypeVaultCreated.lower(value)
+}
+
+
 public struct VaultEntry: Equatable, Hashable {
     public var id: String
     public var updatedAtMs: UInt64
@@ -13582,6 +13714,68 @@ public func FfiConverterTypeVaultEntry_lift(_ buf: RustBuffer) throws -> VaultEn
 #endif
 public func FfiConverterTypeVaultEntry_lower(_ value: VaultEntry) -> RustBuffer {
     return FfiConverterTypeVaultEntry.lower(value)
+}
+
+
+public struct VaultInfo: Equatable, Hashable {
+    public var createdAtMs: UInt64
+    public var mKib: UInt32
+    public var t: UInt32
+    public var p: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(createdAtMs: UInt64, mKib: UInt32, t: UInt32, p: UInt32) {
+        self.createdAtMs = createdAtMs
+        self.mKib = mKib
+        self.t = t
+        self.p = p
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension VaultInfo: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeVaultInfo: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> VaultInfo {
+        return
+            try VaultInfo(
+                createdAtMs: FfiConverterUInt64.read(from: &buf), 
+                mKib: FfiConverterUInt32.read(from: &buf), 
+                t: FfiConverterUInt32.read(from: &buf), 
+                p: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: VaultInfo, into buf: inout [UInt8]) {
+        FfiConverterUInt64.write(value.createdAtMs, into: &buf)
+        FfiConverterUInt32.write(value.mKib, into: &buf)
+        FfiConverterUInt32.write(value.t, into: &buf)
+        FfiConverterUInt32.write(value.p, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeVaultInfo_lift(_ buf: RustBuffer) throws -> VaultInfo {
+    return try FfiConverterTypeVaultInfo.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeVaultInfo_lower(_ value: VaultInfo) -> RustBuffer {
+    return FfiConverterTypeVaultInfo.lower(value)
 }
 
 
@@ -13648,6 +13842,60 @@ public func FfiConverterTypeVaultMerge_lift(_ buf: RustBuffer) throws -> VaultMe
 #endif
 public func FfiConverterTypeVaultMerge_lower(_ value: VaultMerge) -> RustBuffer {
     return FfiConverterTypeVaultMerge.lower(value)
+}
+
+
+public struct VaultOpened: Equatable, Hashable {
+    public var updatedAtMs: UInt64
+    public var payload: Data
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(updatedAtMs: UInt64, payload: Data) {
+        self.updatedAtMs = updatedAtMs
+        self.payload = payload
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension VaultOpened: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeVaultOpened: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> VaultOpened {
+        return
+            try VaultOpened(
+                updatedAtMs: FfiConverterUInt64.read(from: &buf), 
+                payload: FfiConverterData.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: VaultOpened, into buf: inout [UInt8]) {
+        FfiConverterUInt64.write(value.updatedAtMs, into: &buf)
+        FfiConverterData.write(value.payload, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeVaultOpened_lift(_ buf: RustBuffer) throws -> VaultOpened {
+    return try FfiConverterTypeVaultOpened.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeVaultOpened_lower(_ value: VaultOpened) -> RustBuffer {
+    return FfiConverterTypeVaultOpened.lower(value)
 }
 
 
@@ -17089,6 +17337,17 @@ enum SshCoreError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
      */
     case InvalidInput(reason: String
     )
+    /**
+     * The passphrase did not open the vault container or backup file (or it is damaged: the two
+     * cannot be told apart, on purpose).
+     */
+    case VaultWrongPassphrase
+    /**
+     * A vault entry, container or backup file is malformed, of an unknown version, or its
+     * parameters are outside the accepted range.
+     */
+    case VaultDataInvalid(reason: String
+    )
     case AlreadyConnected
     case NotConnected
     case Timeout
@@ -17185,54 +17444,58 @@ public struct FfiConverterTypeSshCoreError: FfiConverterRustBuffer {
         case 11: return .InvalidInput(
             reason: try FfiConverterString.read(from: &buf)
             )
-        case 12: return .AlreadyConnected
-        case 13: return .NotConnected
-        case 14: return .Timeout
-        case 15: return .ApprovalVerificationError(
+        case 12: return .VaultWrongPassphrase
+        case 13: return .VaultDataInvalid(
             reason: try FfiConverterString.read(from: &buf)
             )
-        case 16: return .InvalidApprovalPayload(
+        case 14: return .AlreadyConnected
+        case 15: return .NotConnected
+        case 16: return .Timeout
+        case 17: return .ApprovalVerificationError(
             reason: try FfiConverterString.read(from: &buf)
             )
-        case 17: return .PortForwardFailed(
+        case 18: return .InvalidApprovalPayload(
             reason: try FfiConverterString.read(from: &buf)
             )
-        case 18: return .LocalPortInUse(
+        case 19: return .PortForwardFailed(
+            reason: try FfiConverterString.read(from: &buf)
+            )
+        case 20: return .LocalPortInUse(
             port: try FfiConverterUInt16.read(from: &buf)
             )
-        case 19: return .RemotePortRefused(
+        case 21: return .RemotePortRefused(
             port: try FfiConverterUInt16.read(from: &buf)
             )
-        case 20: return .AiAssistantError(
+        case 22: return .AiAssistantError(
             reason: try FfiConverterString.read(from: &buf)
             )
-        case 21: return .AiResponseParseError(
+        case 23: return .AiResponseParseError(
             reason: try FfiConverterString.read(from: &buf)
             )
-        case 22: return .TranscriptError(
+        case 24: return .TranscriptError(
             reason: try FfiConverterString.read(from: &buf)
             )
-        case 23: return .TranscriptTooLarge(
+        case 25: return .TranscriptTooLarge(
             bytes: try FfiConverterUInt64.read(from: &buf)
             )
-        case 24: return .InvalidTranscriptPath(
+        case 26: return .InvalidTranscriptPath(
             path: try FfiConverterString.read(from: &buf), 
             reason: try FfiConverterString.read(from: &buf)
             )
-        case 25: return .FileNotFound(
+        case 27: return .FileNotFound(
             path: try FfiConverterString.read(from: &buf)
             )
-        case 26: return .NotARegularFile(
+        case 28: return .NotARegularFile(
             path: try FfiConverterString.read(from: &buf)
             )
-        case 27: return .AlreadyExists(
+        case 29: return .AlreadyExists(
             path: try FfiConverterString.read(from: &buf)
             )
-        case 28: return .TooLarge(
+        case 30: return .TooLarge(
             limit: try FfiConverterUInt64.read(from: &buf)
             )
-        case 29: return .Cancelled
-        case 30: return .Unsupported(
+        case 31: return .Cancelled
+        case 32: return .Unsupported(
             reason: try FfiConverterString.read(from: &buf)
             )
 
@@ -17304,95 +17567,104 @@ public struct FfiConverterTypeSshCoreError: FfiConverterRustBuffer {
             FfiConverterString.write(reason, into: &buf)
             
         
-        case .AlreadyConnected:
+        case .VaultWrongPassphrase:
             writeInt(&buf, Int32(12))
         
         
-        case .NotConnected:
+        case let .VaultDataInvalid(reason):
             writeInt(&buf, Int32(13))
+            FfiConverterString.write(reason, into: &buf)
+            
         
-        
-        case .Timeout:
+        case .AlreadyConnected:
             writeInt(&buf, Int32(14))
         
         
-        case let .ApprovalVerificationError(reason):
+        case .NotConnected:
             writeInt(&buf, Int32(15))
-            FfiConverterString.write(reason, into: &buf)
-            
         
-        case let .InvalidApprovalPayload(reason):
+        
+        case .Timeout:
             writeInt(&buf, Int32(16))
-            FfiConverterString.write(reason, into: &buf)
-            
         
-        case let .PortForwardFailed(reason):
+        
+        case let .ApprovalVerificationError(reason):
             writeInt(&buf, Int32(17))
             FfiConverterString.write(reason, into: &buf)
             
         
-        case let .LocalPortInUse(port):
+        case let .InvalidApprovalPayload(reason):
             writeInt(&buf, Int32(18))
+            FfiConverterString.write(reason, into: &buf)
+            
+        
+        case let .PortForwardFailed(reason):
+            writeInt(&buf, Int32(19))
+            FfiConverterString.write(reason, into: &buf)
+            
+        
+        case let .LocalPortInUse(port):
+            writeInt(&buf, Int32(20))
             FfiConverterUInt16.write(port, into: &buf)
             
         
         case let .RemotePortRefused(port):
-            writeInt(&buf, Int32(19))
+            writeInt(&buf, Int32(21))
             FfiConverterUInt16.write(port, into: &buf)
             
         
         case let .AiAssistantError(reason):
-            writeInt(&buf, Int32(20))
-            FfiConverterString.write(reason, into: &buf)
-            
-        
-        case let .AiResponseParseError(reason):
-            writeInt(&buf, Int32(21))
-            FfiConverterString.write(reason, into: &buf)
-            
-        
-        case let .TranscriptError(reason):
             writeInt(&buf, Int32(22))
             FfiConverterString.write(reason, into: &buf)
             
         
-        case let .TranscriptTooLarge(bytes):
+        case let .AiResponseParseError(reason):
             writeInt(&buf, Int32(23))
+            FfiConverterString.write(reason, into: &buf)
+            
+        
+        case let .TranscriptError(reason):
+            writeInt(&buf, Int32(24))
+            FfiConverterString.write(reason, into: &buf)
+            
+        
+        case let .TranscriptTooLarge(bytes):
+            writeInt(&buf, Int32(25))
             FfiConverterUInt64.write(bytes, into: &buf)
             
         
         case let .InvalidTranscriptPath(path,reason):
-            writeInt(&buf, Int32(24))
+            writeInt(&buf, Int32(26))
             FfiConverterString.write(path, into: &buf)
             FfiConverterString.write(reason, into: &buf)
             
         
         case let .FileNotFound(path):
-            writeInt(&buf, Int32(25))
-            FfiConverterString.write(path, into: &buf)
-            
-        
-        case let .NotARegularFile(path):
-            writeInt(&buf, Int32(26))
-            FfiConverterString.write(path, into: &buf)
-            
-        
-        case let .AlreadyExists(path):
             writeInt(&buf, Int32(27))
             FfiConverterString.write(path, into: &buf)
             
         
-        case let .TooLarge(limit):
+        case let .NotARegularFile(path):
             writeInt(&buf, Int32(28))
+            FfiConverterString.write(path, into: &buf)
+            
+        
+        case let .AlreadyExists(path):
+            writeInt(&buf, Int32(29))
+            FfiConverterString.write(path, into: &buf)
+            
+        
+        case let .TooLarge(limit):
+            writeInt(&buf, Int32(30))
             FfiConverterUInt64.write(limit, into: &buf)
             
         
         case .Cancelled:
-            writeInt(&buf, Int32(29))
+            writeInt(&buf, Int32(31))
         
         
         case let .Unsupported(reason):
-            writeInt(&buf, Int32(30))
+            writeInt(&buf, Int32(32))
             FfiConverterString.write(reason, into: &buf)
             
         }
@@ -22233,6 +22505,131 @@ public func bundledHostHelperSizeFor(target: HostTarget) -> UInt64  {
 })
 }
 /**
+ * MAC of a tier A entry, so an entry written by someone without the vault key can be recognised.
+ */
+public func entrySign(vaultKey: Data, entry: VaultEntry)throws  -> Data  {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_entry_sign(
+        FfiConverterData.lower(vaultKey),
+        FfiConverterTypeVaultEntry_lower(entry),uniffiCallStatus
+    )
+})
+}
+/**
+ * Constant-time check of an entry's MAC.
+ */
+public func entryVerify(vaultKey: Data, entry: VaultEntry, mac: Data) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_entry_verify(
+        FfiConverterData.lower(vaultKey),
+        FfiConverterTypeVaultEntry_lower(entry),
+        FfiConverterData.lower(mac),uniffiCallStatus
+    )
+})
+}
+/**
+ * Judges a passphrase. The minimum length is enforced; the rest are warnings.
+ */
+public func passphraseStrength(passphrase: Data) -> PassphraseCheck  {
+    return try!  FfiConverterTypePassphraseCheck_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_passphrase_strength(
+        FfiConverterData.lower(passphrase),uniffiCallStatus
+    )
+})
+}
+/**
+ * Compares two typed passphrases (the confirmation field) without an early exit.
+ */
+public func passphrasesMatch(a: Data, b: Data) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_passphrases_match(
+        FfiConverterData.lower(a),
+        FfiConverterData.lower(b),uniffiCallStatus
+    )
+})
+}
+/**
+ * Reads a container's header without a passphrase (to compare two containers, or to refuse one).
+ */
+public func vaultContainerInfo(container: Data)throws  -> VaultInfo  {
+    return try  FfiConverterTypeVaultInfo_lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_vault_container_info(
+        FfiConverterData.lower(container),uniffiCallStatus
+    )
+})
+}
+/**
+ * Creates a vault: a fresh vault key wrapped by `passphrase`.
+ */
+public func vaultCreate(passphrase: Data, createdAtMs: UInt64)throws  -> VaultCreated  {
+    return try  FfiConverterTypeVaultCreated_lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_vault_create(
+        FfiConverterData.lower(passphrase),
+        FfiConverterUInt64.lower(createdAtMs),uniffiCallStatus
+    )
+})
+}
+/**
+ * Opens a sealed entry for `id`; fails if the id, the timestamp or any byte was changed.
+ */
+public func vaultOpenEntry(vaultKey: Data, id: String, sealed: Data)throws  -> VaultOpened  {
+    return try  FfiConverterTypeVaultOpened_lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_vault_open_entry(
+        FfiConverterData.lower(vaultKey),
+        FfiConverterString.lower(id),
+        FfiConverterData.lower(sealed),uniffiCallStatus
+    )
+})
+}
+/**
+ * Wraps the same vault key with a new passphrase (new salt); entries stay valid.
+ */
+public func vaultRewrap(container: Data, oldPassphrase: Data, newPassphrase: Data)throws  -> Data  {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_vault_rewrap(
+        FfiConverterData.lower(container),
+        FfiConverterData.lower(oldPassphrase),
+        FfiConverterData.lower(newPassphrase),uniffiCallStatus
+    )
+})
+}
+/**
+ * Seals one tier B payload. Layout: `version(1) | updated_at(8) | nonce(12) | ciphertext`, where
+ * the plaintext is `len(4) | payload | zero padding` up to a multiple of 1 KB. The id and the
+ * timestamp are authenticated, so an entry cannot be moved under another id or given a newer time.
+ */
+public func vaultSealEntry(vaultKey: Data, id: String, updatedAtMs: UInt64, payload: Data)throws  -> Data  {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_vault_seal_entry(
+        FfiConverterData.lower(vaultKey),
+        FfiConverterString.lower(id),
+        FfiConverterUInt64.lower(updatedAtMs),
+        FfiConverterData.lower(payload),uniffiCallStatus
+    )
+})
+}
+/**
+ * Unwraps the vault key of a container with the user's passphrase.
+ */
+public func vaultUnlock(container: Data, passphrase: Data)throws  -> Data  {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_vault_unlock(
+        FfiConverterData.lower(container),
+        FfiConverterData.lower(passphrase),uniffiCallStatus
+    )
+})
+}
+/**
  * Merges `remote` into `local`. Entries that are malformed or beyond the limits are ignored.
  */
 public func mergeVault(local: [VaultEntry], remote: [VaultEntry], nowMs: UInt64) -> VaultMerge  {
@@ -22729,6 +23126,36 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_bundled_host_helper_size_for() != 50266) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_entry_sign() != 835) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_entry_verify() != 64638) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_passphrase_strength() != 65302) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_passphrases_match() != 30015) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_vault_container_info() != 18216) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_vault_create() != 62) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_vault_open_entry() != 7587) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_vault_rewrap() != 19839) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_vault_seal_entry() != 3188) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_vault_unlock() != 62721) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_merge_vault() != 1108) {
