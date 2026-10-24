@@ -2266,6 +2266,14 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func connect(callback: SshSessionCallback) throws 
     
     /**
+     * Opens (or reopens, when the last connection is gone) the command connection of an
+     * `new_exec_only` handle. The host key must already be pinned: nothing here trusts a key on
+     * first use, since nobody is looking at a terminal to notice. Safe to call before every screen
+     * load; a live connection is kept as it is.
+     */
+    func connectExecOnly() async throws 
+    
+    /**
      * Zero Battery Drain: gracefully closes the SSH channel, port forwards, and TCP socket.
      * tmux continues running remote agent tasks detached on the MacBook.
      */
@@ -2382,6 +2390,20 @@ public convenience init(config: SessionConfig) {
         try! rustCall { uniffi_ssh_core_fn_free_sshsessionhandle(handle, $0) }
     }
 
+    
+    /**
+     * A handle for a **server** rather than a session (feature 54): it only runs commands, with no
+     * terminal, no tmux and no input stream, so the container, process, port and monitor screens
+     * work without an open session. Call `connect_exec_only` before the first command.
+     */
+public static func newExecOnly(config: RemoteServerConfig) -> SshSessionHandle  {
+    return try!  FfiConverterTypeSshSessionHandle_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_constructor_sshsessionhandle_new_exec_only(
+        FfiConverterTypeRemoteServerConfig_lower(config),uniffiCallStatus
+    )
+})
+}
     
 
     
@@ -4462,6 +4484,28 @@ open func connect(callback: SshSessionCallback)throws   {try rustCallWithError(F
         FfiConverterCallbackInterfaceSshSessionCallback_lower(callback),uniffiCallStatus
     )
 }
+}
+    
+    /**
+     * Opens (or reopens, when the last connection is gone) the command connection of an
+     * `new_exec_only` handle. The host key must already be pinned: nothing here trusts a key on
+     * first use, since nobody is looking at a terminal to notice. Safe to call before every screen
+     * load; a live connection is kept as it is.
+     */
+open func connectExecOnly()async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_connect_exec_only(
+                        self.uniffiCloneHandle()
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_void,
+            completeFunc: ffi_ssh_core_rust_future_complete_void,
+            freeFunc: ffi_ssh_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
 }
     
     /**
@@ -24200,6 +24244,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_connect() != 11069) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_connect_exec_only() != 21601) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_disconnect() != 45557) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -24240,6 +24287,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_constructor_sshsessionhandle_new() != 21965) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_constructor_sshsessionhandle_new_exec_only() != 33320) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_hostagentlistener_on_event() != 458) {
