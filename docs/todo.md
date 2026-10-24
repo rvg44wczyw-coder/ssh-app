@@ -32,7 +32,7 @@ Install with `make iphone-full` only on the owner's word. Check on the device:
 
 - [ ] Push relay: the shared secret must become a per-install App Attest before any distributed build.
 - [ ] M32: FIDO2 / YubiKey spike (needs a real key), Secure Enclave P-256 key.
-- [ ] M47: macOS app (no spec yet; `doc-dev` first; sandbox question).
+- [ ] M47: macOS app: spec `docs/features/58-macos-app.md` is ready; waits for the owner's decisions D1-D5 (Catalyst, PTY in the core, direct distribution, "This Mac" entry, Sparkle) and Intel yes/no. Phase A (Catalyst, remote half) can start on the word.
 - [ ] M28 Live Activities and M31 iPad: specs reviewed, implementation deferred by the owner.
 - [ ] M26 / M40 (`feature/mesh`, local branch): deferred.
 - [ ] Native Windows host (spec 34, W1–W7), Android stays excluded.

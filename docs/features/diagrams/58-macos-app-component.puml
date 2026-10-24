@@ -1,0 +1,23 @@
+@startuml
+skinparam componentStyle rectangle
+package "Mac app (Mac Catalyst, same SwiftUI/UIKit code)" {
+  [Sessions, feed, screens] as UI
+  [Local backend switch] as Switch
+}
+package "ssh-core (Rust, UniFFI)" {
+  [Session loop] as Loop
+  [Host calls (exec_raw)] as Exec
+  [SSH transport (russh)] as Ssh
+  [Local transport: PTY + process] as Local
+}
+cloud "Remote host" as Remote
+node "This Mac" as This
+UI --> Switch
+Switch --> Loop
+Loop --> Ssh : server = remote
+Loop --> Local : server = "This Mac"
+Exec --> Ssh
+Exec --> Local
+Ssh --> Remote
+Local --> This : tmux, shell, docker, git
+@enduml
