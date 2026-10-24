@@ -4740,3 +4740,86 @@ fn event_feed_and_stable_capture_against_loopback_sshd() {
     });
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn a_server_handle_runs_commands_without_a_session_and_refuses_an_unpinned_key() {
+    use ssh_core::{RemoteServerConfig, SshCoreError};
+    let Some(server) = start_sshd() else {
+        eprintln!("SKIP: sshd/ssh-keygen/tmux unavailable");
+        return;
+    };
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let out = Command::new("ssh-keygen")
+        .args(["-lf"])
+        .arg(server._dir.path().join("host_key.pub"))
+        .output()
+        .unwrap();
+    let real = String::from_utf8_lossy(&out.stdout)
+        .split_whitespace()
+        .nth(1)
+        .unwrap()
+        .to_string();
+    let cfg = |pin: Option<&str>| RemoteServerConfig {
+        host: "127.0.0.1".into(),
+        port: server.port,
+        username: std::env::var("USER").unwrap_or_else(|_| "root".into()),
+        private_key_pem: server.private_key.clone(),
+        pinned_host_key: pin.map(str::to_string),
+    };
+    rt.block_on(async {
+        // No pin (or an empty one): refused before any connection, nothing is trusted on first use.
+        for pin in [None, Some("")] {
+            let h = SshSessionHandle::new_exec_only(cfg(pin));
+            match h.connect_exec_only().await {
+                Err(SshCoreError::ConnectionError { reason }) => {
+                    assert!(reason.contains("not pinned"), "{reason}")
+                }
+                other => panic!("expected a refusal, got {other:?}"),
+            }
+            assert_eq!(
+                h.execute_command_on_active_session("echo x".into())
+                    .await
+                    .unwrap_err(),
+                SshCoreError::NotConnected
+            );
+        }
+
+        // A wrong pin is refused as a changed key.
+        let wrong = "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+        let bad = SshSessionHandle::new_exec_only(cfg(Some(wrong)));
+        assert!(matches!(
+            bad.connect_exec_only().await,
+            Err(SshCoreError::HostKeyChanged { .. })
+        ));
+
+        // The right pin: commands run, a second connect keeps the live connection.
+        let h = SshSessionHandle::new_exec_only(cfg(Some(&real)));
+        h.connect_exec_only().await.unwrap();
+        assert!(h
+            .execute_command_on_active_session("echo server-level".into())
+            .await
+            .unwrap()
+            .contains("server-level"));
+        h.connect_exec_only().await.unwrap();
+        assert_eq!(h.host_key_fingerprint().as_deref(), Some(real.as_str()));
+
+        // Closed (as on backgrounding or after the idle time): nothing runs, and it opens again.
+        h.disconnect();
+        assert_eq!(
+            h.execute_command_on_active_session("echo gone".into())
+                .await
+                .unwrap_err(),
+            SshCoreError::NotConnected
+        );
+        h.connect_exec_only().await.unwrap();
+        assert!(h
+            .execute_command_on_active_session("echo back".into())
+            .await
+            .unwrap()
+            .contains("back"));
+        h.disconnect();
+    });
+}

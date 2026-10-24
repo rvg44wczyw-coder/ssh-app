@@ -103,6 +103,62 @@ impl SshSessionHandle {
         })
     }
 
+    /// A handle for a **server** rather than a session (feature 54): it only runs commands, with no
+    /// terminal, no tmux and no input stream, so the container, process, port and monitor screens
+    /// work without an open session. Call `connect_exec_only` before the first command.
+    #[uniffi::constructor]
+    pub fn new_exec_only(config: RemoteServerConfig) -> Arc<Self> {
+        Self::new(SessionConfig {
+            host: config.host,
+            port: config.port,
+            username: config.username,
+            private_key_pem: config.private_key_pem,
+            session_name: String::new(),
+            initial_cols: 80,
+            initial_rows: 24,
+            command: None,
+            start_dir: None,
+            pinned_host_key: config.pinned_host_key,
+            multiplexer: Default::default(),
+        })
+    }
+
+    /// Opens (or reopens, when the last connection is gone) the command connection of an
+    /// `new_exec_only` handle. The host key must already be pinned: nothing here trusts a key on
+    /// first use, since nobody is looking at a terminal to notice. Safe to call before every screen
+    /// load; a live connection is kept as it is.
+    pub async fn connect_exec_only(&self) -> Result<(), SshCoreError> {
+        let config = read_ok(&self.config).clone();
+        let Some(pin) = config.pinned_host_key.as_deref().filter(|p| !p.is_empty()) else {
+            return Err(SshCoreError::ConnectionError {
+                reason: "The host key of this server is not pinned yet: connect a session once"
+                    .to_string(),
+            });
+        };
+        let mut slot = self.ssh_client.lock().await;
+        if slot.as_ref().is_some_and(|h| !h.is_closed()) {
+            return Ok(());
+        }
+        *slot = None;
+        let conn = connect_authenticated(
+            &Endpoint {
+                host: &config.host,
+                port: config.port,
+                username: &config.username,
+                private_key_pem: &config.private_key_pem,
+                pinned_host_key: Some(pin),
+            },
+            Duration::from_secs(15),
+            3,
+        )
+        .await?;
+        *self.host_key.lock_ok() = Some(conn.host_key.clone());
+        *slot = Some(conn.handle);
+        drop(slot);
+        self.set_state(SessionState::Connected);
+        Ok(())
+    }
+
     /// Establishes the SSH connection, launches tmux, and starts streaming I/O.
     pub fn connect(&self, callback: Box<dyn SshSessionCallback>) -> Result<(), SshCoreError> {
         if self.is_connected.load(Ordering::SeqCst) {
