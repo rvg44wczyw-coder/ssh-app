@@ -90,6 +90,9 @@ public struct MainTerminalView: View {
     @State private var attentionTick = 0
     /// A full screen of one server (containers, processes, monitor), opened from the sessions screen.
     @State private var serverScreen: ServerScreenRoute?
+    /// The server whose own connection the open screen holds (released when the screen closes).
+    @State private var heldServer: UUID?
+    @State private var serverScreenError: String?
     @State private var unreadRound = 0
     /// Chat and command state of the AI assistant, one per server (outlives tabs and the screen).
     @StateObject var assistants = AssistantStore()
@@ -160,8 +163,30 @@ public struct MainTerminalView: View {
             (t.serverId ?? serversManager.activeProfile?.id) == server
                 && tabsManager.sessionStates[t.id] == .connected
         }
-        guard let tab, let vm = tabsManager.viewModel(for: tab.id) else { return }
-        serverScreen = ServerScreenRoute(screen: screen, viewModel: vm)
+        if let tab, let vm = tabsManager.viewModel(for: tab.id) {
+            serverScreen = ServerScreenRoute(screen: screen, viewModel: vm)
+            return
+        }
+        // No session on this server: the screen runs on the server's own short connection.
+        guard let profile = serversManager.profile(for: server) ?? serversManager.activeProfile, profile.id == server else { return }
+        Task {
+            guard let vm = await ServerConnections.shared.acquire(profile) else {
+                serverScreenError = "Connect a session on \(profile.name) once so its host key is pinned."
+                return
+            }
+            if case .failed(let reason) = vm.state {
+                ServerConnections.shared.release(profile.id)
+                serverScreenError = reason
+                return
+            }
+            heldServer = profile.id
+            serverScreen = ServerScreenRoute(screen: screen, viewModel: vm)
+        }
+    }
+
+    private func releaseServerScreen() {
+        if let id = heldServer { ServerConnections.shared.release(id) }
+        heldServer = nil
     }
 
     /// Asks a connected session of the server which runtimes its host has (feeds the server buttons).
@@ -474,6 +499,7 @@ public struct MainTerminalView: View {
                     servers: serversManager.profiles.map { (id: $0.id, name: $0.name) },
                     serverOf: { $0.serverId ?? serversManager.activeProfile?.id },
                     probeRuntimes: { server in await probeServerRuntimes(server) },
+                    canOpenScreens: { server in ServerConnections.canOpen(serversManager.profile(for: server)) },
                     onServerScreen: { server, screen in openServerScreen(server, screen) }
                 )
                 }
@@ -654,8 +680,13 @@ public struct MainTerminalView: View {
                 }
                 }
             }
-            .sheet(item: $serverScreen) { route in
+            .sheet(item: $serverScreen, onDismiss: { releaseServerScreen() }) { route in
                 HostTelemetrySheetView(viewModel: route.viewModel, screen: route.screen) { serverScreen = nil }
+            }
+            .alert("Cannot open the server", isPresented: Binding(get: { serverScreenError != nil }, set: { if !$0 { serverScreenError = nil } })) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(serverScreenError ?? "")
             }
             .sheet(isPresented: $showPaywall) {
                 PaywallView(reason: "The free version keeps up to \(FreeTier.maxSessions) open sessions. Pro removes the limit.")
@@ -1057,10 +1088,12 @@ public struct MainTerminalView: View {
             approvals.stop()
             assistants.interruptAll()
             tabsManager.disconnectAllForBackground()
+            ServerConnections.shared.closeAll()
         case .active:
             // Fast resume: instantaneously reconnect socket and re-attach to active tmux session
             tabsManager.reconnectActiveOnForeground()
             startApprovalPolling()
+            Task { await ServerConnections.shared.reconnectOpen() }
         case .inactive:
             break
         @unknown default:

@@ -1,6 +1,6 @@
 # Feature 54: Server-level screens (sessions grouped by server, container and process monitors)
 
-- **Status**: UI, probes and Ports implemented 2026-10-23 (findings: `docs/security-findings/2026-10-23-ports-and-probes.md`). Open: the server's own SSH connection (screens still use a connected session of the server), Kubernetes actions beyond read.
+- **Status**: UI, probes and Ports implemented 2026-10-23 (findings: `docs/security-findings/2026-10-23-ports-and-probes.md`). The server's own connection implemented 2026-10-24 (exec-only handle, pinned host key required, closed 15 s after the last screen and in the background; findings `docs/security-findings/2026-10-24-server-connection.md`), device run pending. Open: Kubernetes actions beyond read.
 - **Design**: Liquid Glass throughout; system `List`, `Section`, `Menu`, `glassEffect` buttons.
 
 ## 1. Purpose

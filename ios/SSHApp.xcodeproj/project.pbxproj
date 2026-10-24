@@ -68,6 +68,7 @@
 		AA9F0086 /* BackupController.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB9F0086 /* BackupController.swift */; };
 		AA9F0087 /* SettingsBackupPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB9F0087 /* SettingsBackupPage.swift */; };
 		AA9F0088 /* VaultExtras.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB9F0088 /* VaultExtras.swift */; };
+		AA9F0089 /* ServerConnections.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB9F0089 /* ServerConnections.swift */; };
 		AA9F0073 /* SyncSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB9F0073 /* SyncSettingsView.swift */; };
 		AA9F0072 /* Biometrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB9F0072 /* Biometrics.swift */; };
 		AA9F0071 /* VaultSecrets.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB9F0071 /* VaultSecrets.swift */; };
@@ -163,6 +164,7 @@
 		BB9F0086 /* BackupController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/BackupController.swift; sourceTree = "<group>"; };
 		BB9F0087 /* SettingsBackupPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/SettingsBackupPage.swift; sourceTree = "<group>"; };
 		BB9F0088 /* VaultExtras.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/VaultExtras.swift; sourceTree = "<group>"; };
+		BB9F0089 /* ServerConnections.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ServerConnections.swift; sourceTree = "<group>"; };
 		BB9F0073 /* SyncSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/SyncSettingsView.swift; sourceTree = "<group>"; };
 		BB9F0072 /* Biometrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Biometrics.swift; sourceTree = "<group>"; };
 		BB9F0071 /* VaultSecrets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/VaultSecrets.swift; sourceTree = "<group>"; };
@@ -414,6 +416,7 @@
 				BB9F0086 /* BackupController.swift */,
 				BB9F0087 /* SettingsBackupPage.swift */,
 				BB9F0088 /* VaultExtras.swift */,
+				BB9F0089 /* ServerConnections.swift */,
 				BB9F0073 /* SyncSettingsView.swift */,
 				BB9F0072 /* Biometrics.swift */,
 				BB9F0071 /* VaultSecrets.swift */,
@@ -680,6 +683,7 @@
 				AA9F0086 /* BackupController.swift in Sources */,
 				AA9F0087 /* SettingsBackupPage.swift in Sources */,
 				AA9F0088 /* VaultExtras.swift in Sources */,
+				AA9F0089 /* ServerConnections.swift in Sources */,
 				AA9F0073 /* SyncSettingsView.swift in Sources */,
 				AA9F0072 /* Biometrics.swift in Sources */,
 				AA9F0071 /* VaultSecrets.swift in Sources */,

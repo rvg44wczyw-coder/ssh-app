@@ -558,8 +558,7 @@ enum FeedAttributedBuilder {
                 i += 1
                 if let c = turn.content, !c.isEmpty {
                     if out.length > 0 { gap(out, blockGap) }   // air between the agent's text and your message
-                    appendUser(turn, c, into: out, expandedTools)
-                    appendDelivery(turn, delivered: delivered.contains(turn.id), into: out)
+                    appendUser(turn, c, into: out, expandedTools, delivered: delivered.contains(turn.id))
                 }
             case .system:
                 // Service entries (hooks, attachments, durations, checkpoints) in a row: ONE folded line.
@@ -640,18 +639,7 @@ enum FeedAttributedBuilder {
     private static func appendAssistant(_ turn: TranscriptTurn, into out: NSMutableAttributedString,
                                         _ expandedThinking: Set<String>, _ expandedTools: Set<String>, _ dark: Bool,
                                         nextIsTool: Bool = false) {
-        if let thinking = turn.thinking, !thinking.isEmpty {
-            let open = expandedThinking.contains(turn.id)
-            let t = line("∴ Thinking…\n", font: italic(mono()), color: .tertiaryLabel, after: 2)
-            if let url = FeedToggle.thinking(turn.id).url {
-                t.addAttribute(.link, value: url, range: NSRange(location: 0, length: t.length - 1))
-            }
-            out.append(t)
-            if open {
-                out.append(line(thinking + "\n", font: italic(mono(size: 12.5)), color: .tertiaryLabel,
-                                indent: 14, first: 14, after: 6))
-            }
-        }
+        // The model's thinking is not shown: the light bar under the input is the working indicator.
         if let content = turn.content, !content.isEmpty {
             var first = true
             let from = out.length
@@ -723,10 +711,16 @@ enum FeedAttributedBuilder {
 
     /// The user's message as a chat bubble pinned to the right (about three quarters of the width).
     private static func appendUser(_ turn: TranscriptTurn, _ content: String, into out: NSMutableAttributedString,
-                                   _ expandedTools: Set<String>) {
+                                   _ expandedTools: Set<String>, delivered: Bool) {
         // Your message is a bubble pinned to the right (about 3/4 of the width); the text inside starts at its left edge.
         let margin = (width * 0.25).rounded()
-        for (i, part) in FeedXML.parts(content).enumerated() {
+        let parts = FeedXML.parts(content)
+        // The delivery icons sit inside the bubble of the last text part, at its bottom right.
+        let lastText = parts.lastIndex { part in
+            if case .text(let t) = part { return !t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            return false
+        }
+        for (i, part) in parts.enumerated() {
             switch part {
             case .text(let text):
                 let body = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -736,6 +730,7 @@ enum FeedAttributedBuilder {
                 out.append(NSAttributedString(string: body + "\n", attributes: [
                     .font: Self.body(), .foregroundColor: UIColor.label, .paragraphStyle: p,
                 ]))
+                if i == lastText, let icons = deliveryLine(turn, delivered: delivered, margin: margin) { out.append(icons) }
                 block(out, from: from, kind: "u\(Int(margin))")
                 gap(out, blockGap + 2)
             case .tags(let tags):
@@ -745,16 +740,20 @@ enum FeedAttributedBuilder {
         }
     }
 
-    /// The small line under one of your latest messages, icons only: a check (delivered), an arrow
-    /// (sent), or a clock with three buttons while it waits in the agent's queue: bolt (interrupt and
-    /// send), circular arrow (send again), cross (cancel).
-    private static func appendDelivery(_ turn: TranscriptTurn, delivered: Bool, into out: NSMutableAttributedString) {
+    /// The last line inside the bubble of one of your latest messages, at its bottom right, icons
+    /// only: a check (delivered), an arrow (sent), or a clock with three buttons while it waits in
+    /// the agent's queue: bolt (interrupt and send), circular arrow (send again), cross (cancel).
+    /// Nil when there is nothing to show.
+    private static func deliveryLine(_ turn: TranscriptTurn, delivered: Bool, margin: CGFloat) -> NSAttributedString? {
         let right = NSMutableParagraphStyle()
         right.alignment = .right
-        right.paragraphSpacing = 10
-        let font = UIFont.systemFont(ofSize: 14)
+        right.headIndent = margin
+        right.firstLineHeadIndent = margin
+        right.tailIndent = -8
+        right.paragraphSpacing = 4
+        let font = UIFont.systemFont(ofSize: 13)
         func icon(_ name: String, _ color: UIColor, label: String, link: URL? = nil) -> NSAttributedString {
-            let config = UIImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
+            let config = UIImage.SymbolConfiguration(pointSize: 13, weight: .semibold)
             let attachment = NSTextAttachment()
             attachment.image = UIImage(systemName: name, withConfiguration: config)?.withTintColor(color, renderingMode: .alwaysOriginal)
             attachment.accessibilityLabel = label
@@ -779,11 +778,11 @@ enum FeedAttributedBuilder {
             line.append(gap())
             line.append(icon("xmark.circle.fill", .systemRed, label: "Cancel", link: FeedToggle.cancelQueued(turn.id).url))
         default:
-            guard delivered else { return }
+            guard delivered else { return nil }
             line.append(icon("checkmark", .tertiaryLabel, label: "Delivered"))
         }
         line.append(NSAttributedString(string: "\n", attributes: [.font: font, .paragraphStyle: right]))
-        out.append(line)
+        return line
     }
 
     /// A run of XML-ish blocks (`<system-reminder>…</system-reminder>`, `<command-name>…`) as ONE dim line

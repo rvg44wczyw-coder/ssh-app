@@ -35,6 +35,8 @@ struct SessionsHomeView: View {
     var serverOf: (TabSession) -> UUID? = { $0.serverId }
     /// Which runtimes a server's host has (`nil`: could not ask). Containers and Kubernetes are hidden when it found none.
     var probeRuntimes: (UUID) async -> [ContainerRuntime]? = { _ in nil }
+    /// A server without a connected session can still open its screens (key present, host key pinned).
+    var canOpenScreens: (UUID) -> Bool = { _ in false }
     /// Opens a full screen of the server (containers, processes, host monitor).
     var onServerScreen: (UUID, HostScreen) -> Void = { _, _ in }
     /// Opens the containers screen on Kubernetes pods (the runtime is remembered per server).
@@ -120,10 +122,12 @@ struct SessionsHomeView: View {
     @ViewBuilder
     private func serverSection(_ server: (id: UUID, name: String), addCardHere: Bool) -> some View {
         let mine = sessions.filter { serverOf($0) == server.id }
-        let connected = mine.contains { (states[$0.id] ?? .disconnected) == .connected }
+        let hasSession = mine.contains { (states[$0.id] ?? .disconnected) == .connected }
+        // The screens open over a live session, or over their own short connection of the server.
+        let connected = hasSession || canOpenScreens(server.id)
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                Circle().fill(connected ? Color.green : Color.gray).frame(width: 8, height: 8)
+                Circle().fill(hasSession ? Color.green : Color.gray).frame(width: 8, height: 8)
                 Text(server.name).font(.headline).lineLimit(1)
                 Spacer(minLength: 0)
             }
@@ -149,7 +153,7 @@ struct SessionsHomeView: View {
                 }
             }
             if !connected {
-                Text("Open a session on this server to use its screens.")
+                Text("Connect a session on this server once: its host key is pinned then, and the screens open without a session.")
                     .font(.caption2).foregroundColor(.secondary)
             }
             if !mine.isEmpty {

@@ -236,6 +236,36 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         }
     }
 
+    /// Server-level mode (feature 54): a command connection with no terminal, tmux or input stream,
+    /// for the screens of a server that has no connected session. The host key must be pinned; the
+    /// core refuses to connect without it. Safe to call again: a live connection is kept.
+    public func connectForServer(host: String, port: UInt16, username: String, privateKeyPEM: String) async {
+        hostKey = HostTargetCache.key(host: host, port: port, username: username)
+        if hostTarget == nil { hostTarget = HostTargetCache.target(forKey: hostKey) }
+        guard let pin = pinnedHostKey, !pin.isEmpty else {
+            state = .failed(reason: "The host key of this server is not pinned yet: connect a session once")
+            return
+        }
+        if handle == nil {
+            handle = SshSessionHandle.newExecOnly(config: RemoteServerConfig(
+                host: host, port: port, username: username, privateKeyPem: privateKeyPEM, pinnedHostKey: pin))
+        }
+        guard let handle else { return }
+        if state != .connected { state = .connecting }
+        do {
+            try await handle.connectExecOnly()
+            state = .connected
+        } catch {
+            state = .failed(reason: error.localizedDescription)
+        }
+    }
+
+    /// Closes the command connection of server-level mode (the model stays for the next open).
+    public func disconnectServer() {
+        handle?.disconnect()
+        state = .disconnected
+    }
+
     /// tmux unless the server prefers Zellij (and it is there) or tmux is not installed at all.
     /// One short connection per host and app run; any failure means tmux, as before.
     private func chooseMultiplexer(host: String, port: UInt16, username: String, privateKeyPEM: String) async -> MultiplexerKind {

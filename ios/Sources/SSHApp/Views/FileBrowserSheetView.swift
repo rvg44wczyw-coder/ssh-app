@@ -243,6 +243,8 @@ struct FilePreviewView: View {
     @AppStorage(SyntaxSettings.enabledKey) private var syntaxOn = true
     @AppStorage(SyntaxSettings.themeKey) private var syntaxTheme = SyntaxTheme.auto.rawValue
     @AppStorage(SyntaxSettings.maxKBKey) private var syntaxMaxKB = 200
+    /// Long lines break at word boundaries instead of scrolling sideways.
+    @AppStorage("file_preview_wrap") private var wrap = false
     @State private var highlighted: [HighlightedLine]?
     /// The line to bring into view and mark (a file opened from a mention in the feed).
     var focusLine: Int? = nil
@@ -252,7 +254,7 @@ struct FilePreviewView: View {
             Group {
                 if let preview = viewModel.filePreview {
                     ScrollViewReader { proxy in
-                    ScrollView([.vertical, .horizontal]) {
+                    ScrollView(wrap ? [.vertical] : [.vertical, .horizontal]) {
                         let lines = preview.content.components(separatedBy: "\n")
                         let shown = max(500, (focusLine ?? 0) + 200)
                         VStack(alignment: .leading, spacing: 0) {
@@ -263,8 +265,12 @@ struct FilePreviewView: View {
                                         .frame(width: 36, alignment: .trailing)
                                     if let h = highlighted, idx < h.count, !line.isEmpty {
                                         Text(h[idx].attributed())
+                                            .frame(maxWidth: wrap ? .infinity : nil, alignment: .leading)
+                                            .fixedSize(horizontal: !wrap, vertical: true)
                                     } else {
                                         Text(line.isEmpty ? " " : line)
+                                            .frame(maxWidth: wrap ? .infinity : nil, alignment: .leading)
+                                            .fixedSize(horizontal: !wrap, vertical: true)
                                     }
                                 }
                                 .font(.system(size: 12, design: .monospaced))
@@ -314,6 +320,8 @@ struct FilePreviewView: View {
                 }
                 ToolbarItemGroup(placement: .primaryAction) {
                     if let preview = viewModel.filePreview, !preview.isBinary {
+                        Toggle(isOn: $wrap) { Label("Wrap lines", systemImage: "text.word.spacing") }
+                            .toggleStyle(.button)
                         Button("Copy") {
                             #if canImport(UIKit)
                             UIPasteboard.general.string = preview.content

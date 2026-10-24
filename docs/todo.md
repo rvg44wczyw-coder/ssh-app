@@ -15,6 +15,7 @@ Install with `make iphone-full` only on the owner's word. Check on the device:
 - [ ] M46 hooks screen; M44 feed (Claude, agy, subagents); delivery marks and queue actions; file links; pinch zoom; light bar.
 - [ ] M21, M27, M30 (PNG/SVG share), M33, M34, M37, M38, M39, M41, M42, M43 (see their roadmap rows).
 - [ ] Reduce Transparency on the glass screens (the simulator cannot switch it).
+- [ ] M43 server's own connection: open Containers/Processes/Ports/Monitor on a server with no tab, background close, return to the app.
 - [ ] Push relay T4 on the iPhone.
 - [ ] Files extension, Watch registration and Developer Mode.
 - [ ] M33: one continuous onboarding wizard and colour blocks for the host fingerprint (the spec says after a device run).
@@ -31,7 +32,6 @@ Install with `make iphone-full` only on the owner's word. Check on the device:
 
 - [ ] Push relay: the shared secret must become a per-install App Attest before any distributed build.
 - [ ] M32: FIDO2 / YubiKey spike (needs a real key), Secure Enclave P-256 key.
-- [ ] M43: the server's own SSH connection for the server-level screens. Today every screen (Containers, Processes, Ports, Monitor) calls through a session's view model, so this needs a session-less exec handle in the core and a connection lifecycle that respects Zero Battery Drain (connect when a screen opens, close on leaving or backgrounding). A design step first.
 - [ ] M47: macOS app (no spec yet; `doc-dev` first; sandbox question).
 - [ ] M28 Live Activities and M31 iPad: specs reviewed, implementation deferred by the owner.
 - [ ] M26 / M40 (`feature/mesh`, local branch): deferred.
