@@ -6295,6 +6295,144 @@ public func FfiConverterTypeAutoTrustRules_lower(_ value: AutoTrustRules) -> Rus
 
 
 /**
+ * What a backup file holds, after it was checked.
+ */
+public struct BackupContents: Equatable, Hashable {
+    public var createdAtMs: UInt64
+    public var appVersion: String
+    /**
+     * The file was encrypted (a passphrase was needed to read it).
+     */
+    public var encrypted: Bool
+    public var groups: [BackupGroup]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(createdAtMs: UInt64, appVersion: String, 
+        /**
+         * The file was encrypted (a passphrase was needed to read it).
+         */encrypted: Bool, groups: [BackupGroup]) {
+        self.createdAtMs = createdAtMs
+        self.appVersion = appVersion
+        self.encrypted = encrypted
+        self.groups = groups
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension BackupContents: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeBackupContents: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> BackupContents {
+        return
+            try BackupContents(
+                createdAtMs: FfiConverterUInt64.read(from: &buf), 
+                appVersion: FfiConverterString.read(from: &buf), 
+                encrypted: FfiConverterBool.read(from: &buf), 
+                groups: FfiConverterSequenceTypeBackupGroup.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: BackupContents, into buf: inout [UInt8]) {
+        FfiConverterUInt64.write(value.createdAtMs, into: &buf)
+        FfiConverterString.write(value.appVersion, into: &buf)
+        FfiConverterBool.write(value.encrypted, into: &buf)
+        FfiConverterSequenceTypeBackupGroup.write(value.groups, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeBackupContents_lift(_ buf: RustBuffer) throws -> BackupContents {
+    return try FfiConverterTypeBackupContents.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeBackupContents_lower(_ value: BackupContents) -> RustBuffer {
+    return FfiConverterTypeBackupContents.lower(value)
+}
+
+
+/**
+ * One group of a backup: `id` names it (`servers`, `profiles`, ...), `json` is its content as JSON text.
+ */
+public struct BackupGroup: Equatable, Hashable {
+    public var id: String
+    /**
+     * Holds secrets: forces the whole file to be encrypted.
+     */
+    public var secret: Bool
+    public var json: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, 
+        /**
+         * Holds secrets: forces the whole file to be encrypted.
+         */secret: Bool, json: String) {
+        self.id = id
+        self.secret = secret
+        self.json = json
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension BackupGroup: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeBackupGroup: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> BackupGroup {
+        return
+            try BackupGroup(
+                id: FfiConverterString.read(from: &buf), 
+                secret: FfiConverterBool.read(from: &buf), 
+                json: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: BackupGroup, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterBool.write(value.secret, into: &buf)
+        FfiConverterString.write(value.json, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeBackupGroup_lift(_ buf: RustBuffer) throws -> BackupGroup {
+    return try FfiConverterTypeBackupGroup.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeBackupGroup_lower(_ value: BackupGroup) -> RustBuffer {
+    return FfiConverterTypeBackupGroup.lower(value)
+}
+
+
+/**
  * Canonical signing payload representation for agent approvals.
  */
 public struct CanonicalSigningPayload: Equatable, Hashable {
@@ -19946,6 +20084,31 @@ fileprivate struct FfiConverterSequenceTypeAutoTrust: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeBackupGroup: FfiConverterRustBuffer {
+    typealias SwiftType = [BackupGroup]
+
+    public static func write(_ value: [BackupGroup], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeBackupGroup.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [BackupGroup] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [BackupGroup]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeBackupGroup.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeChatMessage: FfiConverterRustBuffer {
     typealias SwiftType = [ChatMessage]
 
@@ -21787,6 +21950,44 @@ public func createTrustSigningBytes(id: String, nonce: String, ts: UInt64, expir
 })
 }
 /**
+ * Builds a backup file. A secret group needs `passphrase` (the same minimum as the vault's).
+ */
+public func backupExport(groups: [BackupGroup], passphrase: Data?, createdAtMs: UInt64, appVersion: String)throws  -> Data  {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_backup_export(
+        FfiConverterSequenceTypeBackupGroup.lower(groups),
+        FfiConverterOptionData.lower(passphrase),
+        FfiConverterUInt64.lower(createdAtMs),
+        FfiConverterString.lower(appVersion),uniffiCallStatus
+    )
+})
+}
+/**
+ * Whether a file is an encrypted backup (so the app knows to ask for the passphrase).
+ */
+public func backupIsEncrypted(file: Data) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_backup_is_encrypted(
+        FfiConverterData.lower(file),uniffiCallStatus
+    )
+})
+}
+/**
+ * Reads and checks a backup file. For an encrypted one `passphrase` is needed; a wrong one and a
+ * damaged file give the same error. Nothing is applied: the app shows the preview first.
+ */
+public func backupOpen(file: Data, passphrase: Data?)throws  -> BackupContents  {
+    return try  FfiConverterTypeBackupContents_lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_backup_open(
+        FfiConverterData.lower(file),
+        FfiConverterOptionData.lower(passphrase),uniffiCallStatus
+    )
+})
+}
+/**
  * The default document.
  */
 public func defaultAppConfig() -> AppConfigRoot  {
@@ -23277,6 +23478,15 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_create_trust_signing_bytes() != 55888) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_backup_export() != 46443) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_backup_is_encrypted() != 45560) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_backup_open() != 34745) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_default_app_config() != 60224) {
