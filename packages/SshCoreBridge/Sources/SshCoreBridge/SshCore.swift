@@ -8991,6 +8991,228 @@ public func FfiConverterTypeGitWorktreesResult_lower(_ value: GitWorktreesResult
 }
 
 
+/**
+ * What an event is, for the hooks screen (texts live here so the phone does not repeat them).
+ */
+public struct HookEventInfo: Equatable, Hashable {
+    public var title: String
+    public var summary: String
+    /**
+     * The event can approve or block an action (so "stop on failure" means something).
+     */
+    public var canBlock: Bool
+    public var takesMatcher: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(title: String, summary: String, 
+        /**
+         * The event can approve or block an action (so "stop on failure" means something).
+         */canBlock: Bool, takesMatcher: Bool) {
+        self.title = title
+        self.summary = summary
+        self.canBlock = canBlock
+        self.takesMatcher = takesMatcher
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension HookEventInfo: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHookEventInfo: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HookEventInfo {
+        return
+            try HookEventInfo(
+                title: FfiConverterString.read(from: &buf), 
+                summary: FfiConverterString.read(from: &buf), 
+                canBlock: FfiConverterBool.read(from: &buf), 
+                takesMatcher: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: HookEventInfo, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.title, into: &buf)
+        FfiConverterString.write(value.summary, into: &buf)
+        FfiConverterBool.write(value.canBlock, into: &buf)
+        FfiConverterBool.write(value.takesMatcher, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHookEventInfo_lift(_ buf: RustBuffer) throws -> HookEventInfo {
+    return try FfiConverterTypeHookEventInfo.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHookEventInfo_lower(_ value: HookEventInfo) -> RustBuffer {
+    return FfiConverterTypeHookEventInfo.lower(value)
+}
+
+
+/**
+ * A command the user adds to one event of the ssh-app hook (`PhoneApproval` / `NotifyOnly`). The
+ * agent runs a small wrapper that runs this command and the ssh-app hook in the chosen order,
+ * with the event JSON on stdin of both.
+ */
+public struct HookExtra: Equatable, Hashable {
+    public var event: String
+    public var command: String
+    public var order: HookExtraOrder
+    /**
+     * `Before` on a blocking event only: a failing command denies the action and skips the hook.
+     */
+    public var stopOnFailure: Bool
+    /**
+     * 1 to 60 seconds; a command still running then is killed and counts as failed.
+     */
+    public var timeoutSecs: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(event: String, command: String, order: HookExtraOrder, 
+        /**
+         * `Before` on a blocking event only: a failing command denies the action and skips the hook.
+         */stopOnFailure: Bool, 
+        /**
+         * 1 to 60 seconds; a command still running then is killed and counts as failed.
+         */timeoutSecs: UInt32) {
+        self.event = event
+        self.command = command
+        self.order = order
+        self.stopOnFailure = stopOnFailure
+        self.timeoutSecs = timeoutSecs
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension HookExtra: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHookExtra: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HookExtra {
+        return
+            try HookExtra(
+                event: FfiConverterString.read(from: &buf), 
+                command: FfiConverterString.read(from: &buf), 
+                order: FfiConverterTypeHookExtraOrder.read(from: &buf), 
+                stopOnFailure: FfiConverterBool.read(from: &buf), 
+                timeoutSecs: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: HookExtra, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.event, into: &buf)
+        FfiConverterString.write(value.command, into: &buf)
+        FfiConverterTypeHookExtraOrder.write(value.order, into: &buf)
+        FfiConverterBool.write(value.stopOnFailure, into: &buf)
+        FfiConverterUInt32.write(value.timeoutSecs, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHookExtra_lift(_ buf: RustBuffer) throws -> HookExtra {
+    return try FfiConverterTypeHookExtra.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHookExtra_lower(_ value: HookExtra) -> RustBuffer {
+    return FfiConverterTypeHookExtra.lower(value)
+}
+
+
+/**
+ * The user's own command for one event, installed next to (never instead of) the other events'
+ * ssh-app hooks. The event must not also be one of the ssh-app events of the preset.
+ */
+public struct HookOwn: Equatable, Hashable {
+    public var event: String
+    public var command: String
+    /**
+     * Tool matcher for tool events; empty = the agent's default.
+     */
+    public var matcher: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(event: String, command: String, 
+        /**
+         * Tool matcher for tool events; empty = the agent's default.
+         */matcher: String) {
+        self.event = event
+        self.command = command
+        self.matcher = matcher
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension HookOwn: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHookOwn: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HookOwn {
+        return
+            try HookOwn(
+                event: FfiConverterString.read(from: &buf), 
+                command: FfiConverterString.read(from: &buf), 
+                matcher: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: HookOwn, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.event, into: &buf)
+        FfiConverterString.write(value.command, into: &buf)
+        FfiConverterString.write(value.matcher, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHookOwn_lift(_ buf: RustBuffer) throws -> HookOwn {
+    return try FfiConverterTypeHookOwn.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHookOwn_lower(_ value: HookOwn) -> RustBuffer {
+    return FfiConverterTypeHookOwn.lower(value)
+}
+
+
 public struct HookPreset: Equatable, Hashable {
     public var kind: HookPresetKind
     /**
@@ -9013,6 +9235,14 @@ public struct HookPreset: Equatable, Hashable {
      * `PhoneApproval` / `NotifyOnly`: events to install, a subset of the preset's own; empty = all of them.
      */
     public var approvalEvents: [String]
+    /**
+     * `PhoneApproval` / `NotifyOnly`: extra commands, at most one per event of the preset.
+     */
+    public var extras: [HookExtra]
+    /**
+     * Any kind but `Custom`: the user's own command for events the preset does not install.
+     */
+    public var own: [HookOwn]
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -9031,13 +9261,21 @@ public struct HookPreset: Equatable, Hashable {
          */approvalMatcher: String, 
         /**
          * `PhoneApproval` / `NotifyOnly`: events to install, a subset of the preset's own; empty = all of them.
-         */approvalEvents: [String]) {
+         */approvalEvents: [String], 
+        /**
+         * `PhoneApproval` / `NotifyOnly`: extra commands, at most one per event of the preset.
+         */extras: [HookExtra], 
+        /**
+         * Any kind but `Custom`: the user's own command for events the preset does not install.
+         */own: [HookOwn]) {
         self.kind = kind
         self.customCommand = customCommand
         self.customEvents = customEvents
         self.customMatcher = customMatcher
         self.approvalMatcher = approvalMatcher
         self.approvalEvents = approvalEvents
+        self.extras = extras
+        self.own = own
     }
 
     
@@ -9061,7 +9299,9 @@ public struct FfiConverterTypeHookPreset: FfiConverterRustBuffer {
                 customEvents: FfiConverterSequenceString.read(from: &buf), 
                 customMatcher: FfiConverterString.read(from: &buf), 
                 approvalMatcher: FfiConverterString.read(from: &buf), 
-                approvalEvents: FfiConverterSequenceString.read(from: &buf)
+                approvalEvents: FfiConverterSequenceString.read(from: &buf), 
+                extras: FfiConverterSequenceTypeHookExtra.read(from: &buf), 
+                own: FfiConverterSequenceTypeHookOwn.read(from: &buf)
         )
     }
 
@@ -9072,6 +9312,8 @@ public struct FfiConverterTypeHookPreset: FfiConverterRustBuffer {
         FfiConverterString.write(value.customMatcher, into: &buf)
         FfiConverterString.write(value.approvalMatcher, into: &buf)
         FfiConverterSequenceString.write(value.approvalEvents, into: &buf)
+        FfiConverterSequenceTypeHookExtra.write(value.extras, into: &buf)
+        FfiConverterSequenceTypeHookOwn.write(value.own, into: &buf)
     }
 }
 
@@ -14779,6 +15021,10 @@ public enum DialogKind: Equatable, Hashable {
     case config
     case mcp
     case status
+    /**
+     * Any other dialog of Antigravity: a title, blocks of text and one list with a `>` cursor.
+     */
+    case generic
 
 
 
@@ -14810,6 +15056,8 @@ public struct FfiConverterTypeDialogKind: FfiConverterRustBuffer {
         
         case 5: return .status
         
+        case 6: return .generic
+        
         default: throw UniffiInternalError.unexpectedEnumCase
         }
     }
@@ -14836,6 +15084,10 @@ public struct FfiConverterTypeDialogKind: FfiConverterRustBuffer {
         
         case .status:
             writeInt(&buf, Int32(5))
+        
+        
+        case .generic:
+            writeInt(&buf, Int32(6))
         
         }
     }
@@ -15970,6 +16222,75 @@ public func FfiConverterTypeGitWorktreeOp_lower(_ value: GitWorktreeOp) -> RustB
 
 
 
+/**
+ * When an extra command runs relative to the ssh-app hook of the same event.
+ */
+
+public enum HookExtraOrder: Equatable, Hashable {
+    
+    case before
+    case after
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension HookExtraOrder: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHookExtraOrder: FfiConverterRustBuffer {
+    typealias SwiftType = HookExtraOrder
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HookExtraOrder {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .before
+        
+        case 2: return .after
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: HookExtraOrder, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .before:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .after:
+            writeInt(&buf, Int32(2))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHookExtraOrder_lift(_ buf: RustBuffer) throws -> HookExtraOrder {
+    return try FfiConverterTypeHookExtraOrder.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHookExtraOrder_lower(_ value: HookExtraOrder) -> RustBuffer {
+    return FfiConverterTypeHookExtraOrder.lower(value)
+}
+
+
+
 
 public enum HookPresetKind: Equatable, Hashable {
     
@@ -15985,6 +16306,10 @@ public enum HookPresetKind: Equatable, Hashable {
      * The user's own command for the chosen events; the ssh-app hook script is not used.
      */
     case custom
+    /**
+     * No ssh-app hook at all; only the per-event own commands (`HookPreset::own`) are installed.
+     */
+    case off
 
 
 
@@ -16012,6 +16337,8 @@ public struct FfiConverterTypeHookPresetKind: FfiConverterRustBuffer {
         
         case 3: return .custom
         
+        case 4: return .off
+        
         default: throw UniffiInternalError.unexpectedEnumCase
         }
     }
@@ -16030,6 +16357,10 @@ public struct FfiConverterTypeHookPresetKind: FfiConverterRustBuffer {
         
         case .custom:
             writeInt(&buf, Int32(3))
+        
+        
+        case .off:
+            writeInt(&buf, Int32(4))
         
         }
     }
@@ -20015,6 +20346,56 @@ fileprivate struct FfiConverterSequenceTypeGitWorktree: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeHookExtra: FfiConverterRustBuffer {
+    typealias SwiftType = [HookExtra]
+
+    public static func write(_ value: [HookExtra], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeHookExtra.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [HookExtra] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [HookExtra]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeHookExtra.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeHookOwn: FfiConverterRustBuffer {
+    typealias SwiftType = [HookOwn]
+
+    public static func write(_ value: [HookOwn], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeHookOwn.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [HookOwn] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [HookOwn]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeHookOwn.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeHookTemplate: FfiConverterRustBuffer {
     typealias SwiftType = [HookTemplate]
 
@@ -20785,6 +21166,18 @@ public func agentHooksConfigPath(agent: AgentKind, configDir: String?)throws  ->
     )
 })
 }
+/**
+ * A readable form of a command ssh-app wrote, for the install preview: the wrapper's base64 is
+ * decoded, an own command loses its marker comment, anything else is returned as it is.
+ */
+public func hookCommandSummary(command: String) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_hook_command_summary(
+        FfiConverterString.lower(command),uniffiCallStatus
+    )
+})
+}
 public func agentHooksInstalled(agent: AgentKind, existing: String) -> Bool  {
     return try!  FfiConverterBool.lift(try! rustCall() {
         uniffiCallStatus in
@@ -20893,6 +21286,18 @@ public func defaultHookPreset() -> HookPreset  {
 })
 }
 /**
+ * Title, one-line meaning and capabilities of an event, shown on the hooks screen.
+ */
+public func hookEventInfo(agent: AgentKind, event: String) -> HookEventInfo  {
+    return try!  FfiConverterTypeHookEventInfo_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_hook_event_info(
+        FfiConverterTypeAgentKind_lower(agent),
+        FfiConverterString.lower(event),uniffiCallStatus
+    )
+})
+}
+/**
  * Events a `Custom` preset may attach to, per agent.
  */
 public func hookEventsFor(agent: AgentKind) -> [String]  {
@@ -20904,6 +21309,17 @@ public func hookEventsFor(agent: AgentKind) -> [String]  {
 })
 }
 /**
+ * Whether the preset needs the extra-command wrapper next to the hook script.
+ */
+public func hookPresetUsesExtra(preset: HookPreset) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_hook_preset_uses_extra(
+        FfiConverterTypeHookPreset_lower(preset),uniffiCallStatus
+    )
+})
+}
+/**
  * Whether the preset runs the ssh-app hook script (so it must be installed on the host).
  */
 public func hookPresetUsesScript(preset: HookPreset) -> Bool  {
@@ -20911,6 +21327,17 @@ public func hookPresetUsesScript(preset: HookPreset) -> Bool  {
         uniffiCallStatus in
     uniffi_ssh_core_fn_func_hook_preset_uses_script(
         FfiConverterTypeHookPreset_lower(preset),uniffiCallStatus
+    )
+})
+}
+/**
+ * The wrapper that runs a user's extra command next to the ssh-app hook of one event; installed
+ * next to the hook script whenever a profile has extra commands.
+ */
+public func agentHookExtraScript() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_agent_hook_extra_script(uniffiCallStatus
     )
 })
 }
@@ -22693,6 +23120,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_func_agent_hooks_config_path() != 48113) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_func_hook_command_summary() != 43362) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_func_agent_hooks_installed() != 35783) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -22720,10 +23150,19 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_func_default_hook_preset() != 60077) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_func_hook_event_info() != 27590) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_func_hook_events_for() != 847) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_func_hook_preset_uses_extra() != 23429) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_func_hook_preset_uses_script() != 841) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_agent_hook_extra_script() != 64398) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_agent_hook_script() != 4495) {
