@@ -22,8 +22,16 @@ private struct RootView: View {
     @AppStorage(AppAccent.storageKey) private var accentRaw: String = AppAccent.blue.rawValue
     @Environment(\.scenePhase) private var scenePhase
 
-    var body: some View {
+    @ViewBuilder private var content: some View {
+        #if DEBUG
+        if let route = DebugRoutes.current { DebugRoutes.view(route) } else { MainTerminalView() }
+        #else
         MainTerminalView()
+        #endif
+    }
+
+    var body: some View {
+        content
             .tint(AppAccent.color(for: accentRaw))
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active { VaultSync.shared.sync() }

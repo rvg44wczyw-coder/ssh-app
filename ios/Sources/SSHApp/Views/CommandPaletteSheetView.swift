@@ -98,7 +98,7 @@ struct CommandPaletteSheetView: View {
                             .textInputAutocapitalization(.never)
                             #endif
                         Button("Insert") { insert(custom) }.buttonStyle(.borderless).disabled(custom.isEmpty)
-                        Button("Run") { run(custom) }.buttonStyle(.borderedProminent).controlSize(.small).disabled(custom.isEmpty)
+                        Button("Run") { run(custom) }.buttonStyle(.glassProminent).controlSize(.small).disabled(custom.isEmpty)
                     }
                 }
                 Section(agent.rawValue) {
@@ -111,7 +111,7 @@ struct CommandPaletteSheetView: View {
                             Spacer()
                             Button("Insert") { insert(c.name) }.buttonStyle(.borderless).font(.caption)
                             Button { run(c.name) } label: { Image(systemName: "return") }
-                                .buttonStyle(.borderedProminent).controlSize(.small)
+                                .buttonStyle(.glassProminent).controlSize(.small)
                                 .accessibilityLabel("Run \(c.name)")
                         }
                     }

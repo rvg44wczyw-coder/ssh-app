@@ -89,7 +89,7 @@ public struct GitLogSheetView: View {
                         } label: {
                             Text(verbatim: cmd).font(.system(size: 12, design: .monospaced))
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(.glass)
                     }
                 }
             }
@@ -114,7 +114,7 @@ public struct GitLogSheetView: View {
                 Image(systemName: "exclamationmark.triangle").font(.system(size: 32)).foregroundColor(.orange)
                 Text(error).font(.system(size: 13)).foregroundColor(.secondary)
                     .multilineTextAlignment(.center).padding(.horizontal)
-                Button("Retry") { fetchLog() }.buttonStyle(.bordered)
+                Button("Retry") { fetchLog() }.buttonStyle(.glass)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let r = result, r.status != .ok {
@@ -133,7 +133,7 @@ public struct GitLogSheetView: View {
                 default:
                     Text("Unexpected answer from the host").font(.system(size: 14, weight: .semibold))
                 }
-                Button("Refresh") { fetchLog() }.buttonStyle(.bordered)
+                Button("Refresh") { fetchLog() }.buttonStyle(.glass)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let r = result {
@@ -244,7 +244,7 @@ public struct GitLogSheetView: View {
                 } label: {
                     Text("Cherry-pick \(ordered.count)").frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.glassProminent)
                 if let rng = pickedRange(r.entries), rng.count >= 2, rng.first != 0 {
                     Button {
                         let sel = r.entries[rng]
@@ -253,7 +253,7 @@ public struct GitLogSheetView: View {
                     } label: {
                         Text("Squash \(rng.count)").frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.glass)
                 }
                 if topCount >= 2 && topCount == picked.count {
                     Button {
@@ -262,7 +262,7 @@ public struct GitLogSheetView: View {
                     } label: {
                         Text("Squash \(topCount)").frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.glass)
                 }
             }
             .padding()

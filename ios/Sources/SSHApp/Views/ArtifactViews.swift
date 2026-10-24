@@ -210,7 +210,7 @@ struct ArtifactViewerSheet: View {
             Image(systemName: "exclamationmark.triangle").font(.largeTitle).foregroundStyle(.orange)
             Text("Large diagram: \(artifact.lineCount) lines")
             Text("Drawing it can make the app slow.").font(.footnote).foregroundStyle(.secondary)
-            Button("Draw anyway") { confirmed = true }.buttonStyle(.borderedProminent)
+            Button("Draw anyway") { confirmed = true }.buttonStyle(.glassProminent)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

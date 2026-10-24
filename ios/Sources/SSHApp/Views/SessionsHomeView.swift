@@ -81,21 +81,27 @@ struct SessionsHomeView: View {
         ScrollView {
             // Previews are re-rendered every few seconds while this screen is visible.
             TimelineView(.periodic(from: .now, by: 3)) { _ in
+                // The "new session" card stands in the row after the last session card, in whichever
+                // grid that is; only with no session at all it starts the assistants' grid.
+                let orphans = sessions.filter { s in !servers.contains(where: { $0.id == serverOf(s) }) }
+                let lastServer = servers.last(where: { sv in sessions.contains { serverOf($0) == sv.id } })?.id
                 VStack(alignment: .leading, spacing: 14) {
                     ForEach(servers, id: \.id) { server in
-                        serverSection(server)
+                        serverSection(server, addCardHere: orphans.isEmpty && server.id == lastServer)
                     }
-                    let orphans = sessions.filter { s in !servers.contains(where: { $0.id == serverOf(s) }) }
                     if !orphans.isEmpty {
-                        LazyVGrid(columns: columns, spacing: 12) { ForEach(orphans) { s in card(s) } }
+                        LazyVGrid(columns: columns, spacing: 12) {
+                            ForEach(orphans) { s in card(s) }
+                            addCard
+                        }
                     }
-                LazyVGrid(columns: columns, spacing: 12) {
-                    ForEach(assistants) { a in
-                        AssistantCard(assistant: a, serverName: assistantServerName(a.serverId),
-                                      onOpen: { onOpenAssistant(a.serverId) }, onClear: { onClearAssistant(a.serverId) })
+                    LazyVGrid(columns: columns, spacing: 12) {
+                        ForEach(assistants) { a in
+                            AssistantCard(assistant: a, serverName: assistantServerName(a.serverId),
+                                          onOpen: { onOpenAssistant(a.serverId) }, onClear: { onClearAssistant(a.serverId) })
+                        }
+                        if orphans.isEmpty, lastServer == nil { addCard }
                     }
-                    addCard
-                }
                 }
                 .padding(12)
             }
@@ -112,7 +118,7 @@ struct SessionsHomeView: View {
 
     /// A server's sessions with the screens that belong to the server, not to one session.
     @ViewBuilder
-    private func serverSection(_ server: (id: UUID, name: String)) -> some View {
+    private func serverSection(_ server: (id: UUID, name: String), addCardHere: Bool) -> some View {
         let mine = sessions.filter { serverOf($0) == server.id }
         let connected = mine.contains { (states[$0.id] ?? .disconnected) == .connected }
         VStack(alignment: .leading, spacing: 10) {
@@ -147,7 +153,10 @@ struct SessionsHomeView: View {
                     .font(.caption2).foregroundColor(.secondary)
             }
             if !mine.isEmpty {
-                LazyVGrid(columns: columns, spacing: 12) { ForEach(mine) { s in card(s) } }
+                LazyVGrid(columns: columns, spacing: 12) {
+                    ForEach(mine) { s in card(s) }
+                    if addCardHere { addCard }
+                }
             }
         }
     }
@@ -209,7 +218,7 @@ struct SessionsHomeView: View {
                 .clipped()
             }
             .padding(10)
-            .background(RoundedRectangle(cornerRadius: 14).fill(Color.appSecondaryBackground))
+            .glassCard(cornerRadius: 22, interactive: true)
         }
         .buttonStyle(.plain)
         .contextMenu {
@@ -243,7 +252,8 @@ struct SessionsHomeView: View {
                 Text("New session").font(.caption).foregroundColor(.secondary)
             }
             .frame(maxWidth: .infinity, minHeight: 170)
-            .background(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.appAccent.opacity(0.5), style: StrokeStyle(lineWidth: 1.5, dash: [6])))
+            .glassCard(cornerRadius: 22)
+            .overlay(RoundedRectangle(cornerRadius: 22).strokeBorder(Color.appAccent.opacity(0.5), style: StrokeStyle(lineWidth: 1.5, dash: [6])))
         } primaryAction: {
             onAdd()
         }
@@ -276,7 +286,7 @@ private struct AssistantCard: View {
             }
             .padding(10)
             .frame(maxWidth: .infinity, minHeight: 170, alignment: .topLeading)
-            .background(RoundedRectangle(cornerRadius: 14).fill(Color.appSecondaryBackground))
+            .glassCard(cornerRadius: 22, interactive: true)
         }
         .buttonStyle(.plain)
         .contextMenu {

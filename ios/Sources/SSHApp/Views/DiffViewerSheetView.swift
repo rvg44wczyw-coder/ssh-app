@@ -48,7 +48,7 @@ public struct DiffViewerSheetView: View {
                         Button("Retry") {
                             fetchDiff()
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(.glass)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if let r = result, r.status != .ok {
@@ -202,7 +202,7 @@ public struct DiffViewerSheetView: View {
                 Text("Unexpected answer from the host")
                     .font(.system(size: 14, weight: .semibold))
             }
-            Button("Refresh") { fetchDiff() }.buttonStyle(.bordered)
+            Button("Refresh") { fetchDiff() }.buttonStyle(.glass)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

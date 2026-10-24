@@ -97,7 +97,7 @@ struct FloatingQuickMenu: View {
                                 Text(key.title)
                                     .font(.system(size: 12, weight: .semibold, design: .monospaced))
                                     .frame(maxWidth: .infinity, minHeight: 30)
-                                    .background(Color.secondary.opacity(0.14), in: RoundedRectangle(cornerRadius: 6))
+                                    .glassCard(cornerRadius: 10, interactive: true)
                             }
                             .buttonStyle(.plain)
                             .disabled(!isConnected)

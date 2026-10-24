@@ -79,7 +79,7 @@ public struct ApprovalBannerView: View {
                     .foregroundColor(.secondary)
             }
             ScrollView {
-                Text(verbatim: entry.item.command.isEmpty ? "(no command text)" : entry.item.command)
+                Text(verbatim: entry.item.command.isEmpty ? "(no command text)" : ApprovalText.readable(entry.item.command))
                     .font(.system(size: 12, weight: .semibold, design: .monospaced))
                     .foregroundColor(.green)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -93,7 +93,7 @@ public struct ApprovalBannerView: View {
                 // A long command can hide its end below the scroll box, so the end is shown on its own.
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Ends with:").font(.system(size: 9)).foregroundColor(.secondary)
-                    Text(verbatim: analysis.tail)
+                    Text(verbatim: ApprovalText.readable(analysis.tail))
                         .font(.system(size: 11, weight: .semibold, design: .monospaced))
                         .foregroundColor(.yellow)
                         .lineLimit(3)
@@ -123,11 +123,7 @@ public struct ApprovalBannerView: View {
             }
         }
         .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(Color.appSecondaryBackground)
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.yellow.opacity(0.4), lineWidth: 1))
-        )
+        .glassCard(cornerRadius: 18, tint: Color.yellow.opacity(0.3))
         .shadow(color: Color.black.opacity(0.25), radius: 4, y: 2)
         .padding(.horizontal, 10)
         .padding(.vertical, 4)
@@ -157,9 +153,8 @@ public struct ApprovalBannerView: View {
                 .font(.system(size: 11, weight: .semibold))
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 6)
-                .background(Color.green.opacity(0.12))
                 .foregroundColor(.green)
-                .cornerRadius(6)
+                .glassCard(cornerRadius: 12, tint: (Color.green.opacity(0.12)))
         }
         .disabled(isBusy)
     }
@@ -178,11 +173,54 @@ public struct ApprovalBannerView: View {
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 8)
-            .background(color.opacity(0.22))
             .foregroundColor(color)
-            .cornerRadius(6)
+            .glassCard(cornerRadius: 12, tint: (color.opacity(0.22)), interactive: true)
             .overlay(RoundedRectangle(cornerRadius: 6).stroke(color.opacity(0.5), lineWidth: 1))
         }
         .disabled(isBusy)
+    }
+}
+
+/// Tool input arrives as JSON text, so non-ASCII letters show as `\u041f`. For display they are
+/// turned back into letters. Control, format and bidirectional characters stay escaped, so a
+/// command cannot hide what it does; the approved text itself is never changed.
+enum ApprovalText {
+    static func readable(_ raw: String) -> String {
+        guard raw.contains("\\u") else { return raw }
+        let chars = Array(raw.unicodeScalars)
+        var out = String.UnicodeScalarView()
+        var i = 0
+        func unit(_ at: Int) -> UInt32? {
+            guard at + 5 < chars.count + 0, chars[at] == "\\", chars[at + 1] == "u" else { return nil }
+            let hex = String(String.UnicodeScalarView(chars[(at + 2)...(at + 5)]))
+            return UInt32(hex, radix: 16)
+        }
+        while i < chars.count {
+            if let hi = unit(i) {
+                var scalar: Unicode.Scalar?
+                var used = 6
+                if (0xD800...0xDBFF).contains(hi), let lo = unit(i + 6), (0xDC00...0xDFFF).contains(lo) {
+                    scalar = Unicode.Scalar(0x10000 + ((hi - 0xD800) << 10) + (lo - 0xDC00))
+                    used = 12
+                } else if !(0xD800...0xDFFF).contains(hi) {
+                    scalar = Unicode.Scalar(hi)
+                }
+                if let sc = scalar, isSafe(sc) {
+                    out.append(sc)
+                    i += used
+                    continue
+                }
+            }
+            out.append(chars[i])
+            i += 1
+        }
+        return String(out)
+    }
+
+    private static func isSafe(_ s: Unicode.Scalar) -> Bool {
+        switch s.properties.generalCategory {
+        case .control, .format, .lineSeparator, .paragraphSeparator, .unassigned, .privateUse, .surrogate: return false
+        default: return s.value >= 0x80
+        }
     }
 }

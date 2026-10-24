@@ -48,6 +48,21 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     @Published public var transcriptError: String? = nil
     /// The live line of the agent on the tmux screen ("✶ Thinking… (12s)"), when the feed is built from the screen.
     @Published public var screenStatus: String? = nil
+    /// Messages sent from the phone that the session file does not show yet (the agent queues them
+    /// while it works, and even an idle one writes them a moment later): shown at the end of the feed so a
+    /// sent message never seems to vanish.
+    @Published public private(set) var pendingEchoes: [PendingEcho] = []
+
+    public struct PendingEcho: Identifiable, Equatable {
+        public let id = "echo_" + UUID().uuidString
+        let text: String
+        /// How many of your messages with this exact text the file had when it was sent.
+        let baseCount: Int
+        let sentAt = Date()
+    }
+
+    /// A message of ours that sits in the working agent's queue; offered for "send now" until the agent is idle.
+    @Published public var queuedNote: String? = nil
     /// How long the last feed refresh took (shown in the status line when "Show feed timing" is on).
     @Published public private(set) var feedTiming: FeedTiming?
     private var didReadFile = false
@@ -122,6 +137,8 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     /// `fileFeed` holds turns read from the agent's own database (Antigravity), not from its file.
     private var feedFromDatabase = false
     private var screenIsAgy = false
+    /// The agent in this tab speaks Antigravity's commands (a tab made for it, or one it was started in by hand).
+    public var isAgyAgent: Bool { session.agentType == .antigravity || screenIsAgy }
     /// The host pushes changes of the session file and of the pane's tail over one open channel
     /// (`watch_feed`); while it runs nothing is polled.
     private var feedWatch: FeedWatch?
@@ -475,6 +492,79 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         return true
     }
 
+    /// A send is under way: the strip that offers the agent's box stays away, so the text just sent
+    /// is not shown again for the moment before the screen catches up.
+    public func draftIsBeingSent() {
+        draftGuardUntil = Date().addingTimeInterval(4)
+    }
+
+    private func userCount(of text: String) -> Int {
+        // A message the agent took from its queue is written as a note ("Message sent while working")
+        // when the file does not mark it as typed by a person, so notes count too.
+        transcriptTurns.filter { ($0.turnType == .user || $0.turnType == .system) && ($0.content?.contains(text) ?? false) }.count
+    }
+
+    /// Remembers a message just sent so the feed can show it before the file does.
+    public func echoSent(_ text: String) {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return }
+        pendingEchoes.append(PendingEcho(text: t, baseCount: userCount(of: t)))
+        if pendingEchoes.count > 4 { pendingEchoes.removeFirst() }
+    }
+
+    /// The transcript with the not yet delivered messages at its end. An echo goes when the file shows
+    /// the message, or when the agent is idle and the message is old (it was lost or edited).
+    public var turnsWithEchoes: [TranscriptTurn] {
+        guard !pendingEchoes.isEmpty else { return transcriptTurns }
+        var out = transcriptTurns
+        var step = (transcriptTurns.last?.stepIndex ?? 0) + 1
+        for e in pendingEchoes {
+            if userCount(of: e.text) > e.baseCount { continue }
+            if screenStatus == nil, Date().timeIntervalSince(e.sentAt) > 30 { continue }
+            out.append(TranscriptTurn(id: e.id, stepIndex: step, turnType: .user, timestamp: nil, content: e.text,
+                                      thinking: nil, toolCalls: [], status: .done, label: nil))
+            step += 1
+        }
+        return out
+    }
+
+    /// Drops echoes the file has shown already (called when the transcript changes).
+    public func pruneEchoes() {
+        let kept = pendingEchoes.filter { userCount(of: $0.text) <= $0.baseCount && Date().timeIntervalSince($0.sentAt) < 600 }
+        if kept != pendingEchoes { pendingEchoes = kept }
+    }
+
+    /// What the agent's input box holds right now, read from the pane (`nil`: could not be read).
+    public func currentBoxDraft() async -> String? {
+        guard let handle, state == .connected,
+              let cap = try? await handle.captureSessionScreenIn(sessionName: session.sessionName, knownSum: nil, kind: multiplexer),
+              let screen = cap.text else { return nil }
+        return parseScreenFeed(text: screen).draft ?? ""
+    }
+
+    /// Presses Enter until the box is empty (an Enter right after typed text can be taken as part of
+    /// it, and the agent may be busy for a moment); at most three presses.
+    ///
+    /// With `acceptSuggestion` Tab goes first: Claude's own suggestion for the next prompt is only a
+    /// grey hint that Enter does not send; Tab turns it into real text (on real text it does nothing).
+    public func submitBox(acceptSuggestion: Bool = false) async {
+        if acceptSuggestion {
+            sendInput(Data([0x09]))
+            try? await Task.sleep(for: .milliseconds(250))
+        }
+        for attempt in 0..<3 {
+            sendInput(Data([0x0d]))
+            try? await Task.sleep(for: .milliseconds(700))
+            guard let left = await currentBoxDraft(), !left.isEmpty, attempt < 2 else { return }
+        }
+    }
+
+    /// The agent's own "send now" for a queued message (Ctrl+X, Ctrl+S): it stops the turn and the
+    /// queued message goes first.
+    public func sendQueuedNow() {
+        sendInput(Data([0x18, 0x13]))
+    }
+
     /// The box was submitted: it is empty now.
     public func draftWasSent() {
         draftInBox = ""
@@ -754,6 +844,7 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         lastScreenSum = cap.checksum
         if screenDraft != feed.draft { screenDraft = feed.draft }
         if screenStatus != feed.status { screenStatus = feed.status }
+        if feed.status == nil, queuedNote != nil { queuedNote = nil }
         if screenPrompt != feed.prompt { screenPrompt = feed.prompt }
         if screenAside != feed.aside { screenAside = feed.aside }
         if screenDialog != feed.dialog { screenDialog = feed.dialog }

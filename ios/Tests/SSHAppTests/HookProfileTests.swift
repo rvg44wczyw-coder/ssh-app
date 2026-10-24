@@ -40,4 +40,45 @@ final class HookProfileTests: XCTestCase {
         XCTAssertTrue(hooksDrift(planned: planned, installed: planned).isEmpty)
         XCTAssertFalse(hooksDrift(planned: planned, installed: Array(planned.dropFirst())).isEmpty)
     }
+
+    func testExtrasAndOwnCommandsSurviveStorageAndPlan() throws {
+        var p = SavedAgentProfile(name: "p", agent: .claudeCode, binary: "claude")
+        p.hookExtras = [SavedHookExtra(event: "PermissionRequest", command: "logger x", runsAfter: false, stopOnFailure: true, timeoutSecs: 5)]
+        p.hookOwn = [SavedHookOwn(event: "SessionStart", command: "echo hi")]
+        let back = try JSONDecoder().decode(SavedAgentProfile.self, from: JSONEncoder().encode(p))
+        XCTAssertEqual(back.hookExtras, p.hookExtras)
+        XCTAssertEqual(back.hookOwn, p.hookOwn)
+        XCTAssertTrue(hookPresetUsesExtra(preset: back.hookPreset))
+        let plan = try planAgentHooks(agent: .claudeCode, preset: back.hookPreset, hookDir: nil)
+        XCTAssertTrue(plan.contains { $0.event == "SessionStart" })
+    }
+
+    func testOldProfilesWithoutTheNewFieldsStillLoad() throws {
+        let p = SavedAgentProfile(name: "p", agent: .claudeCode, binary: "claude")
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(p)) as? [String: Any])
+        json["hookExtras"] = nil
+        json["hookOwn"] = nil
+        let back = try JSONDecoder().decode(SavedAgentProfile.self, from: JSONSerialization.data(withJSONObject: json))
+        XCTAssertTrue(back.hookExtras.isEmpty && back.hookOwn.isEmpty)
+    }
+
+    func testProfilesWithExtraCommandsStayOffTheCloud() {
+        var p = SavedAgentProfile(name: "p", agent: .claudeCode, binary: "claude")
+        XCTAssertEqual(SyncedProfile.outgoing([p]).count, 1)
+        p.hookExtras = [SavedHookExtra(event: "Stop", command: "x")]
+        XCTAssertTrue(SyncedProfile.outgoing([p]).isEmpty)
+    }
+}
+
+final class ApprovalTextTests: XCTestCase {
+    func testEscapedLettersBecomeReadable() {
+        XCTAssertEqual(ApprovalText.readable("echo \\u041f\\u0440\\u0438\\u0432\\u0435\\u0442"), "echo Привет")
+        XCTAssertEqual(ApprovalText.readable("\\ud83d\\ude00"), "😀")
+    }
+
+    func testDangerousOrBrokenEscapesStayEscaped() {
+        for raw in ["\\u001b[31m", "\\u202eevil", "\\u200b", "\\ud83d", "\\u00", "plain", "\\u0041"] {
+            XCTAssertEqual(ApprovalText.readable(raw), raw, raw)
+        }
+    }
 }

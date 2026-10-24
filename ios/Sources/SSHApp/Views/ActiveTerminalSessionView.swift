@@ -54,8 +54,9 @@ struct ActiveTerminalSessionView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // The same status line as above the feed.
-            if !viewModel.isChatMode {
+            // The status line shows wherever an agent runs (also one started by hand in a plain tab, as
+            // soon as it is detected); a terminal without an agent has none. The feed draws its own.
+            if !viewModel.isChatMode, feedSwitch != nil {
                 SessionStatusLine(viewModel: viewModel, usage: usage ?? SessionUsageMonitor.none,
                                   onRefresh: onRefreshUsage, switchButton: feedSwitch)
             }
@@ -90,10 +91,8 @@ struct ActiveTerminalSessionView: View {
                     }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
-                    .background(Color.appAccent.opacity(0.85))
-                    .cornerRadius(20)
+                    .glassChip(tint: Color.appAccent)
                     .padding(.top, 8)
-                    .shadow(radius: 4)
 
                 case .failed(let reason):
                     HStack(spacing: 8) {
@@ -109,17 +108,14 @@ struct ActiveTerminalSessionView: View {
                                 .foregroundColor(.white)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 4)
-                                .background(Color.white.opacity(0.25))
-                                .cornerRadius(6)
                         }
+                        .buttonStyle(.glass)
                     }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
-                    .background(Color.red.opacity(0.9))
-                    .cornerRadius(12)
+                    .glassCard(cornerRadius: 18, tint: Color.red.opacity(0.7))
                     .padding(.top, 8)
                     .padding(.horizontal, 16)
-                    .shadow(radius: 4)
 
                 case .disconnected:
                     HStack(spacing: 8) {
@@ -134,14 +130,12 @@ struct ActiveTerminalSessionView: View {
                                 .foregroundColor(.white)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 4)
-                                .background(Color.appAccent)
-                                .cornerRadius(6)
                         }
+                        .buttonStyle(.glassProminent)
                     }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 6)
-                    .background(Color(white: 0.15).opacity(0.9))
-                    .cornerRadius(20)
+                    .glassChip()
                     .padding(.top, 8)
 
                 case .connected:

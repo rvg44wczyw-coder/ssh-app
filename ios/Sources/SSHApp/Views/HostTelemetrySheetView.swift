@@ -164,8 +164,7 @@ public struct HostTelemetrySheetView: View {
                 Spacer()
             }
             .padding(12)
-            .background(Color.red.opacity(0.25))
-            .cornerRadius(10)
+            .glassCard(cornerRadius: 16, tint: (Color.red.opacity(0.25)), interactive: true)
         }
 
         if let snap = viewModel.telemetrySnapshot {
@@ -200,7 +199,7 @@ public struct HostTelemetrySheetView: View {
                 Button("Refresh Now") {
                     viewModel.refreshHostTelemetry()
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.glassProminent)
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 50)
@@ -247,8 +246,7 @@ public struct HostTelemetrySheetView: View {
             }
         }
         .padding(14)
-        .background(Color.appSecondaryBackground)
-        .cornerRadius(12)
+        .glassCard(cornerRadius: 18)
     }
 
     /// SF Symbol that follows the charge level; the bolt variant while charging.
@@ -281,8 +279,7 @@ public struct HostTelemetrySheetView: View {
                     .tint(loadRatio > 0.85 ? .red : (loadRatio > 0.6 ? .orange : .green))
             }
             .padding(12)
-            .background(Color.appSecondaryBackground)
-            .cornerRadius(10)
+            .glassCard(cornerRadius: 16)
 
             // Memory Usage Card
             let memRatio = min(1.0, max(0.0, snap.memoryUsagePercent / 100.0))
@@ -299,8 +296,7 @@ public struct HostTelemetrySheetView: View {
                     .tint(memRatio > 0.85 ? .red : (memRatio > 0.7 ? .orange : .blue))
             }
             .padding(12)
-            .background(Color.appSecondaryBackground)
-            .cornerRadius(10)
+            .glassCard(cornerRadius: 16)
 
             // Disk Usage Card
             let diskRatio = min(1.0, max(0.0, snap.diskUsagePercent / 100.0))
@@ -317,8 +313,7 @@ public struct HostTelemetrySheetView: View {
                     .tint(diskRatio > 0.9 ? .red : .purple)
             }
             .padding(12)
-            .background(Color.appSecondaryBackground)
-            .cornerRadius(10)
+            .glassCard(cornerRadius: 16)
         }
     }
 
@@ -413,8 +408,7 @@ public struct HostTelemetrySheetView: View {
                     }
                 }
                 .padding(10)
-                .background(Color.appSecondaryBackground)
-                .cornerRadius(10)
+                .glassCard(cornerRadius: 16)
     }
 
     private func processMonitorSection(_ snap: HostTelemetrySnapshot) -> some View {
@@ -437,9 +431,8 @@ public struct HostTelemetrySheetView: View {
                                 .font(.system(size: 11, weight: selectedFilter == filter ? .bold : .medium))
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 5)
-                                .background(selectedFilter == filter ? Color.appAccent : Color.appSecondaryBackground)
                                 .foregroundColor(selectedFilter == filter ? .white : .primary)
-                                .cornerRadius(14)
+                                .glassChip(tint: selectedFilter == filter ? Color.appAccent : nil, interactive: true)
                         }
                     }
                 }
@@ -482,9 +475,8 @@ public struct HostTelemetrySheetView: View {
             .font(.system(size: 9, weight: .bold, design: .monospaced))
             .padding(.horizontal, 5)
             .padding(.vertical, 2)
-            .background(color.opacity(0.2))
             .foregroundColor(color)
-            .cornerRadius(4)
+            .glassCard(cornerRadius: 10, tint: (color.opacity(0.2)), interactive: true)
     }
 }
 

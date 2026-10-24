@@ -45,7 +45,7 @@ struct HostHelperCard: View {
                 Text(reason).font(.caption).foregroundColor(.orange)
             }
             if isWsl || isWindows || unsupportedForWindows {
-                Button("WSL2 setup for Windows") { showWslSetup = true }.buttonStyle(.bordered)
+                Button("WSL2 setup for Windows") { showWslSetup = true }.buttonStyle(.glass)
             }
             if isWindows {
                 Text("Windows host: the app installs and verifies its helper (the session multiplexer) itself when a tab connects.")
@@ -72,13 +72,13 @@ struct HostHelperCard: View {
                 ProgressView()
             } else if pin != nil, !isUnsupported, !isWindows, viewModel.sessionHandle != nil, viewModel.state == .connected {
                 Button(installTitle) { Task { await install() } }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.glass)
                     .disabled(isReady)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color.appSecondaryBackground))
+        .glassCard(cornerRadius: 18)
         .task(id: viewModel.state == .connected) { await refresh() }
         .onDisappear { watch?.stop(); watch = nil }
         .sheet(isPresented: $showWslSetup) { WslSetupView(publicKey: viewModel.publicKeyLine) }
@@ -134,7 +134,7 @@ struct HostHelperCard: View {
                 .font(.caption2).foregroundColor(.green)
         }
         Button(agentChecked ? "Refresh agent state" : "Check agent") { Task { await checkAgent() } }
-            .buttonStyle(.bordered)
+            .buttonStyle(.glass)
     }
 
     private func checkAgent() async {
@@ -289,7 +289,7 @@ private struct PushSection: View {
         Text("A notification when an agent needs approval, finishes or waits while the app is closed. It never contains commands, paths or names: only a fixed sentence. Sent through your relay (scripts/apns-worker) and only while the host agent runs.")
             .font(.caption2).foregroundColor(.secondary)
         if push.token == nil {
-            Button("Allow notifications") { Task { await push.enable() } }.buttonStyle(.bordered)
+            Button("Allow notifications") { Task { await push.enable() } }.buttonStyle(.glass)
         } else {
             Text("Notifications allowed · \(PushManager.apsEnvironment)").font(.caption).foregroundColor(.green)
         }
@@ -320,7 +320,7 @@ private struct PushSection: View {
                 }
                     .disabled(status?.registered != true)
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.glass)
         }
         if let e = push.lastError { Text(e).font(.caption2).foregroundColor(.red) }
         Color.clear.frame(height: 0).task { await refresh() }
@@ -383,7 +383,7 @@ struct HostCheckSection: View {
             ProgressView()
         } else {
             Button(doctor == nil ? "Check this host" : "Check again") { Task { await run() } }
-                .buttonStyle(.bordered)
+                .buttonStyle(.glass)
         }
     }
 

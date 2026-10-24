@@ -82,8 +82,7 @@ public struct SnippetsSheetView: View {
                     }
                 }
                 .padding(10)
-                .background(Color.appSecondaryBackground)
-                .cornerRadius(10)
+                .glassCard(cornerRadius: 16)
                 .padding(.horizontal, 12)
                 .padding(.top, 10)
 
@@ -101,9 +100,8 @@ public struct SnippetsSheetView: View {
                                     .font(.system(size: 12, weight: selectedCategory == category ? .bold : .medium))
                                     .padding(.horizontal, 12)
                                     .padding(.vertical, 6)
-                                    .background(selectedCategory == category ? Color.appAccent : Color.appSecondaryBackground)
                                     .foregroundColor(selectedCategory == category ? .white : .primary)
-                                    .cornerRadius(16)
+                                    .glassChip(tint: selectedCategory == category ? Color.appAccent : nil, interactive: true)
                             }
                         }
                     }
@@ -191,9 +189,8 @@ public struct SnippetsSheetView: View {
                                 .font(.system(size: 13, weight: .bold))
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 8)
-                                .background(Color.appAccent)
                                 .foregroundColor(.white)
-                                .cornerRadius(8)
+                                .glassCard(cornerRadius: 14, tint: (Color.appAccent), interactive: true)
                         }
                     }
                     .padding(12)
@@ -371,9 +368,8 @@ private struct SnippetRowView: View {
                     .font(.system(size: 10, weight: .bold))
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
-                    .background(Color.appAccent.opacity(0.15))
                     .foregroundColor(.appAccent)
-                    .cornerRadius(4)
+                    .glassCard(cornerRadius: 10, tint: (Color.appAccent.opacity(0.15)), interactive: true)
             }
 
             Text(match.item.command)
@@ -391,9 +387,8 @@ private struct SnippetRowView: View {
                         .font(.system(size: 11, weight: .semibold))
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5)
-                        .background(Color.secondary.opacity(0.15))
                         .foregroundColor(.primary)
-                        .cornerRadius(6)
+                        .glassCard(cornerRadius: 12, interactive: true)
                 }
                 .buttonStyle(.plain)
 
@@ -402,9 +397,8 @@ private struct SnippetRowView: View {
                         .font(.system(size: 11, weight: .bold))
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5)
-                        .background(Color.appAccent)
                         .foregroundColor(.white)
-                        .cornerRadius(6)
+                        .glassCard(cornerRadius: 12, tint: (Color.appAccent), interactive: true)
                 }
                 .buttonStyle(.plain)
             }

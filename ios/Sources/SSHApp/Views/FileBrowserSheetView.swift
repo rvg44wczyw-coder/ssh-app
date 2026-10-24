@@ -98,7 +98,7 @@ public struct FileBrowserSheetView: View {
                             closeSheet()
                         }
                         .font(.caption.bold())
-                        .buttonStyle(.bordered)
+                        .buttonStyle(.glass)
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)

@@ -140,8 +140,7 @@ public struct AiAssistantSheetView: View {
             }
             }
             }
-            .background(Color(red: 0.08, green: 0.08, blue: 0.10).ignoresSafeArea())
-            .navigationTitle(serverName.isEmpty ? "AI assistant" : "AI · \(serverName)")
+                        .navigationTitle(serverName.isEmpty ? "AI assistant" : "AI · \(serverName)")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 if targets.count > 1 {
@@ -229,10 +228,9 @@ public struct AiAssistantSheetView: View {
                 TextField("Message…", text: $chatInput, axis: .vertical)
                     .lineLimit(1...5)
                     .font(.system(size: 14))
-                    .foregroundColor(.white)
+                    .foregroundColor(.primary)
                     .padding(10)
-                    .background(Color(white: 0.12))
-                    .cornerRadius(10)
+                    .glassCard(cornerRadius: 16)
                 Button {
                     if assistant.isChatLoading {
                         assistant.stopChat()
@@ -244,9 +242,8 @@ public struct AiAssistantSheetView: View {
                     Image(systemName: assistant.isChatLoading ? "stop.fill" : "arrow.up")
                         .font(.system(size: 16, weight: .bold))
                         .frame(width: 40, height: 40)
-                        .background(assistant.isChatLoading ? Color.red : Color.purple)
                         .foregroundColor(.white)
-                        .clipShape(Circle())
+                        .glassEffect(.regular.tint(assistant.isChatLoading ? Color.red : Color.purple).interactive(), in: Circle())
                 }
                 .disabled(!assistant.isChatLoading
                           && (chatInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !isReady))
@@ -270,11 +267,10 @@ public struct AiAssistantSheetView: View {
             if isUser { Spacer(minLength: 40) }
             Text(message.content)
                 .font(.system(size: 14))
-                .foregroundColor(.white)
+                .foregroundColor(.primary)
                 .textSelection(.enabled)
                 .padding(10)
-                .background(isUser ? Color.purple.opacity(0.35) : Color(white: 0.14))
-                .cornerRadius(12)
+                .glassCard(cornerRadius: 18, tint: Color.purple.opacity(0.45))
             if !isUser { Spacer(minLength: 40) }
         }
     }
@@ -294,7 +290,7 @@ public struct AiAssistantSheetView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("AI Shell Assistant")
                     .font(.headline)
-                    .foregroundColor(.white)
+                    .foregroundColor(.primary)
                 Text("Generates shell commands via Host Ollama over SSH")
                     .font(.caption)
                     .foregroundColor(.secondary)
@@ -357,13 +353,8 @@ public struct AiAssistantSheetView: View {
                                     .font(.system(size: 12, weight: .medium, design: .monospaced))
                                     .padding(.horizontal, 10)
                                     .padding(.vertical, 6)
-                                    .background(selectedModel == model ? Color.purple.opacity(0.3) : Color(white: 0.15))
                                     .foregroundColor(selectedModel == model ? .purple : .secondary)
-                                    .cornerRadius(8)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 8)
-                                            .stroke(selectedModel == model ? Color.purple : Color.clear, lineWidth: 1)
-                                    )
+                                    .glassChip(tint: selectedModel == model ? Color.purple.opacity(0.4) : nil, interactive: true)
                             }
                         }
                     }
@@ -393,8 +384,7 @@ public struct AiAssistantSheetView: View {
                     .font(.caption.bold())
                 }
                 .padding(8)
-                .background(Color(white: 0.12))
-                .cornerRadius(8)
+                .glassCard(cornerRadius: 14)
             }
             if let footnote {
                 Text(footnote).font(.caption2).foregroundColor(.secondary)
@@ -402,8 +392,7 @@ public struct AiAssistantSheetView: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.orange.opacity(0.10))
-        .cornerRadius(10)
+        .glassCard(cornerRadius: 16, tint: Color.orange.opacity(0.45))
     }
 
     /// Asks the host (installed? server up? which models?). A stale answer never overwrites a
@@ -447,10 +436,9 @@ public struct AiAssistantSheetView: View {
                 TextField("Describe what you want to achieve...", text: $userPrompt, axis: .vertical)
                     .lineLimit(2...5)
                     .font(.system(size: 14))
-                    .foregroundColor(.white)
+                    .foregroundColor(.primary)
                     .padding(12)
-                    .background(Color(white: 0.12))
-                    .cornerRadius(10)
+                    .glassCard(cornerRadius: 16)
             }
 
             Button {
@@ -474,9 +462,8 @@ public struct AiAssistantSheetView: View {
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
-                .background(assistant.isAiLoading ? Color.red : (userPrompt.trimmingCharacters(in: .whitespaces).isEmpty ? Color.purple.opacity(0.4) : Color.purple))
                 .foregroundColor(.white)
-                .cornerRadius(10)
+                .glassCard(cornerRadius: 16, tint: assistant.isAiLoading ? Color.red : (userPrompt.trimmingCharacters(in: .whitespaces).isEmpty ? Color.purple.opacity(0.4) : Color.purple), interactive: true)
             }
             .disabled(!assistant.isAiLoading && (userPrompt.trimmingCharacters(in: .whitespaces).isEmpty || !isReady))
         }
@@ -499,9 +486,8 @@ public struct AiAssistantSheetView: View {
                                 .font(.system(size: 11))
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 5)
-                                .background(Color(white: 0.14))
-                                .foregroundColor(.white.opacity(0.85))
-                                .cornerRadius(12)
+                                .foregroundColor(.primary.opacity(0.85))
+                                .glassChip(interactive: true)
                         }
                     }
                 }
@@ -532,8 +518,7 @@ public struct AiAssistantSheetView: View {
             Spacer()
         }
         .padding(12)
-        .background(Color.red.opacity(0.12))
-        .cornerRadius(8)
+        .glassCard(cornerRadius: 14, tint: Color.red.opacity(0.45))
     }
 
     // MARK: - Suggestion Card
@@ -574,8 +559,7 @@ public struct AiAssistantSheetView: View {
                     }
                 }
                 .padding(8)
-                .background(Color.yellow.opacity(0.1))
-                .cornerRadius(6)
+                .glassCard(cornerRadius: 12, tint: Color.yellow.opacity(0.45))
             }
 
             // Command Code Box
@@ -586,12 +570,7 @@ public struct AiAssistantSheetView: View {
                     .textSelection(.enabled)
                     .padding(12)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.black.opacity(0.6))
-                    .cornerRadius(8)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color(white: 0.2), lineWidth: 1)
-                    )
+                    .glassCard(cornerRadius: 14)
             }
 
             // Explanation
@@ -612,9 +591,8 @@ public struct AiAssistantSheetView: View {
                     .font(.subheadline.bold())
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 10)
-                    .background(Color(white: 0.2))
-                    .foregroundColor(.white)
-                    .cornerRadius(8)
+                    .foregroundColor(.primary)
+                    .glassCard(cornerRadius: 14, interactive: true)
                 }
 
                 Button {
@@ -631,19 +609,13 @@ public struct AiAssistantSheetView: View {
                     .font(.subheadline.bold())
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 10)
-                    .background(suggestion.riskLevel == .destructive ? Color.red : Color.appAccent)
                     .foregroundColor(.white)
-                    .cornerRadius(8)
+                    .glassCard(cornerRadius: 14, tint: suggestion.riskLevel == .destructive ? Color.red : Color.appAccent, interactive: true)
                 }
             }
         }
         .padding(16)
-        .background(Color(white: 0.12))
-        .cornerRadius(12)
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color(white: 0.2), lineWidth: 1)
-        )
+        .glassCard(cornerRadius: 18)
     }
 
     // MARK: - Risk Badge
@@ -659,8 +631,7 @@ public struct AiAssistantSheetView: View {
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
-            .background(Color.green.opacity(0.15))
-            .cornerRadius(6)
+            .glassCard(cornerRadius: 12, tint: Color.green.opacity(0.45))
 
         case .caution:
             HStack(spacing: 4) {
@@ -671,8 +642,7 @@ public struct AiAssistantSheetView: View {
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
-            .background(Color.yellow.opacity(0.15))
-            .cornerRadius(6)
+            .glassCard(cornerRadius: 12, tint: Color.yellow.opacity(0.45))
 
         case .elevated:
             HStack(spacing: 4) {
@@ -683,8 +653,7 @@ public struct AiAssistantSheetView: View {
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
-            .background(Color.orange.opacity(0.15))
-            .cornerRadius(6)
+            .glassCard(cornerRadius: 12, tint: Color.orange.opacity(0.45))
 
         case .destructive:
             HStack(spacing: 4) {
@@ -695,8 +664,7 @@ public struct AiAssistantSheetView: View {
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
-            .background(Color.red.opacity(0.15))
-            .cornerRadius(6)
+            .glassCard(cornerRadius: 12, tint: Color.red.opacity(0.45))
         }
     }
 }

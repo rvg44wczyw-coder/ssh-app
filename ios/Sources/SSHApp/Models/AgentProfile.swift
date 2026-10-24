@@ -30,6 +30,9 @@ public struct SavedAgentProfile: Identifiable, Codable, Equatable, Sendable {
     /// Phone approval / notify only: tools that reach the phone (empty = all) and events to install (empty = all).
     public var approvalMatcher: String
     public var approvalEvents: [String]
+    /// Extra commands next to our hook and the user's own commands for other events (feature 57).
+    public var hookExtras: [SavedHookExtra]
+    public var hookOwn: [SavedHookOwn]
     /// Local-model tool id ("opencode", "aider", ...; "" = an ordinary agent profile) and the Ollama
     /// model it is started with ("" = the tool or Ollama picks). For these profiles the launch
     /// binary/arguments/environment come from the core, so a model change is one edit.
@@ -39,7 +42,7 @@ public struct SavedAgentProfile: Identifiable, Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case id, name, agentRaw, binary, env, args, workingDir, gitBranch, permissionMode, terminalSchemeId, iconSymbol, iconColor, loadShellRc
         case hookKindRaw, customHookCommand, customHookEvents, customHookMatcher
-        case approvalMatcher, approvalEvents
+        case approvalMatcher, approvalEvents, hookExtras, hookOwn
         case localTool, localModel
     }
 
@@ -65,6 +68,8 @@ public struct SavedAgentProfile: Identifiable, Codable, Equatable, Sendable {
         customHookMatcher = try c.decodeIfPresent(String.self, forKey: .customHookMatcher) ?? ""
         approvalMatcher = try c.decodeIfPresent(String.self, forKey: .approvalMatcher) ?? ""
         approvalEvents = try c.decodeIfPresent([String].self, forKey: .approvalEvents) ?? []
+        hookExtras = try c.decodeIfPresent([SavedHookExtra].self, forKey: .hookExtras) ?? []
+        hookOwn = try c.decodeIfPresent([SavedHookOwn].self, forKey: .hookOwn) ?? []
         localTool = try c.decodeIfPresent(String.self, forKey: .localTool) ?? ""
         localModel = try c.decodeIfPresent(String.self, forKey: .localModel) ?? ""
     }
@@ -101,6 +106,8 @@ public struct SavedAgentProfile: Identifiable, Codable, Equatable, Sendable {
         self.customHookMatcher = ""
         self.approvalMatcher = ""
         self.approvalEvents = []
+        self.hookExtras = []
+        self.hookOwn = []
         self.localTool = ""
         self.localModel = ""
     }
@@ -181,6 +188,7 @@ public struct SavedAgentProfile: Identifiable, Codable, Equatable, Sendable {
         switch hookKindRaw {
         case "notifyOnly": kind = .notifyOnly
         case "custom": kind = .custom
+        case "off": kind = .off
         default: kind = .phoneApproval
         }
         return HookPreset(
@@ -189,7 +197,9 @@ public struct SavedAgentProfile: Identifiable, Codable, Equatable, Sendable {
             customEvents: customHookEvents,
             customMatcher: customHookMatcher,
             approvalMatcher: approvalMatcher,
-            approvalEvents: approvalEvents
+            approvalEvents: approvalEvents,
+            extras: hookExtras.map(\.core),
+            own: hookOwn.map(\.core)
         )
     }
 
@@ -262,7 +272,10 @@ public struct SavedAgentProfile: Identifiable, Codable, Equatable, Sendable {
         case .phoneApproval: hookKindRaw = "phoneApproval"
         case .notifyOnly: hookKindRaw = "notifyOnly"
         case .custom: hookKindRaw = "custom"
+        case .off: hookKindRaw = "off"
         }
+        hookExtras = preset.extras.map(SavedHookExtra.init)
+        hookOwn = preset.own.map(SavedHookOwn.init)
         customHookCommand = preset.customCommand
         customHookEvents = preset.customEvents
         customHookMatcher = preset.customMatcher
@@ -384,4 +397,47 @@ public final class AgentProfilesManager: ObservableObject {
             UserDefaults.standard.set(data, forKey: Self.profilesKey)
         }
     }
+}
+
+/// Stored form of `HookExtra` (the bridge type is not Codable).
+public struct SavedHookExtra: Codable, Equatable, Hashable {
+    public var event: String
+    public var command: String
+    public var runsAfter: Bool
+    public var stopOnFailure: Bool
+    public var timeoutSecs: UInt32
+
+    public init(event: String, command: String = "", runsAfter: Bool = false, stopOnFailure: Bool = false, timeoutSecs: UInt32 = 10) {
+        self.event = event
+        self.command = command
+        self.runsAfter = runsAfter
+        self.stopOnFailure = stopOnFailure
+        self.timeoutSecs = timeoutSecs
+    }
+
+    init(_ e: HookExtra) {
+        self.init(event: e.event, command: e.command, runsAfter: e.order == .after,
+                  stopOnFailure: e.stopOnFailure, timeoutSecs: e.timeoutSecs)
+    }
+
+    var core: HookExtra {
+        HookExtra(event: event, command: command, order: runsAfter ? .after : .before,
+                  stopOnFailure: stopOnFailure, timeoutSecs: timeoutSecs)
+    }
+}
+
+/// Stored form of `HookOwn`.
+public struct SavedHookOwn: Codable, Equatable, Hashable {
+    public var event: String
+    public var command: String
+    public var matcher: String
+
+    public init(event: String, command: String = "", matcher: String = "") {
+        self.event = event
+        self.command = command
+        self.matcher = matcher
+    }
+
+    init(_ o: HookOwn) { self.init(event: o.event, command: o.command, matcher: o.matcher) }
+    var core: HookOwn { HookOwn(event: event, command: command, matcher: matcher) }
 }

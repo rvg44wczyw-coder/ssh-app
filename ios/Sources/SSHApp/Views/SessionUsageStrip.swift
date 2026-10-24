@@ -40,7 +40,7 @@ final class SessionUsageMonitor: ObservableObject {
     }
 }
 
-/// The numbers of the strip: model, context fill, plan limits, 5-hour tokens. Shared by the strip
+/// The numbers of the strip: model, context percent, plan limits, 5-hour tokens. Shared by the strip
 /// under the tabs and the one line of the agent feed.
 struct SessionUsageItems: View {
     @ObservedObject var monitor: SessionUsageMonitor
@@ -71,28 +71,26 @@ struct SessionUsageItems: View {
             }
             if let used = u.contextUsed, let limit = u.contextLimit, limit > 0 {
                 let frac = min(1, Double(used) / Double(limit))
-                HStack(spacing: 4) {
-                    ProgressView(value: frac)
-                        .tint(frac < 0.7 ? .green : (frac < 0.9 ? .orange : .red))
-                        .frame(width: 54)
-                    // With room to spare the line also says how many tokens that is.
-                    ViewThatFits(in: .horizontal) {
-                        Text("\(Int(frac * 100))% ctx \(tokens(used))/\(tokens(limit))")
-                        Text("\(Int(frac * 100))% ctx")
-                    }
-                    .lineLimit(1)
-                    .foregroundColor(frac < 0.9 ? .secondary : .red)
-                }
-                // The numbers never give way to the names around them (the model name and the
-                // git branch are the ones that shrink): "NN% ctx" stays whole.
-                .fixedSize()
-                .layoutPriority(2)
-            }
-            ForEach(u.limits, id: \.label) { l in
-                Text("\(l.label) \(l.percent)%")
-                    .foregroundColor(l.percent < 70 ? .secondary : (l.percent < 90 ? .orange : .red))
+                Text("\(Int(frac * 100))% ctx")
+                    .foregroundColor(frac < 0.7 ? .secondary : (frac < 0.9 ? .orange : .red))
+                    // The numbers never give way to the names around them (the model name and the
+                    // git branch are the ones that shrink): "NN% ctx" stays whole.
                     .fixedSize()
                     .layoutPriority(2)
+            }
+            ForEach(u.limits, id: \.label) { l in
+                let color: Color = l.percent < 70 ? .secondary : (l.percent < 90 ? .orange : .red)
+                HStack(spacing: 4) {
+                    // The 5-hour window gets the fill bar; the others stay a number.
+                    if l.label == "5h" {
+                        ProgressView(value: min(1, Double(l.percent) / 100))
+                            .tint(l.percent < 70 ? .green : (l.percent < 90 ? .orange : .red))
+                            .frame(width: 40)
+                    }
+                    Text("\(l.label) \(l.percent)%").foregroundColor(color)
+                }
+                .fixedSize()
+                .layoutPriority(2)
             }
             if u.limits.isEmpty, u.agent == "claude", let w = monitor.report?.fiveHour, w.messages > 0 {
                 Text("5h \(tokens(w.input + w.output + w.cacheWrite))").foregroundColor(.secondary)
@@ -101,6 +99,13 @@ struct SessionUsageItems: View {
             }
         }
     }
+}
+
+/// Whether the status line shows two rows. Kept in memory for the life of the app, shared by every tab.
+@MainActor
+final class StatusLineLayout: ObservableObject {
+    static let shared = StatusLineLayout()
+    @Published var expanded = false
 }
 
 /// The one status line, the same above the terminal and above the feed: git (branch, worktree,
@@ -114,6 +119,7 @@ struct SessionStatusLine: View {
     var onRefresh: (() -> Void)?
     var switchButton: SwitchButton?
     @State private var gitNamesFull = false
+    @ObservedObject private var layout = StatusLineLayout.shared
     @AppStorage("debug_feed_timing") private var showTiming = false
     private enum GitSheet: String, Identifiable { case changes, branches, worktrees; var id: String { rawValue } }
     @State private var gitSheet: GitSheet?
@@ -124,97 +130,159 @@ struct SessionStatusLine: View {
         return (calls.filter { $0.status == .running }.count, calls.count)
     }
 
+    @ViewBuilder private func gitBlock(_ git: GitSessionContext) -> some View {
+        if git.isGit, let branch = gitNamesFull ? git.branch : git.shortBranch {
+            HStack(spacing: 3) {
+                Image(systemName: "arrow.triangle.branch")
+                Text(branch).lineLimit(gitNamesFull ? 2 : 1).truncationMode(.middle)
+                    .fixedSize(horizontal: !gitNamesFull, vertical: false)
+                if git.isWorktree, let wt = gitNamesFull ? git.worktreeName : git.shortWorktree {
+                    Image(systemName: "square.stack.3d.down.right")
+                    Text(wt).lineLimit(gitNamesFull ? 2 : 1).truncationMode(.middle)
+                        .fixedSize(horizontal: !gitNamesFull, vertical: false)
+                }
+                if viewModel.gitDirtyCount > 0 {
+                    Text("+\(viewModel.gitDirtyCount)").foregroundColor(.orange)
+                }
+            }
+            .foregroundColor(.secondary)
+            // The branch keeps its width; the model name gives way first.
+            .layoutPriority(3)
+            .onTapGesture { withAnimation { gitNamesFull.toggle() } }
+        }
+    }
+
+    @ViewBuilder private var modeBadge: some View {
+        if let mode = AgentModeBadge.current(in: viewModel.transcriptTurns) {
+            Label(mode.title, systemImage: mode.icon)
+                .labelStyle(.titleAndIcon)
+                .foregroundColor(mode.color)
+                .fixedSize()
+                .layoutPriority(2)
+                .accessibilityLabel("Mode: \(mode.title)")
+        }
+    }
+
+    @ViewBuilder private var timingBadge: some View {
+        if showTiming, let t = viewModel.feedTiming {
+            Text("\(t.captureMs)/\(t.fileMs.map(String.init) ?? "-")/\(t.cycleMs)ms")
+                .foregroundColor(.orange)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+                .layoutPriority(0)
+        }
+    }
+
+    @ViewBuilder private var subagentsButton: some View {
+        let agents = subagentCounts
+        if agents.total > 0 {
+            Button { showSubagents = true } label: {
+                HStack(spacing: 3) {
+                    Image(systemName: "person.2.fill")
+                    Text(agents.running > 0 ? "\(agents.running) agent\(agents.running == 1 ? "" : "s")" : "\(agents.total) ran")
+                }
+                .frame(minHeight: 22)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundColor(agents.running > 0 ? .accentColor : .secondary)
+            .fixedSize()
+            .layoutPriority(2)
+            .accessibilityHint("Shows the subagents")
+        }
+    }
+
+    private var refreshButton: some View {
+        Button {
+            onRefresh?()
+            Task { await viewModel.loadGitContext() }
+        } label: {
+            if usage.loading || viewModel.isTranscriptLoading {
+                ProgressView().controlSize(.mini)
+            } else {
+                Image(systemName: "arrow.clockwise")
+            }
+        }
+        .buttonStyle(.plain)
+        .foregroundColor(.secondary)
+        .frame(minWidth: 24, minHeight: 22)
+        .accessibilityLabel("Refresh")
+    }
+
+    @ViewBuilder private var switchControl: some View {
+        if let sw = switchButton {
+            Button { viewModel.toggleChatMode() } label: {
+                Image(systemName: sw.icon)
+                    .font(.system(size: 12, weight: .semibold))
+                    .frame(width: 30, height: 22)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundColor(.accentColor)
+            .accessibilityLabel(sw.title)
+            .accessibilityHint(sw.hint)
+        }
+    }
+
+    private var expandButton: some View {
+        Button { withAnimation(.snappy) { layout.expanded.toggle() } } label: {
+            Image(systemName: layout.expanded ? "chevron.up" : "chevron.down")
+                .font(.system(size: 11, weight: .semibold))
+                .frame(width: 26, height: 22)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundColor(.secondary)
+        .accessibilityLabel(layout.expanded ? "Collapse status" : "Expand status")
+    }
+
     var body: some View {
         let git = viewModel.gitContext
         let showsUsage = SessionUsageItems.hasContent(usage)
-        return HStack(spacing: 8) {
-            if !showsUsage {
-                Text(viewModel.feedAgentName).foregroundColor(.secondary)
-            }
-            if git.isGit, let branch = gitNamesFull ? git.branch : git.shortBranch {
-                HStack(spacing: 3) {
-                    Image(systemName: "arrow.triangle.branch")
-                    Text(branch).lineLimit(gitNamesFull ? 2 : 1).truncationMode(.middle)
-                        .fixedSize(horizontal: !gitNamesFull, vertical: false)
-                    if git.isWorktree, let wt = gitNamesFull ? git.worktreeName : git.shortWorktree {
-                        Image(systemName: "square.stack.3d.down.right")
-                        Text(wt).lineLimit(gitNamesFull ? 2 : 1).truncationMode(.middle)
-                            .fixedSize(horizontal: !gitNamesFull, vertical: false)
+        // The line is laid out inside an overlay of a clear bar: the bar takes exactly the width it is
+        // offered, so content that wants more (long branch, model, chips) is clipped instead of
+        // making the strip wider than the screen. Collapsed it is one row; expanded, two rows
+        // (git, mode and agents above; model, context and limits below).
+        return Color.clear.frame(height: layout.expanded ? 46 : 22).containerRelativeFrame(.horizontal).overlay(alignment: .leading) {
+            Group {
+                if layout.expanded {
+                    VStack(spacing: 2) {
+                        HStack(spacing: 8) {
+                            gitBlock(git)
+                            modeBadge
+                            subagentsButton
+                            timingBadge
+                            Spacer(minLength: 0)
+                            refreshButton
+                            switchControl
+                            expandButton
+                        }
+                        HStack(spacing: 8) {
+                            if !showsUsage { Text(viewModel.feedAgentName).foregroundColor(.secondary) }
+                            SessionUsageItems(monitor: usage)
+                            Spacer(minLength: 0)
+                        }
+                        .frame(height: 22)
                     }
-                    if viewModel.gitDirtyCount > 0 {
-                        Text("+\(viewModel.gitDirtyCount)").foregroundColor(.orange)
-                    }
-                }
-                .foregroundColor(.secondary)
-                // The branch keeps its width; the model name gives way first.
-                .layoutPriority(3)
-                .onTapGesture { withAnimation { gitNamesFull.toggle() } }
-            }
-            SessionUsageItems(monitor: usage)
-            if let mode = AgentModeBadge.current(in: viewModel.transcriptTurns) {
-                Label(mode.title, systemImage: mode.icon)
-                    .labelStyle(.titleAndIcon)
-                    .foregroundColor(mode.color)
-                    .fixedSize()
-                    .layoutPriority(2)
-                    .accessibilityLabel("Mode: \(mode.title)")
-            }
-            if showTiming, let t = viewModel.feedTiming {
-                Text("\(t.captureMs)/\(t.fileMs.map(String.init) ?? "-")/\(t.cycleMs)ms")
-                    .foregroundColor(.orange)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.6)
-                    .layoutPriority(0)
-            }
-            let agents = subagentCounts
-            if agents.total > 0 {
-                Button { showSubagents = true } label: {
-                    HStack(spacing: 3) {
-                        Image(systemName: "person.2.fill")
-                        Text(agents.running > 0 ? "\(agents.running) agent\(agents.running == 1 ? "" : "s")" : "\(agents.total) ran")
-                    }
-                    .frame(minHeight: 22)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .foregroundColor(agents.running > 0 ? .accentColor : .secondary)
-                .fixedSize()
-                .layoutPriority(2)
-                .accessibilityHint("Shows the subagents")
-            }
-            Spacer(minLength: 0)
-            Button {
-                onRefresh?()
-                Task { await viewModel.loadGitContext() }
-            } label: {
-                if usage.loading || viewModel.isTranscriptLoading {
-                    ProgressView().controlSize(.mini)
                 } else {
-                    Image(systemName: "arrow.clockwise")
+                    HStack(spacing: 8) {
+                        if !showsUsage { Text(viewModel.feedAgentName).foregroundColor(.secondary) }
+                        gitBlock(git)
+                        SessionUsageItems(monitor: usage)
+                        modeBadge
+                        timingBadge
+                        subagentsButton
+                        Spacer(minLength: 0)
+                        refreshButton
+                        switchControl
+                        expandButton
+                    }
                 }
             }
-            .buttonStyle(.plain)
-            .foregroundColor(.secondary)
-            .frame(minWidth: 24, minHeight: 22)
-            .accessibilityLabel("Refresh")
-            if let sw = switchButton {
-                Button { viewModel.toggleChatMode() } label: {
-                    Image(systemName: sw.icon)
-                        .font(.system(size: 12, weight: .semibold))
-                        .frame(width: 30, height: 22)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .foregroundColor(.accentColor)
-                .accessibilityLabel(sw.title)
-                .accessibilityHint(sw.hint)
-            }
+            .font(.system(size: 10, design: .monospaced))
+            .padding(.horizontal, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .font(.system(size: 10, design: .monospaced))
-        .padding(.horizontal, 10)
-        .frame(minHeight: 22)
-        .frame(maxWidth: .infinity)
-        .containerRelativeFrame(.horizontal)
         .clipped()
         .background(.bar)
         .contentShape(Rectangle())

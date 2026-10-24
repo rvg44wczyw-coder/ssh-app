@@ -129,9 +129,8 @@ public struct WebPreviewSheetView: View {
                             .font(.system(size: 13, weight: .semibold, design: .monospaced))
                             .padding(.horizontal, 10)
                             .padding(.vertical, 6)
-                            .background(selectedPort == port ? Color.appAccent : Color(white: 0.16))
                             .foregroundColor(selectedPort == port ? .white : .primary)
-                            .cornerRadius(8)
+                            .glassCard(cornerRadius: 14, tint: (selectedPort == port ? Color.appAccent : nil), interactive: true)
                     }
                 }
 
@@ -142,8 +141,7 @@ public struct WebPreviewSheetView: View {
                         .frame(width: 60)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 5)
-                        .background(Color(white: 0.14))
-                        .cornerRadius(6)
+                        .glassCard(cornerRadius: 12)
 
                     Button("Go") {
                         if let port = UInt16(customPortText), port > 0 {
@@ -154,9 +152,8 @@ public struct WebPreviewSheetView: View {
                     .font(.system(size: 12, weight: .bold))
                     .padding(.horizontal, 8)
                     .padding(.vertical, 6)
-                    .background(Color.appAccent.opacity(0.8))
                     .foregroundColor(.white)
-                    .cornerRadius(6)
+                    .glassCard(cornerRadius: 12, tint: (Color.appAccent.opacity(0.8)), interactive: true)
                 }
                 .padding(.trailing, 8)
             }
@@ -189,9 +186,8 @@ public struct WebPreviewSheetView: View {
                     .font(.system(size: 14, weight: .semibold))
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
-                    .background(Color.appAccent)
                     .foregroundColor(.white)
-                    .cornerRadius(8)
+                    .glassCard(cornerRadius: 14, tint: (Color.appAccent), interactive: true)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -251,7 +247,7 @@ public struct WebPreviewSheetView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
-            .background(Color(white: 0.15))
+            .glassBar()
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 4) {

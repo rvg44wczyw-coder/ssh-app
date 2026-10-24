@@ -131,17 +131,15 @@ public struct TmuxSessionsSheetView: View {
                                                 .font(.system(size: 10, weight: .bold))
                                                 .padding(.horizontal, 6)
                                                 .padding(.vertical, 2)
-                                                .background(Color.green.opacity(0.2))
                                                 .foregroundColor(.green)
-                                                .cornerRadius(4)
+                                                .glassCard(cornerRadius: 10, tint: (Color.green.opacity(0.2)), interactive: true)
                                         } else {
                                             Text("Detached")
                                                 .font(.system(size: 10, weight: .medium))
                                                 .padding(.horizontal, 6)
                                                 .padding(.vertical, 2)
-                                                .background(Color.secondary.opacity(0.2))
                                                 .foregroundColor(.secondary)
-                                                .cornerRadius(4)
+                                                .glassCard(cornerRadius: 10, interactive: true)
                                         }
                                     }
 
@@ -176,9 +174,8 @@ public struct TmuxSessionsSheetView: View {
                                         .font(.subheadline.bold())
                                         .padding(.horizontal, 10)
                                         .padding(.vertical, 5)
-                                        .background(Color.appAccent)
                                         .foregroundColor(.white)
-                                        .cornerRadius(8)
+                                        .glassCard(cornerRadius: 14, tint: (Color.appAccent), interactive: true)
                                 }
                                 .buttonStyle(BorderlessButtonStyle())
 

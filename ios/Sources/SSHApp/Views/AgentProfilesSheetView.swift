@@ -208,7 +208,7 @@ public struct AgentProfilesSheetView: View {
                     case .failure(let e): message = e.localizedDescription
                     }
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.glassProminent)
                 .controlSize(.small)
             }
             if !profile.workingDir.isEmpty || !profile.gitBranch.isEmpty {
@@ -392,8 +392,7 @@ struct AgentProfileEditorView: View {
             ProfileIconView(ref: systemImage, size: 17)
                 .foregroundColor(selected ? .white : tint)
                 .frame(width: 38, height: 38)
-                .background(selected ? tint : Color.secondary.opacity(0.12))
-                .cornerRadius(8)
+                .glassCard(cornerRadius: 14, tint: (selected ? tint : nil), interactive: true)
         }
         .buttonStyle(.plain)
     }
@@ -430,11 +429,6 @@ struct AgentProfileEditorView: View {
             Label("\(profile.binary) was not found on the host (it may be an alias; use its real binary path).", systemImage: "xmark.octagon.fill")
                 .font(.caption).foregroundColor(.red)
         }
-    }
-
-    private func looksLikeCredential(_ command: String) -> Bool {
-        let c = command.lowercased()
-        return ["bearer ", "token=", "password", "passwd", "secret", "apikey", "api_key", "sk-"].contains { c.contains($0) }
     }
 
     private var supportsHooks: Bool { profile.supportsHooks }
@@ -513,6 +507,15 @@ struct AgentProfileEditorView: View {
         do { _ = try planAgentHooks(agent: profile.agent, preset: profile.hookPreset, hookDir: nil) }
         catch { return error.localizedDescription }
         return nil
+    }
+
+    private var hookModeTitle: String {
+        switch profile.hookKindRaw {
+        case "notifyOnly": return "Notify only"
+        case "custom": return "Custom"
+        case "off": return "Off"
+        default: return "Phone approval"
+        }
     }
 
     private var validationError: String? {
@@ -654,77 +657,14 @@ struct AgentProfileEditorView: View {
                     }
                 }
                 if supportsHooks {
-                    Section(
-                        header: Text("Approval hooks"),
-                        footer: Text("Hooks are installed from the profile list (Review & install), where you see exactly what is written to the host.")
-                    ) {
+                    Section {
                         NavigationLink {
-                            HookTemplatesView(agent: profile.agent) { t in profile.apply(template: t.preset) }
+                            AgentHooksView(profile: $profile, error: hookPresetError)
                         } label: {
-                            Label("Templates (\(hookTemplatesFor(agent: profile.agent).count))", systemImage: "square.grid.3x3.square")
-                        }
-                        Picker("Preset", selection: $profile.hookKindRaw) {
-                            Text("Phone approval").tag("phoneApproval")
-                            Text("Notify only").tag("notifyOnly")
-                            Text("Custom command").tag("custom")
-                        }
-                        if profile.hookKindRaw == "custom" {
-                            TextField("Command run by the agent", text: $profile.customHookCommand, axis: .vertical)
-                                .font(.system(size: 13, design: .monospaced))
-                                .autocorrectionDisabled()
-                                #if os(iOS)
-                                .textInputAutocapitalization(.never)
-                                #endif
-                            if looksLikeCredential(profile.customHookCommand) {
-                                Text("This command seems to contain a credential. It is stored unencrypted on this phone, written into the agent's config and visible in the host's process list. Read it from the host's environment instead.")
-                                    .font(.caption).foregroundColor(.orange)
-                            }
-                            ForEach(lintCustomHookCommand(command: profile.customHookCommand), id: \.self) { w in
-                                Label(w, systemImage: "exclamationmark.triangle")
-                                    .font(.caption).foregroundColor(.orange)
-                            }
-                            ForEach(hookEventsFor(agent: profile.agent), id: \.self) { ev in
-                                Toggle(ev, isOn: Binding(
-                                    get: { profile.customHookEvents.contains(ev) },
-                                    set: { on in
-                                        profile.customHookEvents.removeAll { $0 == ev }
-                                        if on { profile.customHookEvents.append(ev) }
-                                    }))
-                            }
-                            TextField("Tool matcher (empty = default)", text: $profile.customHookMatcher)
-                                .autocorrectionDisabled()
-                                #if os(iOS)
-                                .textInputAutocapitalization(.never)
-                                #endif
-                        }
-                        if profile.hookKindRaw != "custom" {
-                            ForEach(profile.approvalEventChoices, id: \.self) { ev in
-                                Toggle(ev, isOn: Binding(
-                                    get: { profile.approvalEvents.isEmpty || profile.approvalEvents.contains(ev) },
-                                    set: { on in
-                                        var current = profile.approvalEvents.isEmpty ? profile.approvalEventChoices : profile.approvalEvents
-                                        current.removeAll { $0 == ev }
-                                        if on { current.append(ev) }
-                                        // All selected = the defaults (stored as empty).
-                                        profile.approvalEvents = Set(current) == Set(profile.approvalEventChoices) ? [] : current
-                                    }))
-                            }
-                            ForEach(profile.extraApprovalEvents, id: \.self) { ev in
-                                Toggle("\(ev) (extra)", isOn: Binding(
-                                    get: { profile.approvalEvents.contains(ev) },
-                                    set: { on in
-                                        var current = profile.approvalEvents.isEmpty ? profile.approvalEventChoices : profile.approvalEvents
-                                        current.removeAll { $0 == ev }
-                                        if on { current.append(ev) }
-                                        profile.approvalEvents = Set(current) == Set(profile.approvalEventChoices) ? [] : current
-                                    }))
-                            }
-                            if profile.hookKindRaw == "phoneApproval" {
-                                TextField("Tools sent to the phone, e.g. Bash|Edit|Write (empty = all)", text: $profile.approvalMatcher)
-                                    .autocorrectionDisabled()
-                                    #if os(iOS)
-                                    .textInputAutocapitalization(.never)
-                                    #endif
+                            HStack {
+                                Label("Hooks", systemImage: "link")
+                                Spacer()
+                                Text(hookModeTitle).foregroundColor(.secondary)
                             }
                         }
                         if let e = hookPresetError {

@@ -49,6 +49,7 @@ struct FeedTextView: UIViewRepresentable {
         let pinch = UIPinchGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.pinched(_:)))
         pinch.delegate = context.coordinator
         tv.addGestureRecognizer(pinch)
+        context.coordinator.installCopyGestures(on: tv)
         return tv
     }
 
@@ -105,7 +106,7 @@ struct FeedTextView: UIViewRepresentable {
         c.report(tv)
     }
 
-    final class Coordinator: NSObject, UITextViewDelegate, UIGestureRecognizerDelegate {
+    final class Coordinator: NSObject, UITextViewDelegate, UIGestureRecognizerDelegate, UIEditMenuInteractionDelegate {
         var parent: FeedTextView
         private var pinchBase: CGFloat = 1
 
@@ -171,11 +172,150 @@ struct FeedTextView: UIViewRepresentable {
         /// Taps on the feed's own toggle links expand or collapse a turn; no link is ever opened.
         func textView(_ textView: UITextView, primaryActionFor textItem: UITextItem,
                       defaultAction: UIAction) -> UIAction? {
-            if case .link(let url) = textItem.content, let toggle = FeedToggle(url: url) {
-                return UIAction { [parent] _ in parent.onToggle(toggle) }
+            if case .link(let url) = textItem.content {
+                if let toggle = FeedToggle(url: url) {
+                    return UIAction { [parent] _ in parent.onToggle(toggle) }
+                }
+                if let id = FeedCopy.messageID(url) {
+                    return UIAction { [weak self, weak textView] _ in
+                        guard let self, let turn = self.parent.turns.first(where: { $0.id == id }),
+                              let text = turn.content, !text.isEmpty else { return }
+                        self.copy(text, in: textView)
+                    }
+                }
             }
             return UIAction { _ in }
         }
+
+        // MARK: Copying
+
+        private var pendingInline: String?
+        private var menuInteraction: UIEditMenuInteraction?
+
+        /// Triple tap copies the paragraph, list or code block under the finger; a tap on an
+        /// underlined `code` word offers to copy it. Both sit beside the text view's own selection.
+        func installCopyGestures(on tv: UITextView) {
+            let triple = UITapGestureRecognizer(target: self, action: #selector(tripleTapped(_:)))
+            triple.numberOfTapsRequired = 3
+            triple.cancelsTouchesInView = false
+            triple.delegate = self
+            tv.addGestureRecognizer(triple)
+            let single = UITapGestureRecognizer(target: self, action: #selector(tapped(_:)))
+            single.cancelsTouchesInView = false
+            single.delegate = self
+            single.require(toFail: triple)
+            tv.addGestureRecognizer(single)
+            let menu = UIEditMenuInteraction(delegate: self)
+            tv.addInteraction(menu)
+            menuInteraction = menu
+        }
+
+        private func characterIndex(_ tv: UITextView, at point: CGPoint) -> Int? {
+            let lm = tv.layoutManager
+            var p = point
+            p.x -= tv.textContainerInset.left
+            p.y -= tv.textContainerInset.top
+            var fraction: CGFloat = 0
+            let i = lm.characterIndex(for: p, in: tv.textContainer, fractionOfDistanceBetweenInsertionPoints: &fraction)
+            guard i < tv.textStorage.length else { return nil }
+            let glyph = lm.glyphIndexForCharacter(at: i)
+            let rect = lm.boundingRect(forGlyphRange: NSRange(location: glyph, length: 1), in: tv.textContainer)
+            return rect.insetBy(dx: -6, dy: -6).contains(p) ? i : nil
+        }
+
+        @objc private func tripleTapped(_ g: UITapGestureRecognizer) {
+            guard g.state == .ended, let tv = g.view as? UITextView,
+                  let i = characterIndex(tv, at: g.location(in: tv)),
+                  let text = FeedCopy.block(in: tv.textStorage, at: i) else { return }
+            copy(text, in: tv)
+            // The system selects the paragraph on a triple tap; the copy is done, so drop it and its menu.
+            DispatchQueue.main.async { tv.selectedTextRange = nil }
+        }
+
+        @objc private func tapped(_ g: UITapGestureRecognizer) {
+            guard g.state == .ended, let tv = g.view as? UITextView,
+                  let i = characterIndex(tv, at: g.location(in: tv)),
+                  let word = tv.textStorage.attribute(FeedCopy.inlineKey, at: i, effectiveRange: nil) as? String
+            else { return }
+            pendingInline = word
+            menuInteraction?.presentEditMenu(with: UIEditMenuConfiguration(identifier: nil, sourcePoint: g.location(in: tv)))
+        }
+
+        func copy(_ text: String, in tv: UIView?) {
+            UIPasteboard.general.string = text
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            guard let host = tv?.superview ?? tv else { return }
+            let label = UILabel()
+            label.text = "  Copied  "
+            label.font = .systemFont(ofSize: 13, weight: .semibold)
+            label.textColor = .label
+            label.backgroundColor = .secondarySystemBackground
+            label.layer.cornerRadius = 12
+            label.layer.masksToBounds = true
+            label.sizeToFit()
+            label.frame.size.height = 28
+            label.center = CGPoint(x: host.bounds.midX, y: host.bounds.maxY - 56)
+            host.addSubview(label)
+            UIView.animate(withDuration: 0.25, delay: 0.9, options: []) { label.alpha = 0 } completion: { _ in label.removeFromSuperview() }
+        }
+
+        func editMenuInteraction(_ interaction: UIEditMenuInteraction, menuFor configuration: UIEditMenuConfiguration,
+                                 suggestedActions: [UIMenuElement]) -> UIMenu? {
+            guard let word = pendingInline else { return nil }
+            return UIMenu(children: [UIAction(title: "Copy", image: UIImage(systemName: "doc.on.doc")) { [weak self, weak interaction] _ in
+                self?.copy(word, in: interaction?.view)
+            }])
+        }
+    }
+}
+
+/// Quick copy in the feed: attributes that remember the source text of a paragraph, list, code block
+/// or inline `code` word, and the links behind "Copy all".
+enum FeedCopy {
+    /// The Markdown source of one block, set on every character of it.
+    static let textKey = NSAttributedString.Key("feed.copyText")
+    /// Lines of one list share a group, so the whole list is copied at once.
+    static let groupKey = NSAttributedString.Key("feed.copyGroup")
+    /// The word of an inline `code` span.
+    static let inlineKey = NSAttributedString.Key("feed.copyInline")
+    private static var groupCounter = 0
+
+    static func nextGroup() -> Int {
+        groupCounter += 1
+        return groupCounter
+    }
+
+    static func mark(_ s: NSMutableAttributedString, raw: String, group: Int) {
+        guard s.length > 0 else { return }
+        s.addAttributes([textKey: raw, groupKey: group], range: NSRange(location: 0, length: s.length))
+    }
+
+    static func messageURL(_ id: String) -> URL? {
+        var comps = URLComponents()
+        comps.scheme = "feedcopy"
+        comps.host = "message"
+        comps.queryItems = [URLQueryItem(name: "id", value: id)]
+        return comps.url
+    }
+
+    static func messageID(_ url: URL) -> String? {
+        guard url.scheme == "feedcopy", url.host == "message",
+              let comps = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        return comps.queryItems?.first(where: { $0.name == "id" })?.value
+    }
+
+    /// The source of the block at `index`: all lines of its group, one per line.
+    static func block(in text: NSAttributedString, at index: Int) -> String? {
+        guard index >= 0, index < text.length,
+              text.attribute(groupKey, at: index, effectiveRange: nil) != nil else { return nil }
+        var range = NSRange(location: 0, length: 0)
+        _ = text.attribute(groupKey, at: index, longestEffectiveRange: &range, in: NSRange(location: 0, length: text.length))
+        var lines: [String] = []
+        text.enumerateAttribute(textKey, in: range) { value, _, _ in
+            if let line = value as? String { lines.append(line) }
+        }
+        let joined = lines.joined(separator: "\n")
+        return joined.isEmpty ? nil : joined
     }
 }
 
@@ -473,6 +613,11 @@ enum FeedAttributedBuilder {
                                indent: 0)
                 }
             }
+            let copyAll = line("  ⧉ Copy all\n", font: mono(size: 11), color: .tertiaryLabel, after: 0)
+            if let url = FeedCopy.messageURL(turn.id) {
+                copyAll.addAttribute(.link, value: url, range: NSRange(location: 0, length: copyAll.length - 1))
+            }
+            out.append(copyAll)
         }
         if presentation == .studio, turn.toolCalls.count >= 2 {
             appendPipeline(turn.toolCalls, into: out, expandedTools, dark, nextIsTool: nextIsTool)
@@ -766,20 +911,24 @@ enum FeedAttributedBuilder {
     private static func appendProse(_ text: String, into out: NSMutableAttributedString, bullet: Bool) {
         var lines = text.components(separatedBy: "\n")[...]
         var firstLine = bullet
+        var listGroup: Int?
         func lead() -> String {
             defer { firstLine = false }
             return firstLine ? "● " : "  "
         }
         while let raw = lines.popFirst() {
             let trimmed = raw.trimmingCharacters(in: .whitespaces)
-            if trimmed.isEmpty { out.append(line("\n", font: mono(size: 6), after: 0)); continue }
+            if trimmed.isEmpty { listGroup = nil; out.append(line("\n", font: mono(size: 6), after: 0)); continue }
             if trimmed.hasPrefix("|") {
                 var rows = [trimmed]
                 while let nxt = lines.first, nxt.trimmingCharacters(in: .whitespaces).hasPrefix("|") {
                     rows.append(lines.popFirst()!.trimmingCharacters(in: .whitespaces))
                 }
+                listGroup = nil
                 out.append(line(lead(), color: .label, after: 0))
-                out.append(table(rows))
+                let t = NSMutableAttributedString(attributedString: table(rows))
+                FeedCopy.mark(t, raw: rows.joined(separator: "\n"), group: FeedCopy.nextGroup())
+                out.append(t)
                 continue
             }
             if let h = trimmed.firstMatch(of: /^(#{1,6})\s+(.*)$/) {
@@ -789,6 +938,8 @@ enum FeedAttributedBuilder {
                 m.append(inline(String(h.2), base: f, color: level <= 2 ? .label : .secondaryLabel,
                                 indent: 14, first: 0, after: 4))
                 m.append(NSAttributedString(string: "\n"))
+                listGroup = nil
+                FeedCopy.mark(m, raw: trimmed, group: FeedCopy.nextGroup())
                 out.append(m)
                 continue
             }
@@ -806,6 +957,9 @@ enum FeedAttributedBuilder {
                 r.addAttribute(.paragraphStyle, value: style(indent: 28 + depth, first: depth, after: 2),
                                range: NSRange(location: 0, length: r.length))
                 r.append(NSAttributedString(string: "\n"))
+                let g = listGroup ?? FeedCopy.nextGroup()
+                listGroup = g
+                FeedCopy.mark(r, raw: trimmed, group: g)
                 out.append(r)
                 continue
             }
@@ -816,6 +970,9 @@ enum FeedAttributedBuilder {
                 r.addAttribute(.paragraphStyle, value: style(indent: 32 + depth, first: depth, after: 2),
                                range: NSRange(location: 0, length: r.length))
                 r.append(NSAttributedString(string: "\n"))
+                let g = listGroup ?? FeedCopy.nextGroup()
+                listGroup = g
+                FeedCopy.mark(r, raw: trimmed, group: g)
                 out.append(r)
                 continue
             }
@@ -825,12 +982,16 @@ enum FeedAttributedBuilder {
                 firstLine = false
                 r.append(inline(String(body), color: .secondaryLabel, indent: 28, first: 0, after: 2))
                 r.append(NSAttributedString(string: "\n"))
+                listGroup = nil
+                FeedCopy.mark(r, raw: trimmed, group: FeedCopy.nextGroup())
                 out.append(r)
                 continue
             }
             let r = NSMutableAttributedString(attributedString: line(lead(), after: 2))
             r.append(inline(trimmed, indent: 14, first: 0, after: 4))
             r.append(NSAttributedString(string: "\n"))
+            listGroup = nil
+            FeedCopy.mark(r, raw: trimmed, group: FeedCopy.nextGroup())
             out.append(r)
         }
     }
@@ -902,10 +1063,13 @@ enum FeedAttributedBuilder {
             body.addAttributes([.font: mono(size: 12.5), .backgroundColor: bg,
                                 .paragraphStyle: style(indent: 14, first: 14, after: 6)],
                                range: NSRange(location: 0, length: body.length))
+            FeedCopy.mark(body, raw: code, group: FeedCopy.nextGroup())
             out.append(body)
             out.append(line("\n", font: mono(size: 12.5), after: 6))
         } else {
-            out.append(line(code + "\n", font: mono(size: 12.5), indent: 14, first: 14, after: 6, background: bg))
+            let plain = line(code + "\n", font: mono(size: 12.5), indent: 14, first: 14, after: 6, background: bg)
+            FeedCopy.mark(plain, raw: code, group: FeedCopy.nextGroup())
+            out.append(plain)
         }
     }
 
@@ -932,6 +1096,10 @@ enum FeedAttributedBuilder {
                     font = monoExact(.regular, size: baseFont.pointSize - 0.5)
                     extra[.backgroundColor] = UIColor.secondarySystemFill
                     extra[.foregroundColor] = UIColor.systemOrange
+                    // Underlined: a tap offers to copy it.
+                    extra[.underlineStyle] = NSUnderlineStyle.single.rawValue | NSUnderlineStyle.patternDot.rawValue
+                    extra[.underlineColor] = UIColor.systemOrange.withAlphaComponent(0.6)
+                    extra[FeedCopy.inlineKey] = piece
                 }
                 if intent.contains(.strikethrough) { extra[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
             }

@@ -7,10 +7,17 @@ import SshCoreBridge
 public struct StructuredTranscriptView: View {
     @ObservedObject var viewModel: TerminalSessionViewModel
     @State private var promptText: String = ""
+    /// Position in the list of my earlier messages while ↑/↓ browse it (0 = the newest); `nil`: not browsing.
+    @State private var historyIndex: Int?
+    /// What the field held before browsing started; ↓ past the newest message brings it back.
+    @State private var historyStash = ""
     /// The text taken from the agent's box into the field by the up button; it leaves the field
     /// again when the agent's box empties without the text having been edited.
     @State private var adoptedText: String?
     @State private var blinkRed = false
+    /// The offered text the reader swiped away; the offer returns only for a different text.
+    @State private var dismissedOffer: String?
+    @State private var offerDrag: CGFloat = 0
     @State private var blinkTask: Task<Void, Never>?
     @AppStorage(FeedPresentationStyle.storageKey) private var feedStyleRaw: String = FeedPresentationStyle.fallback.rawValue
     /// Tap on the branch / worktree names: shortened names shown whole (and back).
@@ -108,9 +115,8 @@ public struct StructuredTranscriptView: View {
                         .font(.system(size: 13, weight: .semibold))
                         .padding(.horizontal, 16)
                         .padding(.vertical, 8)
-                        .background(Color.appAccent)
                         .foregroundColor(.white)
-                        .cornerRadius(8)
+                        .glassCard(cornerRadius: 14, tint: (Color.appAccent), interactive: true)
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -146,16 +152,15 @@ public struct StructuredTranscriptView: View {
                             .font(.system(size: 13, weight: .semibold))
                             .padding(.horizontal, 16)
                             .padding(.vertical, 8)
-                            .background(Color.appAccent)
                             .foregroundColor(.white)
-                            .cornerRadius(8)
+                            .glassCard(cornerRadius: 14, tint: (Color.appAccent), interactive: true)
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color.appBackground)
             } else {
                 FeedTextView(
-                    turns: viewModel.transcriptTurns,
+                    turns: viewModel.turnsWithEchoes,
                     expandedThinking: expandedThinkingTurns,
                     expandedTools: expandedToolCalls,
                     onToggle: { toggle in
@@ -206,13 +211,14 @@ public struct StructuredTranscriptView: View {
                                 .font(.system(size: 12, weight: .semibold))
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 6)
-                                .background(.regularMaterial, in: Capsule())
+                                .glassChip()
                         }
                         .padding(10)
                     }
                 }
                 .sheet(isPresented: $showArtifacts) { ArtifactListSheet(artifacts: artifacts) }
                 .onChange(of: viewModel.transcriptTurns) { _, _ in
+                    viewModel.pruneEchoes()
                     // The text view follows the output only while the reader is at the bottom.
                     if !atBottom { unseenNew = true }
                 }
@@ -224,7 +230,7 @@ public struct StructuredTranscriptView: View {
                                 .font(.system(size: 12, weight: .semibold))
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 6)
-                                .background(.regularMaterial, in: Capsule())
+                                .glassChip()
                                 .overlay(alignment: .topTrailing) {
                                     if unseenNew { Circle().fill(Color.appAccent).frame(width: 8, height: 8) }
                                 }
@@ -266,7 +272,11 @@ public struct StructuredTranscriptView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
                         ForEach(FeedKeys.all) { key in
-                            feedKey(key.title) { UIImpactFeedbackGenerator(style: .light).impactOccurred(); viewModel.sendInput(Data(key.bytes)) }
+                            feedKey(key.title) {
+                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                if (key.title == "↑" || key.title == "↓"), browseHistory(up: key.title == "↑") { return }
+                                viewModel.sendInput(Data(key.bytes))
+                            }
                             if key.endsGroup { Divider().frame(height: 18) }
                         }
                     }
@@ -280,6 +290,7 @@ public struct StructuredTranscriptView: View {
                         }
                     }
                 }
+                GlassEffectContainer(spacing: 10) {
                 HStack(alignment: .bottom, spacing: 8) {
                     Menu {
                         Button { showPhotoPicker = true } label: { Label("Photos & videos", systemImage: "photo.on.rectangle") }
@@ -290,14 +301,22 @@ public struct StructuredTranscriptView: View {
                         if UIPasteboard.general.hasImages {
                             Button { pendingClipboard = true; askKeep = true } label: { Label("Paste image", systemImage: "doc.on.clipboard") }
                         }
+                        if hasAgentCommands {
+                            Divider()
+                            Menu { AgentCommandItems(agy: viewModel.isAgyAgent) { viewModel.runAgentCommand($0) } } label: {
+                                Label("Commands", systemImage: "slash.circle")
+                            }
+                        }
                     } label: {
                         Image(systemName: "paperclip.circle.fill")
-                            .font(.system(size: 30))
+                            .font(.system(size: 22))
                             .foregroundColor(.appAccent)
                     }
+                    .buttonStyle(.glass)
+                    .buttonBorderShape(.circle)
                     .disabled(viewModel.sessionHandle == nil || viewModel.state != .connected)
-                    if viewModel.session.agentType == .claudeCode {
-                        AgentCommandsMenu { viewModel.runAgentCommand($0) }
+                    if hasAgentCommands {
+                        AgentCommandsMenu(agy: viewModel.isAgyAgent) { viewModel.runAgentCommand($0) }
                             .disabled(viewModel.sessionHandle == nil || viewModel.state != .connected)
                     }
                     TextField("Message…", text: $promptText, axis: .vertical)
@@ -306,12 +325,7 @@ public struct StructuredTranscriptView: View {
                         .font(.system(size: 16))
                         .padding(.horizontal, 10)
                         .padding(.vertical, 9)
-                    .background(Color.appSecondaryBackground)
-                    .cornerRadius(10)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 10)
-                            .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
-                    )
+                    .glassCard(cornerRadius: 19)
                     .overlay(alignment: .topTrailing) {
                         Button { withAnimation { editorExpanded.toggle() } } label: {
                             Image(systemName: editorExpanded
@@ -335,19 +349,19 @@ public struct StructuredTranscriptView: View {
                                 Label("Add to the current task", systemImage: "text.badge.plus")
                             }
                         } label: {
-                            Image(systemName: "bolt.circle.fill")
-                                .font(.system(size: 30))
-                                .foregroundColor(canSend ? .orange : .secondary)
+                            Image(systemName: "bolt.fill").font(.system(size: 16, weight: .semibold))
                         }
+                        .buttonStyle(.glass)
+                        .buttonBorderShape(.circle)
+                        .tint(canSend ? .orange : .gray)
                         .disabled(!canSend)
                         .accessibilityLabel("Send now")
                     }
                     Button(action: sendPrompt) {
-                        Image(systemName: "arrow.up.circle.fill")
-                            .font(.system(size: 30))
-                            .foregroundColor(canSend ? .appAccent : .secondary)
+                        GlassRoundIcon(symbol: "arrow.up", tint: canSend ? .appAccent : nil, symbolColor: .secondary)
                     }
                     .disabled(!canSend)
+                }
                 }
             }
             .padding(.horizontal, 12)
@@ -443,7 +457,7 @@ public struct StructuredTranscriptView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 5))
                     .overlay {
                         switch u.state {
-                        case .sending: ProgressView().controlSize(.mini).padding(3).background(.ultraThinMaterial, in: Circle())
+                        case .sending: ProgressView().controlSize(.mini).padding(3).glassEffect(.regular, in: Circle())
                         case .failed: Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.orange)
                         }
                     }
@@ -461,7 +475,7 @@ public struct StructuredTranscriptView: View {
                 .accessibilityLabel(u.state == .failed ? "Dismiss" : "Cancel upload")
         }
         .padding(.horizontal, 8).padding(.vertical, 4)
-        .background(Color.appSecondaryBackground, in: Capsule())
+        .glassChip()
     }
 
     private func sendPending(permanent: Bool) {
@@ -607,14 +621,25 @@ public struct StructuredTranscriptView: View {
                 .font(.system(size: 12, weight: .semibold, design: .monospaced))
                 .padding(.horizontal, 10)
                 .padding(.vertical, 5)
-                .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
+                .glassChip(interactive: true)
         }
         .buttonStyle(.plain)
+    }
+
+    /// Slash commands of Claude Code or Antigravity; a plain tab shows the feed only once an agent runs in it.
+    private var hasAgentCommands: Bool {
+        switch viewModel.session.agentType {
+        case .localLlm: return false
+        case .claudeCode, .antigravity, .customShell, .dockerContainer: return true
+        }
     }
 
     private func sendPrompt() {
         guard canSend else { return }
         let text = promptText
+        let working = viewModel.screenStatus != nil
+        viewModel.draftIsBeingSent()
+        viewModel.echoSent(text)
         promptText = ""
         syncTask?.cancel()
         Task {
@@ -631,6 +656,10 @@ public struct StructuredTranscriptView: View {
                 viewModel.sendInput(Data([0x0d]))
                 viewModel.draftWasSent()
             }
+            // A working agent queues it: offer "send now" for it.
+            if working, viewModel.screenStatus != nil {
+                viewModel.queuedNote = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
             // The transcript catches up through the live tail.
             try? await Task.sleep(for: .seconds(1))
             _ = await viewModel.reloadTranscriptQuietly()
@@ -640,6 +669,8 @@ public struct StructuredTranscriptView: View {
     private func sendImmediately() {
         guard canSend else { return }
         let text = promptText.trimmingCharacters(in: .whitespacesAndNewlines)
+        viewModel.draftIsBeingSent()
+        viewModel.echoSent(text)
         promptText = ""
         syncTask?.cancel()
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
@@ -667,28 +698,51 @@ public struct StructuredTranscriptView: View {
     /// field is empty: offered above the field, not poured into it.
     private var offeredDraft: String? {
         guard promptText.isEmpty else { return nil }
-        return viewModel.offerableScreenDraft
+        let offer: String?
+        if let queued = viewModel.queuedNote, viewModel.screenStatus != nil { offer = queued } else { offer = viewModel.offerableScreenDraft }
+        return offer == dismissedOffer ? nil : offer
     }
 
-    /// The up arrow blinks red for 4 seconds when something new is offered, then stops; a tap moves
-    /// the text into the field.
+    /// The up arrow blinks red for 4 seconds when something new is offered, then stops; a tap on it
+    /// sends the message straight to the agent, a tap on the text moves it into the field to edit.
     private func queuedStrip(_ text: String) -> some View {
         HStack(spacing: 8) {
-            Button { adoptScreenDraft() } label: {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: 28))
-                    .foregroundColor(blinkRed ? .red : .appAccent)
+            Button { submitScreenDraft() } label: {
+                GlassRoundIcon(symbol: "arrow.up", tint: blinkRed ? .red : .appAccent, size: 32)
             }
-            .accessibilityLabel("Edit the message waiting in the agent")
+            .accessibilityLabel("Send the message waiting in the agent")
             VStack(alignment: .leading, spacing: 1) {
                 Text("Waiting in the agent").font(.caption2.bold()).foregroundStyle(.secondary)
                 Text(text).font(.system(size: 12)).lineLimit(2)
             }
+            .contentShape(Rectangle())
+            .onTapGesture { adoptScreenDraft() }
+            .accessibilityHint("Moves it into the message field to edit")
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color.appSecondaryBackground))
+        .glassCard(cornerRadius: 16)
+        // Swipe sideways to put the offer away; it comes back only for another text.
+        .offset(x: offerDrag)
+        .opacity(1 - min(0.7, abs(offerDrag) / 200))
+        .gesture(
+            DragGesture(minimumDistance: 16)
+                .onChanged { v in
+                    if abs(v.translation.width) > abs(v.translation.height) { offerDrag = v.translation.width }
+                }
+                .onEnded { v in
+                    if abs(v.translation.width) > 80 {
+                        dismissedOffer = text
+                        viewModel.queuedNote = nil
+                        blinkTask?.cancel()
+                        blinkRed = false
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    }
+                    withAnimation(.easeOut(duration: 0.2)) { offerDrag = 0 }
+                }
+        )
+        .accessibilityAction(named: "Dismiss") { dismissedOffer = text; viewModel.queuedNote = nil }
     }
 
     private func startBlink() {
@@ -718,6 +772,80 @@ public struct StructuredTranscriptView: View {
             viewModel.draftWasSent()
         }
         adoptedText = nil
+    }
+
+    /// My messages of this conversation, newest first, without repeats of the one before.
+    private var sentHistory: [String] {
+        var out: [String] = []
+        for t in viewModel.turnsWithEchoes.reversed() where t.turnType == .user {
+            let text = (t.content ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            if !text.isEmpty, out.last != text { out.append(text) }
+        }
+        return out
+    }
+
+    /// ↑ / ↓ as in the CLI: with an empty field (or while browsing) they walk through my earlier
+    /// messages, putting each into the field. Returns `false` when the key should go to the agent as
+    /// an ordinary arrow (text is being written, or there is nothing to browse).
+    private func browseHistory(up: Bool) -> Bool {
+        let list = sentHistory
+        func put(_ text: String) {
+            if text != promptText { adopting = true; promptText = text }
+        }
+        if promptText.isEmpty { historyIndex = nil }
+        guard let i = historyIndex else {
+            guard up, promptText.isEmpty, !list.isEmpty else { return false }
+            historyStash = ""
+            historyIndex = 0
+            put(list[0])
+            return true
+        }
+        // The text was edited by hand: browsing is over, the arrows are ordinary again.
+        guard i < list.count, promptText == list[i] else { historyIndex = nil; return false }
+        if up {
+            if i + 1 < list.count { historyIndex = i + 1; put(list[i + 1]) }
+        } else if i == 0 {
+            historyIndex = nil
+            put(historyStash)
+        } else {
+            historyIndex = i - 1
+            put(list[i - 1])
+        }
+        return true
+    }
+
+    /// Sends what waits in the agent right now. An idle agent has the text in its box and only Enter
+    /// is missing. A working one queues it on Enter, and its own "send now" (Ctrl+X, Ctrl+S) then
+    /// puts the queued message first.
+    private func submitScreenDraft() {
+        guard viewModel.state == .connected, offeredDraft != nil else { return }
+        blinkTask?.cancel()
+        blinkRed = false
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        if viewModel.queuedNote != nil, viewModel.screenStatus != nil {
+            // Already queued: only the agent's own "send now" is missing.
+            viewModel.queuedNote = nil
+            viewModel.sendQueuedNow()
+            Task {
+                try? await Task.sleep(for: .seconds(1))
+                _ = await viewModel.reloadTranscriptQuietly()
+            }
+            return
+        }
+        let working = viewModel.screenStatus != nil
+        viewModel.draftIsBeingSent()
+        Task {
+            if working {
+                viewModel.sendInput(Data([0x0d]))
+                try? await Task.sleep(for: .milliseconds(450))
+                viewModel.sendQueuedNow()
+            } else {
+                await viewModel.submitBox(acceptSuggestion: true)
+            }
+            viewModel.draftWasSent()
+            try? await Task.sleep(for: .seconds(1))
+            _ = await viewModel.reloadTranscriptQuietly()
+        }
     }
 
     /// Moves the text of the agent's box into the message field (as long as nothing else is written).
@@ -903,22 +1031,22 @@ struct FeedPromptCard: View {
                             pickText(i, text)
                             typed = ""
                             typingIn = nil
-                        } label: { Image(systemName: "arrow.up.circle.fill").font(.system(size: 26)) }
+                        } label: { GlassRoundIcon(symbol: "arrow.up", tint: .appAccent, size: 30) }
                             .disabled(typed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
                 }
             }
             HStack {
                 if prompt.title?.contains("Submit") == true {
-                    Button { tab(true) } label: { Label("Back", systemImage: "chevron.left") }.buttonStyle(.bordered)
-                    Button { tab(false) } label: { Label("Next", systemImage: "chevron.right") }.buttonStyle(.borderedProminent)
+                    Button { tab(true) } label: { Label("Back", systemImage: "chevron.left") }.buttonStyle(.glass)
+                    Button { tab(false) } label: { Label("Next", systemImage: "chevron.right") }.buttonStyle(.glassProminent)
                 }
                 // in a multi-question form Enter only toggles; "Done" is the next tab (the last one is Submit)
                 if prompt.multi && prompt.title?.contains("Submit") != true {
-                    Button("Done") { finish(true) }.buttonStyle(.borderedProminent)
+                    Button("Done") { finish(true) }.buttonStyle(.glassProminent)
                 }
                 Spacer()
-                Button("Esc") { finish(false) }.buttonStyle(.bordered)
+                Button("Esc") { finish(false) }.buttonStyle(.glass)
             }
             .font(.system(size: 13))
         }

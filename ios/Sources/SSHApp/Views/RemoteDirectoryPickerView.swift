@@ -50,7 +50,7 @@ struct RemoteDirectoryPickerView: View {
                             .font(.system(size: 12, design: .monospaced)).lineLimit(1).truncationMode(.head)
                         Spacer()
                         Button("Use this folder") { onPick(shown(l.currentPath)); dismiss() }
-                            .font(.caption.bold()).buttonStyle(.borderedProminent).controlSize(.small)
+                            .font(.caption.bold()).buttonStyle(.glassProminent).controlSize(.small)
                     }
                     .padding(.horizontal, 12).padding(.vertical, 8)
                 }

@@ -167,6 +167,7 @@ struct HookPreviewSheetView: View {
         switch profile.hookKindRaw {
         case "notifyOnly": return "notify only"
         case "custom": return "custom"
+        case "off": return "own commands only"
         default: return "phone approval"
         }
     }
@@ -175,7 +176,7 @@ struct HookPreviewSheetView: View {
     private func entryRow(_ h: PlannedHook) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(h.event + (h.matcher.map { "  [\($0)]" } ?? "")).font(.subheadline.bold())
-            Text(h.command).font(.system(size: 11, design: .monospaced))
+            Text(hookCommandSummary(command: h.command)).font(.system(size: 11, design: .monospaced))
         }
     }
 

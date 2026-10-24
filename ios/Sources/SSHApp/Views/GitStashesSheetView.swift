@@ -44,7 +44,7 @@ public struct GitStashesSheetView: View {
                                 Button("Pop") { run(.stashPop(index: UInt32(s.index))) }
                             }
                             .font(.caption.bold())
-                            .buttonStyle(.bordered)
+                            .buttonStyle(.glass)
                         }
                         .swipeActions(edge: .trailing) {
                             Button(role: .destructive) { pendingDrop = s } label: { Label("Drop", systemImage: "trash") }

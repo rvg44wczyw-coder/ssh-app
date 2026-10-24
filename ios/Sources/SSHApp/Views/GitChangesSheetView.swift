@@ -151,7 +151,7 @@ public struct GitChangesSheetView: View {
                 Label(result?.ahead ?? 0 > 0 ? "Push ↑\(result?.ahead ?? 0)" : "Push", systemImage: "arrow.up.to.line").frame(maxWidth: .infinity)
             }
         }
-        .buttonStyle(.bordered)
+        .buttonStyle(.glass)
         .disabled(busy || result?.status != .ok)
         .padding()
         .background(.bar)

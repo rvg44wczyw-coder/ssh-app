@@ -76,7 +76,7 @@ struct QuickMenuOrderGrid: View {
             if action.canHide { hiddenRaw = QuickMenuPrefs.toggled(action, in: hiddenRaw) }
         }
         .draggable(action.rawValue) {
-            Text(action.title(isChatMode: false)).padding(6).background(.thinMaterial, in: Capsule())
+            Text(action.title(isChatMode: false)).padding(6).glassChip()
         }
         .dropDestination(for: String.self) { items, _ in
             guard let id = items.first, let moving = AppAction(rawValue: id) else { return false }

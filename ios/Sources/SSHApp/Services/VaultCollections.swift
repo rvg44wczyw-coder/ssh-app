@@ -109,7 +109,7 @@ enum SyncedProfile {
     /// all for a profile with a custom hook command (a command the host would run).
     static func outgoing(_ profiles: [SavedAgentProfile]) -> [CollectionItem] {
         profiles.compactMap { p in
-            guard p.hookKindRaw != "custom" else { return nil }
+            guard p.hookKindRaw != "custom", p.hookExtras.isEmpty, p.hookOwn.isEmpty else { return nil }
             var q = p
             q.env = p.env.filter { !isSecretKey(String($0.prefix { $0 != "=" })) }
             q.customHookCommand = ""
@@ -143,7 +143,7 @@ enum SyncedProfile {
               plain(p.iconSymbol, max: 80), plain(p.iconColor, max: 40),
               plain(p.localTool, max: 40), plain(p.localModel, max: 200),
               plain(p.approvalMatcher, max: 200), p.approvalEvents.count <= 32,
-              p.hookKindRaw != "custom"
+              p.hookKindRaw != "custom", p.hookExtras.isEmpty, p.hookOwn.isEmpty
         else { return nil }
         return p
     }

@@ -65,8 +65,7 @@ public struct ServerPickerPopup: View {
             }
             .padding(18)
             .frame(maxWidth: 340)
-            .background(RoundedRectangle(cornerRadius: 18).fill(Color.appSecondaryBackground))
-            .shadow(radius: 20)
+            .glassCard(cornerRadius: 26)
             .padding(24)
             .accessibilityElement(children: .contain)
             .accessibilityAddTraits(.isModal)

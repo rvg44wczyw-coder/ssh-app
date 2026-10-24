@@ -11,6 +11,12 @@ enum DialogKeys {
     static let enter: [UInt8] = [0x0d]
     static let space: [UInt8] = [0x20]
 
+    /// Arrow presses that go from the tab that is open to another one (←/→ switch tabs in these dialogs).
+    static func switchTab(from: Int, to: Int) -> [[UInt8]] {
+        guard from != to else { return [] }
+        return Array(repeating: to > from ? right : left, count: abs(to - from))
+    }
+
     /// Arrow presses that move the cursor from the row it is on to another one.
     static func move(from: Int, to: Int) -> [[UInt8]] {
         guard from != to else { return [] }
@@ -89,15 +95,17 @@ struct CommandScreenView: View {
                         ScrollView(.horizontal, showsIndicators: false) {
                             GlassEffectContainer(spacing: 6) {
                                 HStack(spacing: 6) {
-                                    ForEach(dialog.tabs, id: \.name) { tab in
-                                        Text(verbatim: tab.name).font(.footnote.weight(tab.active ? .semibold : .regular))
-                                            .padding(.horizontal, 10).padding(.vertical, 5)
-                                            .glassEffect(tab.active ? .regular.tint(Color.appAccent) : .regular, in: Capsule())
+                                    ForEach(Array(dialog.tabs.enumerated()), id: \.offset) { index, tab in
+                                        Button { send(DialogKeys.switchTab(from: activeTab, to: index)) } label: {
+                                            Text(verbatim: tab.name).font(.footnote.weight(tab.active ? .semibold : .regular))
+                                                .padding(.horizontal, 10).padding(.vertical, 5)
+                                        }
+                                        .buttonStyle(.plain)
+                                        .glassEffect(tab.active ? .regular.tint(Color.appAccent) : .regular, in: Capsule())
                                     }
                                 }
                             }
                         }
-                        Text("Other tabs open in the terminal.").font(.caption2).foregroundColor(.secondary)
                     }
                 }
                 if let search = dialog.search, !search.isEmpty {
@@ -110,7 +118,7 @@ struct CommandScreenView: View {
                     }
                     if dialog.moreBelow { Text("More below: scroll in the terminal").font(.caption2).foregroundColor(.secondary) }
                 }
-                if dialog.kind == .model {
+                if dialog.kind == .model || dialog.hints.contains("Effort") {
                     Section("Effort") {
                         HStack {
                             Button { send([DialogKeys.left]) } label: { Image(systemName: "minus") }.buttonStyle(.glass)
@@ -118,6 +126,26 @@ struct CommandScreenView: View {
                             Text("Adjust with ← →").font(.footnote).foregroundColor(.secondary)
                             Spacer()
                             Button { send([DialogKeys.right]) } label: { Image(systemName: "plus") }.buttonStyle(.glass)
+                        }
+                    }
+                }
+                if dialog.kind != .model, dialog.hints.contains("Change") {
+                    Section("Selected setting") {
+                        HStack {
+                            Button { send([DialogKeys.left]) } label: { Image(systemName: "chevron.left") }.buttonStyle(.glass)
+                            Spacer()
+                            Text("Change the value with ← →").font(.footnote).foregroundColor(.secondary)
+                            Spacer()
+                            Button { send([DialogKeys.right]) } label: { Image(systemName: "chevron.right") }.buttonStyle(.glass)
+                        }
+                    }
+                }
+                if dialog.hints.contains("Page") {
+                    Section {
+                        HStack {
+                            Button { send([DialogKeys.left]) } label: { Label("Previous page", systemImage: "chevron.left") }.buttonStyle(.glass)
+                            Spacer()
+                            Button { send([DialogKeys.right]) } label: { Label("Next page", systemImage: "chevron.right") }.buttonStyle(.glass)
                         }
                     }
                 }
@@ -138,7 +166,9 @@ struct CommandScreenView: View {
         }
     }
 
-    private var selectable: Bool { dialog.kind == .model || dialog.kind == .permissions || dialog.kind == .config }
+    private var activeTab: Int { dialog.tabs.firstIndex(where: \.active) ?? 0 }
+
+    private var selectable: Bool { dialog.kind == .model || dialog.kind == .permissions || dialog.kind == .config || dialog.kind == .generic }
 
     @ViewBuilder
     private func rowView(_ index: Int, _ row: DialogRow) -> some View {
@@ -179,19 +209,76 @@ struct CommandScreenView: View {
 }
 
 /// The agent's commands that open a dialog: one tap types the command and the dialog becomes a screen.
+/// The command entries, shared by the standalone button and the submenu of the attach menu.
+struct AgentCommandItems: View {
+    var agy = false
+    let run: (String) -> Void
+
+    var body: some View {
+        if agy { agyItems } else { claudeItems }
+    }
+
+    /// Antigravity's own list (read from its `/help`); `/exit` and `/logout` are left out.
+    @ViewBuilder
+    private var agyItems: some View {
+        Button(role: .destructive) { run("/clear") } label: { Label("Clear", systemImage: "trash") }
+        Button { run("/context") } label: { Label("Context", systemImage: "chart.pie") }
+        Button { run("/resume") } label: { Label("Resume", systemImage: "clock.arrow.circlepath") }
+        Button { run("/rewind") } label: { Label("Rewind", systemImage: "arrow.uturn.backward") }
+        Button { run("/fork") } label: { Label("Fork", systemImage: "arrow.triangle.branch") }
+        Button { run("/rename") } label: { Label("Rename", systemImage: "pencil") }
+        Button { run("/copy") } label: { Label("Copy", systemImage: "doc.on.doc") }
+        Button { run("/diff") } label: { Label("Diff", systemImage: "plusminus") }
+        Divider()
+        Button { run("/model") } label: { Label("Model", systemImage: "cpu") }
+        Button { run("/effort") } label: { Label("Effort", systemImage: "gauge.with.dots.needle.50percent") }
+        Button { run("/permissions") } label: { Label("Permissions", systemImage: "checkmark.shield") }
+        Button { run("/config") } label: { Label("Settings", systemImage: "gearshape") }
+        Button { run("/mcp") } label: { Label("MCP servers", systemImage: "server.rack") }
+        Button { run("/agents") } label: { Label("Agents", systemImage: "person.2") }
+        Button { run("/hooks") } label: { Label("Hooks", systemImage: "link") }
+        Button { run("/plugin") } label: { Label("Plugins", systemImage: "puzzlepiece.extension") }
+        Divider()
+        Button { run("/credits") } label: { Label("Credits", systemImage: "dollarsign.circle") }
+        Button { run("/changelog") } label: { Label("Changelog", systemImage: "doc.text") }
+        Button { run("/help") } label: { Label("Help", systemImage: "questionmark.circle") }
+    }
+
+    @ViewBuilder
+    private var claudeItems: some View {
+        Button(role: .destructive) { run("/clear") } label: { Label("Clear", systemImage: "trash") }
+        Button { run("/compact") } label: { Label("Compact", systemImage: "arrow.down.right.and.arrow.up.left") }
+        Button { run("/context") } label: { Label("Context", systemImage: "chart.pie") }
+        Button { run("/resume") } label: { Label("Resume", systemImage: "clock.arrow.circlepath") }
+        Button { run("/memory") } label: { Label("Memory", systemImage: "brain") }
+        Divider()
+        Button { run("/model") } label: { Label("Model", systemImage: "cpu") }
+        Button { run("/permissions") } label: { Label("Permissions", systemImage: "checkmark.shield") }
+        Button { run("/config") } label: { Label("Settings", systemImage: "gearshape") }
+        Button { run("/mcp") } label: { Label("MCP servers", systemImage: "server.rack") }
+        Button { run("/agents") } label: { Label("Agents", systemImage: "person.2") }
+        Button { run("/hooks") } label: { Label("Hooks", systemImage: "link") }
+        Divider()
+        Button { run("/status") } label: { Label("Status", systemImage: "info.circle") }
+        Button { run("/cost") } label: { Label("Cost", systemImage: "dollarsign.circle") }
+        Button { run("/doctor") } label: { Label("Doctor", systemImage: "stethoscope") }
+        Button { run("/help") } label: { Label("Help", systemImage: "questionmark.circle") }
+    }
+}
+
 struct AgentCommandsMenu: View {
+    var agy = false
     let run: (String) -> Void
 
     var body: some View {
         Menu {
-            Button { run("/model") } label: { Label("Model", systemImage: "cpu") }
-            Button { run("/permissions") } label: { Label("Permissions", systemImage: "checkmark.shield") }
-            Button { run("/config") } label: { Label("Settings", systemImage: "gearshape") }
-            Button { run("/mcp") } label: { Label("MCP servers", systemImage: "server.rack") }
-            Button { run("/status") } label: { Label("Status", systemImage: "info.circle") }
+            AgentCommandItems(agy: agy, run: run)
         } label: {
-            Image(systemName: "slash.circle.fill").font(.system(size: 30)).foregroundColor(.appAccent)
+            Image(systemName: "slash.circle.fill").font(.system(size: 22)).foregroundColor(.appAccent)
         }
+        // The system glass button style keeps the menu opening (a hand-made glass label took the touch).
+        .buttonStyle(.glass)
+        .buttonBorderShape(.circle)
         .accessibilityLabel("Agent commands")
     }
 }

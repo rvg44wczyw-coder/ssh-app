@@ -135,7 +135,7 @@ public struct SessionTabsView: View {
         }
         .foregroundColor(color)
         .frame(maxWidth: .infinity, minHeight: CGFloat(sessionIconSize) + 12)
-        .background(Color.appSecondaryBackground, in: RoundedRectangle(cornerRadius: 12))
+        .glassCard(cornerRadius: 18)
     }
 
     private func icon(for session: TabSession) -> (symbol: String, color: Color?) {
@@ -169,6 +169,8 @@ public struct SessionTabsView: View {
     public var body: some View {
         tabStrip
     }
+
+    @Namespace private var glassNS
 
     private var tabStrip: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -212,6 +214,7 @@ public struct SessionTabsView: View {
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5)
                         .glassEffect(isSelected ? .regular.tint(Color.appAccent).interactive() : .regular.interactive(), in: Capsule())
+                        .glassMorph(isSelected ? "selected-tab" : session.id.uuidString, in: glassNS)
                     }
                     .buttonStyle(.plain)
                     // Long press opens the same dropdown as a second tap on the selected tab.
@@ -229,7 +232,6 @@ public struct SessionTabsView: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 2)
         }
-        .background(Color.appBackground)
         .alert("Rename Tab", isPresented: $showRenameAlert) {
             TextField("Tab Name", text: $renameText)
             Button("Cancel", role: .cancel) {}

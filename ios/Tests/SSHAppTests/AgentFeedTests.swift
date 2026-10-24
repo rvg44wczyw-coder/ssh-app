@@ -408,3 +408,40 @@ private final class WebProbe: NSObject, WKScriptMessageHandler {
         finish(body?["ok"] as? Bool == true, body?["error"] as? String ?? "")
     }
 }
+
+@MainActor
+final class FeedCopyTests: XCTestCase {
+    private func built(_ text: String) -> NSAttributedString {
+        let turn = TranscriptTurn(id: "t1", stepIndex: 0, turnType: .assistant, timestamp: nil, content: text,
+                                  thinking: nil, toolCalls: [], status: .done, label: nil)
+        return FeedAttributedBuilder.build(turns: [turn], expandedThinking: [], expandedTools: [], dark: false)
+    }
+
+    private func index(of needle: String, in s: NSAttributedString) -> Int {
+        (s.string as NSString).range(of: needle).location
+    }
+
+    func testParagraphListAndCodeAreCopiedAsBlocks() {
+        let s = built("First paragraph here.\n\n- one\n- two\n\n```swift\nlet x = 1\nlet y = 2\n```")
+        XCTAssertEqual(FeedCopy.block(in: s, at: index(of: "paragraph", in: s)), "First paragraph here.")
+        XCTAssertEqual(FeedCopy.block(in: s, at: index(of: "two", in: s)), "- one\n- two")
+        XCTAssertEqual(FeedCopy.block(in: s, at: index(of: "let y", in: s)), "let x = 1\nlet y = 2")
+    }
+
+    func testInlineCodeIsMarkedAndTheMessageHasACopyAllLink() {
+        let s = built("Run `make test` now")
+        let i = index(of: "make test", in: s)
+        XCTAssertEqual(s.attribute(FeedCopy.inlineKey, at: i, effectiveRange: nil) as? String, "make test")
+        let all = index(of: "Copy all", in: s)
+        let url = s.attribute(.link, at: all, effectiveRange: nil) as? URL
+        XCTAssertEqual(url.flatMap(FeedCopy.messageID), "t1")
+    }
+}
+
+final class DialogTabKeysTests: XCTestCase {
+    func testSwitchingTabsSendsArrowsByTheDistance() {
+        XCTAssertEqual(DialogKeys.switchTab(from: 1, to: 1).count, 0)
+        XCTAssertEqual(DialogKeys.switchTab(from: 1, to: 4), Array(repeating: DialogKeys.right, count: 3))
+        XCTAssertEqual(DialogKeys.switchTab(from: 3, to: 0), Array(repeating: DialogKeys.left, count: 3))
+    }
+}

@@ -121,7 +121,7 @@ public struct GitWorktreesSheetView: View {
                     }
                 }
                 .font(.caption.bold())
-                .buttonStyle(.bordered)
+                .buttonStyle(.glass)
             }
         }
         .swipeActions(edge: .trailing) {

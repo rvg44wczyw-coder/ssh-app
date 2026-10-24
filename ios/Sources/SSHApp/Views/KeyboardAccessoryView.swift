@@ -110,7 +110,7 @@ public struct KeyboardAccessoryView: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
         }
-        .background(Color.appSecondaryBackground)
+        .glassBar()
         .task(id: "\(menuScope)|\(menuAgent ?? "")|\(menuReady)") { await prefetchModels() }
         .sheet(isPresented: $showEditor) { QuickCommandsEditorView() }
         .confirmationDialog(
@@ -202,9 +202,7 @@ struct AccessoryButton<MenuContent: View>: View {
             .foregroundColor(.primary)
             .frame(minWidth: 36, minHeight: 34)
             .padding(.horizontal, 6)
-            .background(Color.appTertiaryBackground)
-            .cornerRadius(6)
-            .shadow(color: Color.black.opacity(0.1), radius: 1, y: 1)
+            .glassCard(cornerRadius: 12)
         }
         if hasMenu {
             button.contextMenu { menu() }

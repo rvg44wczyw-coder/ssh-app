@@ -158,7 +158,7 @@ struct ContainersSection: View {
             if let snap = snapshot { content(snap) }
         }
         .padding(14)
-        .background(Color.appSecondaryBackground, in: RoundedRectangle(cornerRadius: 12))
+        .glassCard(cornerRadius: 18)
         .task {
             if autoLoad, snapshot == nil, handle != nil { await load() }
         }
@@ -246,7 +246,7 @@ struct ContainersSection: View {
                 ContainerRuntimePrefs.markVerified(runtime, server: serverId)
                 verifiedTick += 1
             }
-            .font(.caption2).buttonStyle(.bordered).controlSize(.mini)
+            .font(.caption2).buttonStyle(.glass).controlSize(.mini)
         }
     }
 
@@ -294,9 +294,9 @@ struct ContainersSection: View {
                 Image(systemName: c.state == .unknown ? "circle" : "circle.fill").font(.system(size: 9)).foregroundColor(color(c.state))
                 Text(c.name).font(.system(size: 14, weight: .semibold, design: .monospaced)).lineLimit(1)
                 if let service = c.service, service != c.name {
-                    Text(service).font(.caption2).padding(.horizontal, 5).background(Color.secondary.opacity(0.2), in: Capsule())
+                    Text(service).font(.caption2).padding(.horizontal, 5).glassChip()
                 }
-                if c.unhealthy { Text("unhealthy").font(.caption2).padding(.horizontal, 5).background(Color.orange.opacity(0.3), in: Capsule()) }
+                if c.unhealthy { Text("unhealthy").font(.caption2).padding(.horizontal, 5).glassChip() }
                 Spacer()
                 Text(c.statusText).font(.caption).foregroundColor(.secondary).lineLimit(1)
             }
@@ -334,7 +334,7 @@ struct ContainersSection: View {
 
     private func action(_ title: String, _ icon: String, _ run: @escaping () -> Void) -> some View {
         Button(action: run) { Label(title, systemImage: icon).font(.caption).labelStyle(.titleAndIcon) }
-            .buttonStyle(.bordered).controlSize(.mini)
+            .buttonStyle(.glass).controlSize(.mini)
     }
 
     // MARK: Host calls
@@ -496,7 +496,7 @@ struct ContainerUnavailableView: View {
             Text(c.body).font(.caption).foregroundColor(.secondary).multilineTextAlignment(.center)
             if let fix = c.fix { Text(fix).font(.caption).multilineTextAlignment(.center) }
             if reason == .unexpected, let detail { Text(detail).font(.caption2).foregroundColor(.secondary).multilineTextAlignment(.center) }
-            Button("Try again", action: retry).buttonStyle(.bordered).controlSize(.small)
+            Button("Try again", action: retry).buttonStyle(.glass).controlSize(.small)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 10)
