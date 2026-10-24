@@ -265,20 +265,3 @@ struct AgentCommandItems: View {
         Button { run("/help") } label: { Label("Help", systemImage: "questionmark.circle") }
     }
 }
-
-struct AgentCommandsMenu: View {
-    var agy = false
-    let run: (String) -> Void
-
-    var body: some View {
-        Menu {
-            AgentCommandItems(agy: agy, run: run)
-        } label: {
-            Image(systemName: "slash.circle.fill").font(.system(size: 22)).foregroundColor(.appAccent)
-        }
-        // The system glass button style keeps the menu opening (a hand-made glass label took the touch).
-        .buttonStyle(.glass)
-        .buttonBorderShape(.circle)
-        .accessibilityLabel("Agent commands")
-    }
-}

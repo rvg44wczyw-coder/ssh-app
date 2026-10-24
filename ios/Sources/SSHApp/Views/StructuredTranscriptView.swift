@@ -310,10 +310,6 @@ public struct StructuredTranscriptView: View {
                     .buttonStyle(.glass)
                     .buttonBorderShape(.circle)
                     .disabled(viewModel.sessionHandle == nil || viewModel.state != .connected)
-                    if hasAgentCommands {
-                        AgentCommandsMenu(agy: viewModel.isAgyAgent) { viewModel.runAgentCommand($0) }
-                            .disabled(viewModel.sessionHandle == nil || viewModel.state != .connected)
-                    }
                     TextField("Message…", text: $promptText, axis: .vertical)
                         .lineLimit(editorExpanded ? 8...16 : 1...6)
                         .focused($inputFocused)
