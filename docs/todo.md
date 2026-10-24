@@ -4,7 +4,7 @@ Everything not finished to the end in `docs/roadmap.md` lives here. Review it at
 
 ## Next (can be done without the owner)
 
-- [ ] Glass pass: check dark / light / Reduce Transparency / large text on every new screen.
+Nothing is left here that needs neither the phone nor the owner. Dark, light and the largest accessibility text size were checked in the simulator for Security, Backup, iCloud sync and Hooks (2026-10-24).
 
 ## Waits for the phone (device run pending)
 
@@ -14,6 +14,7 @@ Install with `make iphone-full` only on the owner's word. Check on the device:
 - [ ] M45 backup (export, encrypted file, import with Skip / Add new / Replace same) and the Face ID app lock.
 - [ ] M46 hooks screen; M44 feed (Claude, agy, subagents); delivery marks and queue actions; file links; pinch zoom; light bar.
 - [ ] M21, M27, M30 (PNG/SVG share), M33, M34, M37, M38, M39, M41, M42, M43 (see their roadmap rows).
+- [ ] Reduce Transparency on the glass screens (the simulator cannot switch it).
 - [ ] Push relay T4 on the iPhone.
 - [ ] Files extension, Watch registration and Developer Mode.
 - [ ] M33: one continuous onboarding wizard and colour blocks for the host fingerprint (the spec says after a device run).
