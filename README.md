@@ -1,12 +1,14 @@
 # SSH-App (iOS + Rust Core)
 
 [![License: BSL 1.1](https://img.shields.io/badge/License-BSL%201.1-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/Platform-iOS%2017%2B%20%7C%20macOS-blue.svg)](ios/)
+[![Platform](https://img.shields.io/badge/Platform-iOS%2027-blue.svg)](ios/)
 [![Rust Core](https://img.shields.io/badge/Rust-1.85%2B-orange.svg)](crates/core/)
 [![Zero Battery Drain](https://img.shields.io/badge/Battery-Zero%20Drain%20(0%25%20idle)-brightgreen.svg)](#key-technical-features)
 [![Zero Network Attack Surface](https://img.shields.io/badge/Security-0%20Listening%20Ports-success.svg)](#security--cryptography)
 
-Native iOS mobile application (**SwiftUI + Rust Core via UniFFI**) for securely managing remote terminal sessions and autonomous AI coding agents (*Claude Code*, *Google Antigravity*, *OpenAI Codex*, *Grok*, *Ollama / local models*) on your MacBook / remote server over Tailscale.
+Native iOS mobile application (**SwiftUI + Rust Core via UniFFI**, iOS 27, Liquid Glass) for securely managing remote terminal sessions and autonomous AI coding agents (*Claude Code*, *Google Antigravity*, *OpenAI Codex*, *Grok*, *Ollama / local models*) on your MacBook / remote server over Tailscale.
+
+Open work is tracked in [`docs/todo.md`](docs/todo.md); milestones in [`docs/roadmap.md`](docs/roadmap.md).
 
 ---
 
@@ -67,18 +69,33 @@ Native iOS mobile application (**SwiftUI + Rust Core via UniFFI**) for securely 
 ### 6. Developer Experience & UI
 - **Sessions home screen**: every open session as a card with a live preview of its screen; tabs and a long-press jump menu (other sessions, servers and their sessions, new session plain / from a preset / with new settings).
 - **Terminal rendering**: SwiftTerm with TrueColor, tmux mouse scroll and tap, 17 built-in color schemes plus your own, per agent or profile.
-- **Agent feed** (chat mode): the agent's screen as one selectable text view in Claude Code's look: folded groups open with their calls and results, diffs for edits, Markdown, question cards (single, multi-choice and multi-question forms), extra-keys row, find. Built from the tmux screen merged with the agent's session file.
+- **Agent feed** (chat mode): one selectable text view in Claude Code's look, for Claude Code and Antigravity alike (a per-agent traits table keeps their keys apart): folded groups open with their calls and results, diffs for edits, Markdown, question cards and native screens for the agent's dialogs, extra-keys row, find, live pinch zoom, a light bar under the input while the agent works. It is read incrementally from the agent's session file (Antigravity: its own database) and the tmux screen, with a stream from the host instead of polling.
+- **Messages and queue**: delivery marks inside your message bubble (sent, delivered, waiting in the agent's queue with interrupt-and-send, send again, cancel); ↑/↓ walk through your own sent messages; quick send accepts the agent's grey suggestion.
+- **Files in the feed**: every file name is a link that opens the file at the line. However the agent wrote it (full path, from the project, a bare name) the app finds it: the files the agent itself touched, the session folders, then a project search on the host; other matches are offered in the viewer, which can wrap long lines.
+- **Slash commands and skills**: native screens for `/model`, `/permissions`, `/config`, `/mcp`, `/status`, the `/btw` answer card, and an agent skills manager (create, edit, disable, trash, restore).
+- **Status line**: one row by default, two on demand (git branch, context, 5 h and 7 d limits, model).
 - **Attachments**: paperclip menu (up to 6 photos or files) with a choice to keep the file on the host or only temporarily.
 - **Session status and restart**: a status symbol (finished, needs you, question, approval) on every session card and tab; Restart a tab's agent as a new conversation or continuing the last one, with the profile's current hooks and settings.
 - **Configurable menus**: order, visibility, columns and icon size of the quick menu and the session menu (Settings → Appearance).
 - **Approval banner**: agent, command with risk flags and the end of long commands, countdown on the host clock, Approve / Deny.
 - **Quick commands bar** above the keyboard (`^C`, `y`/`n`, your own buttons such as `/clear` with an optional confirmation); Esc, Tab, Ctrl and arrows stay on the system bar.
-- **Files app**: every server with a pinned host key appears as a location in the iOS Files app (File Provider extension): browse folders, open or save files to the phone, upload, create folders, rename, delete. Per server on/off and root folder in the server settings.
+- **Files app**: every server with a pinned host key appears as a location in the iOS Files app (File Provider extension): browse folders, open or save files to the phone, upload, create folders, rename, delete. Per server on/off and root folder in the server settings; an optional Face ID check (one switch, a separate guarded copy of the key) before a server opens.
+- **Server screens**: the Sessions screen is grouped by server, each with Containers (Docker, Podman, nerdctl, Incus, LXD), Kubernetes, Processes, Ports and Monitor. They run over a live session or the server's own short connection (pinned host key required, closed after 15 s idle and in the background).
+- **Zellij** next to tmux, **Apple Shortcuts / Siri** for host health, saved commands, agent tasks and Docker restart.
 - **Apple Watch**: pending agent approvals appear on the watch (tool, end of the command, warnings, countdown); Deny/Approve are relayed to the phone, which signs. Works while the app is open on the iPhone; push wake-up is planned.
 - **Tools**: Git log viewer (commit patches; `git diff`/`status` run in the terminal, with `!` in front inside an AI CLI), remote file browser, host monitor (CPU, memory, processes), in-app web preview over SSH port forwarding, snippets with fuzzy history search, AI command assistant and local chat through Ollama on the host, model usage line.
 - **Privacy masking**: full-screen overlay when the app is backgrounded, so output does not appear in the App Switcher.
 
-### 7. Payments (built, switched off)
+### 7. Hooks screen and auto-approval
+- **Hooks screen** per profile: for every event, ours / your own command / ours plus an extra command (before or after, stop on failure, time limit), event descriptions, 33 templates (including an Antigravity "Auto with blocked commands" template).
+- **Auto-approval by command category** (read-only, git, Rust, Python, Go, Node, Swift, make, Docker, network, installs) with Ask / Auto / Block per agent, presets, projects with a hard boundary, temporary trust and an audit log, compiled into the host guard.
+
+### 8. Vault, iCloud sync, backup and lock
+- **Encrypted vault in iCloud** (Argon2id + ChaCha20-Poly1305), iCloud sync **off by default** with a switch per category (servers, launch profiles, snippets, quick commands, accent colour, pinned host fingerprints) and per secret (private keys, secret values); lists are signed so another device cannot inject a command.
+- **Backup file** (Settings → Backup): plain or passphrase-encrypted, per-group Skip / Add new / Replace same on import, nothing is ever deleted, hook commands are shown and need an explicit confirmation, private keys import as new keys only.
+- **App lock**: Face ID, then the device passcode; lock after immediately / 1 / 5 / 15 min, hidden in the app switcher; Face ID is asked again before exporting or sharing secrets.
+
+### 9. Payments (built, switched off)
 A StoreKit 2 Pro subscription (weekly / monthly / yearly with trials) and lifetime purchase exist in the code but are disabled by default (no `PAYMENTS` build option); the app is free for now. See [`docs/features/18-payments.md`](docs/features/18-payments.md).
 
 ---
@@ -89,12 +106,17 @@ A StoreKit 2 Pro subscription (weekly / monthly / yearly with trials) and lifeti
 ssh-app/
 ├── crates/
 │   ├── core/                # Pure Rust core (russh, ssh-key, tmux, hooks, approvals, screen feed, UniFFI)
-│   └── host/                # ssh-app-host: typed host helper (hook, agent, push, telemetry, files)
+│   ├── host/                # ssh-app-host: typed host helper (hook, agent, push, telemetry, files, skills)
+│   ├── mux/                 # session keeper for native Windows hosts
+│   └── winhost/             # Windows build of the host helper
 ├── packages/
 │   └── SshCoreBridge/       # Swift Package / UniFFI generated bindings + XCFramework
 ├── ios/
-│   ├── SSHApp.xcodeproj/    # Xcode project configuration
+│   ├── SSHApp.xcodeproj/    # Xcode project configuration (hand-maintained)
 │   ├── Sources/SSHApp/      # SwiftUI views, view models, models and services
+│   ├── Sources/Shared/      # code used by several targets (watch protocol, shared servers)
+│   ├── SSHAppFiles/         # Files app extension (File Provider)
+│   ├── SSHAppWatch/         # Apple Watch app (approvals)
 │   └── Tests/SSHAppTests/   # Swift unit tests (SwiftPM test target)
 ├── android/                 # Jetpack Compose client
 ├── scripts/
@@ -103,9 +125,10 @@ ssh-app/
 │   ├── agent-hooks/         # ssh-app-hook script (approvals, host guard, session registry)
 │   └── apns-worker/         # Zero-Knowledge Cloudflare Worker APNs gateway
 ├── docs/
-│   ├── features/            # Feature specifications (01 to 35)
+│   ├── features/            # Feature specifications (01 to 58)
 │   ├── security-findings/   # Adversarial security audit reports
-│   └── roadmap.md           # Implementation milestones (M0 through M24)
+│   ├── roadmap.md           # Implementation milestones (M0 through M47)
+│   └── todo.md              # what the roadmap leaves open (device runs, live agents, owner decisions)
 ├── Makefile                 # iphone, xcframework, test, lint ...
 ├── .agents/skills/          # Dev-chain workflow skills
 ├── AGENTS.md                # Engineering constraints and architecture invariants
@@ -116,12 +139,12 @@ ssh-app/
 ## Getting Started
 
 ### Prerequisites
-- macOS Sonoma or later
+- macOS with the iOS 27 SDK
 - **Rust**: 1.85+ with Apple targets:
   ```bash
   rustup target add aarch64-apple-ios aarch64-apple-ios-sim aarch64-apple-darwin
   ```
-- **Xcode**: 15.0+ or 16.0+
+- **Xcode** with the iOS 27 SDK (the app and the Rust build both target iOS 27)
 - **Tailscale**: Installed and configured on your Mac and iPhone
 
 ### 1. Build Rust Core & XCFramework (iOS)
@@ -178,6 +201,8 @@ Hooks are installed from the app: **Settings → Agents** (or the sessions menu 
 ```bash
 cargo fmt --check && cargo clippy --all-targets -- -D warnings
 cargo test -p ssh-core --lib --test hook_script    # unit tests and the real hook script
+cd ios && xcodebuild test -workspace .swiftpm/xcode/package.xcworkspace -scheme SSHApp \
+  -destination 'platform=iOS Simulator,name=<a simulator>'   # Swift tests
 ```
 `crates/core/tests/loopback_sshd.rs` starts a throwaway `sshd` and a **private tmux server** on this machine; run it only as described in [`AGENTS.md`](AGENTS.md) (test isolation), never from inside a tmux session you care about without that isolation. Swift tests live in `ios/Tests/SSHAppTests` and need an iOS simulator.
 
@@ -195,15 +220,23 @@ cargo test -p ssh-core --lib --test hook_script    # unit tests and the real hoo
 | **M19** | Terminal input, session permissions, appearance (colors, accents, icons), sessions home screen | **Completed** (on-device checks pending) |
 | **M20** | Payments (StoreKit 2) | **Built, switched off** |
 | **M21** | Hook templates, host guard, command analysis, drift warning, session registry | **Implemented** (Codex/Grok and live-Claude checks pending) |
+| **M22–M25** | Files app extension, Apple Watch approvals, more agents (OpenCode, Qwen Code, Crush, Cline, Aider, Goose), host service and push relay | **Implemented** (device runs pending) |
+| **M27–M30, M33, M34** | Multimodal uploads, visual artifacts and diagrams, zero-touch host onboarding, Docker containers | **Implemented** (device runs pending) |
+| **M32** | Key import, iCloud sync of servers, profiles and snippets; FIDO2 and Secure Enclave open | **Partly done** |
+| **M37–M39** | Apple Shortcuts, Zellij, auto-approval by command category | **Implemented** (device runs pending) |
+| **M41–M44** | Slash-command screens, skills manager, server-level screens (with the server's own connection), incremental event feed | **Implemented** (device runs pending) |
+| **M45** | Encrypted vault, selective iCloud sync, backup file, Face ID app lock, Face ID for Files | **Implemented** (device run pending) |
+| **M46** | Hooks screen, extra and own hook commands, grouped Settings | **Implemented** (device run pending) |
+| **M28, M31, M47** | Live Activities, iPad, macOS app | **Specified**, waiting for the owner's go-ahead (`docs/features/58-macos-app.md`) |
 
-See [`docs/roadmap.md`](docs/roadmap.md) for detailed descriptions.
+See [`docs/roadmap.md`](docs/roadmap.md) for detailed descriptions and [`docs/todo.md`](docs/todo.md) for what is still open.
 
 ---
 
 ## Security & Audits
 
 Every milestone touching networking, cryptography, hooks or IPC goes through the **Hacker** adversarial audit gate.
-All audit reports are in [`docs/security-findings/`](docs/security-findings/), one per area (core engine, tmux, approvals and the approval queue, port forwarding, AI assistant, snippets, host monitor, file browser, hooks and permissions, host guard). Known limits are written down in the reports, for example: a host-guard rule matches command text and is not a sandbox, and approvals are checked on the device only (no server).
+All audit reports are in [`docs/security-findings/`](docs/security-findings/), one per area (core engine, tmux, approvals and the approval queue, port forwarding, AI assistant, snippets, host monitor, file browser, hooks and permissions, host guard, the iCloud vault, backup and app lock, the Files extension, the server connection, hook extra commands). Known limits are written down in the reports, for example: a host-guard rule matches command text and is not a sandbox, and approvals are checked on the device only (no server).
 
 ---
 
