@@ -31,13 +31,17 @@ pub struct VaultMerge {
     pub taken_from_remote: Vec<String>,
 }
 
-fn acceptable(e: &VaultEntry) -> bool {
-    !e.id.is_empty()
-        && e.id.len() <= MAX_ID_LEN
-        && e.id
+/// Ids are `[A-Za-z0-9_-]`, 1 to 64 characters.
+pub(crate) fn valid_entry_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= MAX_ID_LEN
+        && id
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
-        && e.payload.len() <= MAX_PAYLOAD_BYTES
+}
+
+fn acceptable(e: &VaultEntry) -> bool {
+    valid_entry_id(&e.id) && e.payload.len() <= MAX_PAYLOAD_BYTES
 }
 
 /// Last writer wins by `updated_at_ms`; on a tie a deletion wins, then the larger payload, so the

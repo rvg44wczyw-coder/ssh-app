@@ -40,6 +40,16 @@ pub enum SshCoreError {
     #[error("{reason}")]
     InvalidInput { reason: String },
 
+    /// The passphrase did not open the vault container or backup file (or it is damaged: the two
+    /// cannot be told apart, on purpose).
+    #[error("Wrong passphrase or damaged data")]
+    VaultWrongPassphrase,
+
+    /// A vault entry, container or backup file is malformed, of an unknown version, or its
+    /// parameters are outside the accepted range.
+    #[error("Vault data refused: {reason}")]
+    VaultDataInvalid { reason: String },
+
     #[error("Session is already connected")]
     AlreadyConnected,
 
