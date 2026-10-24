@@ -246,13 +246,22 @@ struct FilePreviewView: View {
     /// Long lines break at word boundaries instead of scrolling sideways.
     @AppStorage("file_preview_wrap") private var wrap = false
     @State private var highlighted: [HighlightedLine]?
+    /// A Markdown file opens drawn (headings, lists, code blocks); the toggle shows the source.
+    @State private var showSource = false
     /// The line to bring into view and mark (a file opened from a mention in the feed).
     var focusLine: Int? = nil
+
+    private func isMarkdown(_ preview: RemoteFilePreview) -> Bool {
+        let ext = (preview.filename as NSString).pathExtension.lowercased()
+        return !preview.isBinary && (ext == "md" || ext == "markdown")
+    }
 
     var body: some View {
         NavigationStack {
             Group {
-                if let preview = viewModel.filePreview {
+                if let preview = viewModel.filePreview, isMarkdown(preview), !showSource, focusLine == nil {
+                    ReportView(blocks: ReportBlock.parse(preview.content))
+                } else if let preview = viewModel.filePreview {
                     ScrollViewReader { proxy in
                     ScrollView(wrap ? [.vertical] : [.vertical, .horizontal]) {
                         let lines = preview.content.components(separatedBy: "\n")
@@ -320,6 +329,10 @@ struct FilePreviewView: View {
                 }
                 ToolbarItemGroup(placement: .primaryAction) {
                     if let preview = viewModel.filePreview, !preview.isBinary {
+                        if isMarkdown(preview), focusLine == nil {
+                            Toggle(isOn: $showSource) { Label("Source", systemImage: "chevron.left.forwardslash.chevron.right") }
+                                .toggleStyle(.button)
+                        }
                         Toggle(isOn: $wrap) { Label("Wrap lines", systemImage: "text.word.spacing") }
                             .toggleStyle(.button)
                         if let others = viewModel.fileReference?.alternatives, !others.isEmpty {

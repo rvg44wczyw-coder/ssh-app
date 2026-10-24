@@ -258,7 +258,13 @@ public struct StructuredTranscriptView: View {
                               more: { viewModel.sendDialogKeys([[0x1b, 0x5b, 0x36, 0x7e]]) })
             }
 
+            // The agent works: a band of light runs along the border between the feed and the input bar.
             Divider()
+                .overlay {
+                    if let status = viewModel.screenStatus {
+                        WorkingLightBar().accessibilityElement().accessibilityLabel(status)
+                    }
+                }
 
             // Bottom prompt: a multi-line editor with a few control keys above it.
             VStack(spacing: 6) {
@@ -353,10 +359,6 @@ public struct StructuredTranscriptView: View {
                     }
                     .disabled(!canSend)
                 }
-                }
-                // The agent works: a band of light runs along the line under the field and back.
-                if let status = viewModel.screenStatus {
-                    WorkingLightBar().accessibilityElement().accessibilityLabel(status)
                 }
             }
             .padding(.horizontal, 12)
