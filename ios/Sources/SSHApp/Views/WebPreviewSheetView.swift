@@ -159,7 +159,7 @@ public struct WebPreviewSheetView: View {
             }
             .padding(.vertical, 8)
         }
-        .background(Color(red: 0.1, green: 0.1, blue: 0.12))
+        .background(.bar)
     }
 
     private var emptyTunnelView: some View {
@@ -225,7 +225,7 @@ public struct WebPreviewSheetView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
-        .background(Color(red: 0.1, green: 0.1, blue: 0.12))
+        .background(.bar)
     }
 
     private var consoleDrawer: some View {

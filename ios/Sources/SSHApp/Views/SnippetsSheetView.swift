@@ -147,8 +147,9 @@ public struct SnippetsSheetView: View {
                         }
                     }
                     .padding(12)
-                    .background(Color.appSecondaryBackground)
-                    Divider()
+                    .glassCard(cornerRadius: 16)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
                 }
 
                 // Placeholder Input Banner (if a parameterized snippet is selected)

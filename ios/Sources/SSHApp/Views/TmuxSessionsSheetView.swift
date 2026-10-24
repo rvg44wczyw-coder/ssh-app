@@ -61,9 +61,10 @@ public struct TmuxSessionsSheetView: View {
                     .buttonStyle(.plain)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
-                    .background(Color(UIColor.secondarySystemBackground))
+                    .glassCard(cornerRadius: 16, interactive: true)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 4)
                     .accessibilityLabel("Server: \(currentServer?.name ?? "none"). Change server")
-                    Divider()
                 }
 
                 if let error = viewModel.errorMessage {
@@ -82,7 +83,8 @@ public struct TmuxSessionsSheetView: View {
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
-                    .background(Color.red.opacity(0.85))
+                    .glassCard(cornerRadius: 16, tint: Color.red.opacity(0.7))
+                    .padding(.horizontal, 12)
                 }
 
                 if viewModel.isLoading && viewModel.sessions.isEmpty {
