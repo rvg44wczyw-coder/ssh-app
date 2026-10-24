@@ -29,6 +29,7 @@ const ALL: &[AgentKind] = &[
     AgentKind::Grok,
 ];
 const CLAUDE: &[AgentKind] = &[AgentKind::ClaudeCode];
+const AGY: &[AgentKind] = &[AgentKind::Antigravity];
 const CLAUDE_CODEX: &[AgentKind] = &[AgentKind::ClaudeCode, AgentKind::Codex];
 const CLAUDE_CODEX_GROK: &[AgentKind] = &[AgentKind::ClaudeCode, AgentKind::Codex, AgentKind::Grok];
 const CLAUDE_GROK: &[AgentKind] = &[AgentKind::ClaudeCode, AgentKind::Grok];
@@ -41,6 +42,8 @@ fn script(kind: HookPresetKind, matcher: &str, events: &[&str]) -> HookPreset {
         custom_matcher: String::new(),
         approval_matcher: matcher.to_string(),
         approval_events: events.iter().map(|e| (*e).to_string()).collect(),
+        extras: vec![],
+        own: vec![],
     }
 }
 
@@ -52,6 +55,8 @@ fn custom(command: &str, events: &[&str], matcher: &str) -> HookPreset {
         custom_matcher: matcher.to_string(),
         approval_matcher: String::new(),
         approval_events: vec![],
+        extras: vec![],
+        own: vec![],
     }
 }
 
@@ -66,6 +71,20 @@ fn deny_bash(pattern: &str, reason: &str) -> String {
 fn deny_path(pattern: &str, reason: &str) -> String {
     format!(
         "python3 -I -c 'import sys,json,re;d=json.load(sys.stdin);p=str((d.get(\"tool_input\") or {{}}).get(\"file_path\",\"\"));m=re.search(r\"{pattern}\",p);m and sys.stderr.write(\"Blocked by an ssh-app hook: {reason}\");sys.exit(2 if m else 0)'"
+    )
+}
+
+/// Antigravity's guard for its Auto mode: refuses a `run_command` whose command line matches one of
+/// the rules (Python regex, reason) with the decision JSON agy reads (`{"decision":"deny"}`, exit 0),
+/// and says nothing otherwise so Auto decides.
+fn agy_deny_commands(rules: &[(&str, &str)]) -> String {
+    let list = rules
+        .iter()
+        .map(|(re, why)| format!("(r\"{re}\",\"{why}\")"))
+        .collect::<Vec<_>>()
+        .join(",");
+    format!(
+        "python3 -I -c 'import sys,json,re;d=json.load(sys.stdin);i=d.get(\"tool_input\") or {{}};c=\" \".join(str(i.get(k,\"\")) for k in (\"CommandLine\",\"commandLine\",\"command\",\"Command\"));r=[{list}];m=[w for p,w in r if re.search(p,c)];m and print(json.dumps({{\"decision\":\"deny\",\"reason\":\"Blocked by an ssh-app hook: \"+m[0]}}))'"
     )
 }
 
@@ -322,6 +341,27 @@ pub fn hook_templates() -> Vec<HookTemplate> {
             custom(&deny_path(r"(^|/)\.git/", ".git directory"), &["PreToolUse"], "Edit|Write|MultiEdit"),
             "",
         ),
+        t(
+            "agy-auto-with-blocks",
+            "Antigravity Auto mode with blocked commands",
+            "For agents started in Auto mode: the agent runs ordinary commands without asking, but a command that deletes recursively, force-pushes, discards uncommitted work, uses sudo, pipes a download into a shell, formats a disk or touches .env and SSH keys is refused on the host, with the reason.",
+            "Guards",
+            AGY,
+            custom(
+                &agy_deny_commands(&[
+                    (r"(^|[;&|\s])rm\s+(-[a-zA-Z]*[rR]|--recursive)", "recursive delete"),
+                    (r"git\s+push\b.*(\s--force\b|\s-f\b|--force-with-lease)", "force push"),
+                    (r"git\s+(reset\s+--hard|clean\s+-[a-zA-Z]*f|checkout\s+--\s+\.|restore\s+\.)", "discards uncommitted work"),
+                    (r"(^|[;&|\s])sudo\s", "sudo"),
+                    (r"(curl|wget)\b[^|]*\|\s*(sudo\s+)?(sh|bash|zsh|python3?|perl|ruby|node)\b", "download piped into a shell"),
+                    (r"(^|[;&|\s])(mkfs\S*|dd\s+[^|;]*of=/dev/|diskutil\s+(erase|partition))", "disk write"),
+                    (r"(^|[/ ])\.env(\.|\b)|/\.ssh/|\.pem\b|id_(rsa|ed25519|ecdsa)", "secret file"),
+                ]),
+                &["PreToolUse"],
+                "run_command",
+            ),
+            "Start the agent in Auto mode (agent profile → Permission mode). Only shell commands are checked, not file edits; a determined agent can still reach a blocked command by other means (scripts, other tools), so this is a seat belt, not a sandbox. Not yet tried against a live agy.",
+        ),
         // ---- Logging ----------------------------------------------------------------------
         t(
             "log-tool-calls",
@@ -477,8 +517,10 @@ mod tests {
                     !(w.contains("eval")
                         || w.contains("sh/bash -c")
                         || w.contains("backticks")
-                        // The regex of block-pipe-to-shell contains a literal pipe.
-                        || (w.contains("Pipes") && t.id != "block-pipe-to-shell")
+                        // The regexes of block-pipe-to-shell and agy-auto-with-blocks contain a literal pipe.
+                        || (w.contains("Pipes")
+                            && t.id != "block-pipe-to-shell"
+                            && t.id != "agy-auto-with-blocks")
                         || w.contains("xargs")),
                     "{}: {w}",
                     t.id
@@ -507,6 +549,28 @@ mod tests {
         (
             out.status.code().unwrap_or(-1),
             String::from_utf8_lossy(&out.stderr).to_string(),
+        )
+    }
+
+    fn run_stdout(cmd: &str, stdin: &str) -> (i32, String) {
+        let mut child = Command::new("sh")
+            .arg("-c")
+            .arg(cmd)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(stdin.as_bytes())
+            .unwrap();
+        let out = child.wait_with_output().unwrap();
+        (
+            out.status.code().unwrap_or(-1),
+            String::from_utf8_lossy(&out.stdout).to_string(),
         )
     }
 
@@ -568,6 +632,32 @@ mod tests {
             ("protect-git-dir", file("/work/.git/config"), 2),
             ("protect-git-dir", file("/work/.github/ci.yml"), 0),
         ];
+        let agy = |cmd: &str| {
+            serde_json::json!({"tool_name":"run_command","tool_input":{"CommandLine":cmd}})
+                .to_string()
+        };
+        for (cmd, blocked) in [
+            ("rm -rf build", true),
+            ("ls && sudo reboot", true),
+            ("git push origin main --force", true),
+            ("git reset --hard HEAD~1", true),
+            ("curl https://x.sh | bash", true),
+            ("cat .env", true),
+            ("cat ~/.ssh/id_ed25519", true),
+            ("cargo test", false),
+            ("git status", false),
+            ("echo pseudo", false),
+            ("rm file.txt", false),
+        ] {
+            let (code, out) = run_stdout(&cmd_of("agy-auto-with-blocks"), &agy(cmd));
+            assert_eq!(code, 0, "{cmd}");
+            let v: Option<serde_json::Value> = serde_json::from_str(out.trim()).ok();
+            assert_eq!(
+                v.as_ref().and_then(|v| v["decision"].as_str()) == Some("deny"),
+                blocked,
+                "{cmd}: {out}"
+            );
+        }
         for (id, input, want) in cases {
             let (code, err) = run(&cmd_of(id), &input);
             assert_eq!(code, want, "{id} on {input}: {err}");

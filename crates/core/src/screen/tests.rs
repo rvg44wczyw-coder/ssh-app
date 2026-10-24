@@ -1211,3 +1211,112 @@ fn context_report_absent_or_hostile_gives_none_or_bounded_values() {
     }
     assert!(parse_context_usage(many).expect("report").skills.len() <= 300);
 }
+
+mod agy_dialogs {
+    use super::*;
+
+    fn feed(name: &str) -> ScreenFeed {
+        let text = match name {
+            "model" => include_str!("fixtures/agy_model.txt"),
+            "permissions" => include_str!("fixtures/agy_permissions.txt"),
+            "config" => include_str!("fixtures/agy_config.txt"),
+            "mcp" => include_str!("fixtures/agy_mcp.txt"),
+            "resume" => include_str!("fixtures/agy_resume.txt"),
+            "hooks" => include_str!("fixtures/agy_hooks.txt"),
+            "context" => include_str!("fixtures/agy_context.txt"),
+            "agents" => include_str!("fixtures/agy_agents.txt"),
+            _ => include_str!("fixtures/agy_idle.txt"),
+        };
+        parse_screen_feed(text.to_string())
+    }
+
+    fn selectable(d: &ScreenDialog) -> Vec<&str> {
+        d.rows
+            .iter()
+            .filter(|r| r.state != RowState::Header)
+            .map(|r| r.label.as_str())
+            .collect()
+    }
+
+    #[test]
+    fn an_idle_antigravity_screen_has_no_dialog() {
+        let f = feed("idle");
+        assert_eq!(f.dialect, ScreenDialect::Agy);
+        assert!(f.dialog.is_none());
+    }
+
+    #[test]
+    fn the_model_list_marks_the_current_model_and_the_cursor() {
+        let f = feed("model");
+        let d = f.dialog.expect("dialog");
+        assert_eq!(d.title, "Switch Model");
+        assert_eq!(d.kind, DialogKind::Generic);
+        let names = selectable(&d);
+        assert!(names.contains(&"Claude Opus 5.5"), "{names:?}");
+        let cur = d
+            .rows
+            .iter()
+            .position(|r| r.state == RowState::Current)
+            .expect("current");
+        assert_eq!(d.rows[cur].label, "Gemini 3.8 Flash");
+        assert!(d.hints.contains("Effort"));
+        assert_eq!(d.search.as_deref(), Some(""));
+        // the dialog and the input box are cut off the turns
+        assert!(f.turns.iter().all(|t| !t
+            .content
+            .clone()
+            .unwrap_or_default()
+            .contains("Switch Model")));
+    }
+
+    #[test]
+    fn settings_become_label_value_rows() {
+        let d = feed("config").dialog.expect("dialog");
+        assert_eq!(d.kind, DialogKind::Config);
+        let mode = &d.rows[d.selected as usize];
+        assert_eq!(mode.label, "Agent Mode");
+        assert_eq!(mode.value.as_deref(), Some("default"));
+        let tele = d
+            .rows
+            .iter()
+            .find(|r| r.label == "Enable Telemetry")
+            .expect("row");
+        assert_eq!(tele.state, RowState::Off);
+        assert!(d.hints.contains("Change"));
+        // the explanation under the list is text, not a row to press
+        assert!(d
+            .rows
+            .iter()
+            .any(|r| r.state == RowState::Header && r.label.starts_with("'default'")));
+    }
+
+    #[test]
+    fn hooks_agents_permissions_and_mcp_are_recognised() {
+        let hooks = feed("hooks").dialog.expect("hooks");
+        assert_eq!(hooks.title, "Hooks");
+        assert_eq!(selectable(&hooks)[0], "PreToolUse");
+        assert_eq!(hooks.rows[hooks.selected as usize].label, "PreToolUse");
+        let perms = feed("permissions").dialog.expect("permissions");
+        assert_eq!(perms.kind, DialogKind::Permissions);
+        assert!(selectable(&perms).contains(&"Global"));
+        let mcp = feed("mcp").dialog.expect("mcp");
+        assert_eq!(mcp.kind, DialogKind::Mcp);
+        let agents = feed("agents").dialog.expect("agents");
+        assert_eq!(agents.title, "Create New Agents");
+    }
+
+    #[test]
+    fn the_conversation_picker_lists_conversations_with_their_page() {
+        let d = feed("resume").dialog.expect("dialog");
+        assert!(d.more_below);
+        assert!(!d.more_above);
+        assert!(selectable(&d).len() >= 5);
+        assert_eq!(d.rows[d.selected as usize].state, RowState::Plain);
+    }
+
+    #[test]
+    fn a_text_dialog_without_a_list_is_not_taken_for_one() {
+        // /context has a keyboard footer but no `>` cursor: left to the terminal.
+        assert!(feed("context").dialog.is_none());
+    }
+}

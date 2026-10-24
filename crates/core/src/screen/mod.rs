@@ -92,6 +92,11 @@ pub fn parse_screen_feed(text: String) -> ScreenFeed {
             lines.truncate(start.saturating_sub(1));
             dialog = Some(d);
         }
+    } else if dialect == ScreenDialect::Agy {
+        if let Some((start, d)) = parse_agy_dialog(&lines) {
+            lines.truncate(start);
+            dialog = Some(d);
+        }
     }
     // A menu replaces the input box: cut it off before anything else reads the lines.
     let prompt = match (aside.is_some() || dialog.is_some(), parse_prompt(&lines)) {
@@ -142,6 +147,9 @@ fn detect(lines: &[String]) -> ScreenDialect {
         // The footer is on screen even when the part of the pane that scrolled by has no marker.
         if l.contains("⏵⏵") || l.contains("shift+tab to cycle") {
             claude += 1;
+        } else if l.starts_with("Keyboard: ↑/↓") {
+            // The footer of every dialog of Antigravity's CLI.
+            agy += 3;
         } else if l.starts_with("? for shortcuts")
             || (l.contains(" · Gemini ") && l.contains("accept-edits"))
         {

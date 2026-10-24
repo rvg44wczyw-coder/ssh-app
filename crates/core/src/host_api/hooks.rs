@@ -173,6 +173,7 @@ impl SshSessionHandle {
         let hook_dir = hook_dir.unwrap_or_else(|| crate::agents::DEFAULT_HOOK_DIR.to_string());
 
         let uses_script = crate::agents::hook_preset_uses_script(preset.clone());
+        let preset_for_install = preset.clone();
         let planned = crate::agents::plan_agent_hooks(agent, preset, Some(hook_dir.clone()))?;
 
         let py = self
@@ -200,6 +201,7 @@ impl SshSessionHandle {
         } else {
             ""
         };
+        let uses_extra = crate::agents::hook_preset_uses_extra(preset_for_install.clone());
         if uses_script {
             self.install_approval_key().await?;
             self.execute_command_on_active_session(format!(
@@ -210,6 +212,17 @@ impl SshSessionHandle {
                 "700"
             )
         ))
+            .await?;
+        }
+        if uses_extra {
+            self.execute_command_on_active_session(format!(
+                "umask 077; {}",
+                crate::agents::build_write_file_command(
+                    &crate::agents::remote_extra_script_path(&hook_dir),
+                    &crate::agents::agent_hook_extra_script(),
+                    "700"
+                )
+            ))
             .await?;
         }
         self.write_remote_config(&config_path, &existing, &merged)

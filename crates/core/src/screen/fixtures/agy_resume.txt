@@ -1,0 +1,45 @@
+
+> /config
+  ⎿  Exited /config command
+
+> /agents
+  ⎿  Exited /agents command
+
+> /hooks
+  ⎿  Exited /hooks command
+
+> /diff
+  ⎿  Exited /diff command
+
+> /config
+  ⎿  Exited /config command
+
+> /model
+  ⎿  Exited /model command
+
+> /config
+  ⎿  Exited /config command
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+>
+────────────────────────────────────────────────────────────────────────────────────────────────────
+   CLI    Other   (tab to cycle)
+
+  Conversations
+  Type to search conversations...
+> Fixing A Failing Build                                       project0  322 steps  4h ago
+  Reviewing The Release Notes                                  project1  369 steps  2d ago
+  Writing Tests For The Parser                                 project2  242 steps  2d ago
+  Planning A Migration                                         project3    3 steps  Oct 21
+  Explaining A Stack Trace                                     project4  3638 steps  Oct 21
+  Renaming Modules                                             project5  227 steps  Oct 20
+  Tuning Startup Time                                          project6    6 steps  Oct 19
+  Drafting A Changelog                                         project7  155 steps  Oct 18
+  Cleaning Up Imports                                          project8  200 steps  Oct 17
+  Checking Dependency Updates                                  project9    4 steps  Oct 16
+  [1-10 of 21 items]
+
+Keyboard: ↑/↓ Navigate  ←/→ Page  ctrl+f Grouped View  enter Select  f2 Rename  f4 Delete
+  tab Switch Tab  esc Go back / Clear search
+
+                                                                           Gemini 3.8 Flash · medium

@@ -635,6 +635,8 @@ fn hook_presets_preview_and_custom_install_against_loopback_sshd() {
         custom_matcher: "Bash".into(),
         approval_matcher: String::new(),
         approval_events: vec![],
+        extras: vec![],
+        own: vec![],
     };
 
     rt.block_on(async {

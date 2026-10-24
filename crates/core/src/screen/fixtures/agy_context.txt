@@ -1,0 +1,45 @@
+  ▄▀▀      ▀▀▄
+
+> /model
+  ⎿  Exited /model command
+
+> /config
+  ⎿  Exited /config command
+
+> /agents
+  ⎿  Exited /agents command
+
+> /hooks
+  ⎿  Exited /hooks command
+
+> /diff
+  ⎿  Exited /diff command
+
+> /config
+  ⎿  Exited /config command
+
+> /model
+  ⎿  Exited /model command
+
+> /config
+  ⎿  Exited /config command
+
+> /hooks
+  ⎿  Exited /hooks command
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+>
+────────────────────────────────────────────────────────────────────────────────────────────────────
+└ Context Usage
+□ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □     Gemini 3.8 Flash (Medium) · 0/1.0M tokens
+□ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □      (0.0%)
+□ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □     Estimated usage (awaiting generation)
+□ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □     ◉ User messages: 0 tokens (0.0%)
+□ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □     ◉ Agent responses: 0 tokens (0.0%)
+□ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □     ◉ Tool calls: 0 tokens (0.0%)
+□ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □ □     □ Free space: 1.0M (100.0%)
+
+
+Related: /artifact · /skill · /rewind
+  ↑/↓ Scroll · pgup/pgdown Page · ctrl+end Bottom · ctrl+home Top · esc Close
+                                                                           Gemini 3.8 Flash · medium

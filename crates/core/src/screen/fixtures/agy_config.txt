@@ -1,0 +1,45 @@
+  ⎿  Exited /diff command
+
+> /config
+  ⎿  Exited /config command
+
+> /model
+  ⎿  Exited /model command
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+>
+────────────────────────────────────────────────────────────────────────────────────────────────────
+Settings
+
+  Search:
+          ────────────────────
+
+> Agent Mode                   default
+  Animation Speed              medium
+  Artifact Review              asks for review
+  Color Scheme                 terminal
+  Conversation Picker Grouping none
+  Copy on Select               on
+  Editor                       auto ($EDITOR)
+  Editor Mode                  default
+  Enable Telemetry             off
+  Non-Workspace Access         on
+  Notifications                off
+  Queued Messages              Queue
+  Rendering Mode               native terminal (inline)
+  Sandbox Mode                 off
+  Seasonal Themes              off
+  Show Active Tasks            on
+  Show Feedback Survey         on
+  Show Tips                    on
+  Tool Permission              request-review
+  Use AI Credits               off
+  Verbosity                    medium
+
+  'default': standard behavior. 'accept-edits': auto-approve file edits, prompt for commands.
+  'auto': auto-approve edits and safe commands, prompt on irreversible actions. 'plan': research and
+  plan without making changes
+
+Keyboard: ↑/↓ Navigate  ←/→ Change  enter Select  esc Clear Search/Exit
+
+                                                                           Gemini 3.8 Flash · medium

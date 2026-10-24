@@ -1,0 +1,45 @@
+
+      ▄▀▀▄        Antigravity CLI 1.4.7
+     ▀▀▀▀▀▀       user@example.com (Google AI Pro)
+    ▀▀▀▀▀▀▀▀      Gemini 3.8 Flash (Medium)
+   ▄▀▀    ▀▀▄     /tmp/project
+  ▄▀▀      ▀▀▄
+
+> /model
+  ⎿  Exited /model command
+
+> /config
+  ⎿  Exited /config command
+
+> /agents
+  ⎿  Exited /agents command
+
+> /hooks
+  ⎿  Exited /hooks command
+
+> /diff
+  ⎿  Exited /diff command
+
+> /config
+  ⎿  Exited /config command
+
+> /model
+  ⎿  Exited /model command
+
+> /config
+  ⎿  Exited /config command
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+>
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Hooks
+   5 hook types
+
+ > PreToolUse      Before tool execution  1 hook
+   PostToolUse     After tool execution
+   PreInvocation   Before each LLM invocation
+   PostInvocation  After each LLM invocation
+   Stop            When agent tries to exit  1 hook
+
+   ↑/↓ Navigate · enter Select
+                                                                           Gemini 3.8 Flash · medium

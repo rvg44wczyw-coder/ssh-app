@@ -1,0 +1,45 @@
+
+      ▄▀▀▄        Antigravity CLI 1.4.7
+     ▀▀▀▀▀▀       user@example.com (Google AI Pro)
+    ▀▀▀▀▀▀▀▀      Gemini 3.8 Flash (Medium)
+   ▄▀▀    ▀▀▄     /tmp/project
+  ▄▀▀      ▀▀▄
+
+> /model
+  ⎿  Exited /model command
+
+> /config
+  ⎿  Exited /config command
+
+> /agents
+  ⎿  Exited /agents command
+
+> /hooks
+  ⎿  Exited /hooks command
+
+> /diff
+  ⎿  Exited /diff command
+
+> /config
+  ⎿  Exited /config command
+
+> /model
+  ⎿  Exited /model command
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+>
+────────────────────────────────────────────────────────────────────────────────────────────────────
+Permission Config Editor
+
+Select a config scope to edit:
+
+> Project		
+  Shared with Antigravity
+  Global
+
+  Rules that apply only to this project (highest priority)
+
+Keyboard: ↑/↓ Navigate  enter Save  esc Close
+
+                                                                           Gemini 3.8 Flash · medium
+

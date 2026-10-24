@@ -1,0 +1,45 @@
+  ▄▀▀      ▀▀▄
+
+> /model
+  ⎿  Exited /model command
+
+> /config
+  ⎿  Exited /config command
+
+> /agents
+  ⎿  Exited /agents command
+
+> /hooks
+  ⎿  Exited /hooks command
+
+> /diff
+  ⎿  Exited /diff command
+
+> /config
+  ⎿  Exited /config command
+
+> /model
+  ⎿  Exited /model command
+
+> /config
+  ⎿  Exited /config command
+
+> /hooks
+  ⎿  Exited /hooks command
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+>
+────────────────────────────────────────────────────────────────────────────────────────────────────
+Create New Agents
+  Workspace: /tmp/project/.agents/agents/{agent_name}/agent.md
+  Global: /home/user/.gemini/config/agents/{agent_name}/agent.md
+
+
+Available Agents
+> ● default  Default agent
+    flutter_a11y_agent  Expert at reviewing Flutter code for accessibility (a11y) issues. Invoke
+thi...
+
+Keyboard: ↑/↓ Navigate  enter Select / Toggle  k Kill Active Subagent  esc Go Back
+
+                                                                           Gemini 3.8 Flash · medium

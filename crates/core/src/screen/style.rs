@@ -245,16 +245,20 @@ fn restyle(
                 None => pieces.push((word.to_string(), 0)),
             }
         }
-        // A gap takes the style its neighbours share (only bold/italic carry across words).
+        // A gap takes the style its neighbours share (bold/italic carry across words; code only over one space).
         for i in 0..pieces.len() {
             if pieces[i].1 == u8::MAX {
                 let before = i.checked_sub(1).map(|j| pieces[j].1).unwrap_or(0);
                 let after = pieces.get(i + 1).map_or(0, |p| p.1);
-                pieces[i].1 = if before == after && before != CODE && before != u8::MAX {
-                    before
-                } else {
-                    0
-                };
+                // Code words side by side form one command (`git push --force`), a lone word stays
+                // a word; only a single space joins them.
+                let joins_code = before == CODE && pieces[i].0 == " ";
+                pieces[i].1 =
+                    if before == after && before != u8::MAX && (before != CODE || joins_code) {
+                        before
+                    } else {
+                        0
+                    };
             }
         }
         // Claude draws a heading as a bold line of its own; a Markdown heading says it better.
@@ -342,6 +346,19 @@ mod style_tests {
             "\u{1b}[3mnote\u{1b}[0m and \u{1b}[1mstrong\u{1b}[0m use \u{1b}[94mcargo\u{1b}[39m now";
         let got = run(raw, "note and strong use cargo now", ScreenDialect::Agy);
         assert_eq!(got, "*note* and **strong** use `cargo` now");
+    }
+
+    #[test]
+    fn code_words_side_by_side_become_one_command() {
+        let c = "\u{1b}[38;5;153m";
+        let e = "\u{1b}[39m";
+        let raw = format!("run {c}git{e} {c}push{e} {c}--force{e}, then {c}ls{e} ok");
+        let got = run(
+            &raw,
+            "run git push --force, then ls ok",
+            ScreenDialect::Claude,
+        );
+        assert_eq!(got, "run `git push --force`, then `ls` ok");
     }
 
     #[test]

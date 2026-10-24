@@ -384,6 +384,8 @@ mod plan_tests {
             kind,
             approval_matcher: matcher.into(),
             approval_events: events.iter().map(|e| e.to_string()).collect(),
+            extras: vec![],
+            own: vec![],
             ..default_hook_preset()
         }
     }
@@ -451,6 +453,8 @@ mod plan_tests {
             custom_matcher: matcher.into(),
             approval_matcher: String::new(),
             approval_events: vec![],
+            extras: vec![],
+            own: vec![],
         }
     }
 

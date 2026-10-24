@@ -27,6 +27,8 @@ pub enum DialogKind {
     Config,
     Mcp,
     Status,
+    /// Any other dialog of Antigravity: a title, blocks of text and one list with a `>` cursor.
+    Generic,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
@@ -236,6 +238,8 @@ pub(super) fn parse_dialog(lines: &[String]) -> Option<(usize, ScreenDialog)> {
             break;
         }
         match kind {
+            // Antigravity's dialogs have their own reader (`parse_agy_dialog`).
+            DialogKind::Generic => continue,
             DialogKind::Model | DialogKind::Permissions => {
                 if let Some((cursor, up, down, number, rest)) = numbered(line) {
                     above |= up;
@@ -360,6 +364,7 @@ pub(super) fn parse_dialog(lines: &[String]) -> Option<(usize, ScreenDialog)> {
         DialogKind::Config => "Settings",
         DialogKind::Mcp => "MCP servers",
         DialogKind::Status => "Status",
+        DialogKind::Generic => "",
     };
     Some((
         start,
@@ -390,4 +395,169 @@ fn tab_names(line: &str, active: &str) -> Vec<DialogTab> {
             active: n == active,
         })
         .collect()
+}
+
+/// A dialog of Antigravity's CLI. It is drawn under the input box (rule, `>` line, rule) and ends
+/// with a `Keyboard:` footer (or a line of `↑/↓` keys). Blocks are separated by blank lines; the
+/// list is the block that holds the `>` cursor. Returns the line after the input box's opening
+/// rule (the caller cuts the pane there), and the dialog.
+pub(super) fn parse_agy_dialog(lines: &[String]) -> Option<(usize, ScreenDialog)> {
+    // The last input box: a rule, a `>` line, a rule.
+    let close = (2..lines.len()).rev().find(|&i| {
+        super::is_rule(&lines[i])
+            && lines[i - 1].trim_start().starts_with('>')
+            && super::is_rule(&lines[i - 2])
+    })?;
+    // The model line at the very bottom is not part of the dialog.
+    let mut end = lines.len();
+    while end > close + 1 && lines[end - 1].trim().is_empty() {
+        end -= 1;
+    }
+    if end > close + 1 && lines[end - 1].contains(" · ") && super::indent(&lines[end - 1]) > 20 {
+        end -= 1;
+    }
+    let region: Vec<&String> = lines[close + 1..end].iter().collect();
+    let footer_start = region.iter().position(|l| {
+        let t = l.trim_start();
+        t.starts_with("Keyboard:") || t.starts_with("↑/↓")
+    })?;
+    let hints = region[footer_start..]
+        .iter()
+        .map(|l| l.trim())
+        .filter(|l| !l.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+    let hints = hints.trim_start_matches("Keyboard:").trim().to_string();
+    let body: Vec<&String> = region[..footer_start].to_vec();
+    let first = body.iter().find(|l| !l.trim().is_empty())?;
+    let title = clip(first.trim().trim_start_matches('└').trim());
+    if title.is_empty() {
+        return None;
+    }
+    let kind = match title.as_str() {
+        "Settings" => DialogKind::Config,
+        "MCP Servers" => DialogKind::Mcp,
+        "Permission Config Editor" => DialogKind::Permissions,
+        _ => DialogKind::Generic,
+    };
+
+    // The cursor line and the block around it.
+    let cursor = body
+        .iter()
+        .position(|l| l.trim_start().starts_with("> ") || l.trim() == ">")?;
+    let col = super::indent(body[cursor]) + 2;
+    let mut lo = cursor;
+    while lo > 0 && !body[lo - 1].trim().is_empty() {
+        lo -= 1;
+    }
+    let mut hi = cursor;
+    while hi + 1 < body.len() && !body[hi + 1].trim().is_empty() {
+        hi += 1;
+    }
+    let is_row = |i: usize| {
+        let l = body[i];
+        let t = l.trim();
+        i == cursor
+            || (super::indent(l) == col
+                && !t.starts_with("Search:")
+                && !t.contains('━')
+                && !t.contains('◂')
+                && !super::is_rule(t)
+                && !t.starts_with('['))
+    };
+
+    let (mut counts, mut search) = (vec![], None);
+    let mut rows = vec![];
+    let mut selected = 0u32;
+    let (mut above, mut below) = (false, false);
+    for (i, line) in body.iter().enumerate() {
+        let t = line.trim();
+        if t.is_empty() || super::is_rule(t) || i == 0 || rows.len() >= MAX_ROWS {
+            continue;
+        }
+        if let Some(q) = t.strip_prefix("Search:") {
+            search = Some(clip(q.trim()));
+            continue;
+        }
+        if t.starts_with("Type to search") {
+            search = Some(String::new());
+            continue;
+        }
+        if t.starts_with('[') && t.contains(" of ") && t.ends_with(" items]") {
+            counts.push(clip(t));
+            continue;
+        }
+        if t.contains('◂') && t.contains('▸') {
+            // The effort slider: the word under it says where it is.
+            continue;
+        }
+        if (lo..=hi).contains(&i) && is_row(i) {
+            let text = t.strip_prefix('>').unwrap_or(t).trim();
+            let (current, text) = match text.strip_suffix("(current)") {
+                Some(r) => (true, r.trim_end().to_string()),
+                None => (false, text.to_string()),
+            };
+            let (label, value) = split_cols(&text.replace('\t', "  "));
+            if i == cursor {
+                selected = rows.len() as u32;
+            }
+            let on = value == "on";
+            let off = value == "off";
+            let state = if current {
+                RowState::Current
+            } else if kind == DialogKind::Config && on {
+                RowState::On
+            } else if kind == DialogKind::Config && off {
+                RowState::Off
+            } else if t.starts_with("> ✗") || t.starts_with("✗") {
+                RowState::Warning
+            } else {
+                RowState::Plain
+            };
+            rows.push(DialogRow {
+                number: None,
+                label,
+                value: (!value.is_empty()).then_some(value),
+                detail: String::new(),
+                state,
+            });
+        } else {
+            // Text around the list: a heading or an explanation, shown but not selectable.
+            rows.push(DialogRow {
+                number: None,
+                label: clip(t),
+                value: None,
+                detail: String::new(),
+                state: RowState::Header,
+            });
+        }
+    }
+    // `above`/`below` come from the "[1-10 of 21 items]" line.
+    for n in &counts {
+        if let Some(range) = n.strip_prefix('[') {
+            let nums: Vec<u32> = range
+                .split(|c: char| !c.is_ascii_digit())
+                .filter_map(|p| p.parse().ok())
+                .collect();
+            if let [from, to, total] = nums[..] {
+                above = from > 1;
+                below = to < total;
+            }
+        }
+    }
+    Some((
+        close.saturating_sub(1),
+        ScreenDialog {
+            kind,
+            title,
+            tabs: vec![],
+            search,
+            note: String::new(),
+            rows,
+            selected,
+            hints: clip(&hints),
+            more_above: above,
+            more_below: below,
+        },
+    ))
 }

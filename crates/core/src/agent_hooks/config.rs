@@ -72,6 +72,70 @@ pub(super) fn hook_command(hook_dir: &str, agent: &str, event: &str) -> String {
     format!("python3 -I \"{path}\" {agent} {event}")
 }
 
+pub const EXTRA_WRAPPER: &str = "ssh-app-hook-extra";
+
+fn hook_dir_path(hook_dir: &str, file: &str) -> String {
+    let dir = hook_dir.trim_end_matches('/');
+    match dir.strip_prefix("~/") {
+        Some(rest) => format!("$HOME/{rest}/{file}"),
+        None => format!("{dir}/{file}"),
+    }
+}
+
+/// The command written for an event that has an extra command: the wrapper runs the user's
+/// command (base64, so no quoting can break out of it) and the ordinary hook in the chosen order.
+pub(super) fn extra_command(hook_dir: &str, agent: &str, event: &str, x: &HookExtra) -> String {
+    use base64::Engine;
+    let wrapper = hook_dir_path(hook_dir, EXTRA_WRAPPER);
+    let cmd = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(x.command.trim());
+    let order = match x.order {
+        HookExtraOrder::Before => "before",
+        HookExtraOrder::After => "after",
+    };
+    format!(
+        "python3 -I \"{wrapper}\" --cmd {cmd} --order {order} --stop {} --timeout {} --agent {agent} --event {event} -- {}",
+        u8::from(x.stop_on_failure),
+        x.timeout_secs,
+        hook_command(hook_dir, agent, event)
+    )
+}
+
+/// A readable form of a command ssh-app wrote, for the install preview: the wrapper's base64 is
+/// decoded, an own command loses its marker comment, anything else is returned as it is.
+#[uniffi::export]
+pub fn hook_command_summary(command: String) -> String {
+    use base64::Engine;
+    if let Some(own) = command.strip_suffix(&format!(" # {HOOK_MARKER}-custom")) {
+        return format!("own command: {own}");
+    }
+    let tokens: Vec<&str> = command.split_whitespace().collect();
+    let value = |flag: &str| {
+        tokens
+            .iter()
+            .position(|t| *t == flag)
+            .and_then(|i| tokens.get(i + 1).copied())
+    };
+    let is_wrapper = tokens.get(2).is_some_and(|t| t.contains(EXTRA_WRAPPER));
+    if let (true, Some(b64)) = (is_wrapper, value("--cmd")) {
+        let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(b64)
+            .ok()
+            .and_then(|b| String::from_utf8(b).ok())
+            .unwrap_or_else(|| "(unreadable)".to_string());
+        let stop = if value("--stop") == Some("1") {
+            ", stops on failure"
+        } else {
+            ""
+        };
+        return format!(
+            "ssh-app hook + extra command ({} the hook{stop}, {} s): {decoded}",
+            value("--order").unwrap_or("before"),
+            value("--timeout").unwrap_or("10"),
+        );
+    }
+    command
+}
+
 /// Exactly the commands we write: the script invocation (`python3 -I ".../ssh-app-hook" <agent>
 /// <Event>`) or a custom command ending in our marker comment. A substring match would also
 /// delete a user's unrelated hook that merely mentions the marker in a path.

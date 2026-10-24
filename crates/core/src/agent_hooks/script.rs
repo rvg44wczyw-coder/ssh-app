@@ -13,6 +13,13 @@ pub fn agent_hook_script() -> String {
     }
 }
 
+/// The wrapper that runs a user's extra command next to the ssh-app hook of one event; installed
+/// next to the hook script whenever a profile has extra commands.
+#[uniffi::export]
+pub fn agent_hook_extra_script() -> String {
+    include_str!("../../../../scripts/agent-hooks/ssh-app-hook-extra.py").to_string()
+}
+
 /// Which code the agents' hooks run on a host.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
 pub enum HookScriptState {

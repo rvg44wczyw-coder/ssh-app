@@ -27,7 +27,38 @@ pub fn plan_agent_hooks(
         matcher: matcher.map(str::to_string),
         command,
     };
+    let own_entries = |installed: &[String]| -> Result<Vec<PlannedHook>, SshCoreError> {
+        validate_own(agent, &preset.own, installed)?;
+        Ok(preset
+            .own
+            .iter()
+            .map(|o| {
+                let m = o.matcher.trim();
+                let matcher = event_takes_matcher(&o.event).then_some(if m.is_empty() {
+                    default_matcher
+                } else {
+                    m
+                });
+                planned(
+                    &o.event,
+                    matcher,
+                    format!("{} # {HOOK_MARKER}-custom", o.command.trim()),
+                )
+            })
+            .collect())
+    };
     Ok(match preset.kind {
+        HookPresetKind::Off => {
+            if !preset.extras.is_empty() {
+                return Err(invalid("Extra commands need the ssh-app hook"));
+            }
+            own_entries(&[])?
+        }
+        HookPresetKind::Custom if !preset.extras.is_empty() || !preset.own.is_empty() => {
+            return Err(invalid(
+                "A custom hook replaces everything; per-event extra and own commands do not combine with it",
+            ))
+        }
         HookPresetKind::Custom if matches!(agent, AgentKind::Crush | AgentKind::OpenCode) => {
             return Err(invalid(
                 "Custom hook commands are not supported for this agent; use the phone approval preset",
@@ -94,16 +125,23 @@ pub fn plan_agent_hooks(
                 _ => &[],
             };
             let chosen = validate_approval_events(&preset.approval_events, defaults, optional)?;
-            chosen
+            validate_extras(agent, &preset.extras, &chosen)?;
+            let mut entries: Vec<PlannedHook> = chosen
                 .iter()
                 .map(|event| {
+                    let command = match preset.extras.iter().find(|x| &x.event == event) {
+                        Some(x) => extra_command(&dir, name, event, x),
+                        None => hook_command(&dir, name, event),
+                    };
                     planned(
                         event,
                         event_takes_matcher(event).then_some(matcher.as_str()),
-                        hook_command(&dir, name, event),
+                        command,
                     )
                 })
-                .collect()
+                .collect();
+            entries.extend(own_entries(&chosen)?);
+            entries
         }
     })
 }
@@ -301,6 +339,13 @@ pub(crate) fn build_write_file_command(path_expr: &str, content: &str, mode: &st
 
 pub(crate) fn remote_script_path(hook_dir: &str) -> String {
     remote_path_expr(&format!("{}/{HOOK_MARKER}", hook_dir.trim_end_matches('/')))
+}
+
+pub(crate) fn remote_extra_script_path(hook_dir: &str) -> String {
+    remote_path_expr(&format!(
+        "{}/{EXTRA_WRAPPER}",
+        hook_dir.trim_end_matches('/')
+    ))
 }
 
 #[cfg(test)]
