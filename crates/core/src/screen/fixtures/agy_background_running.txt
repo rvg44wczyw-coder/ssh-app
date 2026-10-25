@@ -1,0 +1,16 @@
+      ▄▀▀▄        Antigravity CLI 1.4.7
+     ▀▀▀▀▀▀       user@example.com (Google AI Pro)
+    ▀▀▀▀▀▀▀▀      Gemini 3.8 Flash (Medium)
+   ▄▀▀    ▀▀▄     /tmp/project
+  ▄▀▀      ▀▀▄
+────────────────────────────────────────────────────────────
+> Run the shell command "sleep 120" as a background command (do not wait for it). Then reply only: started.
+○ Thought for 4.7s (Initial assessment indicates the command requires asynchronous execution.)
+● Running (sleep 120) (ctrl+o to expand)
+  started.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+>
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ● [11:40:03] sleep 120 running
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+? for shortcuts                                                           Gemini 3.8 Flash · medium · 1 task(s) · /tasks

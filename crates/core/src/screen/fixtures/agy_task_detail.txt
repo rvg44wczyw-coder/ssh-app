@@ -1,0 +1,16 @@
+> Run the shell command "sleep 120" as a background command (do not wait for it). Then reply only: started.
+● Running (sleep 120) (ctrl+o to expand)
+  started.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+>
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Task Details
+Command: sleep 120
+Status:  ● running
+Type:    Agent
+Started: 2026-10-25 11:40:03
+────────────────────────────────────────
+Output
+(no output)
+  ↑/↓ scroll · pgup/pgdown page · ctrl+end bottom · ctrl+home top · esc back
+                                                                          Gemini 3.8 Flash · medium · 1 task(s) · /tasks

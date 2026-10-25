@@ -1,0 +1,11 @@
+> Run the shell command "sleep 120" as a background command (do not wait for it). Then reply only: started.
+● Running (sleep 120) (ctrl+o to expand)
+  started.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+>
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Tasks
+Agent Backgrounded
+> ● [11:40:03] sleep 120                                                                                         running
+Keyboard: ↑/↓ Navigate  ←/→ Page  enter View output  k Kill Task  x Remove Task From List
+                                                                          Gemini 3.8 Flash · medium · 1 task(s) · /tasks

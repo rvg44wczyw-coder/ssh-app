@@ -1,0 +1,18 @@
+ ▐▛███▛█   Claude Code v2.1.308
+▝▜██████▀  Sonnet 5.5 · Claude Pro
+ ▝▝   ▝▝   /tmp/project
+
+❯ Run the shell command: sleep 90 in the background (run_in_background true). Then reply only: started.
+
+⏺ Bash(sleep 90)
+  ⎿  Running in the background (↓ to manage)
+
+⏺ started.
+
+✻ Churned for 4s · done 11:35 AM · 1 shell still running
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Sonnet 5.5 · 5h 5% · 7d 65%
+  ⏵⏵ auto mode on · 1 shell

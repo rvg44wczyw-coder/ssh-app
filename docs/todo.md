@@ -28,6 +28,19 @@ Install with `make iphone-full` only on the owner's word. Check on the device:
 - [ ] agy dialog tabs (needs a recorded dialog); Ollama multimodal uploads; host usage index; agy: run the "Auto with blocked commands" template live; agy database feed run (owner's go-ahead on permissions).
 - [ ] Live hook checks: Codex, Grok, Qwen, Crush, OpenCode, `ollama launch`.
 
+### Not captured yet (found in the Codex/Grok/background-task studies, 2026-10-25)
+
+Mark an item done only after the check has run and the owner has confirmed it. One live run = one permission for one task; the agent's folder is the app's own directory, the tmux socket a private one.
+
+- [ ] Claude Code with two or more background shells: the list layout (spec 59, §10).
+- [ ] Claude Code: does `/tasks` exist in this version, or is the footer pill the only way (spec 59, §10).
+- [ ] Antigravity: a finished background task, several tasks, and whether its database feed carries them (spec 59, §10).
+- [ ] Codex: the queue of messages typed while it works; its approval screens; `/permissions`, `/model`, `/status` and the `/` command list; where it keeps hook trust (`docs/architecture/codex-grok-study-2026-10-25.md`).
+- [ ] Grok: the background task list screen (needs the phone approval for the hook, or a hooks-free run); the format of `updates.jsonl` and `chat_history.jsonl`; where it keeps hook trust; the `Ctrl+x` shortcut groups opened one by one.
+- [ ] Grok: `/hooks`, `/mcps`, `/usage`, `/dashboard` screens (only `/settings`, `/model`, `/session-info`, `/` and `Ctrl+x` were seen).
+- [ ] Spec 11 hooks section: correct the Grok line (it blocks on `UserPromptSubmit`, `PreToolUse`, `Stop`, `SubagentStop`; folder trust gate) and the Codex trust review after the installer writes `hooks.json`.
+- [ ] Spec 60 phases 5 and 6 live checks (Codex, Grok) before their adapters are called done.
+
 ## Waits for the owner's decision
 
 - [ ] Push relay: the shared secret must become a per-install App Attest before any distributed build.

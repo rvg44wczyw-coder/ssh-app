@@ -1,0 +1,15 @@
+⏺ Bash(sleep 90)
+  ⎿  Running in the background (↓ to manage)
+
+⏺ started.
+
+✻ Churned for 4s · done 11:35 AM · 1 shell still running
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Shell details
+  Status:   running
+  Runtime:  19s
+  Command:  sleep 90
+  Output:
+  No output available
+  ← to go back · Esc/Enter/Space to close · x to stop
