@@ -209,59 +209,17 @@ struct CommandScreenView: View {
 }
 
 /// The agent's commands that open a dialog: one tap types the command and the dialog becomes a screen.
-/// The command entries, shared by the standalone button and the submenu of the attach menu.
+/// The entries come from the agent's row of the core's registry, so every agent gets its own list.
 struct AgentCommandItems: View {
-    var agy = false
+    let commands: [AgentCommand]
     let run: (String) -> Void
 
     var body: some View {
-        if agy { agyItems } else { claudeItems }
-    }
-
-    /// Antigravity's own list (read from its `/help`); `/exit` and `/logout` are left out.
-    @ViewBuilder
-    private var agyItems: some View {
-        Button(role: .destructive) { run("/clear") } label: { Label("Clear", systemImage: "trash") }
-        Button { run("/context") } label: { Label("Context", systemImage: "chart.pie") }
-        Button { run("/resume") } label: { Label("Resume", systemImage: "clock.arrow.circlepath") }
-        Button { run("/rewind") } label: { Label("Rewind", systemImage: "arrow.uturn.backward") }
-        Button { run("/fork") } label: { Label("Fork", systemImage: "arrow.triangle.branch") }
-        Button { run("/rename") } label: { Label("Rename", systemImage: "pencil") }
-        Button { run("/copy") } label: { Label("Copy", systemImage: "doc.on.doc") }
-        Button { run("/diff") } label: { Label("Diff", systemImage: "plusminus") }
-        Divider()
-        Button { run("/model") } label: { Label("Model", systemImage: "cpu") }
-        Button { run("/effort") } label: { Label("Effort", systemImage: "gauge.with.dots.needle.50percent") }
-        Button { run("/permissions") } label: { Label("Permissions", systemImage: "checkmark.shield") }
-        Button { run("/config") } label: { Label("Settings", systemImage: "gearshape") }
-        Button { run("/mcp") } label: { Label("MCP servers", systemImage: "server.rack") }
-        Button { run("/agents") } label: { Label("Agents", systemImage: "person.2") }
-        Button { run("/hooks") } label: { Label("Hooks", systemImage: "link") }
-        Button { run("/plugin") } label: { Label("Plugins", systemImage: "puzzlepiece.extension") }
-        Divider()
-        Button { run("/credits") } label: { Label("Credits", systemImage: "dollarsign.circle") }
-        Button { run("/changelog") } label: { Label("Changelog", systemImage: "doc.text") }
-        Button { run("/help") } label: { Label("Help", systemImage: "questionmark.circle") }
-    }
-
-    @ViewBuilder
-    private var claudeItems: some View {
-        Button(role: .destructive) { run("/clear") } label: { Label("Clear", systemImage: "trash") }
-        Button { run("/compact") } label: { Label("Compact", systemImage: "arrow.down.right.and.arrow.up.left") }
-        Button { run("/context") } label: { Label("Context", systemImage: "chart.pie") }
-        Button { run("/resume") } label: { Label("Resume", systemImage: "clock.arrow.circlepath") }
-        Button { run("/memory") } label: { Label("Memory", systemImage: "brain") }
-        Divider()
-        Button { run("/model") } label: { Label("Model", systemImage: "cpu") }
-        Button { run("/permissions") } label: { Label("Permissions", systemImage: "checkmark.shield") }
-        Button { run("/config") } label: { Label("Settings", systemImage: "gearshape") }
-        Button { run("/mcp") } label: { Label("MCP servers", systemImage: "server.rack") }
-        Button { run("/agents") } label: { Label("Agents", systemImage: "person.2") }
-        Button { run("/hooks") } label: { Label("Hooks", systemImage: "link") }
-        Divider()
-        Button { run("/status") } label: { Label("Status", systemImage: "info.circle") }
-        Button { run("/cost") } label: { Label("Cost", systemImage: "dollarsign.circle") }
-        Button { run("/doctor") } label: { Label("Doctor", systemImage: "stethoscope") }
-        Button { run("/help") } label: { Label("Help", systemImage: "questionmark.circle") }
+        ForEach(commands, id: \.name) { c in
+            if c.dividerBefore { Divider() }
+            Button(role: c.destructive ? .destructive : nil) { run(c.name) } label: {
+                Label(c.label, systemImage: c.icon)
+            }
+        }
     }
 }

@@ -254,8 +254,9 @@ impl SshSessionHandle {
         let program = crate::zellij_feed::mux_arg(kind, &session_name)?;
         let script = crate::hostprobe::login_sh_script(
             &format!(
-                "{}{SESSION_TRANSCRIPT_BODY}",
-                crate::zellij_feed::roots_prefix("")
+                "{}{}",
+                crate::zellij_feed::roots_prefix(""),
+                session_transcript_script()
             ),
             &[
                 crate::tmux::shell_quote(session_name.trim()),

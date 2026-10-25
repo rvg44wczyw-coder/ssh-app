@@ -140,13 +140,18 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     private var fileFeedPath: String?
     /// `fileFeed` holds turns read from the agent's own database (Antigravity), not from its file.
     private var feedFromDatabase = false
-    private var screenIsAgy = false
-    /// The pane's screen looks like Claude Code's (a plain tab it was started in by hand).
-    private var screenIsClaude = false
-    /// The agent in this tab speaks Antigravity's commands (a tab made for it, or one it was started in by hand).
-    public var isAgyAgent: Bool { session.agentType == .antigravity || screenIsAgy }
+    /// Which agent's screen the pane shows at the last look (a tab made for an agent, or one it was started
+    /// in by hand); `.unknown` before the first look or for a plain shell.
+    private var screenDialect: ScreenDialect { dialectTracker.current }
+    private var dialectTracker = DialectTracker()
+    /// The registry row of this tab's agent: what the screen shows, else what the tab was made for.
+    public var descriptor: AgentDescriptor { AgentResolver.descriptor(agentType: session.agentType, dialect: screenDialect) }
+    /// The agent the screen shows (not the tab's type); `nil` while nothing is recognised.
+    private var detectedDescriptor: AgentDescriptor? { AgentResolver.detected(dialect: screenDialect) }
+    /// The conversation of the detected agent lives in a database the host helper reads (Antigravity).
+    private var detectedUsesDatabase: Bool { detectedDescriptor?.sessionStore == .database }
     /// The keys this tab's agent answers to (queue, send now, suggestions); see `AgentTraits`.
-    var traits: AgentTraits { AgentTraits.resolve(agentType: session.agentType, detectedAgy: screenIsAgy, detectedClaude: screenIsClaude) }
+    var traits: AgentTraits { AgentTraits(descriptor: descriptor) }
     /// The host pushes changes of the session file and of the pane's tail over one open channel
     /// (`watch_feed`); while it runs nothing is polled.
     private var feedWatch: FeedWatch?
@@ -809,8 +814,8 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     /// the subagents screen opens or is refreshed.
     public func fetchSubagents() async -> [SubagentInfo]? {
         guard let handle, state == .connected else { return nil }
-        if screenIsAgy {
-            // Antigravity: child conversations from its index, through the pinned host helper.
+        if detectedUsesDatabase {
+            // Database agents: child conversations from its index, through the pinned host helper.
             guard let pin = await helperPin() else { return nil }
             return try? await handle.listAgySubagents(sessionName: session.sessionName, helperSha256: pin)
         }
@@ -823,7 +828,7 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     public func readSubagent(_ agentId: String, cursor: FeedCursor?) async -> FeedRead?? {
         guard let handle, state == .connected else { return nil }
         do {
-            if screenIsAgy {
+            if detectedUsesDatabase {
                 guard let pin = await helperPin() else { return nil }
                 return .some(try await handle.readAgySubagentSince(conversationId: agentId, helperSha256: pin, cursor: cursor))
             }
@@ -876,7 +881,7 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         let bridge = FeedStreamBridge(self)
         // Antigravity keeps its conversation in a database the pinned host helper reads; without the
         // helper (or a conversation yet) that stream ends at once and the file is read as before.
-        let fromDatabase = screenIsAgy
+        let fromDatabase = detectedUsesDatabase
         if fromDatabase != feedFromDatabase {
             fileFeed.reset()
             fileCursor = nil
@@ -998,8 +1003,7 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         }
         let feed = parseScreenFeed(text: text)
         feedRecognized = feed.dialect != .unknown
-        screenIsAgy = feed.dialect == .agy
-        screenIsClaude = feed.dialect == .claude
+        _ = dialectTracker.observe(feed.dialect)
         guard feed.dialect != .unknown else { lastScreenSum = nil; return nil }
         lastScreenSum = cap.checksum
         if screenDraft != feed.draft { screenDraft = feed.draft }

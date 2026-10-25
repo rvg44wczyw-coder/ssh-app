@@ -1,6 +1,7 @@
 uniffi::setup_scaffolding!();
 
 pub mod agent_hooks;
+pub mod agent_registry;
 pub mod agents;
 pub mod ai;
 pub mod approval;
@@ -46,6 +47,7 @@ pub mod remote_fs;
 pub mod screen;
 pub mod screen_capture;
 pub mod session;
+pub(crate) mod session_source;
 pub mod skills;
 pub mod snippets;
 pub mod subagent_feed;

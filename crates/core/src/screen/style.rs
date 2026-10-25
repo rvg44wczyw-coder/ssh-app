@@ -26,16 +26,6 @@ pub(super) struct StyledWord {
     segs: Vec<(String, u8)>,
 }
 
-/// Foreground colour a dialect draws inline code with.
-fn is_code_colour(dialect: ScreenDialect, params: &[u32]) -> bool {
-    match dialect {
-        // Claude: 256-colour 153. agy: bright blue (94).
-        ScreenDialect::Claude => params == [38, 5, 153],
-        ScreenDialect::Agy => params == [94],
-        ScreenDialect::Unknown => false,
-    }
-}
-
 #[derive(Default)]
 struct State {
     bold: bool,
@@ -74,11 +64,13 @@ impl State {
                         _ => 1,
                     };
                     let end = (i + take).min(params.len());
-                    self.code = is_code_colour(dialect, &params[i..end]);
+                    self.code = super::dialect::parser_for(dialect).is_code_colour(&params[i..end]);
                     i = end;
                     continue;
                 }
-                n @ 30..=37 | n @ 90..=97 => self.code = is_code_colour(dialect, &[n]),
+                n @ 30..=37 | n @ 90..=97 => {
+                    self.code = super::dialect::parser_for(dialect).is_code_colour(&[n])
+                }
                 _ => {}
             }
             i += 1;
@@ -263,7 +255,9 @@ fn restyle(
         }
         // Claude draws a heading as a bold line of its own; a Markdown heading says it better.
         let before = if n == 0 { "" } else { prev_line };
-        if dialect == ScreenDialect::Claude && is_bold_heading(&pieces, line, before) {
+        if super::dialect::parser_for(dialect).bold_line_is_heading()
+            && is_bold_heading(&pieces, line, before)
+        {
             let text: String = pieces.iter().map(|p| p.0.as_str()).collect();
             out.push_str("### ");
             out.push_str(text.trim());

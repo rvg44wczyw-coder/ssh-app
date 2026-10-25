@@ -532,10 +532,13 @@ final class AgentTraitsTests: XCTestCase {
     }
 
     func testResolveByTabAndByWhatRunsInIt() {
-        XCTAssertEqual(AgentTraits.resolve(agentType: .claudeCode, detectedAgy: false), .claude)
-        XCTAssertEqual(AgentTraits.resolve(agentType: .antigravity, detectedAgy: false), .antigravity)
-        XCTAssertEqual(AgentTraits.resolve(agentType: .customShell, detectedAgy: true), .antigravity)
-        XCTAssertEqual(AgentTraits.resolve(agentType: .customShell, detectedAgy: false, detectedClaude: true), .claude)
-        XCTAssertEqual(AgentTraits.resolve(agentType: .customShell, detectedAgy: false), .generic)
+        func traits(_ t: AgentType, _ d: ScreenDialect) -> AgentTraits {
+            AgentTraits(descriptor: AgentResolver.descriptor(agentType: t, dialect: d))
+        }
+        XCTAssertEqual(traits(.claudeCode, .unknown), .claude)
+        XCTAssertEqual(traits(.antigravity, .unknown), .antigravity)
+        XCTAssertEqual(traits(.customShell, .agy), .antigravity)
+        XCTAssertEqual(traits(.customShell, .claude), .claude)
+        XCTAssertEqual(traits(.customShell, .unknown), .generic)
     }
 }

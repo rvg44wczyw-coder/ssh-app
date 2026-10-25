@@ -81,72 +81,6 @@ impl SshSessionHandle {
     }
 }
 
-/// The part of the transcript detection after the pane's processes are known: `$roots` (space
-/// separated pids; see `zellij_feed::roots_prefix`) are the processes the walk may start from.
-/// `$1` is a validated session name. Prints one path or nothing.
-pub(crate) const SESSION_TRANSCRIPT_BODY: &str = r#"found=$(ps -Ao pid=,ppid=,args= 2>/dev/null | awk -v roots=" $roots " '
-  { id=$1; par=$2; $1=""; $2=""; sub(/^[ \t]+/, ""); pp[id]=par; cmd[id]=$0 }
-  END { for (p in pp) { q=p; d=0; while (q != "" && q != 0 && d < 40) { if (index(roots, " " q " ")) {
-      c=cmd[p]; n=split(c, w, " ")
-      for (i=1; i<=n && i<=4; i++) {
-        b=w[i]; sub(/.*\//, "", b); sub(/\.(js|mjs|py)$/, "", b); b=tolower(b)
-        if (i > 1 && w[1] !~ /(node|bun|deno|python[0-9.]*|sh|bash|zsh)$/) break
-        if (b == "claude") { print "claude " p; exit }
-        if (b == "agy" || b == "antigravity") { print "agy " p; exit }
-      }
-      if (c ~ /@anthropic-ai\/claude-code|\/claude-code\//) { print "claude " p; exit }
-      if (c ~ /\/antigravity\//) { print "agy " p; exit }
-      break } q=pp[q]; d++ } } }')
-kind=${found%% *}; apid=${found##* }
-case "$apid" in ""|*[!0-9]*) exit 0;; esac
-# The agent's own session id, as the hooks noted it for this tmux session (~/.ssh-app/run/sessions):
-# it names the file exactly, even when the same agent runs in the same folder on the laptop.
-sid=""; bts=-1
-for r in "$HOME"/.ssh-app/run/sessions/*.json; do
-  [ -f "$r" ] || continue
-  grep -q "\"tmux\":\"$1\"" "$r" 2>/dev/null || continue
-  grep -q "\"agent\":\"$( [ "$kind" = agy ] && echo antigravity || echo claude )\"" "$r" 2>/dev/null || continue
-  ts=$(sed -n 's/.*"ts":\([0-9]*\).*/\1/p' "$r" | head -n 1)
-  if [ "${ts:-0}" -gt "$bts" ]; then
-    bts=${ts:-0}; sid=$(sed -n 's/.*"session":"\([^"]*\)".*/\1/p' "$r" | head -n 1)
-  fi
-done
-case "$sid" in ""|*[!A-Za-z0-9_-]*) sid="";; esac
-cwd=$(readlink "/proc/$apid/cwd" 2>/dev/null)
-[ -n "$cwd" ] || cwd=$(lsof -a -p "$apid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -n 1)
-case "$kind" in
-  claude)
-    [ -n "$cwd" ] || exit 0
-    slug=$(printf '%s' "$cwd" | sed 's/[^A-Za-z0-9]/-/g')
-    # Claude keeps its files under $CLAUDE_CONFIG_DIR (the agent's own, read from its environment)
-    # or ~/.claude; accounts set up as ~/.claude-<name> are looked at too. The newest file wins.
-    cdir=$(ps eww -p "$apid" 2>/dev/null | tr ' ' '\n' | sed -n 's/^CLAUDE_CONFIG_DIR=//p' | head -n 1)
-    f=""
-    if [ -n "$sid" ]; then
-      for d in "$cdir" "$HOME/.claude" "$HOME"/.claude-*; do
-        [ -n "$d" ] || continue
-        c=$(ls "$d"/projects/*/"$sid".jsonl 2>/dev/null | head -n 1)
-        [ -f "$c" ] && f=$c && break
-      done
-      [ -f "$f" ] && { echo "$f"; exit 0; }
-    fi
-    for d in "$cdir" "$HOME/.claude" "$HOME"/.claude-*; do
-      [ -n "$d" ] || continue
-      c=$(ls -t "$d/projects/$slug"/*.jsonl 2>/dev/null | head -n 1)
-      [ -f "$c" ] && { [ -z "$f" ] || [ "$c" -nt "$f" ]; } && f=$c
-    done
-    [ -f "$f" ] && echo "$f";;
-  agy)
-    d=""
-    [ -n "$sid" ] && [ -d "$HOME/.gemini/antigravity-cli/brain/$sid" ] && d="$HOME/.gemini/antigravity-cli/brain/$sid"
-    [ -n "$d" ] || d=$(ls -l "/proc/$apid/fd" 2>/dev/null | grep -o "/[^ ]*/brain/[^/]*" | head -n 1)
-    [ -n "$d" ] || d=$(lsof -p "$apid" -Fn 2>/dev/null | sed -n 's/^n//p' | grep -o "^.*/brain/[^/]*" | head -n 1)
-    [ -n "$d" ] || d=$(ls -td "$HOME/.gemini/antigravity-cli/brain"/* 2>/dev/null | head -n 1)
-    f="$d/.system_generated/logs/transcript.jsonl"
-    [ -n "$d" ] && [ -f "$f" ] && echo "$f";;
-esac
-exit 0"#;
-
 const TRANSCRIPT_DETECT_SCRIPT: &str = r#"TARGET_DIR="$1"
 if [ -d "$HOME/.gemini/antigravity-cli/brain" ]; then
   LATEST=$(ls -td "$HOME/.gemini/antigravity-cli/brain"/* 2>/dev/null | head -n 1)
@@ -343,4 +277,10 @@ impl SshSessionHandle {
         self.query_ollama_on_port(port, model, system_prompt, user_prompt)
             .await
     }
+}
+
+/// The host script that finds the session of the agent running in a tab (built from the agent registry
+/// and the `SessionSource`s).
+pub(crate) fn session_transcript_script() -> String {
+    crate::session_source::locate_script()
 }

@@ -1352,3 +1352,108 @@ mod agy_working {
         assert_eq!(f.status, None);
     }
 }
+
+/// Phase 3 of the universal agent feed: the dialect registry decides as the hand-written `detect` did (kept
+/// here as the reference): on every fixture, on every single line and on every prefix short enough to be
+/// all footer area. Longer panes differ on purpose (hacker finding 3): see `printed_markers_do_not_flip_the_dialect`.
+mod dialect_differential {
+    use super::*;
+
+    fn legacy_detect(lines: &[String]) -> ScreenDialect {
+        let mut claude = 0;
+        let mut agy = 0;
+        for l in lines {
+            // The footer is on screen even when the part of the pane that scrolled by has no marker.
+            if l.contains("⏵⏵") || l.contains("shift+tab to cycle") {
+                claude += 1;
+            } else if l.starts_with("Keyboard: ↑/↓") {
+                // The footer of every dialog of Antigravity's CLI.
+                agy += 3;
+            } else if l.starts_with("? for shortcuts")
+                || (l.contains(" · Gemini ") && l.contains("accept-edits"))
+            {
+                agy += 1;
+            } else if l.starts_with("⏺ ") || l.starts_with("❯ ") || l.starts_with("✻ ") {
+                claude += 1;
+            } else if l.starts_with("○ ")
+                || l.starts_with("● ")
+                || l.contains("Antigravity CLI")
+                || l.contains("Conversation compacted")
+            {
+                agy += 1;
+            }
+        }
+        if claude == 0 && agy == 0 {
+            ScreenDialect::Unknown
+        } else if claude >= agy {
+            ScreenDialect::Claude
+        } else {
+            ScreenDialect::Agy
+        }
+    }
+
+    fn fixtures() -> Vec<String> {
+        let mut out = Vec::new();
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        for dir in ["src/screen/fixtures", "tests/data"] {
+            for e in std::fs::read_dir(root.join(dir)).unwrap() {
+                let p = e.unwrap().path();
+                if p.extension().is_some_and(|x| x == "txt") {
+                    out.push(std::fs::read_to_string(p).unwrap());
+                }
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn the_registry_detects_like_the_old_function() {
+        let mut checked = 0;
+        for text in fixtures() {
+            let lines: Vec<String> = crate::transcript::strip_ansi_codes(text)
+                .lines()
+                .map(|l| l.trim_end().to_string())
+                .collect();
+            for n in (0..=lines.len()).filter(|n| *n <= 10 || *n == lines.len()) {
+                assert_eq!(
+                    dialect::detect(&lines[..n]),
+                    legacy_detect(&lines[..n]),
+                    "prefix {n}"
+                );
+                checked += 1;
+            }
+            for l in &lines {
+                let one = std::slice::from_ref(l);
+                assert_eq!(dialect::detect(one), legacy_detect(one), "{l:?}");
+                checked += 1;
+            }
+        }
+        assert!(checked > 500, "{checked}");
+    }
+
+    #[test]
+    fn printed_markers_do_not_flip_the_dialect() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/screen/fixtures");
+        let read = |n: &str| std::fs::read_to_string(root.join(n)).unwrap();
+        let spoofs = [
+            "Keyboard: ↑/↓ to move\n".repeat(50),
+            "● [11:40:03] a running\n".repeat(50),
+            "○ x\n".repeat(50),
+            "⏺ hi\n".repeat(50),
+            "❯ hi\n".repeat(50),
+        ];
+        for (name, want) in [
+            ("claude_background_running.txt", ScreenDialect::Claude),
+            ("claude_shell_details.txt", ScreenDialect::Claude),
+            ("agy_background_running.txt", ScreenDialect::Agy),
+            ("agy_tasks_list.txt", ScreenDialect::Agy),
+        ] {
+            let base = read(name);
+            assert_eq!(parse_screen_feed(base.clone()).dialect, want, "{name}");
+            for spoof in &spoofs {
+                let text = format!("{spoof}{base}");
+                assert_eq!(parse_screen_feed(text).dialect, want, "{name} + {spoof:?}");
+            }
+        }
+    }
+}

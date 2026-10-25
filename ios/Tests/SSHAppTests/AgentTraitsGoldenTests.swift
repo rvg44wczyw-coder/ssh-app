@@ -1,4 +1,5 @@
 import XCTest
+import SshCoreBridge
 @testable import SSHApp
 
 /// Phase 0 of the universal agent feed (docs/features/60-universal-agent-feed.md): the whole table of
@@ -34,8 +35,46 @@ final class AgentTraitsGoldenTests: XCTestCase {
         ]
         XCTAssertEqual(cases.count, AgentType.allCases.count * 4)
         for (type, agy, claude, want) in cases {
-            XCTAssertEqual(AgentTraits.resolve(agentType: type, detectedAgy: agy, detectedClaude: claude).id, want,
+            let dialect: ScreenDialect = agy ? .agy : (claude ? .claude : .unknown)
+            XCTAssertEqual(AgentResolver.descriptor(agentType: type, dialect: dialect).id, want,
                            "\(type) agy=\(agy) claude=\(claude)")
         }
+    }
+
+    /// The command menus the app has always offered, now read from the core's registry.
+    func testCommandMenusAreThoseOfBefore() {
+        let claude = AgentResolver.entry("claude").commands
+        XCTAssertEqual(claude.map(\.name), ["/clear", "/compact", "/context", "/resume", "/memory", "/model",
+                                            "/permissions", "/config", "/mcp", "/agents", "/hooks", "/status",
+                                            "/cost", "/doctor", "/help"])
+        XCTAssertEqual(claude.filter(\.dividerBefore).map(\.name), ["/model", "/status"])
+        XCTAssertEqual(claude.filter(\.destructive).map(\.name), ["/clear"])
+        let agy = AgentResolver.entry("agy").commands
+        XCTAssertEqual(agy.map(\.name), ["/clear", "/context", "/resume", "/rewind", "/fork", "/rename", "/copy",
+                                         "/diff", "/model", "/effort", "/permissions", "/config", "/mcp", "/agents",
+                                         "/hooks", "/plugin", "/credits", "/changelog", "/help"])
+        XCTAssertEqual(agy.filter(\.dividerBefore).map(\.name), ["/model", "/credits"])
+        XCTAssertEqual(AgentResolver.entry("generic").commands.count, 0)
+    }
+
+    func testTheScreenWinsOverTheTabType() {
+        XCTAssertEqual(AgentResolver.descriptor(agentType: .customShell, dialect: .agy).id, "agy")
+        XCTAssertEqual(AgentResolver.descriptor(agentType: .antigravity, dialect: .claude).id, "claude")
+        XCTAssertEqual(AgentResolver.descriptor(agentType: .claudeCode, dialect: .unknown).id, "claude")
+        XCTAssertEqual(AgentResolver.descriptor(agentType: .customShell, dialect: .unknown).id, "generic")
+        XCTAssertNil(AgentResolver.detected(dialect: .unknown))
+        XCTAssertEqual(AgentResolver.detected(dialect: .agy)?.sessionStore, .database)
+        XCTAssertEqual(AgentResolver.detected(dialect: .claude)?.sessionStore, .file)
+    }
+
+    func testADialectSwitchNeedsTwoLooksInARow() {
+        var t = DialectTracker()
+        XCTAssertEqual(t.observe(.claude), .claude)          // from nothing: at once
+        XCTAssertEqual(t.observe(.agy), .claude)             // one look of another agent: held
+        XCTAssertEqual(t.observe(.claude), .claude)          // back: the doubt is gone
+        XCTAssertEqual(t.observe(.agy), .claude)
+        XCTAssertEqual(t.observe(.agy), .agy)                // twice in a row: switched
+        XCTAssertEqual(t.observe(.unknown), .unknown)        // the agent left: at once
+        XCTAssertEqual(t.observe(.claude), .claude)
     }
 }

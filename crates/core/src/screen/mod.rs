@@ -83,20 +83,18 @@ pub fn parse_screen_feed(text: String) -> ScreenFeed {
     // A command's overlay or dialog is drawn over the bottom of the pane: it is its own thing, not
     // a turn and not a question of the agent, so it is cut off first. The known dialogs are
     // recognised by their title, so their numbered lists are never mistaken for a prompt.
+    let parser = parser_for(dialect);
     let (mut aside, mut dialog) = (None, None);
-    if dialect == ScreenDialect::Claude {
-        if let Some((start, a)) = parse_aside(&lines) {
+    match parser.overlay(&lines) {
+        Overlay::Aside(start, a) => {
             lines.truncate(start);
             aside = Some(a);
-        } else if let Some((start, d)) = parse_dialog(&lines) {
-            lines.truncate(start.saturating_sub(1));
-            dialog = Some(d);
         }
-    } else if dialect == ScreenDialect::Agy {
-        if let Some((start, d)) = parse_agy_dialog(&lines) {
+        Overlay::Dialog(start, d) => {
             lines.truncate(start);
             dialog = Some(d);
         }
+        Overlay::None => {}
     }
     // A menu replaces the input box: cut it off before anything else reads the lines.
     let prompt = match (aside.is_some() || dialog.is_some(), parse_prompt(&lines)) {
@@ -118,15 +116,7 @@ pub fn parse_screen_feed(text: String) -> ScreenFeed {
     }
 
     let mut b = Builder::default();
-    match dialect {
-        ScreenDialect::Claude => claude(&lines, &mut b),
-        ScreenDialect::Agy => agy(&join_thought_wraps(&lines), &mut b),
-        ScreenDialect::Unknown => {
-            let tail: Vec<&str> = lines.iter().map(String::as_str).collect();
-            let keep = tail.len().saturating_sub(300);
-            b.system("Terminal output", &tail[keep..].join("\n"));
-        }
-    }
+    parser.turns(&lines, &mut b);
     let mut turns = b.turns;
     style::restyle_turns(&mut turns, &raw, dialect);
     ScreenFeed {
@@ -137,39 +127,6 @@ pub fn parse_screen_feed(text: String) -> ScreenFeed {
         prompt,
         aside,
         dialog,
-    }
-}
-
-fn detect(lines: &[String]) -> ScreenDialect {
-    let mut claude = 0;
-    let mut agy = 0;
-    for l in lines {
-        // The footer is on screen even when the part of the pane that scrolled by has no marker.
-        if l.contains("⏵⏵") || l.contains("shift+tab to cycle") {
-            claude += 1;
-        } else if l.starts_with("Keyboard: ↑/↓") {
-            // The footer of every dialog of Antigravity's CLI.
-            agy += 3;
-        } else if l.starts_with("? for shortcuts")
-            || (l.contains(" · Gemini ") && l.contains("accept-edits"))
-        {
-            agy += 1;
-        } else if l.starts_with("⏺ ") || l.starts_with("❯ ") || l.starts_with("✻ ") {
-            claude += 1;
-        } else if l.starts_with("○ ")
-            || l.starts_with("● ")
-            || l.contains("Antigravity CLI")
-            || l.contains("Conversation compacted")
-        {
-            agy += 1;
-        }
-    }
-    if claude == 0 && agy == 0 {
-        ScreenDialect::Unknown
-    } else if claude >= agy {
-        ScreenDialect::Claude
-    } else {
-        ScreenDialect::Agy
     }
 }
 
@@ -389,6 +346,8 @@ mod text;
 use text::*;
 mod claude;
 use claude::*;
+mod dialect;
+use dialect::*;
 mod agy;
 use agy::*;
 mod tools;

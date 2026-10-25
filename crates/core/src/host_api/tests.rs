@@ -174,7 +174,7 @@ fn config_write_refuses_when_the_file_changed_since_it_was_read() {
 }
 
 /// Phase 0 of the universal agent feed: what the host's agent detection says for recorded `ps` outputs.
-/// The head of `SESSION_TRANSCRIPT_BODY` (up to the `kind=` line) is run with a fake `ps`; pane pid 100.
+/// The head of the locate script (up to the `kind=` line) is run with a fake `ps`; pane pid 100.
 /// Codex and Grok are not detected today: those cases change on purpose when their adapters land.
 mod detection_golden {
     use super::*;
@@ -182,10 +182,9 @@ mod detection_golden {
     use std::process::Command;
 
     fn detect(ps_rows: &str) -> String {
-        let end = SESSION_TRANSCRIPT_BODY
-            .find("kind=${found%% *}")
-            .expect("detection head");
-        let head = &SESSION_TRANSCRIPT_BODY[..end];
+        let body = session_transcript_script();
+        let end = body.find("kind=${found%% *}").expect("detection head");
+        let head = &body[..end];
         let dir = tempfile::tempdir().unwrap();
         let ps = dir.path().join("ps");
         std::fs::write(&ps, format!("#!/bin/sh\ncat <<'ROWS'\n{ps_rows}\nROWS\n")).unwrap();
@@ -226,5 +225,182 @@ mod detection_golden {
         assert_eq!(detect("100 1 -zsh\n101 100 grok"), "");
         // Not below the pane process: another terminal's claude is ignored.
         assert_eq!(detect("100 1 -zsh\n200 1 -zsh\n201 200 claude"), "");
+    }
+}
+
+/// Phase 2 of the universal agent feed: the locate script is built from the agent registry and the
+/// adapters' arms, and was byte-identical to the hand-written script it replaced until the hacker review (2026-10-25: literal tab-name match, agy folder confined to its own brain/).
+#[test]
+fn the_session_locate_script_is_frozen() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/golden/snap/session_locate_script.snap");
+    let now = session_transcript_script();
+    if std::env::var_os("UPDATE_GOLDEN").is_some() {
+        std::fs::write(&path, &now).unwrap();
+        return;
+    }
+    let want = std::fs::read_to_string(&path).expect("snapshot (UPDATE_GOLDEN=1 writes it)");
+    assert!(
+        want == now,
+        "the locate script changed:\n--- want\n{want}\n--- got\n{now}"
+    );
+}
+
+/// Phase 2: the whole locate script run for real with a fake `ps` and `lsof` and a temporary `HOME` holding
+/// the files of Claude and Antigravity. What it prints is the session the feed will read.
+mod locate_end_to_end {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+    use std::process::Command;
+
+    struct Host {
+        home: tempfile::TempDir,
+        bin: tempfile::TempDir,
+    }
+
+    impl Host {
+        fn new(ps_rows: &str, cwd: &str) -> Host {
+            let home = tempfile::tempdir().unwrap();
+            let bin = tempfile::tempdir().unwrap();
+            let stub = |name: &str, body: String| {
+                let p = bin.path().join(name);
+                std::fs::write(&p, format!("#!/bin/sh\n{body}\n")).unwrap();
+                std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+            };
+            stub(
+                "ps",
+                format!("case \"$1\" in -Ao) cat <<'ROWS'\n{ps_rows}\nROWS\n;; esac"),
+            );
+            stub("lsof", format!("echo n{cwd}"));
+            Host { home, bin }
+        }
+
+        fn file(&self, rel: &str, age_secs: u64) -> String {
+            let p = self.home.path().join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(&p, "{}\n").unwrap();
+            let t = std::time::SystemTime::now() - std::time::Duration::from_secs(age_secs);
+            std::fs::File::options()
+                .write(true)
+                .open(&p)
+                .unwrap()
+                .set_modified(t)
+                .unwrap();
+            p.to_string_lossy().into_owned()
+        }
+
+        fn note_session(&self, tmux: &str, agent: &str, session: &str) {
+            let rel = format!(".ssh-app/run/sessions/{session}.json");
+            let p = self.home.path().join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(
+                p,
+                format!("{{\"tmux\":\"{tmux}\",\"agent\":\"{agent}\",\"session\":\"{session}\",\"ts\":5}}"),
+            )
+            .unwrap();
+        }
+
+        fn locate(&self) -> String {
+            self.locate_tab("sess")
+        }
+
+        fn locate_tab(&self, tab: &str) -> String {
+            let script = format!(
+                "roots=100\nset -- {tab} tmux\n{}",
+                session_transcript_script()
+            );
+            let out = Command::new("/bin/sh")
+                .arg("-c")
+                .arg(script)
+                .env_clear()
+                .env("HOME", self.home.path())
+                .env(
+                    "PATH",
+                    format!("{}:/usr/bin:/bin", self.bin.path().display()),
+                )
+                .output()
+                .unwrap();
+            String::from_utf8_lossy(&out.stdout).trim().to_string()
+        }
+    }
+
+    #[test]
+    fn claude_by_the_session_id_the_hooks_noted() {
+        let h = Host::new("100 1 -zsh\n101 100 claude", "/tmp/project");
+        let want = h.file(".claude/projects/-tmp-project/abc123.jsonl", 100);
+        h.file(".claude/projects/-tmp-project/newer.jsonl", 1);
+        h.note_session("sess", "claude", "abc123");
+        assert_eq!(h.locate(), want);
+    }
+
+    #[test]
+    fn claude_without_a_noted_id_takes_the_newest_file_of_the_folder() {
+        let h = Host::new("100 1 -zsh\n101 100 claude", "/tmp/project");
+        h.file(".claude/projects/-tmp-project/old.jsonl", 500);
+        let want = h.file(".claude/projects/-tmp-project/new.jsonl", 5);
+        h.file(".claude/projects/-other/other.jsonl", 1);
+        assert_eq!(h.locate(), want);
+    }
+
+    #[test]
+    fn claude_in_a_second_account_directory_is_found() {
+        let h = Host::new("100 1 -zsh\n101 100 claude", "/tmp/project");
+        let want = h.file(".claude-personal/projects/-tmp-project/s1.jsonl", 3);
+        assert_eq!(h.locate(), want);
+    }
+
+    #[test]
+    fn agy_by_the_noted_id_else_the_newest_conversation() {
+        let h = Host::new("100 1 -zsh\n101 100 agy", "/tmp/project");
+        let old = h.file(
+            ".gemini/antigravity-cli/brain/aaa/.system_generated/logs/transcript.jsonl",
+            900,
+        );
+        let new = h.file(
+            ".gemini/antigravity-cli/brain/bbb/.system_generated/logs/transcript.jsonl",
+            9,
+        );
+        assert_eq!(h.locate(), new);
+        h.note_session("sess", "antigravity", "aaa");
+        assert_eq!(h.locate(), old);
+    }
+
+    /// Hacker finding 1: the tab name is text, not a pattern (`.` is allowed in tab names).
+    #[test]
+    fn a_tab_name_is_not_a_pattern() {
+        let h = Host::new("100 1 -zsh\n101 100 claude", "/x/y");
+        h.file(".claude/projects/-tmp-project/victim.jsonl", 5);
+        h.note_session("abc", "claude", "victim");
+        assert_eq!(h.locate_tab("a.c"), "");
+        assert!(h.locate_tab("abc").ends_with("victim.jsonl"));
+    }
+
+    /// Hacker finding 2: a project the agent has open can hold a `brain/<x>/.system_generated/...` of its own;
+    /// only the agent's own folder counts.
+    #[test]
+    fn agy_ignores_a_brain_folder_outside_its_own() {
+        let repo = tempfile::tempdir().unwrap();
+        let evil = repo.path().join("brain/evil/.system_generated/logs");
+        std::fs::create_dir_all(&evil).unwrap();
+        std::fs::write(evil.join("transcript.jsonl"), "{}\n").unwrap();
+        let cwd = repo.path().join("brain/evil");
+        let h = Host::new("100 1 -zsh\n101 100 agy", &cwd.to_string_lossy());
+        let real = h.file(
+            ".gemini/antigravity-cli/brain/real/.system_generated/logs/transcript.jsonl",
+            9,
+        );
+        assert_eq!(h.locate(), real);
+        // Without a conversation of its own nothing is printed, the repository's file is never offered.
+        let bare = Host::new("100 1 -zsh\n101 100 agy", &cwd.to_string_lossy());
+        assert_eq!(bare.locate(), "");
+    }
+
+    #[test]
+    fn nothing_is_printed_when_no_agent_runs_or_no_file_exists() {
+        let none = Host::new("100 1 -zsh\n101 100 vim", "/tmp/project");
+        none.file(".claude/projects/-tmp-project/s.jsonl", 3);
+        assert_eq!(none.locate(), "");
+        let empty = Host::new("100 1 -zsh\n101 100 claude", "/tmp/project");
+        assert_eq!(empty.locate(), "");
     }
 }

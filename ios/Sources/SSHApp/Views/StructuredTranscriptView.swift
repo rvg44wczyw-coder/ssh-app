@@ -302,9 +302,9 @@ public struct StructuredTranscriptView: View {
                         if UIPasteboard.general.hasImages {
                             Button { pendingClipboard = true; askKeep = true } label: { Label("Paste image", systemImage: "doc.on.clipboard") }
                         }
-                        if hasAgentCommands {
+                        if hasAgentCommands, !viewModel.descriptor.commands.isEmpty {
                             Divider()
-                            Menu { AgentCommandItems(agy: viewModel.isAgyAgent) { viewModel.runAgentCommand($0) } } label: {
+                            Menu { AgentCommandItems(commands: viewModel.descriptor.commands) { viewModel.runAgentCommand($0) } } label: {
                                 Label("Commands", systemImage: "slash.circle")
                             }
                         }
