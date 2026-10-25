@@ -41,6 +41,9 @@ Mark an item done only after the check has run and the owner has confirmed it. O
 - [ ] Spec 11 hooks section: correct the Grok line (it blocks on `UserPromptSubmit`, `PreToolUse`, `Stop`, `SubagentStop`; folder trust gate) and the Codex trust review after the installer writes `hooks.json`.
 - [ ] Spec 60 phases 5 and 6 live checks (Codex, Grok) before their adapters are called done.
 
+- [ ] Spec 60 phase 4 follow-up: move the per-agent settings screens (hooks, launch profiles, permissions, skills, themes) onto the registry together with the Codex/Grok hook screens, then add the "no agent id literal in the feed code" guard test.
+- [ ] Spec 60 phase 4: device run of the feed for Claude and agy (commands menu, keys, subagents, database feed) after the refactor.
+
 ## Waits for the owner's decision
 
 - [ ] Push relay: the shared secret must become a per-install App Attest before any distributed build.

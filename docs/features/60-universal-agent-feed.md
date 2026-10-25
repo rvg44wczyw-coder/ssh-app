@@ -4,7 +4,7 @@
 - **Target Release**: Milestone 49
 - **Roles**: `doc-dev`, `rev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `hacker`
 - **Hacker Gate**: Yes (host adapters read session files and parse untrusted agent output; new agents add parsers of untrusted text)
-- **Status**: Plan (2026-10-25). Not reviewed. Builds on `docs/architecture/screen-parser.md`, `docs/architecture/codex-grok-study-2026-10-25.md`, `docs/features/59-background-tasks.md`, `docs/features/11-agent-hooks-and-launch-profiles.md`.
+- **Status**: Plan (2026-10-25); phases 0-3 done and phase 4 done in code 2026-10-25 (device run pending), see "Progress" at the end. Not reviewed by the owner. Builds on `docs/architecture/screen-parser.md`, `docs/architecture/codex-grok-study-2026-10-25.md`, `docs/features/59-background-tasks.md`, `docs/features/11-agent-hooks-and-launch-profiles.md`.
 
 ## 1. Purpose
 
@@ -237,3 +237,25 @@ strings (no agent-controlled text in the script).
 
 - 2026-10-25: first version from the code survey and the Codex/Grok study; review applied (§9).
 - 2026-10-25: owner's requirement "add a new agent type conveniently and fast, local or remote, without architectural changes": §3.6 rewritten as the add-an-agent rule (two files, one registry row, fixtures; `HostIo`; conformance suites; scaffold and capture scripts), phase 8 = the kit; run-time loaded definitions removed from the plan. §4 corrected: two accepted record shapes.
+
+## Progress (2026-10-25)
+
+| Phase | Result |
+|---|---|
+| 0 | Golden tests: screen snapshots (20 fixtures), transcript snapshots (both record shapes), chunked-feed equality, host detection on recorded `ps`, the `AgentTraits` table and resolve matrix. |
+| 1 | `crates/core/src/agent_registry.rs`: `AgentDescriptor` (id, kind, display name, process names, dialect, `SessionStore`, keys, commands) for Claude, Antigravity and generic; exported lookups by id, kind and program. |
+| 2 | `crates/core/src/session_source.rs`: trait `SessionSource` (id, hook name, argument markers, locate arm) for Claude and Antigravity; the host locate script is built from the registry and the sources. Kept behaviour proved by end-to-end runs of the script with a fake `ps`/`lsof` and a temporary `HOME` (session id noted by the hooks, newest file, second account directory, agy by id and newest, nothing found). The text of the script differs from the old one in two lines only (the hook name is chosen with a `case`). The separate `ssh-app-host feed locate|read` subcommand of §3.1 is not built: the generated script serves both agents; it comes with the first agent that needs the helper (Codex or Grok). |
+| 3 | `crates/core/src/screen/dialect.rs`: trait `DialectParser` (line score, overlay, turns, code colour, bold-heading rule), registry `DIALECTS`, `detect` by total score. The old `detect` is kept in the tests as the reference and compared on every fixture, every prefix of its lines and every single line; all snapshots are byte-identical. `split_footer` and `take_status` stay shared: they know the markers of every dialect at once. |
+| 4 | Swift: `AgentTraits` reads the registry; `AgentResolver` is the one place that maps a tab to a row (the screen wins over the tab's type); `isAgyAgent`, `screenIsAgy`, `screenIsClaude` replaced by one `screenDialect` and the descriptor; the command menu is built from `descriptor.commands` and hidden when a tab's agent has none. |
+
+Review of phases 0–4 (`rev`, 2026-10-25), all findings fixed:
+- `[security: low]` program names from the registry went into the awk part of the locate script without a charset check; now only `[a-z0-9._-]` names are written (`is_safe_program_name`, tested with quotes, `$`, `;`, newline).
+- `[quality]` the generic row was found as "the row of kind Aider", which breaks when Aider gets a row: `generic_agent_descriptor()` is exported and used.
+- `[quality]` the registry was rebuilt over FFI on every `traits` access: read once (`AgentResolver.all`).
+- `[quality]` `AgentTraits.resolve` was left only for tests: removed, tests use `AgentResolver`.
+
+Scope note on phase 4: of the 68 per-agent branches found, those on the feed path are gone. The rest are per-agent **settings
+screens** (hooks, launch profiles, permissions, skills, themes in `AgentProfile`, `SessionPermissionsSheetView`,
+`HookPreviewSheetView`, `SkillsSheetView`, `AppAppearance`, `CommandPaletteSheetView`): they differ by agent by nature (what
+hooks an agent supports, where its config lives) and belong to spec 11; they move onto the registry when Codex and Grok get
+their hook screens (phases 5-6). The "no agent id literal in the feed code" guard test is added then, scoped to the feed files.
