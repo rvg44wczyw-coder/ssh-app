@@ -627,6 +627,12 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         }
     }
 
+    /// Forgets the echo of a message that did not go out (its text is back in the field).
+    public func dropEcho(text: String) {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let i = pendingEchoes.lastIndex(where: { $0.text == t }) { pendingEchoes.remove(at: i) }
+    }
+
     /// Drops echoes the file has shown already (called when the transcript changes).
     public func pruneEchoes() {
         let kept = pendingEchoes.filter { userCount(of: $0.text) <= $0.baseCount && Date().timeIntervalSince($0.sentAt) < 600 }
@@ -639,6 +645,34 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
               let cap = try? await handle.captureSessionScreenIn(sessionName: session.sessionName, knownSum: nil, kind: multiplexer),
               let screen = cap.text else { return nil }
         return parseScreenFeed(text: screen).draft ?? ""
+    }
+
+    /// After the Enter of a send: reads the box back. If it still holds the message just sent (an
+    /// Enter taken by a suggestion popup, or swallowed while the agent redrew), Enter is pressed
+    /// again, at most twice. If the text is still there, the box is emptied so it cannot be glued to
+    /// the next message, and `false` says the message was not sent. Only a box that starts with the
+    /// sent text counts: a hint or something the user typed at the laptop is left alone.
+    public func confirmSubmitted(_ text: String) async -> Bool {
+        func squashed(_ t: String) -> String { t.split(whereSeparator: \.isWhitespace).joined(separator: " ") }
+        let head = String(squashed(text).prefix(24))
+        guard !head.isEmpty else { return true }
+        func stillThere() async -> Bool {
+            try? await Task.sleep(for: .milliseconds(700))
+            guard let left = await currentBoxDraft() else { return false }
+            return squashed(left).hasPrefix(head)
+        }
+        for _ in 0..<2 {
+            guard await stillThere() else { return true }
+            sendInput(Data([0x0d]))
+        }
+        guard await stillThere() else { return true }
+        for _ in 0..<8 {
+            sendInput(Data(traits.clearLineKeys))
+            try? await Task.sleep(for: .milliseconds(300))
+            guard let left = await currentBoxDraft(), !left.isEmpty else { break }
+        }
+        draftWasSent()
+        return false
     }
 
     /// Presses Enter until the box is empty (an Enter right after typed text can be taken as part of

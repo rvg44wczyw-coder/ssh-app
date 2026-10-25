@@ -656,6 +656,13 @@ public struct StructuredTranscriptView: View {
                 viewModel.sendInput(Data([0x0d]))
                 viewModel.draftWasSent()
             }
+            // The box must be empty now; if the Enter did not take, the text comes back to the field
+            // instead of staying in the box to be glued to the next message.
+            guard await viewModel.confirmSubmitted(text) else {
+                viewModel.dropEcho(text: text)
+                if promptText.isEmpty { promptText = text }
+                return
+            }
             // A working agent queues it: offer "send now" for it.
             if working, viewModel.screenStatus != nil {
                 viewModel.queuedNote = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -677,6 +684,9 @@ public struct StructuredTranscriptView: View {
         Task {
             if await !viewModel.sendImmediately(text) {
                 promptText = text   // not sent: keep the text
+            } else if await !viewModel.confirmSubmitted(text) {
+                viewModel.dropEcho(text: text)
+                if promptText.isEmpty { promptText = text }
             }
             try? await Task.sleep(for: .seconds(1))
             _ = await viewModel.reloadTranscriptQuietly()
