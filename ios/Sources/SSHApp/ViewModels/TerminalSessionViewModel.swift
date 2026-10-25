@@ -92,7 +92,7 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     @Published public var gitDirtyCount = 0
     /// What we believe the agent's box holds after our own typing (see `DraftSync`).
     private var draftInBox = ""
-    /// Set while `sendImmediately` runs: the mirroring of the field stays out of its way.
+    /// Set while a send runs (fill, Enter, read-back): the mirroring of the field stays out of its way.
     public private(set) var sendingNow = false
     private var draftUncertain = false
     private var draftGuardUntil = Date.distantPast
@@ -505,14 +505,12 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     }
 
     /// Interrupts the agent (one Esc, which both Claude Code and Antigravity take as "stop what you
-    /// are doing") and sends `text` at once, instead of queueing it behind the running turn. The
-    /// box is read again after the Esc (an agent may take its draft back), then filled and submitted.
-    /// `false`: nothing sent (no connection, not an agent, a question is up, or the agent is idle,
-    /// where a plain send is the same and a stray Esc could do harm).
-    public func sendImmediately(_ text: String) async -> Bool {
+    /// are doing") and fills the box with `text`; Enter is left to `submit`. The box is read again
+    /// after the Esc (an agent may take its draft back). `false`: nothing done (no connection, not
+    /// an agent, a question is up, or the agent is idle, where a plain send is the same and a stray
+    /// Esc could do harm).
+    private func fillAfterInterrupt(_ text: String) async -> Bool {
         guard let handle, state == .connected, feedRecognized, screenPrompt == nil, screenStatus != nil else { return false }
-        sendingNow = true
-        defer { sendingNow = false }
         sendInput(Data([0x1b]))
         try? await Task.sleep(for: .milliseconds(450))
         var boxText = ""
@@ -524,11 +522,7 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         }
         draftInBox = boxText
         draftUncertain = !boxText.isEmpty
-        guard await syncDraft(text) else { return false }
-        try? await Task.sleep(for: .milliseconds(120))
-        sendInput(Data([0x0d]))
-        draftWasSent()
-        return true
+        return await syncDraft(text)
     }
 
     /// A send is under way: the strip that offers the agent's box stays away, so the text just sent
@@ -603,8 +597,7 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
             guard traits.sendNowKeys != nil else {
                 // No send-now key known for this agent: interrupt it (Esc) and send the text again.
                 pendingEchoes.removeAll { $0.id == id }
-                echoSent(e.text)
-                Task { _ = await sendImmediately(e.text) }
+                Task { _ = await submit(e.text, mode: .interrupt) }
                 return
             }
             sendQueuedNow()
@@ -615,16 +608,7 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
             return
         }
         pendingEchoes.removeAll { $0.id == id }
-        draftIsBeingSent()
-        echoSent(e.text)
-        Task {
-            sendInput(Data(Array(e.text.utf8)))
-            try? await Task.sleep(for: .milliseconds(150))
-            sendInput(Data([0x0d]))
-            draftWasSent()
-            try? await Task.sleep(for: .seconds(1))
-            _ = await reloadTranscriptQuietly()
-        }
+        Task { _ = await submit(e.text, mode: .normal) }
     }
 
     /// Forgets the echo of a message that did not go out (its text is back in the field).
@@ -650,16 +634,11 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     /// After the Enter of a send: reads the box back. If it still holds the message just sent (an
     /// Enter taken by a suggestion popup, or swallowed while the agent redrew), Enter is pressed
     /// again, at most twice. If the text is still there, the box is emptied so it cannot be glued to
-    /// the next message, and `false` says the message was not sent. Only a box that starts with the
-    /// sent text counts: a hint or something the user typed at the laptop is left alone.
-    public func confirmSubmitted(_ text: String) async -> Bool {
-        func squashed(_ t: String) -> String { t.split(whereSeparator: \.isWhitespace).joined(separator: " ") }
-        let head = String(squashed(text).prefix(24))
-        guard !head.isEmpty else { return true }
+    /// the next message, and `false` says the message was not sent.
+    private func confirmSubmitted(_ text: String) async -> Bool {
         func stillThere() async -> Bool {
             try? await Task.sleep(for: .milliseconds(700))
-            guard let left = await currentBoxDraft() else { return false }
-            return squashed(left).hasPrefix(head)
+            return BoxCheck.stillHolds(box: await currentBoxDraft(), sent: text)
         }
         for _ in 0..<2 {
             guard await stillThere() else { return true }
@@ -673,6 +652,50 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         }
         draftWasSent()
         return false
+    }
+
+    /// The one way a message from the feed goes to the agent: fill the box, press Enter, read the box
+    /// back, and on a miss empty it and say so (the caller puts the text back into the field).
+    /// `false` from the fill step (not connected, a question is up, the agent is idle on `.interrupt`)
+    /// is `.notSent` too, with the box untouched.
+    public func submit(_ text: String, mode: SubmitMode) async -> SubmitOutcome {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return .notSent }
+        let working = screenStatus != nil
+        // The mirroring of the field stays out of the way for the whole send, the read-back included.
+        sendingNow = true
+        defer { sendingNow = false }
+        draftIsBeingSent()
+        echoSent(trimmed)
+        switch mode {
+        case .normal:
+            // The box usually holds the text already (it is mirrored as you type): only Enter is
+            // missing. A burst of characters is a paste to the agent, so Enter goes separately.
+            if await !syncDraft(trimmed) {
+                // Not mirrored (a menu is up, too long): type the text itself.
+                sendInput(Data(Array(FeedSubmit.bytes(for: trimmed).dropLast())))
+            }
+            try? await Task.sleep(for: .milliseconds(120))
+            sendInput(Data([0x0d]))
+        case .interrupt:
+            guard await fillAfterInterrupt(trimmed) else {
+                dropEcho(text: trimmed)
+                return .notSent
+            }
+            try? await Task.sleep(for: .milliseconds(120))
+            sendInput(Data([0x0d]))
+        }
+        guard await confirmSubmitted(trimmed) else {
+            dropEcho(text: trimmed)
+            return .notSent
+        }
+        draftWasSent()
+        let queued = working && screenStatus != nil
+        if queued { queuedNote = trimmed }
+        // The transcript catches up through the live tail.
+        try? await Task.sleep(for: .seconds(1))
+        _ = await reloadTranscriptQuietly()
+        return .sent(queued: queued)
     }
 
     /// Presses Enter until the box is empty (an Enter right after typed text can be taken as part of

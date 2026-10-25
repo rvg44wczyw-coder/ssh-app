@@ -634,62 +634,24 @@ public struct StructuredTranscriptView: View {
         }
     }
 
-    private func sendPrompt() {
-        guard canSend else { return }
-        let text = promptText
-        let working = viewModel.screenStatus != nil
-        viewModel.draftIsBeingSent()
-        viewModel.echoSent(text)
-        promptText = ""
-        syncTask?.cancel()
-        Task {
-            // The box usually holds the text already (it is mirrored as you type): only Enter is
-            // missing. A burst of characters is a paste to the agent, so Enter goes separately.
-            if await viewModel.syncDraft(text.trimmingCharacters(in: .whitespacesAndNewlines)) {
-                try? await Task.sleep(for: .milliseconds(120))
-                viewModel.sendInput(Data([0x0d]))
-                viewModel.draftWasSent()
-            } else {
-                // Not mirrored (a menu is up, too long): the old way, text and Enter.
-                viewModel.sendInput(Data(Array(FeedSubmit.bytes(for: text).dropLast())))
-                try? await Task.sleep(for: .milliseconds(120))
-                viewModel.sendInput(Data([0x0d]))
-                viewModel.draftWasSent()
-            }
-            // The box must be empty now; if the Enter did not take, the text comes back to the field
-            // instead of staying in the box to be glued to the next message.
-            guard await viewModel.confirmSubmitted(text) else {
-                viewModel.dropEcho(text: text)
-                if promptText.isEmpty { promptText = text }
-                return
-            }
-            // A working agent queues it: offer "send now" for it.
-            if working, viewModel.screenStatus != nil {
-                viewModel.queuedNote = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            }
-            // The transcript catches up through the live tail.
-            try? await Task.sleep(for: .seconds(1))
-            _ = await viewModel.reloadTranscriptQuietly()
-        }
-    }
+    private func sendPrompt() { send(.normal) }
 
     private func sendImmediately() {
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        send(.interrupt)
+    }
+
+    /// Clears the field at once and hands the text to the view model, which fills the agent's box,
+    /// presses Enter and checks the box. A message that did not go out comes back into the field.
+    private func send(_ mode: SubmitMode) {
         guard canSend else { return }
-        let text = promptText.trimmingCharacters(in: .whitespacesAndNewlines)
-        viewModel.draftIsBeingSent()
-        viewModel.echoSent(text)
+        let text = promptText
         promptText = ""
         syncTask?.cancel()
-        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         Task {
-            if await !viewModel.sendImmediately(text) {
-                promptText = text   // not sent: keep the text
-            } else if await !viewModel.confirmSubmitted(text) {
-                viewModel.dropEcho(text: text)
-                if promptText.isEmpty { promptText = text }
+            if await viewModel.submit(text, mode: mode) == .notSent, promptText.isEmpty {
+                promptText = text
             }
-            try? await Task.sleep(for: .seconds(1))
-            _ = await viewModel.reloadTranscriptQuietly()
         }
     }
 
