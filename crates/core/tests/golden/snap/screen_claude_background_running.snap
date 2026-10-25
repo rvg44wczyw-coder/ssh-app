@@ -1,0 +1,87 @@
+ScreenFeed {
+    dialect: Claude,
+    turns: [
+        TranscriptTurn {
+            id: "scr0",
+            step_index: 0,
+            turn_type: System,
+            timestamp: None,
+            content: Some(
+                "▐▛███▛█   Claude Code v2.1.308\n▝▜██████▀  Sonnet 5.5 · Claude Pro\n▝▝   ▝▝   /tmp/project",
+            ),
+            thinking: None,
+            tool_calls: [],
+            status: Done,
+            label: Some(
+                "Claude Code",
+            ),
+        },
+        TranscriptTurn {
+            id: "scr1",
+            step_index: 1,
+            turn_type: User,
+            timestamp: None,
+            content: Some(
+                "Run the shell command: sleep 90 in the background (run_in_background true). Then reply only: started.",
+            ),
+            thinking: None,
+            tool_calls: [],
+            status: Done,
+            label: None,
+        },
+        TranscriptTurn {
+            id: "scr2",
+            step_index: 2,
+            turn_type: Assistant,
+            timestamp: None,
+            content: None,
+            thinking: None,
+            tool_calls: [
+                TranscriptToolCall {
+                    call_id: "scr2",
+                    tool_name: "Bash",
+                    arguments_summary: "sleep 90",
+                    full_arguments_json: None,
+                    result: Some(
+                        "Running in the background (↓ to manage)",
+                    ),
+                    is_error: false,
+                    status: Done,
+                },
+            ],
+            status: Done,
+            label: None,
+        },
+        TranscriptTurn {
+            id: "scr3",
+            step_index: 3,
+            turn_type: Assistant,
+            timestamp: None,
+            content: Some(
+                "started.",
+            ),
+            thinking: None,
+            tool_calls: [],
+            status: Done,
+            label: None,
+        },
+        TranscriptTurn {
+            id: "scr4",
+            step_index: 4,
+            turn_type: System,
+            timestamp: None,
+            content: None,
+            thinking: None,
+            tool_calls: [],
+            status: Done,
+            label: Some(
+                "Worked for 4s",
+            ),
+        },
+    ],
+    status: None,
+    draft: None,
+    prompt: None,
+    aside: None,
+    dialog: None,
+}

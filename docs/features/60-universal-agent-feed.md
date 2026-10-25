@@ -108,6 +108,39 @@ now) and holds `descriptor`. The 68 branches become queries (`descriptor.traits.
 `AgentKind`; it adds `codex` and `grok` cases. Generics in Swift: no generic views; a feed view is one type that takes a
 descriptor value (a generic over a protocol would only multiply specialisations and does not cross the UniFFI boundary).
 
+### 3.6 Adding an agent changes no architecture
+
+The acceptance rule of the whole design (owner's requirement, 2026-10-25): **a new agent, local or remote, is added without touching
+the feed pipeline.** What a new agent costs:
+
+| Step | Where | Size |
+|---|---|---|
+| 1. A `SessionSource` implementation (find the session, read it into normalized records) | `crates/host/src/sessions/<agent>.rs` | one file |
+| 2. A `DialectParser` implementation (screen markers, status, footer, dialogs) | `crates/core/src/screen/<agent>.rs` | one file |
+| 3. One row in the registry (process names, config dirs, traits, command list) | `crates/core/src/agent_registry.rs` | one table row |
+| 4. Fixtures (session file, screens) and a registry line in the golden tests | `tests/` | data |
+
+Nothing else changes: `TranscriptParser`, `FeedState`, `feed_stream`, `FeedTextView`, the bridge records and the Swift views stay as
+they are, and no `if agent == …` is added anywhere. If a new agent seems to need one, the seam is wrong and is fixed first.
+
+- **Local or remote is not the agent's business.** `SessionSource::locate/read` work through a small host-I/O interface
+  (`HostIo`: run a command, read a file range, list a folder), not directly through SSH. The SSH transport implements it today;
+  the local transport of the macOS app (spec 58) implements it later. An adapter written once serves an agent on the laptop
+  and on a remote machine.
+- **One conformance suite for every adapter.** A generic test harness (`fn conformance<S: SessionSource>(source: S, fixtures)`)
+  checks the same properties for each: output parses with `parse_transcript_jsonl`; reading in any chunking equals reading the
+  whole; no panic on any prefix of a fixture; oversized and malformed lines are bounded; control characters never reach the
+  turns; paths come from the registry, never from file contents. A new adapter is done when it passes the suite. The same for
+  `DialectParser`: a screen suite (every fixture parses; a screen of another agent scores lower; truncation sweep).
+- **A scaffold** (`scripts/new-agent.sh <id>`) writes the two files, the registry row and the fixture folders with `todo!()`
+  free stubs that return "not recognised", so a half-written agent degrades to `generic` instead of breaking the build.
+- **Capture helper**: `scripts/capture-agent.sh <command>` starts the agent in a private tmux socket (AGENTS.md rules) inside the app
+  folder, records the screens named in a list (idle, working, dialog, background task) as fixtures with the account lines
+  removed, and copies the newest session file. It runs only on the owner's permission for that one task.
+- **Not planned**: loading agent definitions from files or URLs at run time. A declarative-definition engine is a separate,
+  larger design with its own security surface (regexes and paths from untrusted files); it is deferred until the adapter route
+  proves too slow for the long tail of simple agents.
+
 ### 3.5 Where generics and interfaces pay, and where they do not
 
 | Place | Choice | Reason |
@@ -119,7 +152,7 @@ descriptor value (a generic over a protocol would only multiply specialisations 
 
 ## 4. The normalized record (the contract)
 
-Documented from what `TranscriptParser` reads today (Claude shape). Adapters emit exactly this, one JSON object per line:
+**Correction found in phase 0:** `TranscriptParser` accepts **two** record shapes today, not one: Claude's (`type`, `message`, content blocks) and the step shape of Antigravity (`step_index`, `source`, `type`, `content`, `tool_calls`), which the host converts from its database. Phase 0 freezes both; the contract below is the union, and a new adapter may emit either. Documented from what `TranscriptParser` reads today. Adapters emit exactly this, one JSON object per line:
 user text, assistant text blocks, `thinking`, `tool_use` (id, name, input) and `tool_result` (id, content, is_error), system notes
 with a label, turn duration, and a `version: 1` marker on the first record. New fields are additive; the parser ignores unknown
 ones. This schema is the acceptance test for every adapter: *feeding an adapter's output to `parse_transcript_jsonl` gives the
@@ -152,6 +185,7 @@ warnings`, `cargo test`, the Swift suite and a simulator build, then `rev`.
 | 5 | **Codex**: `SessionSource` (rollout mapping), `CodexDialect`, descriptor row (keys, commands from live capture), hook trust note in the UI | `rust-core-dev`, `ios-ui-dev`, `hacker` | live check with the owner's permission for that task; findings fixed |
 | 6 | **Grok**: read the two session formats first (permission), `SessionSource`, `GrokDialect`, settings/model/session-info screens, descriptor row, hook trust gate in the UI | same | same |
 | 7 | Background tasks (spec 59) on the new seams | same | per spec 59 |
+| 8 | **Add-an-agent kit**: `HostIo` interface under `SessionSource`, the conformance suites (§3.6), `scripts/new-agent.sh`, `scripts/capture-agent.sh`; prove it by adding one simple agent (OpenCode or Aider) with only the four steps of §3.6 | `rust-core-dev`, `ios-ui-dev` | the sample agent is added with no change outside its two files, one registry row and its fixtures; the suites pass |
 
 Each of 5 and 6 is "one adapter, one dialect, one table row, fixtures": if a phase needs a new `if agent == …` anywhere else, the
 design has failed and the seam is fixed first.
@@ -182,6 +216,11 @@ strings (no agent-controlled text in the script).
   If after phase 3 it reads heavier than the code it replaced, collapse the trait to a plain function table.
 - `[controversial]` Moving `AgentTraits` from Swift to the core adds a bridge call for data that changes rarely. Accepted: one
   source of truth for keys, commands and dialect beats two tables that must agree; the descriptor is fetched once per tab.
+- `[controversial]` A `HostIo` layer between adapters and SSH is one more interface for a need (the macOS local transport) that is
+  not built yet. Argued for it: adapters written against SSH directly would have to be rewritten for the local transport, and
+  the layer is three small methods that the existing `execute_command_on_active_session` already provides.
+- `[controversial]` "No `if agent == …` anywhere" is a rule that a deadline will tempt us to break once. The golden tests include a
+  grep-style check (a test that fails if an agent id literal appears in the feed code outside the registry and the adapters).
 - `[controversial]` Normalizing Codex and Grok into the Claude record shape loses native detail (Codex's JS `exec` wrapper,
   Grok's subagent events). Accepted as a named tradeoff: the feed shows what Claude's feed shows; native extras can become
   optional record fields later without breaking adapters.
@@ -197,3 +236,4 @@ strings (no agent-controlled text in the script).
 ## Revision notes
 
 - 2026-10-25: first version from the code survey and the Codex/Grok study; review applied (§9).
+- 2026-10-25: owner's requirement "add a new agent type conveniently and fast, local or remote, without architectural changes": §3.6 rewritten as the add-an-agent rule (two files, one registry row, fixtures; `HostIo`; conformance suites; scaffold and capture scripts), phase 8 = the kit; run-time loaded definitions removed from the plan. §4 corrected: two accepted record shapes.

@@ -1,0 +1,74 @@
+ScreenFeed {
+    dialect: Claude,
+    turns: [
+        TranscriptTurn {
+            id: "scr0",
+            step_index: 0,
+            turn_type: Assistant,
+            timestamp: None,
+            content: None,
+            thinking: None,
+            tool_calls: [
+                TranscriptToolCall {
+                    call_id: "scr0",
+                    tool_name: "Bash",
+                    arguments_summary: "sleep 90",
+                    full_arguments_json: None,
+                    result: Some(
+                        "Running in the background (↓ to manage)",
+                    ),
+                    is_error: false,
+                    status: Done,
+                },
+            ],
+            status: Done,
+            label: None,
+        },
+        TranscriptTurn {
+            id: "scr1",
+            step_index: 1,
+            turn_type: Assistant,
+            timestamp: None,
+            content: Some(
+                "started.",
+            ),
+            thinking: None,
+            tool_calls: [],
+            status: Done,
+            label: None,
+        },
+        TranscriptTurn {
+            id: "scr2",
+            step_index: 2,
+            turn_type: System,
+            timestamp: None,
+            content: None,
+            thinking: None,
+            tool_calls: [],
+            status: Done,
+            label: Some(
+                "Worked for 4s",
+            ),
+        },
+        TranscriptTurn {
+            id: "scr3",
+            step_index: 3,
+            turn_type: System,
+            timestamp: None,
+            content: Some(
+                "────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n  Shell details\n  Status:   running\n  Runtime:  19s\n  Command:  sleep 90\n  Output:\n  No output available\n  ← to go back · Esc/Enter/Space to close · x to stop",
+            ),
+            thinking: None,
+            tool_calls: [],
+            status: Done,
+            label: Some(
+                "Terminal output",
+            ),
+        },
+    ],
+    status: None,
+    draft: None,
+    prompt: None,
+    aside: None,
+    dialog: None,
+}

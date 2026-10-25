@@ -1,0 +1,10 @@
+{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","content":"<USER_REQUEST>\nbuild it\n</USER_REQUEST>"}
+{"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-10-25T10:00:01Z","thinking":"need to run cargo build","content":"Running build now...","tool_calls":[{"id":"a","name":"run_command","args":{"CommandLine":"\"ls -la\""}},{"id":"b","name":"run_command","args":{"CommandLine":"pwd"}}]}
+{"step_index":2,"source":"TOOL","type":"TOOL_RESPONSE","content":"result b","tool_call_id":"b","status":"DONE"}
+{"step_index":3,"source":"TOOL","type":"TOOL_RESPONSE","content":"result a","tool_call_id":"a","status":"ERROR"}
+{"step_index":4,"source":"MODEL","type":"GENERIC","status":"DONE","content":"Created At: a\nCompleted At: b\n\nThe command exited with code 0.\nOutput:\nx"}
+{"step_index":5,"source":"TOOL","type":"TOOL_RESPONSE","content":"\u001b[32mFinished\u001b[0m dev [unoptimized + debuginfo]"}
+{"step_index":6,"source":"SYSTEM","type":"CHECKPOINT","content":"Resuming"}
+{"step_index":7,"source":"SYSTEM","type":"ERROR_MESSAGE","error":"API error 503"}
+{broken json
+{"step_index":8,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","content":"thanks"}

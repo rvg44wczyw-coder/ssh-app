@@ -1,0 +1,25 @@
+ScreenFeed {
+    dialect: Unknown,
+    turns: [
+        TranscriptTurn {
+            id: "scr0",
+            step_index: 0,
+            turn_type: System,
+            timestamp: None,
+            content: Some(
+                "▄▀▀      ▀▀▄\n\n> /model\n  ⎿  Exited /model command\n\n> /config\n  ⎿  Exited /config command\n\n> /agents\n  ⎿  Exited /agents command\n\n> /hooks\n  ⎿  Exited /hooks command\n\n> /diff\n  ⎿  Exited /diff command\n\n> /config\n  ⎿  Exited /config command\n\n> /model\n  ⎿  Exited /model command\n\n> /config\n  ⎿  Exited /config command\n\n> /hooks\n  ⎿  Exited /hooks command",
+            ),
+            thinking: None,
+            tool_calls: [],
+            status: Done,
+            label: Some(
+                "Terminal output",
+            ),
+        },
+    ],
+    status: None,
+    draft: None,
+    prompt: None,
+    aside: None,
+    dialog: None,
+}

@@ -1,0 +1,27 @@
+ScreenFeed {
+    dialect: Agy,
+    turns: [
+        TranscriptTurn {
+            id: "scr0",
+            step_index: 0,
+            turn_type: System,
+            timestamp: None,
+            content: Some(
+                "▄▀▀▄        Antigravity CLI 1.4.7\n▀▀▀▀▀▀       user@example.com (Google AI Pro)\n▀▀▀▀▀▀▀▀      Gemini 3.8 Flash (Medium)\n▄▀▀    ▀▀▄     /tmp/project\n▄▀▀      ▀▀▄\n────────────────────────────────────────────────────────────\n> Run the shell command \"sleep 120\" as a background command (do not wait for it). Then reply only: started.\n○ Thought for 4.7s (Initial assessment indicates the command requires asynchronous execution.)\n● Running (sleep 120) (ctrl+o to expand)\nstarted.\n────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n>",
+            ),
+            thinking: None,
+            tool_calls: [],
+            status: Done,
+            label: Some(
+                "Antigravity CLI",
+            ),
+        },
+    ],
+    status: None,
+    draft: Some(
+        "● [11:40:03] sleep 120 running",
+    ),
+    prompt: None,
+    aside: None,
+    dialog: None,
+}

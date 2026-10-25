@@ -1,0 +1,87 @@
+ScreenFeed {
+    dialect: Agy,
+    turns: [
+        TranscriptTurn {
+            id: "scr0",
+            step_index: 0,
+            turn_type: User,
+            timestamp: None,
+            content: Some(
+                "Run the shell command \"sleep 120\" as a background command (do not wait for it). Then reply only: started.",
+            ),
+            thinking: None,
+            tool_calls: [],
+            status: Done,
+            label: None,
+        },
+        TranscriptTurn {
+            id: "scr1",
+            step_index: 1,
+            turn_type: Assistant,
+            timestamp: None,
+            content: None,
+            thinking: None,
+            tool_calls: [
+                TranscriptToolCall {
+                    call_id: "scr1",
+                    tool_name: "Running",
+                    arguments_summary: "(sleep 120)",
+                    full_arguments_json: None,
+                    result: None,
+                    is_error: false,
+                    status: Done,
+                },
+            ],
+            status: Done,
+            label: None,
+        },
+        TranscriptTurn {
+            id: "scr2",
+            step_index: 2,
+            turn_type: Assistant,
+            timestamp: None,
+            content: Some(
+                "started.",
+            ),
+            thinking: None,
+            tool_calls: [],
+            status: Done,
+            label: None,
+        },
+    ],
+    status: None,
+    draft: None,
+    prompt: None,
+    aside: None,
+    dialog: Some(
+        ScreenDialog {
+            kind: Generic,
+            title: "Tasks",
+            tabs: [],
+            search: None,
+            note: "",
+            rows: [
+                DialogRow {
+                    number: None,
+                    label: "Agent Backgrounded",
+                    value: None,
+                    detail: "",
+                    state: Header,
+                },
+                DialogRow {
+                    number: None,
+                    label: "● [11:40:03] sleep 120",
+                    value: Some(
+                        "running",
+                    ),
+                    detail: "",
+                    state: Plain,
+                },
+            ],
+            selected: 1,
+            hints: "↑/↓ Navigate  ←/→ Page  enter View output  k Kill Task  x Remove Task From List",
+            more_above: false,
+            more_below: false,
+        },
+    ),
+}

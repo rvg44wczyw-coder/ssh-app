@@ -1,0 +1,130 @@
+[
+    TranscriptTurn {
+        id: "turn_0",
+        step_index: 0,
+        turn_type: User,
+        timestamp: None,
+        content: Some(
+            "build it",
+        ),
+        thinking: None,
+        tool_calls: [],
+        status: Done,
+        label: None,
+    },
+    TranscriptTurn {
+        id: "turn_1",
+        step_index: 1,
+        turn_type: Assistant,
+        timestamp: Some(
+            "2026-10-25T10:00:01Z",
+        ),
+        content: Some(
+            "Running build now...",
+        ),
+        thinking: Some(
+            "need to run cargo build",
+        ),
+        tool_calls: [
+            TranscriptToolCall {
+                call_id: "a",
+                tool_name: "run_command",
+                arguments_summary: "ls -la",
+                full_arguments_json: Some(
+                    "{\n  \"CommandLine\": \"ls -la\"\n}",
+                ),
+                result: Some(
+                    "result a",
+                ),
+                is_error: true,
+                status: Error,
+            },
+            TranscriptToolCall {
+                call_id: "b",
+                tool_name: "run_command",
+                arguments_summary: "pwd",
+                full_arguments_json: Some(
+                    "{\n  \"CommandLine\": \"pwd\"\n}",
+                ),
+                result: Some(
+                    "result b",
+                ),
+                is_error: false,
+                status: Done,
+            },
+        ],
+        status: Done,
+        label: None,
+    },
+    TranscriptTurn {
+        id: "turn_4",
+        step_index: 4,
+        turn_type: System,
+        timestamp: None,
+        content: Some(
+            "Created At: a\nCompleted At: b\n\nThe command exited with code 0.\nOutput:\nx",
+        ),
+        thinking: None,
+        tool_calls: [],
+        status: Done,
+        label: Some(
+            "Tool output",
+        ),
+    },
+    TranscriptTurn {
+        id: "turn_5",
+        step_index: 5,
+        turn_type: System,
+        timestamp: None,
+        content: Some(
+            "Finished dev [unoptimized + debuginfo]",
+        ),
+        thinking: None,
+        tool_calls: [],
+        status: Done,
+        label: None,
+    },
+    TranscriptTurn {
+        id: "turn_6",
+        step_index: 6,
+        turn_type: System,
+        timestamp: None,
+        content: Some(
+            "Resuming",
+        ),
+        thinking: None,
+        tool_calls: [],
+        status: Done,
+        label: Some(
+            "Checkpoint (context compacted)",
+        ),
+    },
+    TranscriptTurn {
+        id: "turn_7",
+        step_index: 7,
+        turn_type: System,
+        timestamp: None,
+        content: Some(
+            "API error 503",
+        ),
+        thinking: None,
+        tool_calls: [],
+        status: Done,
+        label: Some(
+            "Error",
+        ),
+    },
+    TranscriptTurn {
+        id: "turn_8",
+        step_index: 8,
+        turn_type: User,
+        timestamp: None,
+        content: Some(
+            "thanks",
+        ),
+        thinking: None,
+        tool_calls: [],
+        status: Done,
+        label: None,
+    },
+]

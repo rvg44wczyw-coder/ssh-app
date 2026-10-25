@@ -1,0 +1,24 @@
+{"type":"mode","mode":"normal"}
+{"type":"api-request","id":"x"}
+{"type":"permission-mode","permissionMode":"plan"}
+{"type":"permission-mode","permissionMode":"plan"}
+{"type":"user","message":{"role":"user","content":"hi"},"timestamp":"2026-10-25T10:00:00Z"}
+{"type":"user","isMeta":true,"message":{"role":"user","content":"<local-command-caveat>x</local-command-caveat>"}}
+{"type":"assistant","message":{"id":"m1","role":"assistant","content":[{"type":"thinking","thinking":"check the tree"}]}}
+{"type":"assistant","message":{"id":"m1","role":"assistant","content":[{"type":"text","text":"Running"}]}}
+{"type":"assistant","message":{"id":"m1","role":"assistant","content":[{"type":"tool_use","id":"c1","name":"Bash","input":{"command":"ls"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"c1","content":[{"type":"text","text":"a.txt"}]}]}}
+{"type":"assistant","message":{"id":"m2","role":"assistant","content":[{"type":"tool_use","id":"c2","name":"Task","input":{"description":"look around","subagent_type":"Explore","prompt":"a long prompt that must not be shown"}}]}}
+{"type":"assistant","isSidechain":true,"message":{"id":"s","role":"assistant","content":"sub"}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"c2","content":"done","is_error":true}]}}
+{"type":"assistant","message":{"id":"m3","role":"assistant","content":[{"type":"text","text":"All done.\n\n```rust\nfn main() {}\n```"}]}}
+{"type":"attachment","attachment":{"type":"queued_command","prompt":"build it","origin":{"kind":"human"},"humanTurn":true}}
+{"type":"attachment","attachment":{"type":"queued_command","prompt":"task done","origin":{"kind":"task-notification"}}}
+{"type":"system","subtype":"turn_duration","durationMs":58030}
+{"type":"attachment","attachment":{"type":"edited_text_file","filename":"/tmp/project/src/a.rs"}}
+{"type":"attachment","attachment":{"type":"total_tokens_reminder","text":"<total_tokens>14964699 tokens left</total_tokens>"}}
+{"type":"attachment","attachment":{"type":"credential_org","organizationUuid":"x"}}
+not a json line
+{"role": "user", "content": "flat user message"}
+{"role": "assistant", "content": [{"type": "thinking", "thinking": "flat thinking"}, {"type": "text", "text": "flat text"}, {"type": "tool_use", "id": "call_git", "name": "Bash", "input": {"command": "git status -s"}}]}
+{"role": "user", "content": [{"type": "tool_result", "tool_use_id": "call_git", "content": "M src/lib.rs", "is_error": false}]}

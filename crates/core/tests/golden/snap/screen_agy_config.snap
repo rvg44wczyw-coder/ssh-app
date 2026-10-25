@@ -1,0 +1,275 @@
+ScreenFeed {
+    dialect: Agy,
+    turns: [
+        TranscriptTurn {
+            id: "scr0",
+            step_index: 0,
+            turn_type: System,
+            timestamp: None,
+            content: Some(
+                "Exited /diff command",
+            ),
+            thinking: None,
+            tool_calls: [],
+            status: Done,
+            label: Some(
+                "Note",
+            ),
+        },
+        TranscriptTurn {
+            id: "scr1",
+            step_index: 1,
+            turn_type: User,
+            timestamp: None,
+            content: Some(
+                "/config\n⎿  Exited /config command",
+            ),
+            thinking: None,
+            tool_calls: [],
+            status: Done,
+            label: None,
+        },
+        TranscriptTurn {
+            id: "scr2",
+            step_index: 2,
+            turn_type: User,
+            timestamp: None,
+            content: Some(
+                "/model\n⎿  Exited /model command",
+            ),
+            thinking: None,
+            tool_calls: [],
+            status: Done,
+            label: None,
+        },
+    ],
+    status: None,
+    draft: None,
+    prompt: None,
+    aside: None,
+    dialog: Some(
+        ScreenDialog {
+            kind: Config,
+            title: "Settings",
+            tabs: [],
+            search: Some(
+                "",
+            ),
+            note: "",
+            rows: [
+                DialogRow {
+                    number: None,
+                    label: "Agent Mode",
+                    value: Some(
+                        "default",
+                    ),
+                    detail: "",
+                    state: Plain,
+                },
+                DialogRow {
+                    number: None,
+                    label: "Animation Speed",
+                    value: Some(
+                        "medium",
+                    ),
+                    detail: "",
+                    state: Plain,
+                },
+                DialogRow {
+                    number: None,
+                    label: "Artifact Review",
+                    value: Some(
+                        "asks for review",
+                    ),
+                    detail: "",
+                    state: Plain,
+                },
+                DialogRow {
+                    number: None,
+                    label: "Color Scheme",
+                    value: Some(
+                        "terminal",
+                    ),
+                    detail: "",
+                    state: Plain,
+                },
+                DialogRow {
+                    number: None,
+                    label: "Conversation Picker Grouping none",
+                    value: None,
+                    detail: "",
+                    state: Plain,
+                },
+                DialogRow {
+                    number: None,
+                    label: "Copy on Select",
+                    value: Some(
+                        "on",
+                    ),
+                    detail: "",
+                    state: On,
+                },
+                DialogRow {
+                    number: None,
+                    label: "Editor",
+                    value: Some(
+                        "auto ($EDITOR)",
+                    ),
+                    detail: "",
+                    state: Plain,
+                },
+                DialogRow {
+                    number: None,
+                    label: "Editor Mode",
+                    value: Some(
+                        "default",
+                    ),
+                    detail: "",
+                    state: Plain,
+                },
+                DialogRow {
+                    number: None,
+                    label: "Enable Telemetry",
+                    value: Some(
+                        "off",
+                    ),
+                    detail: "",
+                    state: Off,
+                },
+                DialogRow {
+                    number: None,
+                    label: "Non-Workspace Access",
+                    value: Some(
+                        "on",
+                    ),
+                    detail: "",
+                    state: On,
+                },
+                DialogRow {
+                    number: None,
+                    label: "Notifications",
+                    value: Some(
+                        "off",
+                    ),
+                    detail: "",
+                    state: Off,
+                },
+                DialogRow {
+                    number: None,
+                    label: "Queued Messages",
+                    value: Some(
+                        "Queue",
+                    ),
+                    detail: "",
+                    state: Plain,
+                },
+                DialogRow {
+                    number: None,
+                    label: "Rendering Mode",
+                    value: Some(
+                        "native terminal (inline)",
+                    ),
+                    detail: "",
+                    state: Plain,
+                },
+                DialogRow {
+                    number: None,
+                    label: "Sandbox Mode",
+                    value: Some(
+                        "off",
+                    ),
+                    detail: "",
+                    state: Off,
+                },
+                DialogRow {
+                    number: None,
+                    label: "Seasonal Themes",
+                    value: Some(
+                        "off",
+                    ),
+                    detail: "",
+                    state: Off,
+                },
+                DialogRow {
+                    number: None,
+                    label: "Show Active Tasks",
+                    value: Some(
+                        "on",
+                    ),
+                    detail: "",
+                    state: On,
+                },
+                DialogRow {
+                    number: None,
+                    label: "Show Feedback Survey",
+                    value: Some(
+                        "on",
+                    ),
+                    detail: "",
+                    state: On,
+                },
+                DialogRow {
+                    number: None,
+                    label: "Show Tips",
+                    value: Some(
+                        "on",
+                    ),
+                    detail: "",
+                    state: On,
+                },
+                DialogRow {
+                    number: None,
+                    label: "Tool Permission",
+                    value: Some(
+                        "request-review",
+                    ),
+                    detail: "",
+                    state: Plain,
+                },
+                DialogRow {
+                    number: None,
+                    label: "Use AI Credits",
+                    value: Some(
+                        "off",
+                    ),
+                    detail: "",
+                    state: Off,
+                },
+                DialogRow {
+                    number: None,
+                    label: "Verbosity",
+                    value: Some(
+                        "medium",
+                    ),
+                    detail: "",
+                    state: Plain,
+                },
+                DialogRow {
+                    number: None,
+                    label: "'default': standard behavior. 'accept-edits': auto-approve file edits, prompt for commands.",
+                    value: None,
+                    detail: "",
+                    state: Header,
+                },
+                DialogRow {
+                    number: None,
+                    label: "'auto': auto-approve edits and safe commands, prompt on irreversible actions. 'plan': research and",
+                    value: None,
+                    detail: "",
+                    state: Header,
+                },
+                DialogRow {
+                    number: None,
+                    label: "plan without making changes",
+                    value: None,
+                    detail: "",
+                    state: Header,
+                },
+            ],
+            selected: 0,
+            hints: "↑/↓ Navigate  ←/→ Change  enter Select  esc Clear Search/Exit",
+            more_above: false,
+            more_below: false,
+        },
+    ),
+}

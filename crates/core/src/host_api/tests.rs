@@ -172,3 +172,59 @@ fn config_write_refuses_when_the_file_changed_since_it_was_read() {
     assert_eq!(run("{\"a\":2}", "{\"b\":1}"), "CONFIG_WRITTEN");
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "{\"b\":1}");
 }
+
+/// Phase 0 of the universal agent feed: what the host's agent detection says for recorded `ps` outputs.
+/// The head of `SESSION_TRANSCRIPT_BODY` (up to the `kind=` line) is run with a fake `ps`; pane pid 100.
+/// Codex and Grok are not detected today: those cases change on purpose when their adapters land.
+mod detection_golden {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+    use std::process::Command;
+
+    fn detect(ps_rows: &str) -> String {
+        let end = SESSION_TRANSCRIPT_BODY
+            .find("kind=${found%% *}")
+            .expect("detection head");
+        let head = &SESSION_TRANSCRIPT_BODY[..end];
+        let dir = tempfile::tempdir().unwrap();
+        let ps = dir.path().join("ps");
+        std::fs::write(&ps, format!("#!/bin/sh\ncat <<'ROWS'\n{ps_rows}\nROWS\n")).unwrap();
+        std::fs::set_permissions(&ps, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let script = format!("roots=100\n{head}\nprintf '%s' \"$found\"\n");
+        let out = Command::new("/bin/sh")
+            .arg("-c")
+            .arg(script)
+            .env_clear()
+            .env("PATH", format!("{}:/usr/bin:/bin", dir.path().display()))
+            .output()
+            .expect("sh");
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    }
+
+    #[test]
+    fn claude_agy_and_wrappers_are_found_below_the_pane_process() {
+        assert_eq!(detect("100 1 -zsh\n101 100 claude --resume"), "claude 101");
+        assert_eq!(
+            detect("100 1 -zsh\n101 100 node /opt/x/node_modules/@anthropic-ai/claude-code/cli.js"),
+            "claude 101"
+        );
+        assert_eq!(detect("100 1 -zsh\n101 100 /usr/local/bin/agy"), "agy 101");
+        assert_eq!(
+            detect("100 1 -zsh\n101 100 /home/u/.local/antigravity/bin/agent --x"),
+            "agy 101"
+        );
+        assert_eq!(
+            detect("100 1 -zsh\n101 100 zsh\n102 101 claude"),
+            "claude 102"
+        );
+    }
+
+    #[test]
+    fn other_programs_and_agents_not_connected_yet_are_not_found() {
+        assert_eq!(detect("100 1 -zsh\n101 100 vim notes.txt"), "");
+        assert_eq!(detect("100 1 -zsh\n101 100 codex"), "");
+        assert_eq!(detect("100 1 -zsh\n101 100 grok"), "");
+        // Not below the pane process: another terminal's claude is ignored.
+        assert_eq!(detect("100 1 -zsh\n200 1 -zsh\n201 200 claude"), "");
+    }
+}

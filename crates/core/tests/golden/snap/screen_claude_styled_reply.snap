@@ -1,0 +1,23 @@
+ScreenFeed {
+    dialect: Claude,
+    turns: [
+        TranscriptTurn {
+            id: "scr0",
+            step_index: 0,
+            turn_type: Assistant,
+            timestamp: None,
+            content: Some(
+                "Результаты ревью записаны в доки и закоммичены (`364713f`).\n\n- **Спеки 37–43 и 45:** в конце каждой появился раздел «Review (`rev`, 2026-10-20)» с замечаниями по важности, а строка статуса теперь не говорит «Ready for `rev`».\n- **Спеки 46, 47, 48, 49:** раздел с замечаниями дописан, но они ещё не отслеживаются в git (их создал другой агент). В коммит я их не включал.\n- `docs/roadmap.md`: исправил только строку M33, там больше нет «QR или curl». Остальные правки другого автора в этом файле остались незакоммиченными.",
+            ),
+            thinking: None,
+            tool_calls: [],
+            status: Done,
+            label: None,
+        },
+    ],
+    status: None,
+    draft: None,
+    prompt: None,
+    aside: None,
+    dialog: None,
+}

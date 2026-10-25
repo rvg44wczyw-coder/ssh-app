@@ -1,0 +1,40 @@
+ScreenFeed {
+    dialect: Agy,
+    turns: [
+        TranscriptTurn {
+            id: "scr0",
+            step_index: 0,
+            turn_type: System,
+            timestamp: None,
+            content: Some(
+                "▄▀▀▄        Antigravity CLI 1.4.7\n▀▀▀▀▀▀       user@example.com (Google AI Pro)\n▀▀▀▀▀▀▀▀      Gemini 3.8 Flash (Medium)\n▄▀▀    ▀▀▄     /tmp/project\n▄▀▀      ▀▀▄",
+            ),
+            thinking: None,
+            tool_calls: [],
+            status: Done,
+            label: Some(
+                "Antigravity CLI",
+            ),
+        },
+        TranscriptTurn {
+            id: "scr1",
+            step_index: 1,
+            turn_type: User,
+            timestamp: None,
+            content: Some(
+                "write a 700 word story about a ship captain, no tools",
+            ),
+            thinking: None,
+            tool_calls: [],
+            status: Done,
+            label: None,
+        },
+    ],
+    status: Some(
+        "⣻  Now, starting with the captain's character. Thinking about a setting for the story....",
+    ),
+    draft: None,
+    prompt: None,
+    aside: None,
+    dialog: None,
+}
