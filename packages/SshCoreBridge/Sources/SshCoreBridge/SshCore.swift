@@ -4696,6 +4696,195 @@ public func FfiConverterTypeSshSessionHandle_lower(_ value: SshSessionHandle) ->
 
 
 /**
+ * One slash command offered in the app's menu (it opens a screen of the agent).
+ */
+public struct AgentCommand: Equatable, Hashable {
+    /**
+     * The text typed into the agent, starting with `/`.
+     */
+    public var name: String
+    public var label: String
+    /**
+     * An SF Symbol name.
+     */
+    public var icon: String
+    /**
+     * Shown as destructive (it wipes something).
+     */
+    public var destructive: Bool
+    /**
+     * A divider goes before this entry.
+     */
+    public var dividerBefore: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The text typed into the agent, starting with `/`.
+         */name: String, label: String, 
+        /**
+         * An SF Symbol name.
+         */icon: String, 
+        /**
+         * Shown as destructive (it wipes something).
+         */destructive: Bool, 
+        /**
+         * A divider goes before this entry.
+         */dividerBefore: Bool) {
+        self.name = name
+        self.label = label
+        self.icon = icon
+        self.destructive = destructive
+        self.dividerBefore = dividerBefore
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension AgentCommand: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAgentCommand: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AgentCommand {
+        return
+            try AgentCommand(
+                name: FfiConverterString.read(from: &buf), 
+                label: FfiConverterString.read(from: &buf), 
+                icon: FfiConverterString.read(from: &buf), 
+                destructive: FfiConverterBool.read(from: &buf), 
+                dividerBefore: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AgentCommand, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.name, into: &buf)
+        FfiConverterString.write(value.label, into: &buf)
+        FfiConverterString.write(value.icon, into: &buf)
+        FfiConverterBool.write(value.destructive, into: &buf)
+        FfiConverterBool.write(value.dividerBefore, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAgentCommand_lift(_ buf: RustBuffer) throws -> AgentCommand {
+    return try FfiConverterTypeAgentCommand.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAgentCommand_lower(_ value: AgentCommand) -> RustBuffer {
+    return FfiConverterTypeAgentCommand.lower(value)
+}
+
+
+public struct AgentDescriptor: Equatable, Hashable {
+    /**
+     * Stable id: `claude`, `agy`, `generic`, ...
+     */
+    public var id: String
+    /**
+     * `None` for the generic entry.
+     */
+    public var kind: AgentKind?
+    public var displayName: String
+    /**
+     * Program names (the last path component, lower case) that mean this agent in a process list.
+     */
+    public var processNames: [String]
+    public var dialect: ScreenDialect
+    public var sessionStore: SessionStore
+    public var keys: AgentKeys
+    public var commands: [AgentCommand]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Stable id: `claude`, `agy`, `generic`, ...
+         */id: String, 
+        /**
+         * `None` for the generic entry.
+         */kind: AgentKind?, displayName: String, 
+        /**
+         * Program names (the last path component, lower case) that mean this agent in a process list.
+         */processNames: [String], dialect: ScreenDialect, sessionStore: SessionStore, keys: AgentKeys, commands: [AgentCommand]) {
+        self.id = id
+        self.kind = kind
+        self.displayName = displayName
+        self.processNames = processNames
+        self.dialect = dialect
+        self.sessionStore = sessionStore
+        self.keys = keys
+        self.commands = commands
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension AgentDescriptor: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAgentDescriptor: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AgentDescriptor {
+        return
+            try AgentDescriptor(
+                id: FfiConverterString.read(from: &buf), 
+                kind: FfiConverterOptionTypeAgentKind.read(from: &buf), 
+                displayName: FfiConverterString.read(from: &buf), 
+                processNames: FfiConverterSequenceString.read(from: &buf), 
+                dialect: FfiConverterTypeScreenDialect.read(from: &buf), 
+                sessionStore: FfiConverterTypeSessionStore.read(from: &buf), 
+                keys: FfiConverterTypeAgentKeys.read(from: &buf), 
+                commands: FfiConverterSequenceTypeAgentCommand.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AgentDescriptor, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterOptionTypeAgentKind.write(value.kind, into: &buf)
+        FfiConverterString.write(value.displayName, into: &buf)
+        FfiConverterSequenceString.write(value.processNames, into: &buf)
+        FfiConverterTypeScreenDialect.write(value.dialect, into: &buf)
+        FfiConverterTypeSessionStore.write(value.sessionStore, into: &buf)
+        FfiConverterTypeAgentKeys.write(value.keys, into: &buf)
+        FfiConverterSequenceTypeAgentCommand.write(value.commands, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAgentDescriptor_lift(_ buf: RustBuffer) throws -> AgentDescriptor {
+    return try FfiConverterTypeAgentDescriptor.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAgentDescriptor_lower(_ value: AgentDescriptor) -> RustBuffer {
+    return FfiConverterTypeAgentDescriptor.lower(value)
+}
+
+
+/**
  * Where a binary resolves on the host in a login shell vs. an interactive shell (rc loaded).
  */
 public struct AgentEnvCheck: Equatable, Hashable {
@@ -4827,6 +5016,105 @@ public func FfiConverterTypeAgentHooksStatus_lift(_ buf: RustBuffer) throws -> A
 #endif
 public func FfiConverterTypeAgentHooksStatus_lower(_ value: AgentHooksStatus) -> RustBuffer {
     return FfiConverterTypeAgentHooksStatus.lower(value)
+}
+
+
+/**
+ * How an agent's terminal UI answers to the keys the app drives it with.
+ */
+public struct AgentKeys: Equatable, Hashable {
+    /**
+     * Pushes a queued message now, interrupting the turn. `None`: the agent has no such key.
+     */
+    public var sendNowKeys: Data?
+    /**
+     * Brings the queued messages back into the input box.
+     */
+    public var pullQueueKeys: Data
+    /**
+     * Empties the line the cursor is on.
+     */
+    public var clearLineKeys: Data
+    /**
+     * Turns the grey suggestion of the next prompt into real text. `None`: the agent shows none.
+     */
+    public var acceptSuggestionKeys: Data?
+    /**
+     * Put before the path of a picture in a message ("@" makes Claude Code read it).
+     */
+    public var imageReferencePrefix: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Pushes a queued message now, interrupting the turn. `None`: the agent has no such key.
+         */sendNowKeys: Data?, 
+        /**
+         * Brings the queued messages back into the input box.
+         */pullQueueKeys: Data, 
+        /**
+         * Empties the line the cursor is on.
+         */clearLineKeys: Data, 
+        /**
+         * Turns the grey suggestion of the next prompt into real text. `None`: the agent shows none.
+         */acceptSuggestionKeys: Data?, 
+        /**
+         * Put before the path of a picture in a message ("@" makes Claude Code read it).
+         */imageReferencePrefix: String) {
+        self.sendNowKeys = sendNowKeys
+        self.pullQueueKeys = pullQueueKeys
+        self.clearLineKeys = clearLineKeys
+        self.acceptSuggestionKeys = acceptSuggestionKeys
+        self.imageReferencePrefix = imageReferencePrefix
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension AgentKeys: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAgentKeys: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AgentKeys {
+        return
+            try AgentKeys(
+                sendNowKeys: FfiConverterOptionData.read(from: &buf), 
+                pullQueueKeys: FfiConverterData.read(from: &buf), 
+                clearLineKeys: FfiConverterData.read(from: &buf), 
+                acceptSuggestionKeys: FfiConverterOptionData.read(from: &buf), 
+                imageReferencePrefix: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AgentKeys, into buf: inout [UInt8]) {
+        FfiConverterOptionData.write(value.sendNowKeys, into: &buf)
+        FfiConverterData.write(value.pullQueueKeys, into: &buf)
+        FfiConverterData.write(value.clearLineKeys, into: &buf)
+        FfiConverterOptionData.write(value.acceptSuggestionKeys, into: &buf)
+        FfiConverterString.write(value.imageReferencePrefix, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAgentKeys_lift(_ buf: RustBuffer) throws -> AgentKeys {
+    return try FfiConverterTypeAgentKeys.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAgentKeys_lower(_ value: AgentKeys) -> RustBuffer {
+    return FfiConverterTypeAgentKeys.lower(value)
 }
 
 
@@ -17816,6 +18104,81 @@ public func FfiConverterTypeSessionState_lower(_ value: SessionState) -> RustBuf
 
 
 
+/**
+ * Where an agent keeps the conversation the feed reads.
+ */
+
+public enum SessionStore: Equatable, Hashable {
+    
+    /**
+     * A JSONL file the host reads by offset.
+     */
+    case file
+    /**
+     * A database the pinned host helper reads (Antigravity); its subagents are child conversations.
+     */
+    case database
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension SessionStore: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSessionStore: FfiConverterRustBuffer {
+    typealias SwiftType = SessionStore
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SessionStore {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .file
+        
+        case 2: return .database
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: SessionStore, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .file:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .database:
+            writeInt(&buf, Int32(2))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSessionStore_lift(_ buf: RustBuffer) throws -> SessionStore {
+    return try FfiConverterTypeSessionStore.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSessionStore_lower(_ value: SessionStore) -> RustBuffer {
+    return FfiConverterTypeSessionStore.lower(value)
+}
+
+
+
 public 
 enum SshCoreError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
 
@@ -19418,6 +19781,30 @@ fileprivate struct FfiConverterOptionData: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeAgentDescriptor: FfiConverterRustBuffer {
+    typealias SwiftType = AgentDescriptor?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeAgentDescriptor.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeAgentDescriptor.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeAgentPermissions: FfiConverterRustBuffer {
     typealias SwiftType = AgentPermissions?
 
@@ -19730,6 +20117,30 @@ fileprivate struct FfiConverterOptionTypeTranscriptTurn: FfiConverterRustBuffer 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeAgentKind: FfiConverterRustBuffer {
+    typealias SwiftType = AgentKind?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeAgentKind.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeAgentKind.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeDockerUnavailable: FfiConverterRustBuffer {
     typealias SwiftType = DockerUnavailable?
 
@@ -19820,6 +20231,56 @@ fileprivate struct FfiConverterSequenceString: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterString.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeAgentCommand: FfiConverterRustBuffer {
+    typealias SwiftType = [AgentCommand]
+
+    public static func write(_ value: [AgentCommand], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeAgentCommand.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [AgentCommand] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [AgentCommand]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeAgentCommand.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeAgentDescriptor: FfiConverterRustBuffer {
+    typealias SwiftType = [AgentDescriptor]
+
+    public static func write(_ value: [AgentDescriptor], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeAgentDescriptor.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [AgentDescriptor] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [AgentDescriptor]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeAgentDescriptor.read(from: &buf))
         }
         return seq
     }
@@ -21584,6 +22045,60 @@ public func removeClaudeStatusline(existing: String)throws  -> String  {
         uniffiCallStatus in
     uniffi_ssh_core_fn_func_remove_claude_statusline(
         FfiConverterString.lower(existing),uniffiCallStatus
+    )
+})
+}
+/**
+ * The descriptor with this id (`claude`, `agy`, `generic`, ...).
+ */
+public func agentDescriptor(id: String) -> AgentDescriptor?  {
+    return try!  FfiConverterOptionTypeAgentDescriptor.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_agent_descriptor(
+        FfiConverterString.lower(id),uniffiCallStatus
+    )
+})
+}
+/**
+ * The descriptor of an agent kind; kinds without a row of their own get the generic one.
+ */
+public func agentDescriptorForKind(kind: AgentKind) -> AgentDescriptor  {
+    return try!  FfiConverterTypeAgentDescriptor_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_agent_descriptor_for_kind(
+        FfiConverterTypeAgentKind_lower(kind),uniffiCallStatus
+    )
+})
+}
+/**
+ * The descriptor of a program in a process list (`claude`, `agy`, ...), `None` when no agent has that
+ * name. The name is the last path component, case-insensitive.
+ */
+public func agentDescriptorForProcess(program: String) -> AgentDescriptor?  {
+    return try!  FfiConverterOptionTypeAgentDescriptor.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_agent_descriptor_for_process(
+        FfiConverterString.lower(program),uniffiCallStatus
+    )
+})
+}
+/**
+ * Every agent the feed knows, the generic entry last.
+ */
+public func agentDescriptors() -> [AgentDescriptor]  {
+    return try!  FfiConverterSequenceTypeAgentDescriptor.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_agent_descriptors(uniffiCallStatus
+    )
+})
+}
+/**
+ * The entry for an agent nothing is known about (never missing, whatever rows are added).
+ */
+public func genericAgentDescriptor() -> AgentDescriptor  {
+    return try!  FfiConverterTypeAgentDescriptor_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_generic_agent_descriptor(uniffiCallStatus
     )
 })
 }
@@ -23420,6 +23935,21 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_remove_claude_statusline() != 8749) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_agent_descriptor() != 29388) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_agent_descriptor_for_kind() != 42725) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_agent_descriptor_for_process() != 4261) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_agent_descriptors() != 42469) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_generic_agent_descriptor() != 38457) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_agent_config_dir_env() != 12240) {
