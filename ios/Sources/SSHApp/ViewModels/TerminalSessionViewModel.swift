@@ -685,7 +685,9 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
             try? await Task.sleep(for: .milliseconds(120))
             sendInput(Data([0x0d]))
         }
-        guard await confirmSubmitted(trimmed) else {
+        // A working agent queues the message and may show the queue next to the box, so the box says
+        // nothing then: it is read back only when the agent was idle.
+        if !working, await !confirmSubmitted(trimmed) {
             dropEcho(text: trimmed)
             return .notSent
         }
