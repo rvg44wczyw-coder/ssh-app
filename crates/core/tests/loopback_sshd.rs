@@ -204,7 +204,7 @@ fn connect(server: &Sshd) -> Arc<SshSessionHandle> {
         host: "127.0.0.1".into(),
         port: server.port,
         username: std::env::var("USER").unwrap_or_else(|_| "root".into()),
-        private_key_pem: server.private_key.clone(),
+        key: ssh_core::key_store::test_put(&server.private_key),
         session_name: format!("itest-{}", server.port),
         initial_cols: 80,
         initial_rows: 24,
@@ -516,6 +516,176 @@ fn agent_hooks_install_flow_against_loopback_sshd() {
         }
     });
 
+    handle.disconnect();
+}
+
+#[test]
+fn project_hooks_touch_only_the_project_and_refuse_to_double_the_user_level_ones() {
+    use ssh_core::default_hook_preset;
+    let Some(server) = start_sshd() else {
+        eprintln!("SKIP: sshd/ssh-keygen/tmux unavailable");
+        return;
+    };
+    let handle = connect(&server);
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().canonicalize().unwrap();
+    let project = root.join("my project");
+    let user_dir = root.join("claude-user");
+    let hook_dir = root.join("bin");
+    std::fs::create_dir_all(project.join(".claude")).unwrap();
+    std::fs::create_dir_all(&user_dir).unwrap();
+    let local = project.join(".claude/settings.local.json");
+    let original = r#"{"permissions":{"allow":["Bash(ls)"]}}"#;
+    std::fs::write(&local, original).unwrap();
+    let hooks = Some(hook_dir.to_str().unwrap().to_string());
+    let agent = AgentKind::ClaudeCode;
+    let scope = ssh_core::HookScope::Project {
+        folder: project.to_str().unwrap().to_string(),
+        user_config_dir: Some(user_dir.to_str().unwrap().to_string()),
+    };
+    let user_scope = ssh_core::HookScope::User {
+        config_dir: Some(user_dir.to_str().unwrap().to_string()),
+    };
+
+    rt.block_on(async {
+        handle
+            .install_agent_hooks_with_preset_in(
+                agent,
+                scope.clone(),
+                hooks.clone(),
+                default_hook_preset(),
+                false,
+            )
+            .await
+            .expect("project install");
+        let st = handle
+            .agent_hooks_status_in(agent, scope.clone(), hooks.clone())
+            .await
+            .unwrap();
+        assert!(st.hooks_installed && st.script_installed);
+        assert_eq!(
+            st.config_path,
+            format!("{}/.claude/settings.local.json", project.display())
+        );
+        // The user-level file was never created.
+        assert!(!user_dir.join("settings.json").exists());
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&local).unwrap()).unwrap();
+        assert_eq!(v["permissions"]["allow"][0], "Bash(ls)");
+        assert!(v["hooks"].is_object());
+
+        // The all-sessions install still works and then the project one is refused.
+        handle
+            .install_agent_hooks_with_preset_in(
+                agent,
+                user_scope.clone(),
+                hooks.clone(),
+                default_hook_preset(),
+                false,
+            )
+            .await
+            .expect("user install");
+        let refused = handle
+            .install_agent_hooks_with_preset_in(
+                agent,
+                scope.clone(),
+                hooks.clone(),
+                default_hook_preset(),
+                false,
+            )
+            .await;
+        assert!(refused.is_err(), "doubling the user-level hooks is refused");
+
+        // Removing the project hooks leaves the foreign settings and the user level alone.
+        handle
+            .uninstall_agent_hooks_in(agent, scope.clone())
+            .await
+            .unwrap();
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&local).unwrap()).unwrap();
+        assert_eq!(v["permissions"]["allow"][0], "Bash(ls)");
+        assert!(v
+            .get("hooks")
+            .is_none_or(|h| h.as_object().is_none_or(|o| o.is_empty())));
+        assert!(
+            handle
+                .agent_hooks_status_in(agent, user_scope.clone(), hooks.clone())
+                .await
+                .unwrap()
+                .hooks_installed
+        );
+        // A hostile folder name is data, never shell: nothing runs, the file lands inside it.
+        let evil = root.join("a$(touch PWNED)b`touch PWNED2`'; touch PWNED3 #");
+        std::fs::create_dir_all(&evil).unwrap();
+        handle
+            .uninstall_agent_hooks_in(agent, user_scope.clone())
+            .await
+            .unwrap();
+        handle
+            .install_agent_hooks_with_preset_in(
+                agent,
+                ssh_core::HookScope::Project {
+                    folder: evil.to_str().unwrap().to_string(),
+                    user_config_dir: Some(user_dir.to_str().unwrap().to_string()),
+                },
+                hooks.clone(),
+                default_hook_preset(),
+                false,
+            )
+            .await
+            .expect("hostile folder name");
+        assert!(evil.join(".claude/settings.local.json").is_file());
+        for f in ["PWNED", "PWNED2", "PWNED3"] {
+            assert!(
+                !root.join(f).exists() && !evil.join(f).exists() && !Path::new(f).exists(),
+                "{f}"
+            );
+        }
+        // Confirmed by the user: the project install turns the all-sessions hooks off first.
+        handle
+            .install_agent_hooks_with_preset_in(
+                agent,
+                user_scope.clone(),
+                hooks.clone(),
+                default_hook_preset(),
+                false,
+            )
+            .await
+            .unwrap();
+        handle
+            .install_agent_hooks_with_preset_in(
+                agent,
+                scope.clone(),
+                hooks.clone(),
+                default_hook_preset(),
+                true,
+            )
+            .await
+            .expect("project install that disables the user level");
+        assert!(
+            !handle
+                .agent_hooks_status_in(agent, user_scope.clone(), hooks.clone())
+                .await
+                .unwrap()
+                .hooks_installed
+        );
+        assert!(
+            handle
+                .agent_hooks_status_in(agent, scope.clone(), hooks.clone())
+                .await
+                .unwrap()
+                .hooks_installed
+        );
+        // Crush has no confirmed project file.
+        assert!(handle
+            .agent_hooks_status_in(AgentKind::Crush, scope, None)
+            .await
+            .is_err());
+    });
     handle.disconnect();
 }
 
@@ -1353,7 +1523,7 @@ fn host_key_is_pinned_and_a_changed_key_is_refused() {
         host: "127.0.0.1".into(),
         port: server.port,
         username: std::env::var("USER").unwrap_or_else(|_| "root".into()),
-        private_key_pem: server.private_key.clone(),
+        key: ssh_core::key_store::test_put(&server.private_key),
         pinned_host_key: pin.map(str::to_string),
     };
     rt.block_on(async {
@@ -1379,7 +1549,7 @@ fn host_key_is_pinned_and_a_changed_key_is_refused() {
         host: "127.0.0.1".into(),
         port: server.port,
         username: std::env::var("USER").unwrap_or_else(|_| "root".into()),
-        private_key_pem: server.private_key.clone(),
+        key: ssh_core::key_store::test_put(&server.private_key),
         session_name: format!("itest-{}", server.port),
         initial_cols: 80,
         initial_rows: 24,
@@ -1781,7 +1951,7 @@ fn reconnect_and_one_shot_tmux_calls_against_loopback_sshd() {
         host: "127.0.0.1".into(),
         port: server.port,
         username: std::env::var("USER").unwrap_or_else(|_| "root".into()),
-        private_key_pem: server.private_key.clone(),
+        key: ssh_core::key_store::test_put(&server.private_key),
         pinned_host_key: None,
     };
     let name = format!("itest-{}", server.port);
@@ -1983,7 +2153,7 @@ fn usage_report_finds_models_in_tmux_sessions_and_reads_transcripts() {
         host: "127.0.0.1".into(),
         port,
         username: std::env::var("USER").unwrap_or_else(|_| "root".into()),
-        private_key_pem: server.private_key.clone(),
+        key: ssh_core::key_store::test_put(&server.private_key),
         pinned_host_key: None,
     };
     // The typed helper, built from this repository (the app ships the same build).
@@ -2949,7 +3119,7 @@ fn remote_fs_lists_downloads_uploads_and_edits_on_loopback_sshd() {
         host: "127.0.0.1".into(),
         port: server.port,
         username: std::env::var("USER").unwrap_or_else(|_| "root".into()),
-        private_key_pem: server.private_key.clone(),
+        key: ssh_core::key_store::test_put(&server.private_key),
         pinned_host_key: pin,
     };
     // No pin, no client.
@@ -4766,7 +4936,7 @@ fn a_server_handle_runs_commands_without_a_session_and_refuses_an_unpinned_key()
         host: "127.0.0.1".into(),
         port: server.port,
         username: std::env::var("USER").unwrap_or_else(|_| "root".into()),
-        private_key_pem: server.private_key.clone(),
+        key: ssh_core::key_store::test_put(&server.private_key),
         pinned_host_key: pin.map(str::to_string),
     };
     rt.block_on(async {

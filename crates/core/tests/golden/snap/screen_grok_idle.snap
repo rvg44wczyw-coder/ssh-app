@@ -1,0 +1,53 @@
+ScreenFeed {
+    dialect: Grok,
+    turns: [
+        TranscriptTurn {
+            id: "scr0",
+            step_index: 0,
+            turn_type: System,
+            timestamp: None,
+            content: Some(
+                "\u{e0a0} main ~/project",
+            ),
+            thinking: None,
+            tool_calls: [],
+            status: Done,
+            label: Some(
+                "Terminal output",
+            ),
+        },
+        TranscriptTurn {
+            id: "scr1",
+            step_index: 1,
+            turn_type: Assistant,
+            timestamp: None,
+            content: Some(
+                "Clipboard may be unreachable. Run /doctor for details and fixes.",
+            ),
+            thinking: None,
+            tool_calls: [],
+            status: Done,
+            label: None,
+        },
+        TranscriptTurn {
+            id: "scr2",
+            step_index: 2,
+            turn_type: System,
+            timestamp: None,
+            content: Some(
+                "Grok Build  1.0.70\nGrok 4.7 is here, try it out for free for a limited time! Upgrade for\nmore usage.\n[Click here to Upgrade] or use Ctrl+O\nResume session                                                   ctrl+r\nNew worktree                                                     ctrl+w\nChangelog\nQuit                                                             ctrl+q",
+            ),
+            thinking: None,
+            tool_calls: [],
+            status: Done,
+            label: Some(
+                "Grok Build",
+            ),
+        },
+    ],
+    status: None,
+    draft: None,
+    prompt: None,
+    aside: None,
+    dialog: None,
+}

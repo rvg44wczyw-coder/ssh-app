@@ -296,6 +296,65 @@ mod plan_tests {
     }
 
     #[test]
+    fn project_hooks_live_in_the_project_not_in_the_user_config() {
+        assert_eq!(
+            agent_project_hooks_path(AgentKind::ClaudeCode, "~/work/api/".into()).unwrap(),
+            "~/work/api/.claude/settings.local.json"
+        );
+        assert_eq!(
+            agent_project_hooks_path(AgentKind::Antigravity, "/srv/my app".into()).unwrap(),
+            "/srv/my app/.agents/hooks.json"
+        );
+        assert_eq!(
+            agent_hooks_target_path(
+                AgentKind::ClaudeCode,
+                HookScope::User {
+                    config_dir: Some("~/.claude-work".into())
+                }
+            )
+            .unwrap(),
+            "~/.claude-work/settings.json"
+        );
+        for (a, file) in [
+            (AgentKind::Codex, "~/p/.codex/hooks.json"),
+            (AgentKind::Grok, "~/p/.grok/hooks/ssh-app.json"),
+            (AgentKind::QwenCode, "~/p/.qwen/settings.json"),
+            (AgentKind::OpenCode, "~/p/.opencode/plugins/ssh-app.js"),
+        ] {
+            assert_eq!(agent_project_hooks_path(a, "~/p".into()).unwrap(), file);
+        }
+        // Crush's project file is not confirmed; launch-only agents have no hooks at all.
+        for a in [AgentKind::Crush, AgentKind::Aider, AgentKind::Goose] {
+            assert!(agent_project_hooks_path(a, "~/p".into()).is_err());
+        }
+    }
+
+    #[test]
+    fn project_folder_must_be_absolute_and_plain() {
+        for bad in ["", "rel/dir", "~/a/../b", "/a/../etc", "/a\nb", "~x"] {
+            assert!(
+                agent_project_hooks_path(AgentKind::ClaudeCode, bad.into()).is_err(),
+                "{bad:?}"
+            );
+        }
+        assert!(agent_project_hooks_path(AgentKind::ClaudeCode, "~".into()).is_ok());
+    }
+
+    #[test]
+    fn a_project_install_is_refused_while_the_user_level_hooks_exist() {
+        let planned = plan_agent_hooks(
+            AgentKind::ClaudeCode,
+            approval(HookPresetKind::PhoneApproval, "", &[]),
+            None,
+        );
+        let user =
+            merge_planned_hooks(AgentKind::ClaudeCode, String::new(), planned.unwrap()).unwrap();
+        assert!(check_project_install(AgentKind::ClaudeCode, user).is_err());
+        assert!(check_project_install(AgentKind::ClaudeCode, "{}".into()).is_ok());
+        assert!(check_project_install(AgentKind::ClaudeCode, String::new()).is_ok());
+    }
+
+    #[test]
     fn hook_dir_cannot_inject_shell_into_the_agent_command() {
         for bad in [
             "/x\" ; id #",

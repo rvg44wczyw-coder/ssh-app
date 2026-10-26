@@ -8,12 +8,12 @@ import SshCoreBridge
 /// the server profile, its private key and the pinned host key. (A widget extension additionally
 /// needs a shared Keychain access group and a shared store for the server profiles.)
 public enum HostMonitorClient {
-    public static func fetch(server: ServerProfile, privateKey: String) async throws -> HostTelemetrySnapshot {
+    public static func fetch(server: ServerProfile, key: KeyRef) async throws -> HostTelemetrySnapshot {
         let config = RemoteServerConfig(
             host: server.host,
             port: server.port,
             username: server.username,
-            privateKeyPem: privateKey,
+            key: key,
             pinnedHostKey: server.hostKeyFingerprint
         )
         return try await fetchHostTelemetryOnce(config: config, helperSha256: HostTargetCache.pin(host: server.host, port: server.port, username: server.username))

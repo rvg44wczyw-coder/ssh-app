@@ -49,6 +49,7 @@ ssh-app/
    - iOS Keychain storage with `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`.
    - Sensitive memory zeroized on drop (`zeroize`).
    - Host key verification to prevent MITM.
+   - **Permanent rule (owner, 2026-10-26): secrets never travel as strings.** Every secret, password, passphrase, token, private key and piece of personal data crosses UniFFI, IPC and any process boundary only as bytes (`Vec<u8>` / `Data`), zeroized on both sides, and ideally already encrypted. Never `String`, never argv, never logs. The private SSH key stays inside the Rust core (Swift holds only an opaque id); exporting it needs three separate explicit confirmations, and exported/backed-up/synced keys are encrypted in Rust. A new FFI item that carries a secret as a string is a review blocker.
 
 ## Deployment target
 

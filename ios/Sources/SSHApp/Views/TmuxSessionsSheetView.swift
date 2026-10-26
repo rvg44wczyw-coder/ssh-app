@@ -244,8 +244,8 @@ public struct TmuxSessionsSheetView: View {
                 Button("Cancel", role: .cancel) {}
                 Button("Stop & Remove", role: .destructive) {
                     if let server = currentServer,
-                       let key = KeychainManager.shared.getPrivateKey(id: server.keyId) {
-                        viewModel.killSession(name: name, server: server, privateKey: key)
+                       KeychainManager.shared.hasPrivateKey(id: server.keyId) {
+                        viewModel.killSession(name: name, server: server, key: KeychainManager.shared.keyRef(server.keyId))
                     }
                 }
             } message: { name in
@@ -315,12 +315,12 @@ public struct TmuxSessionsSheetView: View {
 
     private func refreshSessions() {
         guard let server = currentServer,
-              let key = KeychainManager.shared.getPrivateKey(id: server.keyId),
-              !key.isEmpty else {
+              KeychainManager.shared.hasPrivateKey(id: server.keyId) else {
             return
         }
-        viewModel.fetchSessions(server: server, privateKey: key)
-        viewModel.fetchUsage(server: server, privateKey: key, configDirs: configDirs)
+        let key = KeychainManager.shared.keyRef(server.keyId)
+        viewModel.fetchSessions(server: server, key: key)
+        viewModel.fetchUsage(server: server, key: key, configDirs: configDirs)
     }
 
     private func formatTimestamp(_ epoch: UInt64) -> String {

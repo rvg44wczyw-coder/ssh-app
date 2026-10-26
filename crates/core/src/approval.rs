@@ -116,7 +116,6 @@ pub fn verify_approval_signature(
 }
 
 /// Helper for signing canonical approval bytes on client with private key.
-#[uniffi::export]
 pub fn sign_approval_payload(
     private_key_openssh: String,
     canonical_bytes: Vec<u8>,

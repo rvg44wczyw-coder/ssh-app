@@ -8,7 +8,9 @@ import SshCoreBridge
 public struct SSHMobileApp: App {
     @UIApplicationDelegateAdaptor(PushAppDelegate.self) private var appDelegate
 
-    public init() {}
+    public init() {
+        LegacyKeyMigration.runOnce()
+    }
 
     public var body: some Scene {
         WindowGroup {

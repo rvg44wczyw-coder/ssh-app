@@ -1398,7 +1398,12 @@ mod dialect_differential {
         for dir in ["src/screen/fixtures", "tests/data"] {
             for e in std::fs::read_dir(root.join(dir)).unwrap() {
                 let p = e.unwrap().path();
-                if p.extension().is_some_and(|x| x == "txt") {
+                // the old function knows two agents: Codex's screens have their own tests
+                let codex = p.file_name().is_some_and(|n| {
+                    let n = n.to_string_lossy();
+                    n.starts_with("codex_") || n.starts_with("grok_")
+                });
+                if p.extension().is_some_and(|x| x == "txt") && !codex {
                     out.push(std::fs::read_to_string(p).unwrap());
                 }
             }
@@ -1447,6 +1452,10 @@ mod dialect_differential {
             ("claude_shell_details.txt", ScreenDialect::Claude),
             ("agy_background_running.txt", ScreenDialect::Agy),
             ("agy_tasks_list.txt", ScreenDialect::Agy),
+            ("codex_done.txt", ScreenDialect::Codex),
+            ("codex_working_queued.txt", ScreenDialect::Codex),
+            ("grok_done.txt", ScreenDialect::Grok),
+            ("grok_working.txt", ScreenDialect::Grok),
         ] {
             let base = read(name);
             assert_eq!(parse_screen_feed(base.clone()).dialect, want, "{name}");
@@ -1454,6 +1463,265 @@ mod dialect_differential {
                 let text = format!("{spoof}{base}");
                 assert_eq!(parse_screen_feed(text).dialect, want, "{name} + {spoof:?}");
             }
+        }
+    }
+}
+
+mod codex_screens {
+    use super::*;
+
+    fn feed(name: &str) -> ScreenFeed {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/screen/fixtures");
+        parse_screen_feed(std::fs::read_to_string(root.join(name)).unwrap())
+    }
+
+    #[test]
+    fn every_codex_screen_is_recognised() {
+        for n in [
+            "codex_idle.txt",
+            "codex_working_queued.txt",
+            "codex_done.txt",
+            "codex_approval.txt",
+            "codex_denied.txt",
+            "codex_ps.txt",
+            "codex_model.txt",
+            "codex_permissions.txt",
+            "codex_hooks.txt",
+            "codex_review_presets.txt",
+            "codex_skills_menu.txt",
+            "codex_resume.txt",
+        ] {
+            assert_eq!(feed(n).dialect, ScreenDialect::Codex, "{n}");
+        }
+    }
+
+    #[test]
+    fn a_finished_turn_is_turns_and_no_footer() {
+        let f = feed("codex_done.txt");
+        assert!(f.status.is_none() && f.draft.is_none() && f.prompt.is_none());
+        let kinds: Vec<_> = f.turns.iter().map(|t| t.turn_type).collect();
+        use TranscriptTurnType::*;
+        assert_eq!(
+            kinds,
+            [System, Assistant, User, Assistant, Assistant, Assistant, System]
+        );
+        let tool = &f.turns[4].tool_calls[0];
+        assert_eq!(
+            (tool.tool_name.as_str(), tool.arguments_summary.as_str()),
+            ("Bash", "sleep 20")
+        );
+        assert_eq!(f.turns[6].label.as_deref(), Some("Worked for 22s"));
+        let all = format!("{:?}", f.turns);
+        assert!(!all.contains("for agents") && !all.contains("Ask Codex"));
+    }
+
+    #[test]
+    fn the_working_line_is_the_status_and_the_queue_is_not_conversation() {
+        let f = feed("codex_working_queued.txt");
+        assert!(f
+            .status
+            .as_deref()
+            .is_some_and(|s| s.starts_with("• Working (")));
+        let all = format!("{:?}", f.turns);
+        assert!(!all.contains("Queued follow-up") && !all.contains("tabbed message two"));
+        assert!(f
+            .turns
+            .iter()
+            .any(|t| t.content.as_deref() == Some("queued message one")));
+    }
+
+    #[test]
+    fn the_approval_is_a_prompt_with_its_question() {
+        let p = feed("codex_approval.txt").prompt.expect("a prompt");
+        assert_eq!(p.question, "Would you like to run the following command?");
+        assert_eq!(p.options.len(), 3);
+        assert_eq!(p.options[0].label, "Yes, proceed (y)");
+        assert_eq!(p.selected, 0);
+        assert!(p.detail.contains("touch"));
+    }
+
+    #[test]
+    fn the_pickers_are_prompts_with_notes_split_off() {
+        let p = feed("codex_permissions.txt").prompt.expect("a prompt");
+        assert_eq!(p.question, "Update Model Permissions");
+        assert_eq!(p.options.len(), 4);
+        assert_eq!(p.options[0].label, "Ask for approval (current)");
+        assert!(p.options[0].description.starts_with("Read and edit"));
+        let m = feed("codex_model.txt").prompt.expect("a prompt");
+        assert_eq!(m.options[0].label, "GPT-6-Luna (current)");
+        assert!(feed("codex_hooks.txt").prompt.is_none());
+        let r = feed("codex_review_presets.txt").prompt.expect("a prompt");
+        assert_eq!(r.options.len(), 4);
+        assert_eq!(
+            feed("codex_skills_menu.txt")
+                .prompt
+                .expect("a prompt")
+                .options
+                .len(),
+            2
+        );
+    }
+
+    #[test]
+    fn a_draft_is_read_and_the_placeholder_is_not() {
+        let mut idle = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("src/screen/fixtures/codex_idle.txt"),
+        )
+        .unwrap();
+        assert_eq!(parse_screen_feed(idle.clone()).draft, None);
+        idle = idle.replace("› Ask Codex to do anything", "› fix the build");
+        assert_eq!(
+            parse_screen_feed(idle).draft.as_deref(),
+            Some("fix the build")
+        );
+    }
+
+    #[test]
+    fn hostile_text_does_not_flip_other_agents_to_codex() {
+        let spoof = "← for agents · ? for shortcuts\n".repeat(40);
+        for name in ["claude_background_running.txt", "agy_tasks_list.txt"] {
+            let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/screen/fixtures");
+            let base = std::fs::read_to_string(root.join(name)).unwrap();
+            let want = parse_screen_feed(base.clone()).dialect;
+            assert_eq!(
+                parse_screen_feed(format!("{spoof}{base}")).dialect,
+                want,
+                "{name}"
+            );
+        }
+    }
+}
+
+mod grok_screens {
+    use super::*;
+
+    fn feed(name: &str) -> ScreenFeed {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/screen/fixtures");
+        parse_screen_feed(std::fs::read_to_string(root.join(name)).unwrap())
+    }
+
+    #[test]
+    fn every_grok_screen_is_recognised() {
+        for n in [
+            "grok_idle.txt",
+            "grok_working.txt",
+            "grok_done.txt",
+            "grok_typing_while_working.txt",
+            "grok_queue_focus.txt",
+            "grok_queue_edit.txt",
+            "grok_approval.txt",
+            "grok_denied.txt",
+            "grok_model.txt",
+            "grok_slash.txt",
+            "grok_effort.txt",
+            "grok_plan_mode.txt",
+            "grok_background_running.txt",
+            "grok_tasks.txt",
+            "grok_rewind.txt",
+        ] {
+            assert_eq!(feed(n).dialect, ScreenDialect::Grok, "{n}");
+        }
+    }
+
+    #[test]
+    fn a_finished_turn_has_a_tool_a_label_and_no_footer() {
+        let f = feed("grok_done.txt");
+        assert!(f.status.is_none() && f.draft.is_none() && f.prompt.is_none());
+        let kinds: Vec<_> = f.turns.iter().map(|t| t.turn_type).collect();
+        use TranscriptTurnType::*;
+        assert_eq!(
+            kinds,
+            [User, System, Assistant, Assistant, Assistant, System]
+        );
+        assert_eq!(f.turns[3].tool_calls[0].tool_name, "LS");
+        assert_eq!(f.turns[5].label.as_deref(), Some("Worked for 4.7s"));
+        let all = format!("{:?}", f.turns);
+        assert!(!all.contains("Help improve") && !all.contains("Build anything"));
+    }
+
+    #[test]
+    fn the_working_line_is_the_status_and_the_queue_is_not_conversation() {
+        for n in [
+            "grok_working.txt",
+            "grok_queue_focus.txt",
+            "grok_approval.txt",
+        ] {
+            let f = feed(n);
+            assert!(
+                f.status.as_deref().is_some_and(|s| s.contains("[stop]")),
+                "{n}"
+            );
+            assert!(!format!("{:?}", f.turns).contains("[stop]"), "{n}");
+        }
+        let all = format!("{:?}", feed("grok_queue_focus.txt").turns);
+        assert!(!all.contains("Send now") && !all.contains("#1"));
+    }
+
+    #[test]
+    fn a_draft_is_read_and_the_placeholder_is_not() {
+        assert_eq!(
+            feed("grok_typing_while_working.txt").draft.as_deref(),
+            Some("Reply with just the letter B.")
+        );
+        assert_eq!(feed("grok_idle.txt").draft, None);
+    }
+
+    #[test]
+    fn a_background_command_is_the_status_and_the_task_strip_is_not_conversation() {
+        let f = feed("grok_background_running.txt");
+        assert_eq!(f.status.as_deref(), Some("◎ 1 command still running"));
+        let all = format!("{:?}", f.turns);
+        assert!(!all.contains("Tasks 1") && !all.contains("[↗]"));
+        assert!(f.turns.iter().any(|t| t.content.as_deref() == Some("ok")));
+        assert!(feed("grok_tasks.txt").status.is_some());
+    }
+
+    #[test]
+    fn a_picker_is_a_prompt_and_the_slash_menu_is_not() {
+        let p = feed("grok_effort.txt").prompt.expect("a prompt");
+        assert_eq!(p.question, "Choose (/effort)");
+        let labels: Vec<_> = p.options.iter().map(|o| o.label.as_str()).collect();
+        assert_eq!(labels, ["Extra High", "High (active)", "Medium", "Low"]);
+        assert_eq!(p.selected, 0);
+        assert!(p.options[1].description.starts_with("Thorough"));
+        assert!(feed("grok_slash.txt").prompt.is_none());
+        assert_eq!(
+            feed("grok_model.txt")
+                .prompt
+                .expect("a prompt")
+                .options
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn the_permission_dialog_is_a_prompt() {
+        let p = feed("grok_approval.txt").prompt.expect("a prompt");
+        assert_eq!(p.question, "Allow Edit to /tmp/work/probe.txt?");
+        assert_eq!(p.options.len(), 4);
+        assert_eq!(p.options[3].number, 4);
+        assert!(p.options[3].label.starts_with("No, reject"));
+        assert_eq!(p.selected, 1);
+    }
+
+    #[test]
+    fn hostile_text_does_not_flip_other_agents_to_grok() {
+        let spoof = "Ctrl+x:shortcuts\n◈ Ran x\nHelp improve Grok\n".repeat(20);
+        for name in [
+            "claude_background_running.txt",
+            "agy_tasks_list.txt",
+            "codex_done.txt",
+        ] {
+            let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/screen/fixtures");
+            let base = std::fs::read_to_string(root.join(name)).unwrap();
+            let want = parse_screen_feed(base.clone()).dialect;
+            assert_eq!(
+                parse_screen_feed(format!("{spoof}{base}")).dialect,
+                want,
+                "{name}"
+            );
         }
     }
 }

@@ -1,0 +1,25 @@
+ScreenFeed {
+    dialect: Codex,
+    turns: [
+        TranscriptTurn {
+            id: "scr0",
+            step_index: 0,
+            turn_type: System,
+            timestamp: None,
+            content: Some(
+                ">_ OpenAI Codex (v0.164.0)\n~/project",
+            ),
+            thinking: None,
+            tool_calls: [],
+            status: Done,
+            label: Some(
+                "OpenAI Codex",
+            ),
+        },
+    ],
+    status: None,
+    draft: None,
+    prompt: None,
+    aside: None,
+    dialog: None,
+}

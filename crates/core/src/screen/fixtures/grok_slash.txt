@@ -1,0 +1,40 @@
+
+  main ~/project [Click here to Upgrade]                            1.8K / 256K │ [Dashboard]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ────────────────────────────────────────────────────────────────────────────────────────────114─
+    ❯ /session-info                  Show session info                                           █
+      /model                         Switch the active model
+      /settings                      Open the settings modal
+      /usage                         View usage
+      /tutorial                      Quick tips to get the most out of Grok Build
+      /dashboard                     Open the Agent Dashboard
+      /workflows                     Browse installed workflows
+      /plugins                       View plugins
+  ────────────────────────────────────────────────────────────────────────────────────────────────
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────╮
+  │ ❯ /                                                                                          │
+  ╰──────────────────────────────────────────────────────────────────────────── Grok 4.7 (high) ─╯
+
+  Enter:send  │  Opt+Enter:newline  │  Shift+Tab:mode  │  Ctrl+x:shortcuts
+

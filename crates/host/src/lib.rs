@@ -2,12 +2,15 @@
 
 pub mod agent;
 pub mod agyfeed;
+pub mod agyquota;
 pub mod auto;
 pub mod ctl;
 pub mod doctor;
 pub mod files;
+pub mod grokquota;
 pub mod guard;
 pub mod hook;
+pub mod hooksview;
 pub mod linux;
 pub mod models;
 pub mod pair;

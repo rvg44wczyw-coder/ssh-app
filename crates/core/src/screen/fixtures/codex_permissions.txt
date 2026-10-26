@@ -1,0 +1,37 @@
+› tabbed message two
+• Received.
+
+  Worked for 2s • 09:37
+
+/status
+
+  >_ OpenAI Codex (v0.164.0)
+
+  Visit https://chatgpt.com/settings/usage for up-to-date
+  information on rate limits and credits
+
+  Server:              Local background server
+
+  Model:               GPT-6-Luna (reasoning medium)
+  Model provider:      openai
+  Directory:           ~/project
+  Permissions:         Workspace (Ask for approval)
+  Agents.md:           AGENTS.md
+  Collaboration mode:  Default
+
+  Context window:      98% left (15.7K used / 258K)
+  Monthly limit:       [████████████████████] 99% left (resets 11:51 on 24 Nov)
+
+
+  Update Model Permissions
+
+
+› 1. Ask for approval (current)  Read and edit workspace files and run commands, with approval
+                                 required for internet access or edits outside the workspace
+  2. Approve for me              Only ask for actions detected as potentially unsafe
+  3. Full Access                 Use with caution: Codex can edit files outside this workspace and
+                                 access the internet without approval
+  4. Read Only                   Read workspace files, with approval required for edits or internet
+                                 access
+
+  enter select · esc back

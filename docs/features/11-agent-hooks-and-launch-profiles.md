@@ -1,5 +1,7 @@
 # Feature 11: Agent Approval Hooks & Auto-Start Launch Profiles
 
+> **Note (2026-10-26):** parts of this document that describe the Unix-socket approval scheme are superseded by the file queue (`~/.ssh-app/run/{pending,decisions}`, signed by the phone key). See specs 24, 57 and 62.
+
 - **Status**: Implemented & Verified (rev + hacker: `docs/security-findings/2026-10-16-agent-hooks-audit.md`)
 - **Milestone**: M15
 - **Layers**: `crates/core`, `scripts/agent-hooks`, `packages/SshCoreBridge`, `ios/`

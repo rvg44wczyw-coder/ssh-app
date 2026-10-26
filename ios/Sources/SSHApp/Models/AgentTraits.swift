@@ -14,6 +14,8 @@ struct AgentTraits: Equatable {
     let id: String
     /// Pushes a queued message now, interrupting the turn. `nil`: the agent has no such key.
     let sendNowKeys: [UInt8]?
+    /// Queues the typed message while a turn runs. `nil`: Enter queues it (Codex: Enter would steer the turn, Tab queues).
+    let queueKeys: [UInt8]?
     /// Brings the queued messages back into the input box.
     let pullQueueKeys: [UInt8]
     /// Empties the line the cursor is on.
@@ -24,8 +26,9 @@ struct AgentTraits: Equatable {
     let imageReferencePrefix: String
 
     init(id: String, sendNowKeys: [UInt8]?, pullQueueKeys: [UInt8], clearLineKeys: [UInt8],
-         acceptSuggestionKeys: [UInt8]?, imageReferencePrefix: String) {
+         acceptSuggestionKeys: [UInt8]?, imageReferencePrefix: String, queueKeys: [UInt8]? = nil) {
         self.id = id
+        self.queueKeys = queueKeys
         self.sendNowKeys = sendNowKeys
         self.pullQueueKeys = pullQueueKeys
         self.clearLineKeys = clearLineKeys
@@ -40,7 +43,8 @@ struct AgentTraits: Equatable {
                   pullQueueKeys: [UInt8](d.keys.pullQueueKeys),
                   clearLineKeys: [UInt8](d.keys.clearLineKeys),
                   acceptSuggestionKeys: d.keys.acceptSuggestionKeys.map { [UInt8]($0) },
-                  imageReferencePrefix: d.keys.imageReferencePrefix)
+                  imageReferencePrefix: d.keys.imageReferencePrefix,
+                  queueKeys: d.keys.queueKeys.map { [UInt8]($0) })
     }
 
     static let claude = AgentTraits(descriptor: AgentResolver.entry("claude"))

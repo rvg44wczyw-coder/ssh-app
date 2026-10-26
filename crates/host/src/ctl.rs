@@ -26,8 +26,55 @@ fn pending_id(name: &str) -> Option<&str> {
     name.strip_suffix(".json").filter(|id| is_hex(id, 32))
 }
 
+/// Most files read from one sandbox's pending folder: the agent in a container can create as many
+/// as it likes, so the reader stops early.
+const MAX_SANDBOX_ENTRIES: usize = 200;
+
+/// The queues of the live sandboxes (`<home>/sandboxes/<id>/run`): `(id, paths)`, only folders that
+/// are private and belong to us. The agent inside a container writes requests there; it can read
+/// `pending`, but `decisions` is mounted read-only into the container.
+fn sandboxes(p: &Paths) -> Vec<(String, Paths)> {
+    let Ok(rd) = std::fs::read_dir(p.home.join("sandboxes")) else {
+        return vec![];
+    };
+    let mut out: Vec<(String, Paths)> = rd
+        .flatten()
+        .take(64)
+        .filter_map(|e| {
+            let id = e.file_name().to_string_lossy().into_owned();
+            let ok = (3..=32).contains(&id.len())
+                && id
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
+            if !ok {
+                return None;
+            }
+            let home = p.home.join("sandboxes").join(&id);
+            let run = home.join("run");
+            let sp = Paths {
+                pending: run.join("pending"),
+                decisions: run.join("decisions"),
+                sessions: run.join("sessions"),
+                limits: run.join("limits"),
+                allowed: p.allowed.clone(),
+                guard: p.guard.clone(),
+                run,
+                home,
+            };
+            sp.queue_trusted().then_some((id, sp))
+        })
+        .collect();
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    out
+}
+
 /// A valid, unexpired pending file as a JSON object, else `None`.
 fn load_pending(p: &Paths, name: &str, now: i64) -> Option<Value> {
+    load_pending_in(p, name, now, false)
+}
+
+/// `sandboxed`: the request comes from a container, whose process ids mean nothing here.
+fn load_pending_in(p: &Paths, name: &str, now: i64, sandboxed: bool) -> Option<Value> {
     let id = pending_id(name)?;
     let raw = read_small(&p.pending.join(name), MAX_FILE)?;
     let req: Value = serde_json::from_slice(&raw).ok()?;
@@ -54,7 +101,7 @@ fn load_pending(p: &Paths, name: &str, now: i64) -> Option<Value> {
         return None;
     }
     // An approval whose hook is gone (the agent was killed or restarted) asks about nothing.
-    if o["kind"] == "approval" {
+    if o["kind"] == "approval" && !sandboxed {
         if let Some(pid) = o.get("pid").and_then(Value::as_i64).filter(|p| *p > 1) {
             if !process_alive(pid) {
                 unlink(&p.pending.join(name));
@@ -83,6 +130,19 @@ pub fn all_pending(p: &Paths, now: i64) -> Vec<Value> {
                 .collect()
         })
         .unwrap_or_default();
+    // Requests from sandboxed agents, marked so the phone shows where they come from.
+    for (id, sp) in sandboxes(p) {
+        if let Ok(rd) = std::fs::read_dir(&sp.pending) {
+            for e in rd.flatten().take(MAX_SANDBOX_ENTRIES) {
+                if let Some(mut req) =
+                    load_pending_in(&sp, &e.file_name().to_string_lossy(), now, true)
+                {
+                    req["sandbox"] = json!(id);
+                    items.push(req);
+                }
+            }
+        }
+    }
     items.sort_by(|a, b| {
         (a["ts"].as_i64(), a["id"].as_str()).cmp(&(b["ts"].as_i64(), b["id"].as_str()))
     });
@@ -183,15 +243,24 @@ pub fn run(p: &Paths, args: &[String]) -> Value {
         crate::trust::revoke(p, rid);
         return json!({"ok": true});
     }
-    let req = load_pending(p, &format!("{rid}.json"), t);
+    // The request lives in the host queue or in one sandbox's queue; the decision goes to the same one.
+    let name = format!("{rid}.json");
+    let (home, req) = match load_pending(p, &name, t) {
+        Some(r) => (None, Some(r)),
+        None => sandboxes(p)
+            .into_iter()
+            .find_map(|(_, sp)| load_pending_in(&sp, &name, t, true).map(|r| (Some(sp), Some(r))))
+            .unwrap_or((None, None)),
+    };
+    let q = home.as_ref().unwrap_or(p);
     match sub {
         "ack" => {
             if req.is_some_and(|r| r["kind"] == "notify") {
-                unlink(&p.pending.join(format!("{rid}.json")));
+                unlink(&q.pending.join(&name));
             }
             json!({"ok": true})
         }
-        "decide" => decide(p, rid, &body, req.as_ref()),
+        "decide" => decide(q, rid, &body, req.as_ref()),
         _ => error("unknown subcommand"),
     }
 }
@@ -250,5 +319,158 @@ mod stale_tests {
         let pid = i64::from(child.id());
         child.wait().unwrap();
         assert!(!process_alive(pid));
+    }
+}
+
+#[cfg(test)]
+mod sandbox_tests {
+    use super::*;
+    use std::os::unix::fs::{symlink, PermissionsExt};
+    use std::path::{Path, PathBuf};
+
+    fn private(p: &Path) {
+        std::fs::create_dir_all(p).unwrap();
+        std::fs::set_permissions(p, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+
+    fn host(root: &Path) -> Paths {
+        let home = root.join(".ssh-app");
+        let run = home.join("run");
+        for d in [&home, &run, &run.join("pending"), &run.join("decisions")] {
+            private(d);
+        }
+        Paths {
+            pending: run.join("pending"),
+            decisions: run.join("decisions"),
+            sessions: run.join("sessions"),
+            limits: run.join("limits"),
+            allowed: home.join("allowed_signers"),
+            guard: home.join("guard.json"),
+            run,
+            home,
+        }
+    }
+
+    fn sandbox(p: &Paths, id: &str) -> PathBuf {
+        let base = p.home.join("sandboxes").join(id);
+        for d in [
+            &p.home.join("sandboxes"),
+            &base,
+            &base.join("run"),
+            &base.join("run/pending"),
+            &base.join("run/decisions"),
+        ] {
+            private(d);
+        }
+        base
+    }
+
+    const RID: &str = "0123456789abcdef0123456789abcdef";
+
+    fn request(rid: &str, pid: Option<i64>) -> String {
+        let mut v = json!({"id": rid, "kind": "approval", "ts": now(), "expires": now() + 100,
+            "agent": "claude", "event": "PermissionRequest", "tool": "Bash", "command": "ls",
+            "cwd": "/work/repo", "session": "s", "nonce": "n", "command_sha256": "x"});
+        if let Some(pid) = pid {
+            v["pid"] = json!(pid);
+        }
+        v.to_string()
+    }
+
+    fn put(path: &Path, text: &str) {
+        std::fs::write(path, text).unwrap();
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+
+    #[test]
+    fn a_sandbox_request_is_listed_with_its_mark_and_its_container_pid_is_ignored() {
+        let d = tempfile::tempdir().unwrap();
+        let p = host(d.path());
+        let base = sandbox(&p, "demo-1");
+        // A pid that cannot exist on the host: inside a container it means nothing.
+        put(
+            &base.join("run/pending").join(format!("{RID}.json")),
+            &request(RID, Some(4_000_000)),
+        );
+        let items = all_pending(&p, now());
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["sandbox"], "demo-1");
+    }
+
+    #[test]
+    fn a_decision_goes_to_the_sandbox_that_asked_and_never_to_the_host_queue() {
+        let d = tempfile::tempdir().unwrap();
+        let p = host(d.path());
+        let base = sandbox(&p, "demo-1");
+        put(
+            &base.join("run/pending").join(format!("{RID}.json")),
+            &request(RID, None),
+        );
+        let t = now();
+        let (home, req) = sandboxes(&p)
+            .into_iter()
+            .find_map(|(_, sp)| {
+                load_pending_in(&sp, &format!("{RID}.json"), t, true).map(|r| (sp, r))
+            })
+            .unwrap();
+        let body = json!({"id": RID, "approved": true, "ts": t, "signature": "sig"});
+        assert_eq!(decide(&home, RID, &body, Some(&req))["ok"], true);
+        let written = std::fs::read_dir(base.join("run/decisions"))
+            .unwrap()
+            .count();
+        assert_eq!(written, 1);
+        assert_eq!(std::fs::read_dir(&p.decisions).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn symlinks_fifos_loose_folders_and_floods_inside_a_sandbox_cannot_hurt_the_reader() {
+        let d = tempfile::tempdir().unwrap();
+        let p = host(d.path());
+        let base = sandbox(&p, "demo-1");
+        let pending = base.join("run/pending");
+        // A symlink to a real request elsewhere is not followed.
+        let outside = d.path().join("real.json");
+        put(&outside, &request(RID, None));
+        symlink(&outside, pending.join(format!("{RID}.json"))).unwrap();
+        // A FIFO under a valid name must not block the reader.
+        let fifo_id = "fedcba9876543210fedcba9876543210";
+        let c = std::ffi::CString::new(pending.join(format!("{fifo_id}.json")).to_str().unwrap())
+            .unwrap();
+        // SAFETY: mkfifo with a valid NUL-terminated path.
+        assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+        // A flood: far more files than the reader looks at.
+        for i in 0..400 {
+            put(&pending.join(format!("junk-{i}")), "x");
+        }
+        let t = Instant::now();
+        let items = all_pending(&p, now());
+        assert!(items.is_empty(), "{items:?}");
+        assert!(t.elapsed() < Duration::from_secs(3));
+    }
+
+    #[test]
+    fn a_sandbox_folder_that_is_not_private_or_has_a_bad_name_is_skipped() {
+        let d = tempfile::tempdir().unwrap();
+        let p = host(d.path());
+        let base = sandbox(&p, "demo-1");
+        put(
+            &base.join("run/pending").join(format!("{RID}.json")),
+            &request(RID, None),
+        );
+        std::fs::set_permissions(
+            base.join("run/pending"),
+            std::fs::Permissions::from_mode(0o755),
+        )
+        .unwrap();
+        assert!(
+            all_pending(&p, now()).is_empty(),
+            "a loosened queue is not trusted"
+        );
+        let bad = sandbox(&p, "Bad_Name");
+        put(
+            &bad.join("run/pending").join(format!("{RID}.json")),
+            &request(RID, None),
+        );
+        assert!(sandboxes(&p).is_empty());
     }
 }

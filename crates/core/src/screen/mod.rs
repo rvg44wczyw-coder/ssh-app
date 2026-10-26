@@ -1,11 +1,13 @@
 //! The agent feed built from the tmux screen (`tmux capture-pane -p -J -S -`) instead of the
 //! agent's session file. Pure text in, typed turns out; the capture itself is `host_api`.
 //!
-//! Two agents are understood, each by the markers its terminal UI prints:
+//! Four agents are understood, each by the markers its terminal UI prints:
 //! - Claude Code: `⏺` reply / tool call, `❯` your input, `⎿` result, `✻` turn summary, folded
 //!   tool groups ("Searched for 1 pattern (ctrl+o to expand)");
 //! - Antigravity CLI (agy): `>` your input, `○ Thought for …`, `● Ran 5 commands (…)`, indented
-//!   reply text, `──── Conversation compacted ────`.
+//!   reply text, `──── Conversation compacted ────`;
+//! - Codex: `›` your input, `•` reply / `• Ran …` command with its `└` output, `Worked for …`;
+//! - Grok: `❯` your input, `◆ Thought for`, `◈ Ran …` tools, boxed composer `╭ │ ❯ │ ╰── Grok 4.7`, `Worked for`.
 //!
 //! Every element of the screen becomes its own turn, in screen order, so the order of the story
 //! (text, tool, thinking) is never rearranged. What is not recognised becomes a folded
@@ -64,6 +66,8 @@ pub struct ScreenFeed {
 pub enum ScreenDialect {
     Claude,
     Agy,
+    Codex,
+    Grok,
     Unknown,
 }
 
@@ -97,7 +101,10 @@ pub fn parse_screen_feed(text: String) -> ScreenFeed {
         Overlay::None => {}
     }
     // A menu replaces the input box: cut it off before anything else reads the lines.
-    let prompt = match (aside.is_some() || dialog.is_some(), parse_prompt(&lines)) {
+    let prompt = match (
+        aside.is_some() || dialog.is_some(),
+        parser.prompt(&lines).or_else(|| parse_prompt(&lines)),
+    ) {
         (false, Some((start, p))) => {
             lines.truncate(start);
             Some(p)
@@ -107,7 +114,9 @@ pub fn parse_screen_feed(text: String) -> ScreenFeed {
     let (footer, draft) = if prompt.is_some() || aside.is_some() || dialog.is_some() {
         (lines.len(), None)
     } else {
-        split_footer(&lines)
+        parser
+            .footer(&lines)
+            .unwrap_or_else(|| split_footer(&lines))
     };
     lines.truncate(footer);
     let status = take_status(&mut lines);
@@ -196,14 +205,26 @@ fn take_status(lines: &mut Vec<String>) -> Option<String> {
         cut = lines[..cut].iter().rposition(|l| !l.is_empty())?;
     }
     if cut != idx {
-        if is_agy_spinner(&lines[cut]) {
+        if is_agy_spinner(&lines[cut]) || codex::is_working_line(&lines[cut]) {
             idx = cut;
         } else {
             return None;
         }
     }
-    let l = lines[idx].clone();
-    if is_agy_spinner(&l) {
+    let l = lines[idx].trim_end_matches(['█', ' ']).to_string();
+    // Grok: `◎ 1 command still running` while a background command lives
+    if (l.trim_start().starts_with('◎') || l.trim_start().starts_with('◉'))
+        && l.contains("still running")
+    {
+        lines.truncate(idx);
+        return Some(l.trim().to_string());
+    }
+    // Grok's working line ends with its stop button: `◆ Running Write … 0.7s   3.0s ⇣36.5k [stop]`
+    if l.ends_with("[stop]") && !l.trim_start().starts_with('⠀') {
+        lines.truncate(idx);
+        return Some(l.trim().to_string());
+    }
+    if is_agy_spinner(&l) || codex::is_working_line(&l) {
         lines.truncate(idx);
         return Some(l.trim().to_string());
     }
@@ -241,7 +262,10 @@ fn is_agy_spinner(l: &str) -> bool {
 /// Lines Antigravity puts under its spinner: queued messages, the tip, the send-now note.
 fn is_agy_under_spinner(l: &str) -> bool {
     let t = l.trim_start();
-    t.starts_with("▸ ") || t.starts_with("└ ") || t.starts_with("⎿  Sending to agent")
+    t.starts_with("▸ ")
+        || t.starts_with("└ ")
+        || t.starts_with("⎿  Sending to agent")
+        || grok::is_queue_line(l)
 }
 
 #[derive(Default)]
@@ -350,6 +374,8 @@ mod dialect;
 use dialect::*;
 mod agy;
 use agy::*;
+mod codex;
+mod grok;
 mod tools;
 use tools::*;
 mod merge;

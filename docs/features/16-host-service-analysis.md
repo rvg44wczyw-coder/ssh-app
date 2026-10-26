@@ -1,5 +1,7 @@
 # Feature 16: Host-side service — what it is for, and how to build it
 
+> **Note (2026-10-26):** parts of this document that describe the Unix-socket approval scheme are superseded by the file queue (`~/.ssh-app/run/{pending,decisions}`, signed by the phone key). See specs 24, 57 and 62.
+
 **Status:** analysis (2026-10-17). No code yet. Builds on features 03, 09, 11, 13, 15 and the
 usage probe (`crates/core/src/usage.rs`). Decisions that need the owner are in §9.
 

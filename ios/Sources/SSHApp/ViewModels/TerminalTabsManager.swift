@@ -97,7 +97,7 @@ public final class TerminalTabsManager: ObservableObject {
     public func closeSession(
         id: UUID,
         server: ServerProfile? = nil,
-        privateKey: String? = nil
+        key: KeyRef? = nil
     ) {
         guard sessions.count > 1 else {
             print("[TabsManager] Cannot close last remaining session")
@@ -133,19 +133,18 @@ public final class TerminalTabsManager: ObservableObject {
 
         if !remainingUsingSameTmux,
            let server = server,
-           let privateKey = privateKey,
+           let key = key,
            !server.host.isEmpty,
-           !server.username.isEmpty,
-           !privateKey.isEmpty {
+           !server.username.isEmpty {
             let config = RemoteServerConfig(
                 host: server.host,
                 port: server.port,
                 username: server.username,
-                privateKeyPem: privateKey,
+                key: key,
                 pinnedHostKey: server.hostKeyFingerprint
             )
             Task.detached {
-                print("[TabsManager] Terminating remote tmux session '\(tmuxSessionName)' on \(server.name)...")
+                print("[TabsManager] Terminating a remote tmux session...")
                 do {
                     try await killRemoteSession(config: config, sessionName: tmuxSessionName, multiplexer: HostTargetCache.multiplexer(host: server.host, port: server.port, username: server.username))
                     print("[TabsManager] Successfully terminated remote tmux session '\(tmuxSessionName)'")

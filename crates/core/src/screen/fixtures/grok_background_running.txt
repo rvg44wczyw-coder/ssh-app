@@ -1,0 +1,40 @@
+
+  main ~/project [Click here to Upgrade]                       ◆ 1 │ 20K / 256K │ [Dashboard]
+
+     ▾ Tasks 1
+     ⁙ Task Sleep 45 seconds in the background                                        10s [↗][✗]
+
+
+     ❯ Run in the background with the terminal tool: sleep 45 . Then reply with the     11:24 AM
+       word ok.
+
+
+     ◆ Thought for 3.4s
+
+     I'll start sleep 45 in the background, then reply.                                 11:24 AM
+
+     ◈ Ran sleep 45 seconds in the background                                                      █
+                                                                                                   █
+     ok                                                                                 11:24 AM   █
+                                                                                                   █
+     Worked for 21s                                                                                █
+                                                                                                   █
+                                                                                                   █
+                                                                                                   █
+                                                                                                   █
+                                                                                                   █
+
+    ◎ 1 command still running
+
+  Help improve Grok                                                             [Opt out] [Opt in]
+  Off by default. Opt-in to allow SpaceXAI to retain coding data, e.g.,
+  prompts, traces, & metrics, for training and debugging purposes. Change
+  anytime via settings.
+  Read Terms and Privacy Policy.
+
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────╮
+  │ ❯                                                                                            │
+  ╰──────────────────────────────────────────────────────────────────────────── Grok 4.7 (high) ─╯
+
+  Shift+Tab:mode  │  Ctrl+x:shortcuts
+

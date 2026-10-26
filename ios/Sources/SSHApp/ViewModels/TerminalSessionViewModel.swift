@@ -170,7 +170,7 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     public init(session: TabSession) {
         self.session = session
         self.isChatMode = Self.startsInFeed(session)
-        print("[SwiftVM \(instanceId)] initialized for session '\(session.title)' (id=\(session.id))")
+        print("[SwiftVM \(instanceId)] initialized (id=\(session.id))")
     }
 
     /// Plain terminals start in the chosen terminal folder; agent tabs keep their profile's folder.
@@ -180,8 +180,8 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         return TerminalFolder.normalized(TerminalFolder.stored)
     }
 
-    public func start(host: String, port: UInt16, username: String, privateKeyPEM: String) {
-        print("[SwiftVM \(instanceId)] start() host=\(host), port=\(port), user=\(username), state=\(state)")
+    public func start(host: String, port: UInt16, username: String, keyRef: KeyRef) {
+        print("[SwiftVM \(instanceId)] start() state=\(state)")
         guard state != .connected && state != .connecting else {
             print("[SwiftVM \(instanceId)] start() skipped: already \(state)")
             return
@@ -190,7 +190,7 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         self.terminalDataBuffer = Data()
         hostTarget = nil
         hostKey = HostTargetCache.key(host: host, port: port, username: username)
-        publicKeyLine = try? derivePublicKey(privateKeyOpenssh: privateKeyPEM)
+        publicKeyLine = (try? keyInfo(key: keyRef))??.publicKeyOpenssh
 
         // The first connection to a host in this app run asks which system it is (a Mac, Linux, WSL2
         // or native Windows), because that decides what keeps the session alive. It is advice only:
@@ -199,21 +199,21 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
             hostTarget = known
             let base = hostTargetMultiplexer(target: known)
             if base != .tmux {
-                connect(host: host, port: port, username: username, privateKeyPEM: privateKeyPEM, multiplexer: base)
+                connect(host: host, port: port, username: username, keyRef: keyRef, multiplexer: base)
                 return
             }
             self.state = .connecting
             Task { @MainActor in
-                let mux = await chooseMultiplexer(host: host, port: port, username: username, privateKeyPEM: privateKeyPEM)
+                let mux = await chooseMultiplexer(host: host, port: port, username: username, keyRef: keyRef)
                 self.state = .disconnected
-                connect(host: host, port: port, username: username, privateKeyPEM: privateKeyPEM, multiplexer: mux)
+                connect(host: host, port: port, username: username, keyRef: keyRef, multiplexer: mux)
             }
             return
         }
         self.state = .connecting
         self.errorMessage = nil
         let probe = RemoteServerConfig(host: host, port: port, username: username,
-                                       privateKeyPem: privateKeyPEM, pinnedHostKey: pinnedHostKey)
+                                       key: keyRef, pinnedHostKey: pinnedHostKey)
         Task { @MainActor in
             let target = try? await detectHostTargetOnce(config: probe)
             var multiplexer = MultiplexerKind.tmux
@@ -233,10 +233,10 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
                 }
             }
             if multiplexer == .tmux {
-                multiplexer = await chooseMultiplexer(host: host, port: port, username: username, privateKeyPEM: privateKeyPEM)
+                multiplexer = await chooseMultiplexer(host: host, port: port, username: username, keyRef: keyRef)
             }
             self.state = .disconnected
-            connect(host: host, port: port, username: username, privateKeyPEM: privateKeyPEM,
+            connect(host: host, port: port, username: username, keyRef: keyRef,
                     multiplexer: multiplexer)
         }
     }
@@ -244,7 +244,7 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     /// Server-level mode (feature 54): a command connection with no terminal, tmux or input stream,
     /// for the screens of a server that has no connected session. The host key must be pinned; the
     /// core refuses to connect without it. Safe to call again: a live connection is kept.
-    public func connectForServer(host: String, port: UInt16, username: String, privateKeyPEM: String) async {
+    public func connectForServer(host: String, port: UInt16, username: String, keyRef: KeyRef) async {
         hostKey = HostTargetCache.key(host: host, port: port, username: username)
         if hostTarget == nil { hostTarget = HostTargetCache.target(forKey: hostKey) }
         guard let pin = pinnedHostKey, !pin.isEmpty else {
@@ -253,7 +253,7 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         }
         if handle == nil {
             handle = SshSessionHandle.newExecOnly(config: RemoteServerConfig(
-                host: host, port: port, username: username, privateKeyPem: privateKeyPEM, pinnedHostKey: pin))
+                host: host, port: port, username: username, key: keyRef, pinnedHostKey: pin))
         }
         guard let handle else { return }
         if state != .connected { state = .connecting }
@@ -273,23 +273,23 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
 
     /// tmux unless the server prefers Zellij (and it is there) or tmux is not installed at all.
     /// One short connection per host and app run; any failure means tmux, as before.
-    private func chooseMultiplexer(host: String, port: UInt16, username: String, privateKeyPEM: String) async -> MultiplexerKind {
+    private func chooseMultiplexer(host: String, port: UInt16, username: String, keyRef: KeyRef) async -> MultiplexerKind {
         if let known = HostTargetCache.chosenMultiplexer(forKey: hostKey) { return known }
         let probe = RemoteServerConfig(host: host, port: port, username: username,
-                                       privateKeyPem: privateKeyPEM, pinnedHostKey: pinnedHostKey)
+                                       key: keyRef, pinnedHostKey: pinnedHostKey)
         let pref = HostTargetCache.multiplexerPreference(forKey: hostKey)
         let kind = (try? await detectMultiplexerOnce(config: probe, preference: pref)) ?? .tmux
         HostTargetCache.setChosenMultiplexer(kind, forKey: hostKey)
         return kind
     }
 
-    private func connect(host: String, port: UInt16, username: String, privateKeyPEM: String,
+    private func connect(host: String, port: UInt16, username: String, keyRef: KeyRef,
                          multiplexer: MultiplexerKind) {
         let config = SessionConfig(
             host: host,
             port: port,
             username: username,
-            privateKeyPem: privateKeyPEM,
+            key: keyRef,
             sessionName: session.sessionName,
             initialCols: lastCols,
             initialRows: lastRows,
@@ -317,13 +317,13 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         }
     }
 
-    public func forceRestart(host: String, port: UInt16, username: String, privateKeyPEM: String) {
+    public func forceRestart(host: String, port: UInt16, username: String, keyRef: KeyRef) {
         print("[SwiftVM] forceRestart() resetting state...")
         handle?.disconnect()
         handle = nil
         self.state = .disconnected
         self.errorMessage = nil
-        start(host: host, port: port, username: username, privateKeyPEM: privateKeyPEM)
+        start(host: host, port: port, username: username, keyRef: keyRef)
     }
 
     private var terminalDataBuffer = Data()
@@ -681,7 +681,8 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
                 sendInput(Data(Array(FeedSubmit.bytes(for: trimmed).dropLast())))
             }
             try? await Task.sleep(for: .milliseconds(120))
-            sendInput(Data([0x0d]))
+            // An agent whose Enter would not queue (Codex steers the turn with it) has its own queue key.
+            if working, let queue = traits.queueKeys { sendInput(Data(queue)) } else { sendInput(Data([0x0d])) }
         case .interrupt:
             guard await fillAfterInterrupt(trimmed) else {
                 dropEcho(text: trimmed)
@@ -690,9 +691,11 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
             try? await Task.sleep(for: .milliseconds(120))
             sendInput(Data([0x0d]))
         }
-        // A working agent queues the message and may show the queue next to the box, so the box says
-        // nothing then: it is read back only when the agent was idle.
-        if !working, await !confirmSubmitted(trimmed) {
+        // The box is read back whether the agent was idle or working: a busy agent can take the Enter as a
+        // newline of what it saw as a paste and keep the text in its box, and the next message typed
+        // would be glued to it. Queued messages are shown outside the box, so a box that still starts
+        // with the sent text means the Enter was lost.
+        if await !confirmSubmitted(trimmed) {
             dropEcho(text: trimmed)
             return .notSent
         }

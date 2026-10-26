@@ -57,6 +57,76 @@ pub fn agent_hooks_config_path(
     Ok(format!("{dir}/{file}"))
 }
 
+/// Where the hooks go: the agent's user-level file (every session of the agent) or one project's
+/// own file (only sessions started in that folder). Spec 61.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
+pub enum HookScope {
+    /// The agent's config directory (`None` = its default one).
+    User { config_dir: Option<String> },
+    /// A project folder on the host; `user_config_dir` is where the agent's user-level hooks would
+    /// be, to refuse a project install that would double an all-sessions one.
+    Project {
+        folder: String,
+        user_config_dir: Option<String>,
+    },
+}
+
+/// Remote path of the project-level file the hooks live in, from each agent's docs: Claude Code
+/// `settings.local.json` (personal, not committed by convention), Antigravity `.agents/hooks.json`,
+/// Codex `<repo>/.codex/hooks.json` (loaded only when the project layer is trusted, then reviewed
+/// with `/hooks`), Grok `<project>/.grok/hooks/` (any `.json` file) (needs `/hooks-trust`; the installer owns
+/// `ssh-app.json`), Qwen Code `.qwen/settings.json`, OpenCode `.opencode/plugins/`. Crush's project
+/// file is not confirmed, so it stays user-level.
+#[uniffi::export]
+pub fn agent_project_hooks_path(agent: AgentKind, folder: String) -> Result<String, SshCoreError> {
+    let file = match agent {
+        AgentKind::ClaudeCode => ".claude/settings.local.json",
+        AgentKind::Antigravity => ".agents/hooks.json",
+        AgentKind::Codex => ".codex/hooks.json",
+        AgentKind::Grok => ".grok/hooks/ssh-app.json",
+        AgentKind::QwenCode => ".qwen/settings.json",
+        AgentKind::OpenCode => ".opencode/plugins/ssh-app.js",
+        other => {
+            return Err(invalid(format!(
+                "Project-level hooks are not available for {other:?} yet; use all sessions"
+            )))
+        }
+    };
+    let folder = folder.trim();
+    validate_dir(folder)?;
+    if !(folder == "~" || folder.starts_with("~/") || folder.starts_with('/'))
+        || folder.split('/').any(|c| c == "..")
+    {
+        return Err(invalid(
+            "Project folder must be absolute or start with ~/, without ..",
+        ));
+    }
+    Ok(format!("{}/{file}", folder.trim_end_matches('/')))
+}
+
+/// The config file of `scope` for `agent`.
+#[uniffi::export]
+pub fn agent_hooks_target_path(agent: AgentKind, scope: HookScope) -> Result<String, SshCoreError> {
+    match scope {
+        HookScope::User { config_dir } => agent_hooks_config_path(agent, config_dir),
+        HookScope::Project { folder, .. } => agent_project_hooks_path(agent, folder),
+    }
+}
+
+/// A project install is refused while the same agent's user-level hooks are present: both levels
+/// would register, and every request would reach the phone twice.
+pub fn check_project_install(
+    agent: AgentKind,
+    user_level_config: String,
+) -> Result<(), SshCoreError> {
+    if agent_hooks_installed(agent, user_level_config) {
+        return Err(invalid(
+            "The hooks are already active for every session of this agent; remove them there first",
+        ));
+    }
+    Ok(())
+}
+
 pub(super) fn no_hooks(agent: AgentKind) -> SshCoreError {
     invalid(format!(
         "{agent:?} has no hook mechanism ssh-app can use; it asks in its own terminal"

@@ -160,8 +160,9 @@ impl SshSessionHandle {
         expected_sha256: String,
         device_name: String,
     ) -> Result<crate::onboarding::HostPairResult, SshCoreError> {
-        let key = zeroize::Zeroizing::new(read_ok(&self.config).private_key_pem.clone());
-        let public = crate::keys::derive_public_key((*key).clone())?;
+        let public = crate::key_store::key_info(read_ok(&self.config).key.clone())?
+            .ok_or(SshCoreError::NotConnected)?
+            .public_key_openssh;
         let (cmd, input) =
             crate::onboarding::build_pair_command(&expected_sha256, &public, &device_name)?;
         let out = self.exec_with_stdin_text(&cmd, input.as_bytes()).await?;

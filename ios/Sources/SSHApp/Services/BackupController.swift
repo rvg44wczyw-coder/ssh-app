@@ -26,20 +26,27 @@ final class BackupController: ObservableObject {
     @Published var report: String?
 
     private var pendingFile: Data?
+    /// The passphrase the file was opened with, kept only until the keys inside are unsealed.
+    private var openedWith: Data?
 
     // MARK: Export
 
     /// Everything a key group needs: the default key and the extra ones, with their names.
-    func keyRecords() -> [BackupService.KeyRecord] {
+    /// With a `passphrase` the private halves are sealed by the core under it; without one the
+    /// records are only a list of choices (nothing secret).
+    func keyRecords(passphrase: Data? = nil, only: Set<String>? = nil) -> [BackupService.KeyRecord] {
         var out: [BackupService.KeyRecord] = []
-        if let pem = KeychainManager.shared.getPrivateKey(id: nil) {
-            out.append(.init(id: "default", name: "Default key", privateKey: pem))
-        }
-        for k in SSHKeyStore.shared.extra {
-            if let pem = KeychainManager.shared.getPrivateKey(id: k.id) {
-                out.append(.init(id: k.id, name: k.name, privateKey: pem))
+        func add(id: String, name: String, keyId: String?) {
+            guard let pub = KeychainManager.shared.getOrDerivePublicKey(id: keyId) else { return }
+            var sealed = ""
+            if let passphrase, only?.contains(id) ?? true {
+                guard let blob = try? keySeal(key: KeychainManager.shared.keyRef(keyId), password: passphrase) else { return }
+                sealed = blob.base64EncodedString()
             }
+            out.append(.init(id: id, name: name, sealed: sealed, publicKey: pub))
         }
+        add(id: "default", name: "Default key", keyId: nil)
+        for k in SSHKeyStore.shared.extra { add(id: k.id, name: k.name, keyId: k.id) }
         return out
     }
 
@@ -47,6 +54,10 @@ final class BackupController: ObservableObject {
     func export(servers: ServerProfilesManager, agents: AgentProfilesManager, passphrase: Data?) async -> URL? {
         error = nil
         Self.removeExports()
+        if !selection.keyIDs.isEmpty, selection.groups.contains(BackupService.GroupID.keys), passphrase == nil {
+            error = "Keys can only be exported with a passphrase"
+            return nil
+        }
         let secret = !selection.keyIDs.isEmpty && selection.groups.contains(BackupService.GroupID.keys)
             || selection.groups.contains(BackupService.GroupID.secretValues)
             || selection.groups.contains(BackupService.GroupID.hooks)
@@ -59,7 +70,8 @@ final class BackupController: ObservableObject {
         let groups = BackupService.buildGroups(
             servers: servers.profiles, profiles: agents.profiles, snippets: snippets,
             configJSON: UserDefaults.standard.string(forKey: AppConfigStore.storageKey) ?? "",
-            keys: keyRecords(), selection: selection)
+            keys: keyRecords(passphrase: passphrase, only: selection.keyIDs), selection: selection,
+            sandboxHosts: SyncedSandboxHost.outgoing())
         guard !groups.isEmpty else { error = "Nothing selected to export"; return nil }
         do {
             let data = try backupExport(groups: groups, passphrase: passphrase,
@@ -86,6 +98,7 @@ final class BackupController: ObservableObject {
         report = nil
         do {
             let c = try backupOpen(file: data, passphrase: passphrase)
+            openedWith = passphrase
             contents = c
             preview = BackupService.preview(c)
             modes = Dictionary(preview.map { ($0.id, ImportMode.merge) }, uniquingKeysWith: { a, _ in a })
@@ -110,6 +123,7 @@ final class BackupController: ObservableObject {
     }
 
     func reset() {
+        openedWith = nil
         contents = nil
         preview = []
         modes = [:]
@@ -125,6 +139,7 @@ final class BackupController: ObservableObject {
 
     func apply(servers: ServerProfilesManager, agents: AgentProfilesManager) async {
         guard let contents, canApply else { return }
+        defer { openedWith = nil }
         var lines: [String] = []
         func mode(_ id: String) -> ImportMode { modes[id] ?? .skip }
         let touchesKeys = mode(BackupService.GroupID.keys) != .skip || mode(BackupService.GroupID.secretValues) != .skip
@@ -174,6 +189,22 @@ final class BackupController: ObservableObject {
                 }
                 AppConfigStore.shared.replace(loadAppConfig(storedJson: normalized))
                 lines.append("Settings: replaced")
+            case BackupService.GroupID.sandboxHosts:
+                let incoming = BackupService.sandboxHosts(in: g)
+                var added = 0
+                for agent in SandboxAllowStore.agents {
+                    let theirs = incoming.filter { $0.agent == agent }.map(\.host)
+                    guard !theirs.isEmpty else { continue }
+                    let mine = SandboxAllowStore.hosts(agent)
+                    // Replace: the file's list for this agent; otherwise the two lists joined.
+                    let merged = overwrite ? theirs : mine + theirs.filter { !mine.contains($0) }
+                    if merged != mine {
+                        added += overwrite ? theirs.count : merged.count - mine.count
+                        SandboxAllowStore.set(merged, for: agent)
+                    }
+                }
+                lines.append("Sandbox hosts: \(added) added or replaced")
+                VaultSync.shared.sync()
             case BackupService.GroupID.keys:
                 lines.append("Keys: \(await importKeys(BackupService.keys(in: g))) imported")
             case BackupService.GroupID.secretValues:
@@ -190,19 +221,29 @@ final class BackupController: ObservableObject {
         modes = [:]
     }
 
-    /// New keys only: one whose public half is already here is left alone, never overwritten.
+    /// New keys only: one whose public half is already here is left alone, never overwritten. The
+    /// core unseals each key straight into the Keychain; Swift never sees the key text.
     private func importKeys(_ records: [BackupService.KeyRecord]) async -> Int {
+        guard let pass = openedWith else { return 0 }
         var existing = Set<String>()
-        if let p = KeychainManager.shared.getPublicKey(id: nil) { existing.insert(Self.keyBody(p)) }
-        for k in SSHKeyStore.shared.extra { if let p = KeychainManager.shared.getPublicKey(id: k.id) { existing.insert(Self.keyBody(p)) } }
+        if let p = KeychainManager.shared.getOrDerivePublicKey(id: nil) { existing.insert(Self.keyBody(p)) }
+        for k in SSHKeyStore.shared.extra { if let p = KeychainManager.shared.getOrDerivePublicKey(id: k.id) { existing.insert(Self.keyBody(p)) } }
         var n = 0
         for r in records {
-            guard let imported = try? importPrivateKey(armoredKey: r.privateKey.trimmingCharacters(in: .whitespacesAndNewlines) + "\n", passphrase: nil),
-                  !existing.contains(Self.keyBody(imported.publicKeyOpenssh)) else { continue }
-            if (try? await SSHKeyStore.shared.importKey(name: r.name, privateKey: r.privateKey)) != nil {
-                existing.insert(Self.keyBody(imported.publicKeyOpenssh))
-                n += 1
+            guard !existing.contains(Self.keyBody(r.publicKey)), let blob = Data(base64Encoded: r.sealed) else { continue }
+            let id = UUID().uuidString
+            let ref = KeychainManager.shared.keyRef(id)
+            let info = try? await Task.detached(priority: .userInitiated) {
+                try keyUnseal(key: ref, sealed: blob, password: pass, overwrite: false)
+            }.value
+            guard let info else { continue }
+            guard Self.keyBody(info.publicKeyOpenssh) == Self.keyBody(r.publicKey) else {
+                try? KeychainManager.shared.deleteKey(id: id)
+                continue
             }
+            SSHKeyStore.shared.adopt(id: id, name: r.name)
+            existing.insert(Self.keyBody(info.publicKeyOpenssh))
+            n += 1
         }
         return n
     }

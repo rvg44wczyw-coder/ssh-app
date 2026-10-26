@@ -219,10 +219,19 @@ mod detection_golden {
     }
 
     #[test]
+    fn codex_is_found_directly_and_behind_its_node_package() {
+        assert_eq!(detect("100 1 -zsh\n101 100 codex"), "codex 101");
+        assert_eq!(
+            detect("100 1 -zsh\n101 100 node /usr/lib/node_modules/@openai/codex/bin/codex.js"),
+            "codex 101"
+        );
+    }
+
+    #[test]
     fn other_programs_and_agents_not_connected_yet_are_not_found() {
         assert_eq!(detect("100 1 -zsh\n101 100 vim notes.txt"), "");
-        assert_eq!(detect("100 1 -zsh\n101 100 codex"), "");
-        assert_eq!(detect("100 1 -zsh\n101 100 grok"), "");
+        assert_eq!(detect("100 1 -zsh\n101 100 aider"), "");
+        assert_eq!(detect("100 1 -zsh\n101 100 grok"), "grok 101");
         // Not below the pane process: another terminal's claude is ignored.
         assert_eq!(detect("100 1 -zsh\n200 1 -zsh\n201 200 claude"), "");
     }
@@ -363,6 +372,104 @@ mod locate_end_to_end {
         assert_eq!(h.locate(), new);
         h.note_session("sess", "antigravity", "aaa");
         assert_eq!(h.locate(), old);
+    }
+
+    fn codex_file(h: &Host, name: &str, cwd: &str, age: u64) -> String {
+        let rel = format!(".codex/sessions/2026/10/25/{name}");
+        let p = h.home.path().join(&rel);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(
+            &p,
+            format!("{{\"type\":\"session_meta\",\"payload\":{{\"cwd\":\"{cwd}\"}}}}\n"),
+        )
+        .unwrap();
+        let t = std::time::SystemTime::now() - std::time::Duration::from_secs(age);
+        std::fs::File::options()
+            .write(true)
+            .open(&p)
+            .unwrap()
+            .set_modified(t)
+            .unwrap();
+        p.to_string_lossy().into_owned()
+    }
+
+    #[test]
+    fn codex_by_the_noted_id_else_the_newest_rollout_of_its_folder() {
+        let h = Host::new("100 1 -zsh\n101 100 codex", "/tmp/project");
+        let mine_old = codex_file(
+            &h,
+            "rollout-2026-10-25T10-00-00-aaa111.jsonl",
+            "/tmp/project",
+            500,
+        );
+        let mine_new = codex_file(
+            &h,
+            "rollout-2026-10-25T11-00-00-bbb222.jsonl",
+            "/tmp/project",
+            50,
+        );
+        codex_file(
+            &h,
+            "rollout-2026-10-25T12-00-00-ccc333.jsonl",
+            "/tmp/other",
+            5,
+        );
+        // No noted id: the newest rollout that was started in this folder, not the newest of all.
+        assert_eq!(h.locate(), mine_new);
+        h.note_session("sess", "codex", "aaa111");
+        assert_eq!(h.locate(), mine_old);
+    }
+
+    #[test]
+    fn codex_finds_nothing_for_a_folder_without_a_rollout() {
+        let h = Host::new("100 1 -zsh\n101 100 codex", "/tmp/project");
+        codex_file(
+            &h,
+            "rollout-2026-10-25T12-00-00-ccc333.jsonl",
+            "/tmp/other",
+            5,
+        );
+        assert_eq!(h.locate(), "");
+        // A note that names a file which does not exist, or names a path, is ignored.
+        h.note_session("sess", "codex", "../../x");
+        assert_eq!(h.locate(), "");
+    }
+
+    fn grok_file(h: &Host, folder: &str, sid: &str, age: u64) -> String {
+        let p = h
+            .home
+            .path()
+            .join(format!(".grok/sessions/{folder}/{sid}/chat_history.jsonl"));
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(&p, "{}\n").unwrap();
+        let t = std::time::SystemTime::now() - std::time::Duration::from_secs(age);
+        std::fs::File::options()
+            .write(true)
+            .open(&p)
+            .unwrap()
+            .set_modified(t)
+            .unwrap();
+        p.to_string_lossy().into_owned()
+    }
+
+    #[test]
+    fn grok_by_the_noted_id_else_the_newest_session_of_its_folder() {
+        let h = Host::new("100 1 -zsh\n101 100 grok", "/tmp/my project");
+        let old = grok_file(&h, "%2Ftmp%2Fmy%20project", "aaa111", 500);
+        let new = grok_file(&h, "%2Ftmp%2Fmy%20project", "bbb222", 50);
+        grok_file(&h, "%2Ftmp%2Fother", "ccc333", 5);
+        assert_eq!(h.locate(), new);
+        h.note_session("sess", "grok", "aaa111");
+        assert_eq!(h.locate(), old);
+    }
+
+    #[test]
+    fn grok_finds_nothing_for_a_folder_without_a_session_and_ignores_path_notes() {
+        let h = Host::new("100 1 -zsh\n101 100 grok", "/tmp/project");
+        grok_file(&h, "%2Ftmp%2Fother", "ccc333", 5);
+        assert_eq!(h.locate(), "");
+        h.note_session("sess", "grok", "../../x");
+        assert_eq!(h.locate(), "");
     }
 
     /// Hacker finding 1: the tab name is text, not a pattern (`.` is allowed in tab names).

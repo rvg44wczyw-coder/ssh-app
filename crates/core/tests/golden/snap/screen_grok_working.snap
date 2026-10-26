@@ -1,0 +1,72 @@
+ScreenFeed {
+    dialect: Grok,
+    turns: [
+        TranscriptTurn {
+            id: "scr0",
+            step_index: 0,
+            turn_type: User,
+            timestamp: None,
+            content: Some(
+                "List the files in the docs folder using the list_dir tool, then summarise in one sentence. Do not run shell commands and do not edit files.",
+            ),
+            thinking: None,
+            tool_calls: [],
+            status: Done,
+            label: None,
+        },
+        TranscriptTurn {
+            id: "scr1",
+            step_index: 1,
+            turn_type: System,
+            timestamp: None,
+            content: None,
+            thinking: None,
+            tool_calls: [],
+            status: Done,
+            label: Some(
+                "Thought for 0.5s",
+            ),
+        },
+        TranscriptTurn {
+            id: "scr2",
+            step_index: 2,
+            turn_type: Assistant,
+            timestamp: None,
+            content: Some(
+                "I'll list the docs folder and then summarize it in one sentence.",
+            ),
+            thinking: None,
+            tool_calls: [],
+            status: Done,
+            label: None,
+        },
+        TranscriptTurn {
+            id: "scr3",
+            step_index: 3,
+            turn_type: Assistant,
+            timestamp: None,
+            content: None,
+            thinking: None,
+            tool_calls: [
+                TranscriptToolCall {
+                    call_id: "scr3",
+                    tool_name: "LS",
+                    arguments_summary: "docs (175 entries)",
+                    full_arguments_json: None,
+                    result: None,
+                    is_error: false,
+                    status: Done,
+                },
+            ],
+            status: Done,
+            label: None,
+        },
+    ],
+    status: Some(
+        "⠴ Waiting for response… 0.3s                                                3.0s ⇣20.1k [stop]",
+    ),
+    draft: None,
+    prompt: None,
+    aside: None,
+    dialog: None,
+}

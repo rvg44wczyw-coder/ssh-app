@@ -76,7 +76,7 @@ pub(crate) struct Endpoint<'a> {
     pub host: &'a str,
     pub port: u16,
     pub username: &'a str,
-    pub private_key_pem: &'a str,
+    pub key: &'a crate::key_store::KeyRef,
     pub pinned_host_key: Option<&'a str>,
 }
 
@@ -129,7 +129,10 @@ pub(crate) async fn connect_authenticated(
     keepalive: Duration,
     keepalive_max: usize,
 ) -> Result<Connection, SshCoreError> {
-    let key = PrivateKeyWithHashAlg::new(Arc::new(parse_private_key(ep.private_key_pem)?), None);
+    let key = {
+        let pem = crate::key_store::load_pem(ep.key)?;
+        PrivateKeyWithHashAlg::new(Arc::new(parse_private_key(&pem)?), None)
+    };
     let mut conn = open_connection(
         ep.host,
         ep.port,

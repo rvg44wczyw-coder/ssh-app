@@ -25,9 +25,11 @@ struct SecretState: Codable, Equatable {
     var payloads: [String: String] = [:]
 }
 
+/// A key in the sync payload. The private half is `sealed`: the core's ChaCha20-Poly1305 blob under
+/// the vault key (base64 of bytes), never the key text.
 struct SyncedKey: Codable, Equatable {
     var name: String
-    var privateKey: String
+    var sealed: String
     var publicKey: String
 }
 
@@ -196,11 +198,17 @@ enum VaultSecretItems {
         return head.contains(first) && first.isASCII && s.unicodeScalars.allSatisfy { $0.isASCII && rest.contains($0) }
     }
 
-    static func keyItems(default hasDefault: Bool, extra: [SSHKeyInfo], keychain: KeychainManager = .shared) -> [SecretItem] {
+    /// `secret` is the vault key; without it the items carry no payload (enough for a list).
+    static func keyItems(default hasDefault: Bool, extra: [SSHKeyInfo], secret: Data? = nil, keychain: KeychainManager = .shared) -> [SecretItem] {
         var out: [SecretItem] = []
         func item(id: String?, name: String) {
-            guard let priv = keychain.getPrivateKey(id: id), let pub = keychain.getOrDerivePublicKey(id: id),
-                  let data = try? JSONEncoder().encode(SyncedKey(name: name, privateKey: priv, publicKey: pub)),
+            guard let pub = keychain.getOrDerivePublicKey(id: id) else { return }
+            guard let secret else {
+                out.append(SecretItem(id: SecretIDs.key(id), label: name, payload: ""))
+                return
+            }
+            guard let sealed = try? keySealStable(key: keychain.keyRef(id), secret: secret),
+                  let data = try? JSONEncoder().encode(SyncedKey(name: name, sealed: sealed.base64EncodedString(), publicKey: pub)),
                   let json = String(data: data, encoding: .utf8) else { return }
             out.append(SecretItem(id: SecretIDs.key(id), label: name, payload: json))
         }
@@ -233,12 +241,12 @@ enum VaultSecretItems {
             guard let k = try? JSONDecoder().decode(SyncedKey.self, from: data),
                   !k.name.isEmpty, k.name.count <= 100,
                   !k.name.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }),
-                  k.privateKey.count <= 8192,
-                  let derived = try? derivePublicKey(privateKeyOpenssh: k.privateKey),
-                  derived.trimmingCharacters(in: .whitespacesAndNewlines) == k.publicKey.trimmingCharacters(in: .whitespacesAndNewlines)
+                  k.sealed.count <= 4096, Data(base64Encoded: k.sealed) != nil,
+                  k.publicKey.hasPrefix("ssh-ed25519 "), k.publicKey.count <= 200
             else { return false }
             let keyId = SecretIDs.keyId(from: item.id)
-            if keyId == nil, hasDefaultKey, keychain.getPrivateKey(id: nil) != k.privateKey { return false }
+            // The default key is never replaced; the same key arriving again is a no-op.
+            if keyId == nil, hasDefaultKey, keychain.getOrDerivePublicKey(id: nil) != k.publicKey { return false }
             return keyId == nil || UUID(uuidString: keyId ?? "") != nil
         }
         if item.id.hasPrefix(SecretIDs.envPrefix) {
@@ -257,10 +265,19 @@ enum VaultSecretItems {
     /// Writes an accepted item. A key is stored like an imported one: this device only, never
     /// synchronizable. An env value replaces the line of the same name in the profile.
     @MainActor
-    static func apply(_ item: SecretItem, agents: AgentProfilesManager, keys: SSHKeyStore, keychain: KeychainManager = .shared) {
+    static func apply(_ item: SecretItem, secret: Data, agents: AgentProfilesManager, keys: SSHKeyStore, keychain: KeychainManager = .shared) {
         let data = Data(item.payload.utf8)
         if item.id.hasPrefix(SecretIDs.keyPrefix), let k = try? JSONDecoder().decode(SyncedKey.self, from: data) {
-            keys.adoptSynced(id: SecretIDs.keyId(from: item.id), name: k.name, privateKey: k.privateKey, publicKey: k.publicKey)
+            let keyId = SecretIDs.keyId(from: item.id)
+            let existed = keychain.hasPrivateKey(id: keyId)
+            guard let sealed = Data(base64Encoded: k.sealed),
+                  let info = try? keyUnsealStable(key: keychain.keyRef(keyId), sealed: sealed, secret: secret, overwrite: keyId != nil)
+            else { return }
+            if info.publicKeyOpenssh.split(separator: " ").prefix(2) != k.publicKey.split(separator: " ").prefix(2) {
+                if !existed { try? keychain.deleteKey(id: keyId) }
+                return
+            }
+            keys.adopt(id: keyId, name: k.name)
         } else if let e = try? JSONDecoder().decode(SyncedEnv.self, from: data), var list = Optional(agents.profiles), let i = list.firstIndex(where: { $0.id == e.profile }) {
             list[i].env.removeAll { $0.hasPrefix(e.name + "=") }
             list[i].env.append("\(e.name)=\(e.value)")

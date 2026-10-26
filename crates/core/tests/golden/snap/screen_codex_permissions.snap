@@ -1,0 +1,128 @@
+ScreenFeed {
+    dialect: Codex,
+    turns: [
+        TranscriptTurn {
+            id: "scr0",
+            step_index: 0,
+            turn_type: User,
+            timestamp: None,
+            content: Some(
+                "tabbed message two",
+            ),
+            thinking: None,
+            tool_calls: [],
+            status: Done,
+            label: None,
+        },
+        TranscriptTurn {
+            id: "scr1",
+            step_index: 1,
+            turn_type: Assistant,
+            timestamp: None,
+            content: Some(
+                "Received.",
+            ),
+            thinking: None,
+            tool_calls: [],
+            status: Done,
+            label: None,
+        },
+        TranscriptTurn {
+            id: "scr2",
+            step_index: 2,
+            turn_type: System,
+            timestamp: None,
+            content: None,
+            thinking: None,
+            tool_calls: [],
+            status: Done,
+            label: Some(
+                "Worked for 2s",
+            ),
+        },
+        TranscriptTurn {
+            id: "scr3",
+            step_index: 3,
+            turn_type: System,
+            timestamp: None,
+            content: Some(
+                "/status",
+            ),
+            thinking: None,
+            tool_calls: [],
+            status: Done,
+            label: Some(
+                "Terminal output",
+            ),
+        },
+        TranscriptTurn {
+            id: "scr4",
+            step_index: 4,
+            turn_type: System,
+            timestamp: None,
+            content: Some(
+                ">_ OpenAI Codex (v0.164.0)",
+            ),
+            thinking: None,
+            tool_calls: [],
+            status: Done,
+            label: Some(
+                "OpenAI Codex",
+            ),
+        },
+        TranscriptTurn {
+            id: "scr5",
+            step_index: 5,
+            turn_type: System,
+            timestamp: None,
+            content: Some(
+                "Visit https://chatgpt.com/settings/usage for up-to-date\n  information on rate limits and credits",
+            ),
+            thinking: None,
+            tool_calls: [],
+            status: Done,
+            label: Some(
+                "Terminal output",
+            ),
+        },
+    ],
+    status: None,
+    draft: None,
+    prompt: Some(
+        ScreenPrompt {
+            title: None,
+            detail: "Server:              Local background server\n\nModel:               GPT-6-Luna (reasoning medium)\nModel provider:      openai\nDirectory:           ~/project\nPermissions:         Workspace (Ask for approval)\nAgents.md:           AGENTS.md\nCollaboration mode:  Default\n\nContext window:      98% left (15.7K used / 258K)\nMonthly limit:       [████████████████████] 99% left (resets 11:51 on 24 Nov)",
+            question: "Update Model Permissions",
+            options: [
+                PromptOption {
+                    number: 1,
+                    label: "Ask for approval (current)",
+                    description: "Read and edit workspace files and run commands, with approval required for internet access or edits outside the workspace",
+                    checked: false,
+                },
+                PromptOption {
+                    number: 2,
+                    label: "Approve for me",
+                    description: "Only ask for actions detected as potentially unsafe",
+                    checked: false,
+                },
+                PromptOption {
+                    number: 3,
+                    label: "Full Access",
+                    description: "Use with caution: Codex can edit files outside this workspace and access the internet without approval",
+                    checked: false,
+                },
+                PromptOption {
+                    number: 4,
+                    label: "Read Only",
+                    description: "Read workspace files, with approval required for edits or internet access",
+                    checked: false,
+                },
+            ],
+            selected: 0,
+            multi: false,
+        },
+    ),
+    aside: None,
+    dialog: None,
+}

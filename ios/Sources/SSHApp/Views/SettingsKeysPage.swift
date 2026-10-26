@@ -35,6 +35,8 @@ struct KeysSettingsPage: View {
                         }
                         .padding(.vertical, 4)
 
+                        Button("Export private key…") { exportTarget = ExportTarget(keyId: nil, name: "Default key") }
+
                         Button(role: .destructive, action: { showRegenerateConfirmAlert = true }) {
                             Text("Regenerate New Keypair")
                         }
@@ -60,6 +62,7 @@ struct KeysSettingsPage: View {
                 }
         }
         .navigationTitle("SSH keys")
+        .sheet(item: $exportTarget) { KeyExportSheet(target: $0) }
         .onAppear(perform: loadCurrentKeyStatus)
             .alert("Copied!", isPresented: $showCopiedAlert) {
                 Button("OK", role: .cancel) {}
@@ -80,20 +83,25 @@ struct KeysSettingsPage: View {
     @State private var newKeyName = ""
     @State private var importingKey = false
     @State private var importText = ""
+    /// A key file read as bytes; it never becomes a `String`.
+    @State private var importFileData: Data? = nil
     @State private var showKeyFileImporter = false
     @State private var importPassphrase = ""
     @State private var importNeedsPassphrase = false
     @State private var importTask: Task<Void, Never>? = nil
     @State private var importError: String? = nil
     @State private var keyToDelete: SSHKeyInfo? = nil
+    @State private var exportTarget: ExportTarget? = nil
 
     private func startKeyImport() {
         let passphrase = importNeedsPassphrase && !importPassphrase.isEmpty ? Data(importPassphrase.utf8) : nil
         importPassphrase = ""
         importError = nil
+        let armored = importFileData ?? Data((importText.trimmingCharacters(in: .whitespacesAndNewlines) + "\n").utf8)
+        importText = ""; importFileData = nil
         importTask = Task {
             do {
-                try await keyStore.importKey(name: newKeyName, privateKey: importText, passphrase: passphrase)
+                try await keyStore.importKey(name: newKeyName, privateKey: armored, passphrase: passphrase)
                 newKeyName = ""; errorMessage = nil
                 endKeyImport()
             } catch is CancellationError {
@@ -112,7 +120,7 @@ struct KeysSettingsPage: View {
         importTask?.cancel()
         importTask = nil
         importingKey = false
-        importText = ""; importPassphrase = ""; importNeedsPassphrase = false; importError = nil
+        importText = ""; importFileData = nil; importPassphrase = ""; importNeedsPassphrase = false; importError = nil
     }
 
     private func usedBy(_ id: String) -> [String] {
@@ -137,6 +145,7 @@ struct KeysSettingsPage: View {
                                 KeychainManager.shared.copyPublicKeyToClipboard(pub)
                                 showCopiedAlert = true
                             }
+                            Button("Export…") { exportTarget = ExportTarget(keyId: k.id, name: k.name) }
                             Button("Delete", role: .destructive) { keyToDelete = k }
                         }
                         .font(.caption).buttonStyle(.borderless)
@@ -186,15 +195,19 @@ struct KeysSettingsPage: View {
                     }
                 }
                 .onChange(of: importText) { _, text in
-                    importNeedsPassphrase = (try? privateKeyNeedsPassphrase(armoredKey: text.trimmingCharacters(in: .whitespacesAndNewlines) + "\n")) ?? false
+                    guard importFileData == nil else { return }
+                    importNeedsPassphrase = (try? keyFileNeedsPassphrase(armored: Data((text.trimmingCharacters(in: .whitespacesAndNewlines) + "\n").utf8))) ?? false
                     importError = nil
                 }
                 .fileImporter(isPresented: $showKeyFileImporter, allowedContentTypes: [.data, .text, .plainText]) { result in
                     guard case .success(let url) = result else { return }
                     let scoped = url.startAccessingSecurityScopedResource()
                     defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-                    if let data = try? Data(contentsOf: url), data.count < 16_384, let text = String(data: data, encoding: .utf8) {
-                        importText = text
+                    if let data = try? Data(contentsOf: url), data.count < 16_384 {
+                        importFileData = data
+                        importText = "(\(url.lastPathComponent))"
+                        importNeedsPassphrase = (try? keyFileNeedsPassphrase(armored: data)) ?? false
+                        importError = nil
                     } else {
                         errorMessage = "That file is not a readable key (too large or not text)."
                     }
@@ -232,10 +245,8 @@ struct KeysSettingsPage: View {
             return
         }
         do {
-            let keypair = try generateSshKeypair()
-            try KeychainManager.shared.savePrivateKey(keypair.privateKeyOpenssh, overwrite: false)
-            try KeychainManager.shared.savePublicKey(keypair.publicKeyOpenssh, overwrite: false)
-            publicKeyText = keypair.publicKeyOpenssh
+            let info = try KeychainManager.shared.generateKey(overwrite: false)
+            publicKeyText = info.publicKeyOpenssh
             hasPrivateKey = true
             errorMessage = nil
         } catch {
@@ -245,10 +256,8 @@ struct KeysSettingsPage: View {
 
     private func forceRegenerateKeys() {
         do {
-            let keypair = try generateSshKeypair()
-            try KeychainManager.shared.savePrivateKey(keypair.privateKeyOpenssh, overwrite: true)
-            try KeychainManager.shared.savePublicKey(keypair.publicKeyOpenssh, overwrite: true)
-            publicKeyText = keypair.publicKeyOpenssh
+            let info = try KeychainManager.shared.generateKey(overwrite: true)
+            publicKeyText = info.publicKeyOpenssh
             hasPrivateKey = true
             errorMessage = nil
         } catch {
@@ -262,4 +271,80 @@ struct KeysSettingsPage: View {
         showCopiedAlert = true
         #endif
     }
+}
+
+
+struct ExportTarget: Identifiable {
+    var keyId: String?
+    var name: String
+    var id: String { keyId ?? "default" }
+}
+
+/// Exporting a private key in the clear: three separate confirmations, then the core hands the key
+/// over as bytes that go straight into a protected temporary file for the share sheet. The key text
+/// is never shown and never becomes a Swift `String`.
+struct KeyExportSheet: View {
+    let target: ExportTarget
+    @Environment(\.dismiss) private var dismiss
+    @State private var understandsAccess = false
+    @State private var understandsExposure = false
+    @State private var typed = ""
+    @State private var fileURL: URL?
+    @State private var error: String?
+
+    private var ready: Bool { understandsAccess && understandsExposure && typed == "EXPORT" }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section(footer: Text("The key is exported as a file, not shown. Delete the copy when you are done.")) {
+                    Toggle("Whoever has this key can log in to every server that trusts it.", isOn: $understandsAccess)
+                    Toggle("A copy in a file, the clipboard or a backup can be read by other apps and people.", isOn: $understandsExposure)
+                    TextField("Type EXPORT to confirm", text: $typed)
+                        .textInputAutocapitalization(.characters)
+                        .autocorrectionDisabled()
+                }
+                if let error { Section { Text(error).foregroundColor(.red).font(.caption) } }
+                Section {
+                    if let fileURL {
+                        ShareLink(item: fileURL) { Label("Share \(target.name)", systemImage: "square.and.arrow.up") }
+                    } else {
+                        Button("Export private key") { Task { await export() } }.disabled(!ready)
+                    }
+                }
+            }
+            .navigationTitle("Export \(target.name)")
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { close() } } }
+        }
+        .interactiveDismissDisabled(fileURL != nil)
+        .onDisappear { remove() }
+    }
+
+    private func export() async {
+        guard ready, await AppLock.shared.confirmOwner(reason: "Confirm to export a private key") else {
+            error = ready ? "Not confirmed" : nil
+            return
+        }
+        let acks = ExportAcks(understandsAccess: understandsAccess, understandsExposure: understandsExposure,
+                              typedConfirmation: typed)
+        do {
+            var bytes = try keyExportPlain(key: KeychainManager.shared.keyRef(target.keyId), acks: acks)
+            defer { bytes.resetBytes(in: 0..<bytes.count) }
+            let dir = FileManager.default.temporaryDirectory.appendingPathComponent("keyexport-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true, attributes: [.protectionKey: FileProtectionType.complete])
+            let url = dir.appendingPathComponent("id_ed25519")
+            try bytes.write(to: url, options: [.atomic, .completeFileProtection])
+            fileURL = url
+            error = nil
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    private func remove() {
+        if let fileURL { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+        fileURL = nil
+    }
+
+    private func close() { remove(); dismiss() }
 }

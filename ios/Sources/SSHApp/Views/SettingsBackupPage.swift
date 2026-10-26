@@ -85,6 +85,7 @@ struct BackupSettingsPage: View {
                 Toggle("Launch profiles", isOn: toggle(BackupService.GroupID.profiles))
                 Toggle("Snippets", isOn: toggle(BackupService.GroupID.snippets))
                 Toggle("App settings", isOn: toggle(BackupService.GroupID.settings))
+                Toggle("Sandbox allowed hosts", isOn: toggle(BackupService.GroupID.sandboxHosts))
                 Toggle("Secret environment values", isOn: toggle(BackupService.GroupID.secretValues))
                 Toggle("Profiles with hook commands", isOn: toggle(BackupService.GroupID.hooks))
             } header: { Text("Export") } footer: {

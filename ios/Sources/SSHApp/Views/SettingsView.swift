@@ -12,16 +12,20 @@ public struct SettingsView: View {
 
     /// The agent profile manager, supplied by the main screen (needs the live session).
     private let agentsPage: AnyView?
+    private let hooksPage: AnyView?
+    private let sandboxPage: AnyView?
 
     private let agentProfiles: AgentProfilesManager?
 
-    public init(serversManager: ServerProfilesManager, agentProfiles: AgentProfilesManager? = nil, agentsPage: AnyView? = nil) {
+    public init(serversManager: ServerProfilesManager, agentProfiles: AgentProfilesManager? = nil, agentsPage: AnyView? = nil, hooksPage: AnyView? = nil, sandboxPage: AnyView? = nil) {
         self.serversManager = serversManager
         self.agentProfiles = agentProfiles
         self.agentsPage = agentsPage
+        self.hooksPage = hooksPage
+        self.sandboxPage = sandboxPage
     }
 
-    private enum Page: Hashable { case servers, keys, terminal, appearance, agents, subscription, modules, sync, security, backup }
+    private enum Page: Hashable { case servers, keys, terminal, appearance, agents, hooks, sandbox, subscription, modules, sync, security, backup }
 
     public var body: some View {
         NavigationStack {
@@ -44,6 +48,12 @@ public struct SettingsView: View {
                 if agentsPage != nil {
                     Section("Agents") {
                         NavigationLink(value: Page.agents) { SettingsLabel("Agents", "play.rectangle.on.rectangle.fill", tint: .purple) }
+                        if hooksPage != nil {
+                            NavigationLink(value: Page.hooks) { SettingsLabel("Hooks", "hand.raised.fill", tint: .orange) }
+                        }
+                        if sandboxPage != nil {
+                            NavigationLink(value: Page.sandbox) { SettingsLabel("Sandbox", "shield.lefthalf.filled", tint: .green) }
+                        }
                     }
                 }
                 Section("Terminal & look") {
@@ -81,6 +91,8 @@ public struct SettingsView: View {
                 case .terminal: TerminalSettingsPage()
                 case .appearance: AppearanceSettingsPage()
                 case .agents: if let agentsPage { agentsPage }
+                case .hooks: if let hooksPage { hooksPage }
+                case .sandbox: if let sandboxPage { sandboxPage }
                 case .subscription: PaywallView(embedded: true)
                 case .modules: ModuleSettingsView()
                 case .sync: SyncSettingsView()

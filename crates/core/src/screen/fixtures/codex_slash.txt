@@ -1,0 +1,40 @@
+
+  >_ OpenAI Codex (v0.164.0)
+     ~/project
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+› /model         choose what model and reasoning effort to use
+  /presets       run or save reusable prompts and slash commands
+  /daybreak      Learn about broader access for cybersecurity work
+  /ide           include current selection, open files, and other context from your IDE
+  /permissions   choose what Codex is allowed to do
+  /keymap        remap TUI shortcuts
+  /vim           toggle Vim mode for the composer
+  /experimental  toggle experimental features
+
+› /
+
+  GPT-6-Luna default · ~/project
+

@@ -31,6 +31,15 @@ extension MainTerminalView {
                             embedded: true
                         )
                     )
+                },
+                hooksPage: tabsManager.activeViewModel.map { vm in
+                    AnyView(HooksOverviewView(viewModel: vm, profiles: agentProfiles))
+                },
+                sandboxPage: tabsManager.activeViewModel.map { vm in
+                    AnyView(SandboxView(viewModel: vm, profiles: agentProfiles, onLaunch: { profile, command in
+                        activeSheet = nil
+                        startProfile(profile, command: command)
+                    }))
                 }
             )
                 .onDisappear {

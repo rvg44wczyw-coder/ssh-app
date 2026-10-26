@@ -80,6 +80,18 @@ fn parse_line(
         }
     }
 
+    // Codex's rollout files: `{timestamp, ordinal, type, payload}`.
+    if is_codex_record(&val) {
+        parse_codex_record(&val, turns, auto_step);
+        return;
+    }
+
+    // Grok's `chat_history.jsonl`: `{type, content, ...}` with no wrapper and no timestamps.
+    if is_grok_record(&val) {
+        parse_grok_record(&val, turns, auto_step);
+        return;
+    }
+
     // 0. Claude Code's own files: `type` in lower case and the message under `message`.
     if is_claude_record(&val) {
         parse_claude_record(&val, turns, auto_step, last_msg_id);

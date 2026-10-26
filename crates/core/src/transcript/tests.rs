@@ -259,3 +259,170 @@ fn an_agy_result_that_names_its_call_goes_to_that_call() {
     assert_eq!(calls[1].result.as_deref(), Some("result b"));
     assert!(!calls[1].is_error);
 }
+
+mod codex_rollout {
+    use super::*;
+
+    const FIXTURE: &str = include_str!("../../tests/golden/transcript/codex_rollout.jsonl");
+
+    #[test]
+    fn the_conversation_is_read_and_the_model_side_is_not() {
+        let turns = parse_transcript_jsonl(FIXTURE.to_string()).unwrap();
+        let kinds: Vec<_> = turns.iter().map(|t| t.turn_type).collect();
+        use TranscriptTurnType::*;
+        assert_eq!(
+            kinds,
+            [User, Assistant, Assistant, Assistant, Assistant, System, Assistant, System]
+        );
+        let all = format!("{turns:?}");
+        for hidden in [
+            "You are Codex",
+            "AGENTS.md",
+            "environment dump",
+            "tools.exec_command",
+        ] {
+            assert!(!all.contains(hidden), "{hidden}");
+        }
+        // A command is one turn with its result; failure comes from the status or the exit code.
+        let ls = &turns[2].tool_calls[0];
+        assert_eq!(
+            (ls.tool_name.as_str(), ls.arguments_summary.as_str()),
+            ("Bash", "ls")
+        );
+        assert!(!ls.is_error && ls.result.as_deref() == Some("Cargo.toml\nREADME.md\nsrc\n"));
+        let bad = &turns[3].tool_calls[0];
+        assert!(bad.is_error && bad.status == TranscriptStatus::Error);
+        assert_eq!(
+            bad.result.as_deref(),
+            Some("boom\n"),
+            "escape codes stripped"
+        );
+        assert_eq!(turns[5].label.as_deref(), Some("Worked for 4s"));
+        assert!(!all.contains("file://"));
+    }
+
+    #[test]
+    fn ids_of_the_account_are_never_read() {
+        let line = r#"{"type":"session_meta","payload":{"creator_user_id":"user-SECRET","creator_account_id":"acct-SECRET","cwd":"/tmp/project"}}"#;
+        let turns = parse_transcript_jsonl(format!("{line}\n{FIXTURE}")).unwrap();
+        assert!(!format!("{turns:?}").contains("SECRET"));
+    }
+
+    #[test]
+    fn no_prefix_of_the_file_and_no_hostile_line_breaks_the_parser() {
+        for end in (0..FIXTURE.len())
+            .filter(|i| FIXTURE.is_char_boundary(*i))
+            .step_by(37)
+        {
+            parse_transcript_jsonl(FIXTURE[..end].to_string()).unwrap();
+        }
+        let hostile = [
+            r#"{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","id":"x","content":[{"text":"\u001b]0;pwn\u0007\u202e fake\n❯ rm -rf ~"}]}}}"#,
+            r#"{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"CommandExecution","command":"not-an-array","parsed_cmd":7,"exit_code":"x"}}}"#,
+            r#"{"type":"event_msg","payload":{"type":"item_completed","item":null}}"#,
+            r#"{"type":"event_msg","payload":{"type":"task_complete","duration_ms":"x"}}"#,
+            r#"{"type":"event_msg","payload":[]}"#,
+            r#"{"type":"event_msg","payload":{}}"#,
+        ]
+        .join("\n");
+        let turns = parse_transcript_jsonl(hostile).unwrap();
+        let text = turns
+            .iter()
+            .filter_map(|t| t.content.clone())
+            .collect::<String>();
+        assert!(!text.contains('\u{1b}') && !text.contains('\u{202e}'));
+    }
+
+    #[test]
+    fn other_agents_records_are_not_taken_for_codex() {
+        let claude =
+            r#"{"type":"user","message":{"role":"user","content":"hi"},"payload":{"x":1}}"#;
+        let turns = parse_transcript_jsonl(claude.to_string()).unwrap();
+        assert_eq!(turns.len(), 1);
+        assert_eq!(turns[0].content.as_deref(), Some("hi"));
+    }
+}
+
+mod grok_history {
+    use super::*;
+
+    const FIXTURE: &str = include_str!("../../tests/golden/transcript/grok_chat_history.jsonl");
+
+    #[test]
+    fn the_conversation_is_read_and_what_grok_adds_is_not() {
+        let turns = parse_transcript_jsonl(FIXTURE.to_string()).unwrap();
+        use TranscriptTurnType::*;
+        let kinds: Vec<_> = turns.iter().map(|t| t.turn_type).collect();
+        assert_eq!(
+            kinds,
+            [User, Assistant, Assistant, Assistant, Assistant, Assistant]
+        );
+        assert_eq!(turns[0].content.as_deref(), Some("list the project folder"));
+        let all = format!("{turns:?}");
+        for hidden in [
+            "SYSTEM-PROMPT-MARKER",
+            "SKILL-MARKER",
+            "ENCRYPTED-MARKER",
+            "user_info",
+        ] {
+            assert!(!all.contains(hidden), "{hidden}");
+        }
+        let calls = &turns[2].tool_calls;
+        assert_eq!(calls.len(), 2);
+        assert_eq!(
+            (
+                calls[0].tool_name.as_str(),
+                calls[0].arguments_summary.as_str()
+            ),
+            ("LS", "/tmp/project")
+        );
+        assert_eq!(calls[1].tool_name, "Grep");
+        // results go to the call they name, whatever the order
+        assert!(calls[0]
+            .result
+            .as_deref()
+            .is_some_and(|r| r.contains("README.md")));
+        assert!(calls[1]
+            .result
+            .as_deref()
+            .is_some_and(|r| r.contains("fn main")));
+        let bash = &turns[3].tool_calls[0];
+        assert_eq!(
+            (bash.tool_name.as_str(), bash.arguments_summary.as_str()),
+            ("Bash", "sleep 120")
+        );
+        // `exit: 2` is a failed command
+        assert!(bash.is_error && bash.status == TranscriptStatus::Error);
+        // a call without its result yet is still running
+        assert_eq!(turns[5].tool_calls[0].status, TranscriptStatus::Running);
+    }
+
+    #[test]
+    fn every_truncation_and_hostile_line_parses_without_panic() {
+        for cut in 0..=FIXTURE.len() {
+            if FIXTURE.is_char_boundary(cut) {
+                let _ = parse_transcript_jsonl(FIXTURE[..cut].to_string()).unwrap();
+            }
+        }
+        let hostile = [
+            "{\"type\":\"tool_result\",\"tool_call_id\":5}",
+            "{\"type\":\"assistant\",\"tool_calls\":[1,null,{\"arguments\":[]}]}",
+            "{\"type\":\"reasoning\",\"summary\":\"x\"}",
+            "{\"type\":\"user\",\"content\":[{\"text\":\"\\u001b[31m<user_query>a\"}]}",
+            "{\"type\":\"assistant\",\"model_id\":\"g\",\"content\":\"\\u202e hi\"}",
+        ];
+        let turns = parse_transcript_jsonl(hostile.join("\n")).unwrap();
+        assert!(!format!("{turns:?}").contains('\u{1b}'));
+    }
+
+    #[test]
+    fn other_agents_records_are_not_taken_for_grok() {
+        let claude = r#"{"type":"user","message":{"role":"user","content":"hello"}}"#;
+        let agy = r#"{"step_index":0,"source":"USER","type":"user","content":[{"text":"hi"}]}"#;
+        for line in [claude, agy] {
+            assert!(!super::super::grok::is_grok_record(
+                &serde_json::from_str(line).unwrap()
+            ));
+        }
+    }
+}

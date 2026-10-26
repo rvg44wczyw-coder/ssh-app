@@ -139,6 +139,10 @@ mod path;
 pub use path::*;
 mod claude;
 use claude::*;
+mod codex;
+use codex::*;
+mod grok;
+use grok::*;
 mod jsonl;
 pub use jsonl::*;
 #[cfg(test)]

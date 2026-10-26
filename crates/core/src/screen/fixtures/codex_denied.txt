@@ -1,0 +1,40 @@
+› Run exactly one shell command: curl -sI https://example.com . If it is not allowed, just say den…
+
+• The sleep finished. I’ll run the single requested curl command now.
+
+• Exited (status 6) curl -sI https://example.com
+  └ (no output)
+
+• No headers returned.
+
+  Worked for 51s • 09:38
+
+
+› Run exactly one shell command: touch /tmp/work/probe.txt . Do nothing
+  else.
+
+
+• Ran touch /tmp/work/probe.txt
+  └ (no output)
+
+  Worked for 2s • 09:39
+
+• Permission selection requested: Read Only
+
+
+› Run exactly one shell command: touch /tmp/work/probe2.txt . Do nothing
+  else.
+
+
+✗ You canceled the request to run touch /tmp/work/probe2.txt
+
+• Exited (status 1) touch /tmp/work/probe2.txt
+  └ (no output)
+
+■ Conversation interrupted - use /feedback if something went wrong
+
+
+› Ask Codex to do anything
+
+  GPT-6-Luna default · ~/project · Run sleep 20 command
+  ← for agents · ? for shortcuts

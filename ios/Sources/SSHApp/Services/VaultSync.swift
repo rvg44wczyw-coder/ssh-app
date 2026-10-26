@@ -177,7 +177,7 @@ final class VaultSync: ObservableObject {
         }
         let vaultKey = vault.key
         let remote = readRemote(key: vaultKey)
-        let isOther: (VaultEntry) -> Bool = { e in [SyncedProfile.prefix, SyncedSnippet.prefix, SyncedQuickCommand.prefix, SyncedAppearance.prefix].contains { e.id.hasPrefix($0) } }
+        let isOther: (VaultEntry) -> Bool = { e in [SyncedProfile.prefix, SyncedSnippet.prefix, SyncedQuickCommand.prefix, SyncedAppearance.prefix, SyncedSandboxHost.prefix].contains { e.id.hasPrefix($0) } }
         var entries: [VaultEntry] = []
 
         let serverRemote = remote.filter { !isOther($0) }
@@ -264,6 +264,12 @@ final class VaultSync: ObservableObject {
                 }
             })
 
+        entries += syncCollection(
+            prefix: SyncedSandboxHost.prefix, enabled: sandboxHostsEnabled, stateKey: Self.sandboxStateKey,
+            local: SyncedSandboxHost.outgoing(defaults: defaults), remote: remote, now: now,
+            accept: { SyncedSandboxHost.decode($0) != nil },
+            apply: { upserts, deletes in SyncedSandboxHost.apply(upserts: upserts, deletes: deletes, defaults: defaults) })
+
         if entries.sorted(by: { $0.id < $1.id }) != remote.sorted(by: { $0.id < $1.id }) || rejectedEntries > 0 {
             writeRemote(entries, key: vaultKey)
         } else {
@@ -283,6 +289,9 @@ final class VaultSync: ObservableObject {
 
     static let quickCommandsKey = "vault_sync_quick_commands"
     static let appearanceKey = "vault_sync_appearance"
+    static let sandboxHostsKey = "vault_sync_sandbox_hosts"
+    private static let sandboxStateKey = "vault_state_sandbox_hosts"
+    var sandboxHostsEnabled: Bool { defaults.object(forKey: Self.sandboxHostsKey) as? Bool ?? true }
     private static let quickStateKey = "vault_state_quick_commands"
     private static let appearanceStateKey = "vault_state_appearance"
     var quickCommandsEnabled: Bool { defaults.object(forKey: Self.quickCommandsKey) as? Bool ?? true }
@@ -360,8 +369,8 @@ final class VaultSync: ObservableObject {
     }
 
     /// What this device could share, for the lists in the sync page.
-    func secretOffers() -> (keys: [SecretItem], env: [SecretItem]) {
-        (VaultSecretItems.keyItems(default: KeychainManager.shared.hasPrivateKey(), extra: SSHKeyStore.shared.extra),
+    func secretOffers(secret: Data? = nil) -> (keys: [SecretItem], env: [SecretItem]) {
+        (VaultSecretItems.keyItems(default: KeychainManager.shared.hasPrivateKey(), extra: SSHKeyStore.shared.extra, secret: secret),
          VaultSecretItems.envItems(agentProfiles?.profiles ?? []))
     }
 
@@ -391,7 +400,7 @@ final class VaultSync: ObservableObject {
         let stored = store.load(VaultAccount.secrets)
         let opened = stored.map { VaultWire.decodeSealed($0, key: key) } ?? (entries: [], rejected: 0)
         secretsRejected = opened.rejected
-        let offers = secretOffers()
+        let offers = secretOffers(secret: key)
         let known = Set(agents.profiles.map(\.id))
         let hasDefault = KeychainManager.shared.hasPrivateKey()
         let outcome = SecretSyncEngine.reconcile(
@@ -400,7 +409,7 @@ final class VaultSync: ObservableObject {
             inScope: { ($0.hasPrefix(SecretIDs.keyPrefix) && keysOn) || ($0.hasPrefix(SecretIDs.envPrefix) && envOn) },
             accept: { VaultSecretItems.accepts($0, knownProfiles: known, hasDefaultKey: hasDefault) })
         for item in outcome.upserts {
-            VaultSecretItems.apply(item, agents: agents, keys: SSHKeyStore.shared)
+            VaultSecretItems.apply(item, secret: key, agents: agents, keys: SSHKeyStore.shared)
         }
         secretState = outcome.state
         if outcome.remote != opened.entries.sorted(by: { $0.id < $1.id }) || opened.rejected > 0 {
@@ -419,6 +428,7 @@ final class VaultSync: ObservableObject {
         if profilesEnabled { out.append(("Launch profiles", SyncedProfile.outgoing(agentProfiles?.profiles ?? []).count)) }
         if snippetsEnabled { out.append(("Snippets", storedSnippets().count)) }
         if quickCommandsEnabled { out.append(("Quick commands", SyncedQuickCommand.outgoing(QuickCommandStore.shared.commands).count)) }
+        if sandboxHostsEnabled { out.append(("Sandbox allowed hosts", SyncedSandboxHost.outgoing(defaults: defaults).count)) }
         if appearanceEnabled { out.append(("Accent colour", SyncedAppearance.outgoing(defaults: defaults).count)) }
         let st = secretState
         if secretKeysEnabled { out.append(("Private keys", st.enabled.filter { $0.hasPrefix(SecretIDs.keyPrefix) }.count)) }

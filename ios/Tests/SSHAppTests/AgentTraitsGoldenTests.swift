@@ -67,6 +67,30 @@ final class AgentTraitsGoldenTests: XCTestCase {
         XCTAssertEqual(AgentResolver.detected(dialect: .claude)?.sessionStore, .file)
     }
 
+    /// Codex, captured live (0.164.0): Shift+Left brings the queue back, no send-now key, 18 menu entries.
+    func testCodexIsFoundByItsScreenAndKeepsItsKeys() {
+        XCTAssertEqual(AgentResolver.descriptor(agentType: .customShell, dialect: .codex).id, "codex")
+        XCTAssertEqual(AgentResolver.detected(dialect: .codex)?.sessionStore, .file)
+        let t = AgentTraits(descriptor: AgentResolver.entry("codex"))
+        XCTAssertNil(t.sendNowKeys)
+        XCTAssertEqual(t.queueKeys, [0x09])
+        XCTAssertEqual(t.pullQueueKeys, [0x1b, 0x5b, 0x31, 0x3b, 0x32, 0x44])
+        XCTAssertEqual(t.clearLineKeys, [0x15])
+        let cmds = AgentResolver.entry("codex").commands
+        XCTAssertEqual(cmds.count, 18)
+        XCTAssertEqual(cmds.filter(\.destructive).map(\.name), ["/new"])
+        XCTAssertTrue(cmds.allSatisfy { $0.name.hasPrefix("/") })
+    }
+
+    /// Grok Build, captured live (1.0.70): Ctrl+Enter sends the queue now, Up then `e` pulls an entry back.
+    func testGrokIsFoundByItsScreenAndKeepsItsKeys() {
+        XCTAssertEqual(AgentResolver.descriptor(agentType: .customShell, dialect: .grok).id, "grok")
+        let t = AgentTraits(descriptor: AgentResolver.entry("grok"))
+        XCTAssertEqual(t.sendNowKeys, [0x1b, 0x5b, 0x31, 0x33, 0x3b, 0x35, 0x75])
+        XCTAssertEqual(t.pullQueueKeys, [0x1b, 0x5b, 0x41, 0x65])
+        XCTAssertEqual(AgentResolver.entry("grok").commands.count, 22)
+    }
+
     func testADialectSwitchNeedsTwoLooksInARow() {
         var t = DialectTracker()
         XCTAssertEqual(t.observe(.claude), .claude)          // from nothing: at once

@@ -1,0 +1,81 @@
+ScreenFeed {
+    dialect: Codex,
+    turns: [
+        TranscriptTurn {
+            id: "scr0",
+            step_index: 0,
+            turn_type: User,
+            timestamp: None,
+            content: Some(
+                "tabbed message two\n>_ OpenAI Codex (v0.164.0)",
+            ),
+            thinking: None,
+            tool_calls: [],
+            status: Done,
+            label: None,
+        },
+        TranscriptTurn {
+            id: "scr1",
+            step_index: 1,
+            turn_type: System,
+            timestamp: None,
+            content: Some(
+                "Visit https://chatgpt.com/settings/usage for up-to-date\n  information on rate limits and credits\n  Server:              Local background server\n  Model:               GPT-6-Luna (reasoning medium)\n  Model provider:      openai\n  Directory:           ~/project\n  Permissions:         Workspace (Ask for approval)\n  Agents.md:           AGENTS.md\n  Collaboration mode:  Default\n  Context window:      98% left (15.7K used / 258K)\n  Monthly limit:       [████████████████████] 99% left (resets 11:51 on 24 Nov)",
+            ),
+            thinking: None,
+            tool_calls: [],
+            status: Done,
+            label: Some(
+                "Terminal output",
+            ),
+        },
+        TranscriptTurn {
+            id: "scr2",
+            step_index: 2,
+            turn_type: User,
+            timestamp: None,
+            content: Some(
+                "Run the shell command: sleep 30 . Then reply with the single word fine.",
+            ),
+            thinking: None,
+            tool_calls: [],
+            status: Done,
+            label: None,
+        },
+        TranscriptTurn {
+            id: "scr3",
+            step_index: 3,
+            turn_type: Assistant,
+            timestamp: None,
+            content: Some(
+                "I’ll run sleep 30, then reply with the requested word.",
+            ),
+            thinking: None,
+            tool_calls: [],
+            status: Done,
+            label: None,
+        },
+        TranscriptTurn {
+            id: "scr4",
+            step_index: 4,
+            turn_type: System,
+            timestamp: None,
+            content: Some(
+                "/ps\nBackground terminals\n  • sleep 30",
+            ),
+            thinking: None,
+            tool_calls: [],
+            status: Done,
+            label: Some(
+                "Terminal output",
+            ),
+        },
+    ],
+    status: Some(
+        "• Working (9s • esc to interrupt) · 1 background terminal running · /ps to view · /stop to close",
+    ),
+    draft: None,
+    prompt: None,
+    aside: None,
+    dialog: None,
+}

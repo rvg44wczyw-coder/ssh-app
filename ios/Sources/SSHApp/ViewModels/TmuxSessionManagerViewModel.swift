@@ -14,8 +14,8 @@ public final class TmuxSessionManagerViewModel: ObservableObject {
 
     public init() {}
 
-    public func fetchSessions(server: ServerProfile, privateKey: String) {
-        guard !server.host.isEmpty, !server.username.isEmpty, !privateKey.isEmpty else {
+    public func fetchSessions(server: ServerProfile, key: KeyRef) {
+        guard !server.host.isEmpty, !server.username.isEmpty else {
             errorMessage = "Server host or private key is missing."
             return
         }
@@ -27,7 +27,7 @@ public final class TmuxSessionManagerViewModel: ObservableObject {
             host: server.host,
             port: server.port,
             username: server.username,
-            privateKeyPem: privateKey,
+            key: key,
             pinnedHostKey: server.hostKeyFingerprint
         )
 
@@ -44,13 +44,13 @@ public final class TmuxSessionManagerViewModel: ObservableObject {
     }
 
     /// Best effort: the session list must stay usable if the usage probe fails (no python3 on the host, ...).
-    public func fetchUsage(server: ServerProfile, privateKey: String, configDirs: [String]) {
-        guard !server.host.isEmpty, !server.username.isEmpty, !privateKey.isEmpty else { return }
+    public func fetchUsage(server: ServerProfile, key: KeyRef, configDirs: [String]) {
+        guard !server.host.isEmpty, !server.username.isEmpty else { return }
         let config = RemoteServerConfig(
             host: server.host,
             port: server.port,
             username: server.username,
-            privateKeyPem: privateKey,
+            key: key,
             pinnedHostKey: server.hostKeyFingerprint
         )
         Task {
@@ -67,12 +67,12 @@ public final class TmuxSessionManagerViewModel: ObservableObject {
         }
     }
 
-    public func killSession(name: String, server: ServerProfile, privateKey: String) {
+    public func killSession(name: String, server: ServerProfile, key: KeyRef) {
         let config = RemoteServerConfig(
             host: server.host,
             port: server.port,
             username: server.username,
-            privateKeyPem: privateKey,
+            key: key,
             pinnedHostKey: server.hostKeyFingerprint
         )
 

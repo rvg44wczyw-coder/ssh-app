@@ -170,6 +170,139 @@ impl SshSessionHandle {
         preset: crate::agents::HookPreset,
     ) -> Result<(), SshCoreError> {
         let config_path = crate::agents::agent_hooks_config_path(agent, config_dir)?;
+        self.install_agent_hooks_at(agent, &config_path, hook_dir, preset)
+            .await
+    }
+
+    /// The Hooks screen of this server (spec 61): the agents the pinned host helper finds, their
+    /// user-level hook state and the projects (running panes, agent histories, `folders`).
+    pub async fn agent_hooks_overview(
+        &self,
+        helper_sha256: String,
+        folders: Vec<String>,
+        claude_config_dir: Option<String>,
+    ) -> Result<Vec<crate::agents::AgentHooksOverview>, SshCoreError> {
+        let cmd = crate::agents::build_hooks_overview_command(
+            &helper_sha256,
+            &folders,
+            claude_config_dir.as_deref(),
+        )?;
+        let out = self.execute_command_on_active_session(cmd).await?;
+        crate::agents::parse_hooks_overview(&out)
+    }
+
+    /// `agent_hooks_status` for a scope (spec 61).
+    pub async fn agent_hooks_status_in(
+        &self,
+        agent: crate::agents::AgentKind,
+        scope: crate::agents::HookScope,
+        hook_dir: Option<String>,
+    ) -> Result<crate::agents::AgentHooksStatus, SshCoreError> {
+        let config_path = crate::agents::agent_hooks_target_path(agent, scope)?;
+        let existing = self.read_remote_config(&config_path).await?;
+        let hook_dir = hook_dir.unwrap_or_else(|| crate::agents::DEFAULT_HOOK_DIR.to_string());
+        let script = crate::agents::remote_script_path(&hook_dir);
+        let present = self
+            .execute_command_on_active_session(format!("[ -f {script} ] && echo yes || echo no"))
+            .await?;
+        Ok(crate::agents::AgentHooksStatus {
+            installed: crate::agents::installed_hook_entries(agent, existing.clone()),
+            hooks_installed: crate::agents::agent_hooks_installed(agent, existing),
+            config_path,
+            script_installed: present.trim() == "yes",
+        })
+    }
+
+    /// `preview_agent_hooks` for a scope.
+    pub async fn preview_agent_hooks_in(
+        &self,
+        agent: crate::agents::AgentKind,
+        scope: crate::agents::HookScope,
+        hook_dir: Option<String>,
+        preset: crate::agents::HookPreset,
+    ) -> Result<String, SshCoreError> {
+        let config_path = crate::agents::agent_hooks_target_path(agent, scope)?;
+        let planned = crate::agents::plan_agent_hooks(agent, preset, hook_dir)?;
+        let existing = self.read_remote_config(&config_path).await?;
+        let merged = crate::agents::merge_planned_hooks(agent, existing, planned)?;
+        crate::agents::hooks_section_of(agent, merged)
+    }
+
+    /// `installed_agent_hooks` for a scope.
+    pub async fn installed_agent_hooks_in(
+        &self,
+        agent: crate::agents::AgentKind,
+        scope: crate::agents::HookScope,
+    ) -> Result<Vec<crate::agents::PlannedHook>, SshCoreError> {
+        let config_path = crate::agents::agent_hooks_target_path(agent, scope)?;
+        let existing = self.read_remote_config(&config_path).await?;
+        Ok(crate::agents::installed_hook_entries(agent, existing))
+    }
+
+    /// `uninstall_agent_hooks` for a scope.
+    pub async fn uninstall_agent_hooks_in(
+        &self,
+        agent: crate::agents::AgentKind,
+        scope: crate::agents::HookScope,
+    ) -> Result<(), SshCoreError> {
+        let config_path = crate::agents::agent_hooks_target_path(agent, scope)?;
+        let existing = self.read_remote_config(&config_path).await?;
+        if existing.trim().is_empty() {
+            return Ok(());
+        }
+        let cleaned = crate::agents::remove_agent_hooks(agent, existing.clone())?;
+        self.write_remote_config(&config_path, &existing, &cleaned)
+            .await
+    }
+
+    /// `install_agent_hooks_with_preset` for a scope. A project install is refused while the
+    /// user-level hooks of the agent are present, unless `disable_user_level` is set: then those
+    /// are removed first (the caller asked the user to confirm that), and only ours.
+    pub async fn install_agent_hooks_with_preset_in(
+        &self,
+        agent: crate::agents::AgentKind,
+        scope: crate::agents::HookScope,
+        hook_dir: Option<String>,
+        preset: crate::agents::HookPreset,
+        disable_user_level: bool,
+    ) -> Result<(), SshCoreError> {
+        match scope {
+            crate::agents::HookScope::User { config_dir } => {
+                self.install_agent_hooks_with_preset(agent, config_dir, hook_dir, preset)
+                    .await
+            }
+            crate::agents::HookScope::Project {
+                folder,
+                user_config_dir,
+            } => {
+                let project_path = crate::agents::agent_project_hooks_path(agent, folder)?;
+                let user_path = crate::agents::agent_hooks_config_path(agent, user_config_dir)?;
+                let user_level = self.read_remote_config(&user_path).await?;
+                if disable_user_level
+                    && crate::agents::agent_hooks_installed(agent, user_level.clone())
+                {
+                    let cleaned = crate::agents::remove_agent_hooks(agent, user_level.clone())?;
+                    self.write_remote_config(&user_path, &user_level, &cleaned)
+                        .await?;
+                } else {
+                    crate::agents::check_project_install(agent, user_level)?;
+                }
+                self.install_agent_hooks_at(agent, &project_path, hook_dir, preset)
+                    .await
+            }
+        }
+    }
+}
+
+impl SshSessionHandle {
+    /// The install itself, into the config file at `config_path`.
+    async fn install_agent_hooks_at(
+        &self,
+        agent: crate::agents::AgentKind,
+        config_path: &str,
+        hook_dir: Option<String>,
+        preset: crate::agents::HookPreset,
+    ) -> Result<(), SshCoreError> {
         let hook_dir = hook_dir.unwrap_or_else(|| crate::agents::DEFAULT_HOOK_DIR.to_string());
 
         let uses_script = crate::agents::hook_preset_uses_script(preset.clone());
@@ -187,7 +320,7 @@ impl SshSessionHandle {
             });
         }
 
-        let existing = self.read_remote_config(&config_path).await?;
+        let existing = self.read_remote_config(config_path).await?;
         let merged = crate::agents::merge_planned_hooks(agent, existing.clone(), planned)?;
 
         // Script first, so a config never points at a missing script.
@@ -225,7 +358,7 @@ impl SshSessionHandle {
             ))
             .await?;
         }
-        self.write_remote_config(&config_path, &existing, &merged)
+        self.write_remote_config(config_path, &existing, &merged)
             .await
     }
 }

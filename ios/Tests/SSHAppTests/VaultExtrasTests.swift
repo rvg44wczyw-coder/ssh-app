@@ -56,3 +56,42 @@ final class VaultExtrasTests: XCTestCase {
         XCTAssertNil(SyncedAppearance.decode(CollectionItem(id: "other", payload: #"{"accent":"teal"}"#)))
     }
 }
+
+final class SandboxHostSyncTests: XCTestCase {
+    private func defaults() -> UserDefaults {
+        let d = UserDefaults(suiteName: "sandbox-hosts-\(UUID().uuidString)")!
+        return d
+    }
+
+    func testHostsRoundTripAndHostileItemsAreRefused() throws {
+        let d = defaults()
+        SandboxAllowStore.set(["registry.npmjs.org", "*.pypi.org"], for: "claude", defaults: d)
+        let items = SyncedSandboxHost.outgoing(defaults: d)
+        XCTAssertEqual(items.count, 2)
+        let back = try XCTUnwrap(SyncedSandboxHost.decode(items[0]))
+        XCTAssertEqual(back.agent, "claude")
+        let other = defaults()
+        SyncedSandboxHost.apply(upserts: items, deletes: [], defaults: other)
+        XCTAssertEqual(Set(SandboxAllowStore.hosts("claude", defaults: other)), ["registry.npmjs.org", "*.pypi.org"])
+        SyncedSandboxHost.apply(upserts: [], deletes: [items[0].id], defaults: other)
+        XCTAssertEqual(SandboxAllowStore.hosts("claude", defaults: other).count, 1)
+        func item(_ agent: String, _ host: String) -> CollectionItem {
+            let s = SyncedSandboxHost(agent: agent, host: host)
+            let json = String(data: try! JSONEncoder().encode(s), encoding: .utf8)!
+            return CollectionItem(id: s.id, payload: json)
+        }
+        for bad in ["evil.com; id", "*.com", "a", "x.com\nevil.com", "-a.com", "*.*.com"] {
+            XCTAssertNil(SyncedSandboxHost.decode(item("claude", bad)), bad)
+        }
+        XCTAssertNil(SyncedSandboxHost.decode(item("unknown", "x.com")))
+        XCTAssertNil(SyncedSandboxHost.decode(CollectionItem(id: "s_claude_other.com", payload: items[0].payload)))
+    }
+
+    func testListsAreCappedAndOnlyKnownAgentsAreStored() {
+        let d = defaults()
+        SandboxAllowStore.set((0..<100).map { "h\($0).example.com" }, for: "grok", defaults: d)
+        XCTAssertEqual(SandboxAllowStore.hosts("grok", defaults: d).count, SandboxAllowStore.maxPerAgent)
+        SandboxAllowStore.set(["a.example.com"], for: "nope", defaults: d)
+        XCTAssertTrue(SandboxAllowStore.hosts("nope", defaults: d).isEmpty)
+    }
+}

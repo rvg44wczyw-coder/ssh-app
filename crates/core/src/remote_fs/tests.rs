@@ -145,7 +145,7 @@ mod client_tests {
             host: "h".into(),
             port: 22,
             username: "u".into(),
-            private_key_pem: String::new(),
+            key: crate::key_store::KeyRef::default(),
             pinned_host_key: pin.map(str::to_string),
         };
         assert!(RemoteFsClient::new(cfg(None)).is_err());

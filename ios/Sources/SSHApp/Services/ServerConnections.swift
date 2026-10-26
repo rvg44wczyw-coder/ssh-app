@@ -21,14 +21,14 @@ final class ServerConnections {
     /// A server can be opened without a session when it has a key and a pinned host key.
     static func canOpen(_ profile: ServerProfile?, keychain: KeychainManager = .shared) -> Bool {
         guard let profile, let pin = profile.hostKeyFingerprint, !pin.isEmpty else { return false }
-        return keychain.getPrivateKey(id: profile.keyId) != nil
+        return keychain.hasPrivateKey(id: profile.keyId)
     }
 
     /// Opens (or reuses) the connection for a screen and counts the screen as a holder; pair with
     /// `release`. Nil when the server cannot be opened; a connection that failed is returned with its
     /// failed state so the screen can say why.
     func acquire(_ profile: ServerProfile) async -> TerminalSessionViewModel? {
-        guard Self.canOpen(profile), let pem = KeychainManager.shared.getPrivateKey(id: profile.keyId) else { return nil }
+        guard Self.canOpen(profile) else { return nil }
         closers[profile.id]?.cancel()
         closers[profile.id] = nil
         holders[profile.id, default: 0] += 1
@@ -41,7 +41,7 @@ final class ServerConnections {
             vm.pinnedHostKey = profile.hostKeyFingerprint
             models[profile.id] = vm
         }
-        await vm.connectForServer(host: profile.host, port: profile.port, username: profile.username, privateKeyPEM: pem)
+        await vm.connectForServer(host: profile.host, port: profile.port, username: profile.username, keyRef: KeychainManager.shared.keyRef(profile.keyId))
         return vm
     }
 
@@ -73,8 +73,8 @@ final class ServerConnections {
     /// Back in the foreground: a screen that is still open gets its connection again.
     func reconnectOpen() async {
         for (id, vm) in models where (holders[id] ?? 0) > 0 {
-            guard let profile = profiles[id], let pem = KeychainManager.shared.getPrivateKey(id: profile.keyId) else { continue }
-            await vm.connectForServer(host: profile.host, port: profile.port, username: profile.username, privateKeyPEM: pem)
+            guard let profile = profiles[id], Self.canOpen(profile) else { continue }
+            await vm.connectForServer(host: profile.host, port: profile.port, username: profile.username, keyRef: KeychainManager.shared.keyRef(profile.keyId))
         }
         // Models nobody holds were closed in the background; forget them.
         for id in models.keys where (holders[id] ?? 0) == 0 { models[id] = nil }

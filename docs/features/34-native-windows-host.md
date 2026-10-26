@@ -1,5 +1,7 @@
 # Feature 34: Native Windows host (no WSL2)
 
+> **Note (2026-10-26):** parts of this document that describe the Unix-socket approval scheme are superseded by the file queue (`~/.ssh-app/run/{pending,decisions}`, signed by the phone key). See specs 24, 57 and 62.
+
 Status: spec, written 2026-10-19 after the owner's "стартуй с виндой". Follows `33-host-os-support.md` §7
 (option 1). Android stays excluded. Payments stay off.
 

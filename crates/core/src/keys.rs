@@ -2,7 +2,7 @@ use crate::error::SshCoreError;
 use ssh_key::{Algorithm, HashAlg, Kdf, LineEnding, PrivateKey};
 use zeroize::Zeroizing;
 
-#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeypairResult {
     pub public_key_openssh: String,
     pub private_key_openssh: String,
@@ -43,7 +43,6 @@ pub fn parse_private_key(pem_or_openssh: &str) -> Result<PrivateKey, SshCoreErro
     })
 }
 
-#[uniffi::export]
 pub fn derive_public_key(private_key_openssh: String) -> Result<String, SshCoreError> {
     let priv_key = parse_private_key(&private_key_openssh)?;
     priv_key
@@ -60,7 +59,7 @@ pub const MAX_BCRYPT_ROUNDS: u32 = 500;
 
 /// What `import_private_key` hands back: the key in the unencrypted form the Keychain stores (the
 /// Keychain item is the protection) and what the UI shows.
-#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImportedKey {
     pub private_key_openssh: String,
     pub public_key_openssh: String,
@@ -69,7 +68,6 @@ pub struct ImportedKey {
 }
 
 /// Whether the armored key needs a passphrase, without trying to decrypt it.
-#[uniffi::export]
 pub fn private_key_needs_passphrase(armored_key: String) -> Result<bool, SshCoreError> {
     Ok(parse_private_key(&armored_key)?.is_encrypted())
 }
@@ -77,7 +75,6 @@ pub fn private_key_needs_passphrase(armored_key: String) -> Result<bool, SshCore
 /// Imports an OpenSSH private key, decrypting it with `passphrase` when it is protected. Only
 /// Ed25519 is accepted: that is what the connection path signs with. The passphrase is wiped when
 /// this returns.
-#[uniffi::export]
 pub fn import_private_key(
     armored_key: String,
     passphrase: Option<Vec<u8>>,

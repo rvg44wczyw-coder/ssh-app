@@ -1,0 +1,12 @@
+{"type":"system","content":"You are Grok, an interactive CLI agent. SYSTEM-PROMPT-MARKER"}
+{"type":"user","content":[{"type":"text","text":"<user_info>\nOS Version: macos\nShell: /bin/zsh\nWorkspace: /tmp/project\n</user_info>"}]}
+{"type":"user","content":[{"type":"text","text":"<system-reminder>\nThe following skills are available: SKILL-MARKER\n</system-reminder>"}],"synthetic_reason":"system_reminder"}
+{"type":"user","content":[{"type":"text","text":"<user_query>\nlist the project folder\n</user_query>"}],"prompt_index":0}
+{"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"The user wants a listing of the folder."}],"encrypted_content":"ENCRYPTED-MARKER","status":"completed"}
+{"type":"assistant","content":"I will list the folder and look for a README.","tool_calls":[{"id":"call-1-0","name":"list_dir","arguments":"{\"target_directory\":\"/tmp/project\"}"},{"id":"call-1-1","name":"grep","arguments":"{\"pattern\":\"^fn \",\"glob\":\"src/*.rs\",\"head_limit\":5}"}],"model_id":"grok-4.7","model_fingerprint":"fp_x","reasoning_effort":"high"}
+{"type":"tool_result","tool_call_id":"call-1-1","content":"src/main.rs:1:fn main() {}\n"}
+{"type":"tool_result","tool_call_id":"call-1-0","content":"- /tmp/project/\n  - Cargo.toml\n  - README.md\n  - src/\n"}
+{"type":"assistant","content":"","tool_calls":[{"id":"call-2-0","name":"run_terminal_command","arguments":"{\"command\":\"sleep 120\",\"description\":\"Sleep for 120 seconds\",\"block_until_ms\":0}"}],"model_id":"grok-4.7","model_fingerprint":"fp_x","reasoning_effort":"high"}
+{"type":"tool_result","tool_call_id":"call-2-0","content":"exit: 2\nsleep: bad operand\n"}
+{"type":"assistant","content":"The folder holds Cargo.toml, README.md and src.","model_id":"grok-4.7","model_fingerprint":"fp_x","reasoning_effort":"high"}
+{"type":"assistant","content":"unfinished call","tool_calls":[{"id":"call-3-0","name":"read_file","arguments":"{\"target_file\":\"/tmp/project/README.md\"}"}],"model_id":"grok-4.7"}

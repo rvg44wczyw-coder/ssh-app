@@ -101,3 +101,78 @@ enum SyncedAppearance {
         return raw.count == 7 && raw.hasPrefix("#") && raw.dropFirst().allSatisfy { $0.isHexDigit && $0.isASCII }
     }
 }
+
+/// The hosts a sandbox's proxy always lets through for an agent (Settings → Agents → Sandbox).
+/// Kept in `UserDefaults`, one list per agent, and synced as one item per (agent, host).
+enum SandboxAllowStore {
+    static let agents = ["claude", "codex", "grok", "agy"]
+    static let maxPerAgent = 48
+
+    static func key(_ agent: String) -> String { "sandbox.always.\(agent)" }
+
+    static func hosts(_ agent: String, defaults: UserDefaults = .standard) -> [String] {
+        agents.contains(agent) ? (defaults.stringArray(forKey: key(agent)) ?? []) : []
+    }
+
+    static func set(_ hosts: [String], for agent: String, defaults: UserDefaults = .standard) {
+        guard agents.contains(agent) else { return }
+        defaults.set(Array(hosts.prefix(maxPerAgent)), forKey: key(agent))
+    }
+
+    /// A DNS name, or `*.` and a DNS name with at least two labels.
+    static func normalized(_ raw: String) -> String? {
+        let h = raw.trimmingCharacters(in: .whitespaces).lowercased()
+        let body = h.hasPrefix("*.") ? String(h.dropFirst(2)) : h
+        let labels = body.split(separator: ".", omittingEmptySubsequences: false)
+        let ok = labels.count >= 2 && body.count <= 253 && labels.allSatisfy { l in
+            !l.isEmpty && l.count <= 63 && !l.hasPrefix("-") && !l.hasSuffix("-")
+                && l.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }
+        }
+        return ok ? h : nil
+    }
+}
+
+/// The permanent sandbox hosts in the iCloud sync. The other side is not trusted: a host is only
+/// accepted when it is a plain DNS name and the item id matches its content.
+struct SyncedSandboxHost: Codable, Equatable {
+    var agent: String
+    var host: String
+
+    static let prefix = "s_"
+
+    var id: String { "\(Self.prefix)\(agent)_\(host)" }
+
+    static func outgoing(defaults: UserDefaults = .standard) -> [CollectionItem] {
+        let e = JSONEncoder()
+        e.outputFormatting = [.sortedKeys]
+        return SandboxAllowStore.agents.flatMap { agent in
+            SandboxAllowStore.hosts(agent, defaults: defaults).compactMap { raw -> CollectionItem? in
+                guard let host = SandboxAllowStore.normalized(raw) else { return nil }
+                let s = SyncedSandboxHost(agent: agent, host: host)
+                guard let data = try? e.encode(s), let json = String(data: data, encoding: .utf8) else { return nil }
+                return CollectionItem(id: s.id, payload: json)
+            }
+        }
+    }
+
+    static func decode(_ item: CollectionItem) -> SyncedSandboxHost? {
+        guard let s = try? JSONDecoder().decode(SyncedSandboxHost.self, from: Data(item.payload.utf8)),
+              SandboxAllowStore.agents.contains(s.agent), SandboxAllowStore.normalized(s.host) == s.host,
+              s.id == item.id else { return nil }
+        return s
+    }
+
+    /// Adds the incoming hosts and drops the deleted ones, per agent.
+    static func apply(upserts: [CollectionItem], deletes: [String], defaults: UserDefaults = .standard) {
+        for agent in SandboxAllowStore.agents {
+            var list = SandboxAllowStore.hosts(agent, defaults: defaults)
+            let before = list
+            list.removeAll { deletes.contains(SyncedSandboxHost(agent: agent, host: $0).id) }
+            for item in upserts {
+                guard let s = decode(item), s.agent == agent, !list.contains(s.host) else { continue }
+                list.append(s.host)
+            }
+            if list != before { SandboxAllowStore.set(list, for: agent, defaults: defaults) }
+        }
+    }
+}

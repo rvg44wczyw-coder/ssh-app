@@ -21,11 +21,11 @@ final class SessionUsageMonitor: ObservableObject {
         if shownSession != sessionName { shownSession = sessionName }
         usage = lastKnown[sessionName] ?? report?.sessions.first { $0.session == sessionName }
         guard !loading, let server, !server.host.isEmpty, !server.username.isEmpty,
-              let key = KeychainManager.shared.getPrivateKey(id: server.keyId), !key.isEmpty else { return }
+              KeychainManager.shared.hasPrivateKey(id: server.keyId) else { return }
         if !force, let updated, Date().timeIntervalSince(updated) < minAge, report != nil { return }
         loading = true
         let config = RemoteServerConfig(host: server.host, port: server.port, username: server.username,
-                                        privateKeyPem: key, pinnedHostKey: server.hostKeyFingerprint)
+                                        key: KeychainManager.shared.keyRef(server.keyId), pinnedHostKey: server.hostKeyFingerprint)
         Task {
             defer { loading = false }
             guard let r = try? await fetchHostUsage(config: config, configDirs: configDirs, helperSha256: HostTargetCache.pin(host: server.host, port: server.port, username: server.username)) else { return }
@@ -192,23 +192,6 @@ struct SessionStatusLine: View {
         }
     }
 
-    private var refreshButton: some View {
-        Button {
-            onRefresh?()
-            Task { await viewModel.loadGitContext() }
-        } label: {
-            if usage.loading || viewModel.isTranscriptLoading {
-                ProgressView().controlSize(.mini)
-            } else {
-                Image(systemName: "arrow.clockwise")
-            }
-        }
-        .buttonStyle(.plain)
-        .foregroundColor(.secondary)
-        .frame(minWidth: 24, minHeight: 22)
-        .accessibilityLabel("Refresh")
-    }
-
     @ViewBuilder private var switchControl: some View {
         if let sw = switchButton {
             Button { viewModel.toggleChatMode() } label: {
@@ -253,7 +236,6 @@ struct SessionStatusLine: View {
                             subagentsButton
                             timingBadge
                             Spacer(minLength: 0)
-                            refreshButton
                             switchControl
                             expandButton
                         }
@@ -266,14 +248,14 @@ struct SessionStatusLine: View {
                     }
                 } else {
                     HStack(spacing: 8) {
+                        // Git first for every agent: the same line whatever runs in the tab.
+                        gitBlock(git).layoutPriority(2)
                         if !showsUsage { Text(viewModel.feedAgentName).foregroundColor(.secondary) }
-                        gitBlock(git)
                         SessionUsageItems(monitor: usage)
                         modeBadge
                         timingBadge
                         subagentsButton
                         Spacer(minLength: 0)
-                        refreshButton
                         switchControl
                         expandButton
                     }
@@ -286,7 +268,6 @@ struct SessionStatusLine: View {
         .clipped()
         .background(.bar)
         .contentShape(Rectangle())
-        .onTapGesture { onRefresh?(); Task { await viewModel.loadGitContext() } }
         .contextMenu {
             if git.isGit {
                 Button { gitSheet = .branches } label: { Label("Branches", systemImage: "arrow.triangle.branch") }
@@ -303,8 +284,15 @@ struct SessionStatusLine: View {
         }
         .sheet(isPresented: $showSubagents) { SubagentsSheetView(viewModel: viewModel) }
         .task { await viewModel.loadGitContext() }
+        // The first look can come before the connection is up (a restored tab): ask again once it is.
+        .onChange(of: viewModel.state) { _, new in
+            if new == .connected { Task { await viewModel.loadGitContext() } }
+        }
+        // The agent finished a turn: limits, context and the branch may have changed.
+        .onChange(of: viewModel.screenStatus == nil) { _, idle in
+            if idle { onRefresh?(); Task { await viewModel.loadGitContext() } }
+        }
         .accessibilityElement(children: .combine)
-        .accessibilityHint("Tap to refresh")
     }
 }
 

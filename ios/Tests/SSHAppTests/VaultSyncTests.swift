@@ -88,14 +88,38 @@ final class VaultSyncTests: XCTestCase {
     }
 }
 
+/// The package test host has no Keychain entitlement (error -34018), so tests that store keys skip
+/// there; the store logic itself is covered by the core's tests with an in-memory backend, and the
+/// Keychain backend by the device check in docs/todo.md.
+func requireKeychain() throws {
+    let probe = KeyRef(id: UUID().uuidString, guarded: false)
+    defer { try? keyDelete(key: probe) }
+    do { _ = try keyGenerate(key: probe, overwrite: false) } catch {
+        throw XCTSkip("No Keychain access in this test host: \(error)")
+    }
+}
+
 final class KeyImportTests: XCTestCase {
-    func testAnEncryptedKeyNeedsItsPassphraseAndTheWrongOneIsTyped() throws {
-        let pair = try generateSshKeypair()
-        XCTAssertFalse(try privateKeyNeedsPassphrase(armoredKey: pair.privateKeyOpenssh))
-        let imported = try importPrivateKey(armoredKey: pair.privateKeyOpenssh, passphrase: nil)
-        XCTAssertEqual(imported.publicKeyOpenssh.trimmingCharacters(in: .whitespacesAndNewlines),
-                       pair.publicKeyOpenssh.trimmingCharacters(in: .whitespacesAndNewlines))
-        XCTAssertThrowsError(try importPrivateKey(armoredKey: "garbage", passphrase: nil))
+    func testImportTakesBytesAndNeverHandsTheKeyBack() throws {
+        try requireKeychain()
+        let a = KeyRef(id: UUID().uuidString, guarded: false), b = KeyRef(id: UUID().uuidString, guarded: false)
+        defer { try? keyDelete(key: a); try? keyDelete(key: b) }
+        let made = try keyGenerate(key: a, overwrite: false)
+        let acks = ExportAcks(understandsAccess: true, understandsExposure: true, typedConfirmation: "EXPORT")
+        var file = try keyExportPlain(key: a, acks: acks)
+        defer { file.resetBytes(in: 0..<file.count) }
+        XCTAssertFalse(try keyFileNeedsPassphrase(armored: file))
+        XCTAssertEqual(try keyImport(key: b, armored: file, passphrase: nil, overwrite: false).fingerprintSha256, made.fingerprintSha256)
+        XCTAssertThrowsError(try keyImport(key: b, armored: Data("garbage".utf8), passphrase: nil, overwrite: true))
+    }
+
+    func testExportNeedsAllThreeConfirmations() throws {
+        try requireKeychain()
+        let a = KeyRef(id: UUID().uuidString, guarded: false)
+        defer { try? keyDelete(key: a) }
+        try keyGenerate(key: a, overwrite: false)
+        XCTAssertThrowsError(try keyExportPlain(key: a, acks: ExportAcks(understandsAccess: true, understandsExposure: false, typedConfirmation: "EXPORT")))
+        XCTAssertThrowsError(try keyExportPlain(key: a, acks: ExportAcks(understandsAccess: true, understandsExposure: true, typedConfirmation: "export")))
     }
 }
 

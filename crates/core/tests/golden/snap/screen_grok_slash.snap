@@ -1,0 +1,40 @@
+ScreenFeed {
+    dialect: Grok,
+    turns: [
+        TranscriptTurn {
+            id: "scr0",
+            step_index: 0,
+            turn_type: System,
+            timestamp: None,
+            content: Some(
+                "────────────────────────────────────────────────────────────────────────────────────────────114─",
+            ),
+            thinking: None,
+            tool_calls: [],
+            status: Done,
+            label: Some(
+                "Terminal output",
+            ),
+        },
+        TranscriptTurn {
+            id: "scr1",
+            step_index: 1,
+            turn_type: User,
+            timestamp: None,
+            content: Some(
+                "/session-info                  Show session info\n/model                         Switch the active model\n/settings                      Open the settings modal\n/usage                         View usage\n/tutorial                      Quick tips to get the most out of Grok Build /dashboard                     Open the Agent Dashboard\n/workflows                     Browse installed workflows\n/plugins                       View plugins",
+            ),
+            thinking: None,
+            tool_calls: [],
+            status: Done,
+            label: None,
+        },
+    ],
+    status: None,
+    draft: Some(
+        "/",
+    ),
+    prompt: None,
+    aside: None,
+    dialog: None,
+}

@@ -1,0 +1,37 @@
+
+
+› tabbed message two
+
+
+• Received.
+
+  Worked for 2s • 09:37
+
+/status
+
+  >_ OpenAI Codex (v0.164.0)
+
+  Visit https://chatgpt.com/settings/usage for up-to-date
+  information on rate limits and credits
+
+  Server:              Local background server
+
+  Model:               GPT-6-Luna (reasoning medium)
+  Model provider:      openai
+  Directory:           ~/project
+  Permissions:         Workspace (Ask for approval)
+  Agents.md:           AGENTS.md
+  Collaboration mode:  Default
+
+  Context window:      98% left (15.7K used / 258K)
+  Monthly limit:       [████████████████████] 99% left (resets 11:51 on 24 Nov)
+
+
+  Select Model and Effort
+
+
+› 1. GPT-6-Luna (current)  Fast and affordable model for easier tasks.
+  2. GPT-5.6-Terra         Older balanced model for straightforward work.
+  3. GPT-5.6-Luna          Older fast and efficient model.
+
+  enter select · esc back

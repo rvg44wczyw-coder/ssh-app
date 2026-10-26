@@ -43,6 +43,11 @@ hkdf = "0.12"
 hmac = "0.12"
 subtle = "2"
 
+[target.'cfg(target_vendor = "apple")'.dependencies]
+security-framework = "3"
+security-framework-sys = "2"
+core-foundation = "0.10"
+
 [dev-dependencies]
 ssh-core = { path = ".", features = ["test-support"] }
 tempfile = "3"

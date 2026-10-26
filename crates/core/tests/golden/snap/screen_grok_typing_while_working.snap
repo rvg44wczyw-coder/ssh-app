@@ -1,0 +1,66 @@
+ScreenFeed {
+    dialect: Grok,
+    turns: [
+        TranscriptTurn {
+            id: "scr0",
+            step_index: 0,
+            turn_type: User,
+            timestamp: None,
+            content: Some(
+                "Write a 700-word story about a baker. Use no tools.",
+            ),
+            thinking: None,
+            tool_calls: [],
+            status: Done,
+            label: None,
+        },
+        TranscriptTurn {
+            id: "scr1",
+            step_index: 1,
+            turn_type: System,
+            timestamp: None,
+            content: None,
+            thinking: None,
+            tool_calls: [],
+            status: Done,
+            label: Some(
+                "Thought for 0.9s",
+            ),
+        },
+        TranscriptTurn {
+            id: "scr2",
+            step_index: 2,
+            turn_type: Assistant,
+            timestamp: None,
+            content: Some(
+                "The oven had been hot since four. Ellis liked the hour before the street woke, when the only sound was the mixer and the tick of the cooling racks. Flour dusted the bench in a pale map of yesterday. He wiped a clean square in the middle and set down the dough for the morning loaves.",
+            ),
+            thinking: None,
+            tool_calls: [],
+            status: Done,
+            label: None,
+        },
+        TranscriptTurn {
+            id: "scr3",
+            step_index: 3,
+            turn_type: Assistant,
+            timestamp: None,
+            content: Some(
+                "He worked by weight, not",
+            ),
+            thinking: None,
+            tool_calls: [],
+            status: Done,
+            label: None,
+        },
+    ],
+    status: Some(
+        "⠋ Responding… 1.7s                                                          5.1s ⇣32.3k [stop]",
+    ),
+    draft: Some(
+        "Reply with just the letter B.",
+    ),
+    prompt: None,
+    aside: None,
+    dialog: None,
+}

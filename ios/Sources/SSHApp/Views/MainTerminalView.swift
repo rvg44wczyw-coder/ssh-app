@@ -79,6 +79,9 @@ public struct MainTerminalView: View {
     @State private var announcedApprovals: Set<String> = []
     /// Offer to set up phone approvals and hooks on a host that has none (once per server and run).
     @State private var showSetupOffer = false
+    /// A server seen for the first time: the connection waits until the user has compared the key.
+    @State private var hostKeyPrompt: HostKeyPrompt?
+    @State private var hostKeyChecking: Set<UUID> = []
     @State private var setupOfferedFor: Set<String> = []
     @State private var noticeFirstSeen: [String: Date] = [:]
     /// The tab whose agent the user is about to restart (asks new / continue first).
@@ -483,8 +486,8 @@ public struct MainTerminalView: View {
                     onClose: { id in
                         let session = tabsManager.sessions.first(where: { $0.id == id })
                         let server = serversManager.profile(for: session?.serverId) ?? serversManager.activeProfile
-                        let privateKey = KeychainManager.shared.getPrivateKey(id: server?.keyId)
-                        tabsManager.closeSession(id: id, server: server, privateKey: privateKey)
+                        let key = server.flatMap { KeychainManager.shared.hasPrivateKey(id: $0.keyId) ? KeychainManager.shared.keyRef($0.keyId) : nil }
+                        tabsManager.closeSession(id: id, server: server, key: key)
                     },
                     isChatMode: { tabsManager.viewModel(for: $0.id)?.isChatMode == true },
                     attention: { attention(for: $0) },
@@ -536,8 +539,8 @@ public struct MainTerminalView: View {
                     onClose: { id in
                         let session = tabsManager.sessions.first(where: { $0.id == id })
                         let server = serversManager.profile(for: session?.serverId) ?? serversManager.activeProfile
-                        let privateKey = KeychainManager.shared.getPrivateKey(id: server?.keyId)
-                        tabsManager.closeSession(id: id, server: server, privateKey: privateKey)
+                        let key = server.flatMap { KeychainManager.shared.hasPrivateKey(id: $0.keyId) ? KeychainManager.shared.keyRef($0.keyId) : nil }
+                        tabsManager.closeSession(id: id, server: server, key: key)
                     },
                     isChatMode: { tabsManager.viewModel(for: $0.id)?.isChatMode == true },
                     attention: { attention(for: $0) },
@@ -808,6 +811,16 @@ public struct MainTerminalView: View {
                     Task { await offerSetupIfNeeded() }
                 }
             }
+            .alert("Trust this server?", isPresented: Binding(get: { hostKeyPrompt != nil }, set: { if !$0 { hostKeyPrompt = nil } }), presenting: hostKeyPrompt) { prompt in
+                Button("Trust and connect") {
+                    serversManager.pinHostKey(serverId: prompt.serverId, fingerprint: prompt.fingerprint)
+                    hostKeyPrompt = nil
+                    ensureSessionStarted(for: prompt.sessionId, force: prompt.force)
+                }
+                Button("Cancel", role: .cancel) { hostKeyPrompt = nil }
+            } message: { prompt in
+                Text("First connection to \(prompt.serverName) (\(prompt.address)).\n\nThe server's key fingerprint is\n\(prompt.fingerprint)\n\nCompare it with the one on the server (ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub) before you trust it. Nothing has been sent to the server yet.")
+            }
             .alert("Set up phone approvals?", isPresented: $showSetupOffer) {
                 Button("Set up") { presentSheet(.agentProfiles) }
                 Button("Not now", role: .cancel) {}
@@ -865,11 +878,11 @@ public struct MainTerminalView: View {
     private func handleServerChosen(_ server: ServerProfile) {
         switch serverPickerContext {
         case .startup:
-            print("[MainView] User selected server '\(server.name)' for initial session")
+            print("[MainView] User selected a server for the initial session")
             tabsManager.setSessionServer(id: tabsManager.selectedSessionId, serverId: server.id)
             ensureSessionStarted(for: tabsManager.selectedSessionId, force: true)
         case .newTab:
-            print("[MainView] User selected server '\(server.name)' for new tab")
+            print("[MainView] User selected a server for a new tab")
             let newSession = addNewTab(serverId: server.id)
             ensureSessionStarted(for: newSession.id)
         }
@@ -1019,6 +1032,33 @@ public struct MainTerminalView: View {
         ensureSessionStarted(for: sessionId, force: true)
     }
 
+    /// First contact with a server: the key it presents is read without authenticating and shown;
+    /// nothing is sent to it (no login, no input) until the user trusts that fingerprint.
+    struct HostKeyPrompt: Identifiable {
+        let id = UUID()
+        let serverId: UUID
+        let serverName: String
+        let address: String
+        let fingerprint: String
+        let sessionId: UUID
+        let force: Bool
+    }
+
+    private func askToTrustHostKey(_ s: ServerProfile, sessionId: UUID, force: Bool) {
+        guard !hostKeyChecking.contains(s.id) else { return }
+        hostKeyChecking.insert(s.id)
+        Task {
+            defer { hostKeyChecking.remove(s.id) }
+            do {
+                let fp = try await probeServerHostKey(host: s.host, port: UInt16(clamping: s.port))
+                hostKeyPrompt = HostKeyPrompt(serverId: s.id, serverName: s.name, address: "\(s.host):\(s.port)",
+                                              fingerprint: fp, sessionId: sessionId, force: force)
+            } catch {
+                restartError = "Could not read the key of \(s.host): \(error.localizedDescription)"
+            }
+        }
+    }
+
     func ensureSessionStarted(for id: UUID, force: Bool = false) {
         guard let vm = tabsManager.viewModel(for: id) else { return }
         let session = vm.session
@@ -1030,7 +1070,11 @@ public struct MainTerminalView: View {
             }
             return
         }
-        guard let privateKey = KeychainManager.shared.getPrivateKey(id: s.keyId), !privateKey.isEmpty else {
+        if s.hostKeyFingerprint == nil {
+            askToTrustHostKey(s, sessionId: id, force: force)
+            return
+        }
+        guard KeychainManager.shared.hasPrivateKey(id: s.keyId) else {
             print("[MainView] No private key found in Keychain. Showing Settings.")
             if activeSheet == nil {
                 activeSheet = .settings
@@ -1038,27 +1082,28 @@ public struct MainTerminalView: View {
             return
         }
 
+        let keyRef = KeychainManager.shared.keyRef(s.keyId)
         vm.pinnedHostKey = s.hostKeyFingerprint
         let serverId = s.id
         vm.onHostKeyObserved = { fingerprint in
             serversManager.pinHostKey(serverId: serverId, fingerprint: fingerprint)
         }
 
-        print("[MainView] ensureSessionStarted(for: \(id), vmId=\(vm.instanceId), force: \(force)) server='\(s.name)' (\(s.username)@\(s.host):\(s.port))")
+        print("[MainView] ensureSessionStarted(for: \(id), vmId=\(vm.instanceId), force: \(force))")
 
         if force {
             vm.forceRestart(
                 host: s.host,
                 port: s.port,
                 username: s.username,
-                privateKeyPEM: privateKey
+                keyRef: keyRef
             )
         } else {
             vm.start(
                 host: s.host,
                 port: s.port,
                 username: s.username,
-                privateKeyPEM: privateKey
+                keyRef: keyRef
             )
         }
     }

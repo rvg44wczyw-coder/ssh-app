@@ -302,7 +302,6 @@ pub(crate) fn parse_ctl_result(output: &str) -> Result<(), SshCoreError> {
 
 /// Signs `message` with the session key as an OpenSSH SSHSIG (namespace `ssh-app-approval`), the
 /// format `ssh-keygen -Y verify` on the host checks.
-#[uniffi::export]
 pub fn sign_approval_sshsig(
     private_key_openssh: String,
     message: Vec<u8>,

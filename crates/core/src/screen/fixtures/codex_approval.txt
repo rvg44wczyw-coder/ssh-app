@@ -1,0 +1,40 @@
+› Run exactly one shell command: curl -sI https://example.com . If it is not allowed, just say den…
+• No headers returned.
+
+  Worked for 51s • 09:38
+
+
+› Run exactly one shell command: touch /tmp/work/probe.txt . Do nothing
+  else.
+
+
+• Ran touch /tmp/work/probe.txt
+  └ (no output)
+
+  Worked for 2s • 09:39
+
+• Permission selection requested: Read Only
+
+
+› Run exactly one shell command: touch /tmp/work/probe2.txt . Do nothing
+  else.
+
+
+• Running touch /tmp/work/probe2.txt
+
+
+  Would you like to run the following command?
+
+  Environment: local
+
+  Reason: Allow the requested touch command to create probe2.txt in /private/tmp?
+
+  $ touch /tmp/work/probe2.txt
+
+
+› 1. Yes, proceed (y)
+  2. Yes, and don't ask again for commands that start with `touch /private/tmp/claude-501/cx/
+     run.OmEb/probe2.txt` (p)
+  3. No, and tell Codex what to do differently (esc)
+
+  Press enter to confirm or esc to cancel

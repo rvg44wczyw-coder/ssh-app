@@ -15,7 +15,8 @@ enum BackupService {
         static let keys = "private-keys"
         static let secretValues = "secret-values"
         static let hooks = "hook-commands"
-        static let all = [servers, profiles, snippets, settings, keys, secretValues, hooks]
+        static let sandboxHosts = "sandbox-hosts"
+        static let all = [servers, profiles, snippets, settings, sandboxHosts, keys, secretValues, hooks]
     }
 
     static func title(_ id: String) -> String {
@@ -24,6 +25,7 @@ enum BackupService {
         case GroupID.profiles: return "Launch profiles"
         case GroupID.snippets: return "Snippets"
         case GroupID.settings: return "App settings"
+        case GroupID.sandboxHosts: return "Sandbox allowed hosts"
         case GroupID.keys: return "Private keys"
         case GroupID.secretValues: return "Secret environment values"
         case GroupID.hooks: return "Profiles with hook commands"
@@ -33,7 +35,7 @@ enum BackupService {
 
     /// What the user ticked.
     struct Selection: Equatable {
-        var groups: Set<String> = [GroupID.servers, GroupID.profiles, GroupID.snippets, GroupID.settings]
+        var groups: Set<String> = [GroupID.servers, GroupID.profiles, GroupID.snippets, GroupID.settings, GroupID.sandboxHosts]
         /// Pinned host fingerprints travel with the servers only with this.
         var fingerprints = false
         /// Private keys are ticked one by one; none by default.
@@ -43,7 +45,10 @@ enum BackupService {
     struct KeyRecord: Codable, Equatable {
         var id: String   // "default" for the first key
         var name: String
-        var privateKey: String
+        /// The private key sealed by the core under the backup passphrase (base64); the key text is
+        /// never in the file or in Swift. Empty in the list of choices.
+        var sealed: String
+        var publicKey: String
     }
 
     struct ServerRecord: Codable, Equatable {
@@ -78,7 +83,8 @@ enum BackupService {
     /// plain groups never carry them.
     static func buildGroups(servers: [ServerProfile], profiles: [SavedAgentProfile],
                             snippets: [VaultSync.StoredSnippet], configJSON: String,
-                            keys: [KeyRecord], selection: Selection) -> [BackupGroup] {
+                            keys: [KeyRecord], selection: Selection,
+                            sandboxHosts: [CollectionItem] = []) -> [BackupGroup] {
         var out: [BackupGroup] = []
         let chosen = selection.groups
         if chosen.contains(GroupID.servers), !servers.isEmpty {
@@ -99,6 +105,10 @@ enum BackupService {
         }
         if chosen.contains(GroupID.settings), !configJSON.isEmpty {
             out.append(BackupGroup(id: GroupID.settings, secret: false, json: json(["config": configJSON])))
+        }
+        if chosen.contains(GroupID.sandboxHosts), !sandboxHosts.isEmpty {
+            let items = sandboxHosts.map { Item(id: $0.id, payload: $0.payload) }
+            out.append(BackupGroup(id: GroupID.sandboxHosts, secret: false, json: json(items)))
         }
         if chosen.contains(GroupID.keys) {
             let picked = keys.filter { selection.keyIDs.contains($0.id) }
@@ -152,6 +162,11 @@ enum BackupService {
         }
     }
 
+    static func sandboxHosts(in group: BackupGroup) -> [SyncedSandboxHost] {
+        let all = items(in: group).compactMap(SyncedSandboxHost.decode)
+        return Array(all.prefix(SandboxAllowStore.agents.count * SandboxAllowStore.maxPerAgent))
+    }
+
     static func settingsJSON(in group: BackupGroup) -> String? {
         guard let d = try? JSONDecoder().decode([String: String].self, from: Data(group.json.utf8)),
               let config = d["config"], config.utf8.count <= 1_000_000 else { return nil }
@@ -162,7 +177,8 @@ enum BackupService {
         guard let list = try? JSONDecoder().decode([KeyRecord].self, from: Data(group.json.utf8)), list.count <= 50 else { return [] }
         return list.filter {
             !$0.id.isEmpty && $0.id.count <= 64 && $0.name.count <= 100
-                && $0.privateKey.count <= 20_000 && $0.privateKey.contains("PRIVATE KEY")
+                && $0.sealed.count <= 8192 && Data(base64Encoded: $0.sealed) != nil
+                && $0.publicKey.hasPrefix("ssh-ed25519 ") && $0.publicKey.count <= 200
         }
     }
 
@@ -202,6 +218,9 @@ enum BackupService {
             case GroupID.snippets:
                 let l = snippets(in: g)
                 return PreviewRow(id: g.id, title: title(g.id), count: l.count, names: l.map(\.title), commands: [])
+            case GroupID.sandboxHosts:
+                let l = sandboxHosts(in: g)
+                return PreviewRow(id: g.id, title: title(g.id), count: l.count, names: l.map { "\($0.agent): \($0.host)" }, commands: [])
             case GroupID.settings:
                 return settingsJSON(in: g) == nil ? nil : PreviewRow(id: g.id, title: title(g.id), count: 1, names: [], commands: [])
             case GroupID.keys:

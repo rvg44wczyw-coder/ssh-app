@@ -1,4 +1,5 @@
 import XCTest
+import SshCoreBridge
 @testable import SSHApp
 
 @MainActor
@@ -14,7 +15,7 @@ final class ServerConnectionsTests: XCTestCase {
 
     func testAServerModelWithoutAPinRefusesToConnect() async {
         let vm = TerminalSessionViewModel(session: TabSession(title: "Mac"))
-        await vm.connectForServer(host: "127.0.0.1", port: 1, username: "u", privateKeyPEM: "")
+        await vm.connectForServer(host: "127.0.0.1", port: 1, username: "u", keyRef: KeyRef(id: nil, guarded: false))
         guard case .failed(let reason) = vm.state else { return XCTFail("state \(vm.state)") }
         XCTAssertTrue(reason.contains("not pinned"), reason)
         XCTAssertNil(vm.sessionHandle)

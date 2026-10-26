@@ -1,5 +1,6 @@
 import Foundation
 import FileProvider
+import SshCoreBridge
 
 /// Keeps the servers visible in the Files app in step with the saved servers: publishes the list
 /// for the extension and adds / removes one File Provider domain per server.
@@ -29,7 +30,7 @@ public enum FilesIntegration {
         let servers = sharedServers(from: profiles)
         // The guarded copies first: a server marked guarded must never be published without its copy
         // (the extension does not fall back to the plain key, it fails).
-        SharedStore.publishGuardedKeys(ids: servers.map(\.keyId), enabled: requireAuth)
+        try? keyPublishGuarded(ids: servers.map(\.keyId), enabled: requireAuth)
         SharedStore.publish(servers)
         Task { await syncDomains(servers) }
     }

@@ -7,15 +7,18 @@ found=$(ps -Ao pid=,ppid=,args= 2>/dev/null | awk -v roots=" $roots " '
         if (i > 1 && w[1] !~ /(node|bun|deno|python[0-9.]*|sh|bash|zsh)$/) break
         if (b == "claude") { print "claude " p; exit }
         if (b == "agy" || b == "antigravity") { print "agy " p; exit }
+        if (b == "codex") { print "codex " p; exit }
+        if (b == "grok") { print "grok " p; exit }
       }
       if (c ~ /@anthropic-ai\/claude-code|\/claude-code\//) { print "claude " p; exit }
       if (c ~ /\/antigravity\//) { print "agy " p; exit }
+      if (c ~ /@openai\/codex/) { print "codex " p; exit }
       break } q=pp[q]; d++ } } }')
 kind=${found%% *}; apid=${found##* }
 case "$apid" in ""|*[!0-9]*) exit 0;; esac
 # The agent's own session id, as the hooks noted it for this tmux session (~/.ssh-app/run/sessions):
 # it names the file exactly, even when the same agent runs in the same folder on the laptop.
-hook=claude; case "$kind" in agy) hook=antigravity;; esac
+hook=claude; case "$kind" in agy) hook=antigravity;; codex) hook=codex;; grok) hook=grok;; esac
 sid=""; bts=-1
 for r in "$HOME"/.ssh-app/run/sessions/*.json; do
   [ -f "$r" ] || continue
@@ -61,5 +64,48 @@ case "$kind" in
     [ -n "$d" ] || d=$(ls -td "$B"/* 2>/dev/null | head -n 1)
     f="$d/.system_generated/logs/transcript.jsonl"
     [ -n "$d" ] && [ -f "$f" ] && echo "$f";;
+  codex)
+    # Codex keeps one rollout file per session under $CODEX_HOME (the agent's own, read from its environment)
+    # or ~/.codex: sessions/YYYY/MM/DD/rollout-<time>-<session id>.jsonl, whose first line names the folder.
+    cdir=$(ps eww -p "$apid" 2>/dev/null | tr ' ' '\n' | sed -n 's/^CODEX_HOME=//p' | head -n 1)
+    f=""
+    for d in "$cdir" "$HOME/.codex"; do
+      [ -n "$d" ] || continue
+      if [ -n "$sid" ]; then
+        c=$(ls "$d"/sessions/*/*/*/rollout-*-"$sid".jsonl 2>/dev/null | head -n 1)
+        [ -f "$c" ] && f=$c && break
+      fi
+    done
+    if [ ! -f "$f" ] && [ -n "$cwd" ]; then
+      for d in "$cdir" "$HOME/.codex"; do
+        [ -n "$d" ] || continue
+        c=$(ls -t "$d"/sessions/*/*/*/rollout-*.jsonl 2>/dev/null | head -n 20 | while IFS= read -r c; do
+          head -n 1 "$c" | grep -qF "\"cwd\":\"$cwd\"" && { echo "$c"; break; }
+        done)
+        [ -f "$c" ] && f=$c && break
+      done
+    fi
+    [ -f "$f" ] && echo "$f";;
+  grok)
+    # Grok keeps one folder per session under $GROK_HOME (the agent's own, read from its environment) or ~/.grok:
+    # sessions/<folder with / as %2F>/<session id>/chat_history.jsonl.
+    gdir=$(ps eww -p "$apid" 2>/dev/null | tr ' ' '\n' | sed -n 's/^GROK_HOME=//p' | head -n 1)
+    f=""
+    enc=$(printf %s "$cwd" | sed 's#/#%2F#g; s# #%20#g')
+    for d in "$gdir" "$HOME/.grok"; do
+      [ -n "$d" ] || continue
+      if [ -n "$sid" ]; then
+        c=$(ls "$d"/sessions/*/"$sid"/chat_history.jsonl 2>/dev/null | head -n 1)
+        [ -f "$c" ] && f=$c && break
+      fi
+    done
+    if [ ! -f "$f" ] && [ -n "$cwd" ]; then
+      for d in "$gdir" "$HOME/.grok"; do
+        [ -n "$d" ] || continue
+        c=$(ls -t "$d"/sessions/"$enc"/*/chat_history.jsonl 2>/dev/null | head -n 1)
+        [ -f "$c" ] && f=$c && break
+      done
+    fi
+    [ -f "$f" ] && echo "$f";;
 esac
 exit 0

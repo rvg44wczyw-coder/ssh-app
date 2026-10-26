@@ -1,0 +1,25 @@
+ScreenFeed {
+    dialect: Codex,
+    turns: [
+        TranscriptTurn {
+            id: "scr0",
+            step_index: 0,
+            turn_type: System,
+            timestamp: None,
+            content: Some(
+                "Resume a previous session\n Filter:  Cwd  All    Status:  Active  Archived    Sort:  Updated  Created\n Type to search\n  › 1h ago      Fix the build\n    1h ago      Write the tests\n    23h ago     Plan the release\n    23h ago     Study the project\n───────────────────────────────────────────────────────────────────────────────────── 1 / 4 · 100% ─\n enter resume   ⌃a archive   esc exit   ⌃c exit   tab focus   ←/→ option\n ⌃o comfy   ⌃t preview   ⌃e exp   ↑/↓ browse",
+            ),
+            thinking: None,
+            tool_calls: [],
+            status: Done,
+            label: Some(
+                "Terminal output",
+            ),
+        },
+    ],
+    status: None,
+    draft: None,
+    prompt: None,
+    aside: None,
+    dialog: None,
+}

@@ -79,8 +79,8 @@ impl SshSessionHandle {
             ts,
             approved,
         );
-        let key = zeroize::Zeroizing::new(read_ok(&self.config).private_key_pem.clone());
-        let signature = sign_approval_sshsig((*key).clone(), message)?;
+        let key = crate::key_store::load_pem(&read_ok(&self.config).key)?;
+        let signature = sign_approval_sshsig(key.to_string(), message)?;
         let out = self
             .execute_command_on_active_session(build_decide_command(
                 &item.id, approved, ts, &signature,
@@ -129,7 +129,7 @@ impl SshSessionHandle {
         let trusted = crate::auto_approval::auto_trust_rules(category_ids)?;
         let ts = list.host_time_sec.max(item.timestamp_sec);
         let expires = ts + secs;
-        let key = zeroize::Zeroizing::new(read_ok(&self.config).private_key_pem.clone());
+        let key = crate::key_store::load_pem(&read_ok(&self.config).key)?;
         let approval = crate::approval::create_canonical_signing_bytes(
             item.id.clone(),
             item.command_sha256.clone(),
@@ -137,7 +137,7 @@ impl SshSessionHandle {
             ts,
             true,
         );
-        let signature = sign_approval_sshsig((*key).clone(), approval)?;
+        let signature = sign_approval_sshsig(key.to_string(), approval)?;
         let trust_bytes = crate::auto_approval::create_trust_signing_bytes(
             item.id.clone(),
             item.nonce.clone(),
@@ -149,7 +149,7 @@ impl SshSessionHandle {
             trusted.edits,
             trusted.rules.clone(),
         );
-        let trust_signature = sign_approval_sshsig((*key).clone(), trust_bytes)?;
+        let trust_signature = sign_approval_sshsig(key.to_string(), trust_bytes)?;
         let trust = serde_json::json!({
             "expires": expires, "agent": item.agent, "session": item.session,
             "root": offer.project_root, "edits": trusted.edits, "rules": trusted.rules,
@@ -211,8 +211,9 @@ impl SshSessionHandle {
 
     /// Creates the host queue directories and trusts this device's key for approvals.
     pub async fn install_approval_key(&self) -> Result<(), SshCoreError> {
-        let key = zeroize::Zeroizing::new(read_ok(&self.config).private_key_pem.clone());
-        let public = crate::keys::derive_public_key((*key).clone())?;
+        let public = crate::key_store::key_info(read_ok(&self.config).key.clone())?
+            .ok_or(SshCoreError::NotConnected)?
+            .public_key_openssh;
         let line = crate::approval_queue::allowed_signers_line(&public)?;
         let out = self
             .execute_command_on_active_session(crate::approval_queue::build_install_key_command(

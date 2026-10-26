@@ -293,21 +293,33 @@ final class SecretSyncEngineTests: XCTestCase {
         var wrongId = env("API_TOKEN", "abc")
         wrongId.id = SecretIDs.env(profile: "p1", name: "OTHER_TOKEN")
         XCTAssertFalse(ok(wrongId), "the id must match the content")
-        XCTAssertFalse(ok(SecretItem(id: "k_default", label: "", payload: "{\"name\":\"x\",\"privateKey\":\"nope\",\"publicKey\":\"nope\"}")))
+        XCTAssertFalse(ok(SecretItem(id: "k_default", label: "", payload: "{\"name\":\"x\",\"sealed\":\"nope\",\"publicKey\":\"nope\"}")))
         XCTAssertFalse(ok(SecretItem(id: "z_other", label: "", payload: "{}")))
     }
 
-    func testAPrivateKeyIsAcceptedOnlyWhenItMatchesItsPublicHalf() throws {
-        let pair = try generateSshKeypair()
-        func key(_ pub: String, id: String = "k_default") -> SecretItem {
-            let json = String(data: try! JSONEncoder().encode(SyncedKey(name: "Work", privateKey: pair.privateKeyOpenssh, publicKey: pub)), encoding: .utf8)!
-            return SecretItem(id: id, label: "", payload: json)
-        }
-        XCTAssertTrue(VaultSecretItems.accepts(key(pair.publicKeyOpenssh), knownProfiles: [], hasDefaultKey: false))
-        let other = try generateSshKeypair()
-        XCTAssertFalse(VaultSecretItems.accepts(key(other.publicKeyOpenssh), knownProfiles: [], hasDefaultKey: false))
-        XCTAssertFalse(VaultSecretItems.accepts(key(pair.publicKeyOpenssh, id: "k_not-a-uuid"), knownProfiles: [], hasDefaultKey: false))
-        XCTAssertTrue(VaultSecretItems.accepts(key(pair.publicKeyOpenssh, id: "k_" + UUID().uuidString), knownProfiles: [], hasDefaultKey: false))
+    func testAKeyTravelsSealedAndOnlyTheVaultKeyOpensIt() throws {
+        try requireKeychain()
+        let id = UUID().uuidString, copy = UUID().uuidString
+        let src = KeyRef(id: id, guarded: false), dst = KeyRef(id: copy, guarded: false)
+        defer { try? keyDelete(key: src); try? keyDelete(key: dst) }
+        let info = try keyGenerate(key: src, overwrite: false)
+        let secret = Data(repeating: 9, count: 32)
+        let items = VaultSecretItems.keyItems(default: false, extra: [SSHKeyInfo(id: id, name: "Work")], secret: secret)
+        XCTAssertEqual(items.count, 1)
+        XCTAssertFalse(items[0].payload.contains("PRIVATE KEY"), "the payload holds ciphertext, never the key text")
+        XCTAssertEqual(items, VaultSecretItems.keyItems(default: false, extra: [SSHKeyInfo(id: id, name: "Work")], secret: secret),
+                       "stable, so sync sees no change")
+        let synced = try JSONDecoder().decode(SyncedKey.self, from: Data(items[0].payload.utf8))
+        func incoming(id: String) -> SecretItem { SecretItem(id: id, label: "", payload: items[0].payload) }
+        XCTAssertTrue(VaultSecretItems.accepts(incoming(id: "k_" + copy), knownProfiles: [], hasDefaultKey: false))
+        XCTAssertFalse(VaultSecretItems.accepts(incoming(id: "k_not-a-uuid"), knownProfiles: [], hasDefaultKey: false))
+        XCTAssertFalse(VaultSecretItems.accepts(incoming(id: "k_default"), knownProfiles: [], hasDefaultKey: true),
+                       "a default key already here is never replaced")
+        let blob = try XCTUnwrap(Data(base64Encoded: synced.sealed))
+        XCTAssertThrowsError(try keyUnsealStable(key: dst, sealed: blob, secret: Data(repeating: 1, count: 32), overwrite: false))
+        XCTAssertFalse(keyExists(key: dst))
+        let got = try keyUnsealStable(key: dst, sealed: blob, secret: secret, overwrite: false)
+        XCTAssertEqual(got.fingerprintSha256, info.fingerprintSha256)
     }
 }
 

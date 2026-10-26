@@ -1,0 +1,40 @@
+     ~/project
+
+• Unrecognized command '/Run'. Type "/" for a list of supported commands.
+
+
+› Run the shell command: sleep 20 . Then reply with the single word done. Do not edit or create any
+  files./Run the shell command: sleep 20 . Then reply with the single word done. Do not edit or
+  create any files.
+
+
+• I’ll run the requested 20-second sleep and then reply as specified.
+
+• Ran sleep 20
+  └ (no output)
+
+• done
+
+  Worked for 22s • 09:36
+
+
+› Run the shell command: sleep 25 . Then reply with the single word ok.
+
+
+• I’ll run the requested sleep, then reply with the specified word.
+
+
+› queued message one
+
+
+• Working (18s • esc to interrupt) · 1 background terminal running · /ps to view · /stop to close
+
+• Queued follow-up inputs
+  ↳ tabbed message two
+    ⇧← edit last queued message
+
+
+› Ask Codex to do anything
+
+  GPT-6-Luna default · ~/project · Run sleep 20 command
+  ← for agents · ? for shortcuts

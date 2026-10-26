@@ -5,10 +5,15 @@ pub(super) static OPTION_RE: std::sync::OnceLock<regex::Regex> = std::sync::Once
 pub(super) fn option_re() -> &'static regex::Regex {
     OPTION_RE.get_or_init(|| {
         regex::Regex::new(
-            r"^\s*(?:│\s*)?(?P<cur>[>❯])?\s*(?P<box>\[[ xX✓✔]\]|[☐☑☒◯◉])?\s*(?P<n>\d{1,2})[.)]\s+(?P<label>\S.*?)\s*(?:│)?\s*$",
+            r"^\s*(?:│\s*)?(?P<cur>[>❯›])?\s*(?P<box>\[[ xX✓✔]\]|[☐☑☒◯◉])?\s*(?P<n>\d{1,2})[.)]\s+(?P<label>\S.*?)\s*(?:│)?\s*$",
         )
         .expect("valid option pattern")
     })
+}
+
+fn is_command_detail(l: &str) -> bool {
+    let t = l.trim_start();
+    t.starts_with("$ ") || t.starts_with("Reason:") || t.starts_with("Environment:")
 }
 
 pub(super) fn is_hint(l: &str) -> bool {
@@ -16,6 +21,7 @@ pub(super) fn is_hint(l: &str) -> bool {
     t.contains("navigate")
         || t.contains("enter to select")
         || t.contains("enter to confirm")
+        || t.contains("enter select")
         || t.contains("esc to cancel")
 }
 
@@ -45,7 +51,10 @@ pub(super) fn parse_prompt(lines: &[String]) -> Option<(usize, ScreenPrompt)> {
         .or_else(|| {
             (0..n).rev().take(6).find(|&i| {
                 let t = lines[i].to_lowercase();
-                t.contains("enter to select") || t.contains("enter to confirm")
+                t.contains("enter to select")
+                    || t.contains("enter to confirm")
+                    // Codex's pickers: `enter select · esc back`
+                    || t.contains("enter select")
             })
         });
     let mut end = match hint {
@@ -105,7 +114,16 @@ pub(super) fn parse_prompt(lines: &[String]) -> Option<(usize, ScreenPrompt)> {
     }
     let first = starts[0];
     // the question: nearest non-empty line above the first option
-    let question_idx = (0..first).rev().find(|&q| !lines[q].trim().is_empty())?;
+    let mut question_idx = (0..first).rev().find(|&q| !lines[q].trim().is_empty())?;
+    // Codex shows the command (`$ …`) and the reason between the question and its options
+    if is_command_detail(&lines[question_idx]) {
+        if let Some(q) = (question_idx.saturating_sub(6)..question_idx)
+            .rev()
+            .find(|&q| lines[q].trim_end().ends_with('?') && !is_command_detail(&lines[q]))
+        {
+            question_idx = q;
+        }
+    }
     let question = unbox(&lines[question_idx]);
 
     let mut options: Vec<PromptOption> = Vec::new();

@@ -1,5 +1,7 @@
 # Feature 13: Host Approval Queue & Phone Approvals (replaces the `control.sock` broker of Feature 03)
 
+> **Note (2026-10-26):** parts of this document that describe the Unix-socket approval scheme are superseded by the file queue (`~/.ssh-app/run/{pending,decisions}`, signed by the phone key). See specs 24, 57 and 62.
+
 - **Slug**: `13-host-approval-broker`
 - **Milestone**: M17
 - **Status**: In implementation

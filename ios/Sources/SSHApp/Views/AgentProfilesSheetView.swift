@@ -299,6 +299,10 @@ public struct AgentProfilesSheetView: View {
                 .font(.caption)
                 .buttonStyle(.borderless)
         }
+        if status?.hooksInstalled == true, profile.agent == .codex {
+            Text("Codex runs new hooks only after you trust them: open /hooks in Codex and press t (trust all), or choose \"Trust all\" at its start.")
+                .font(.caption2).foregroundColor(.secondary)
+        }
     }
 
     /// Installs the approval hooks of every profile that lacks them (or whose hooks drifted) and, for

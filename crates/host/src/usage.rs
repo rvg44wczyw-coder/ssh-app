@@ -32,7 +32,7 @@ pub fn validate_dirs(args: &[String]) -> Result<Vec<String>, String> {
     Ok(args.to_vec())
 }
 
-fn home() -> PathBuf {
+pub(crate) fn home() -> PathBuf {
     std::env::var_os("HOME").map_or_else(|| PathBuf::from("/"), PathBuf::from)
 }
 
@@ -48,7 +48,7 @@ fn state_home() -> PathBuf {
     std::env::var_os("SSH_APP_HOME").map_or_else(|| home().join(".ssh-app"), PathBuf::from)
 }
 
-fn now() -> f64 {
+pub(crate) fn now() -> f64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0.0, |d| d.as_secs_f64())
@@ -57,7 +57,7 @@ fn now() -> f64 {
 // ---- running ps / tmux -----------------------------------------------------------------------
 
 /// Runs a fixed argv (no shell) and returns stdout, or "" on any failure or after `secs`.
-fn run(prog: &str, args: &[&str], secs: u64) -> String {
+pub(crate) fn run(prog: &str, args: &[&str], secs: u64) -> String {
     let path = format!(
         "/opt/homebrew/bin:/usr/local/bin:{}",
         std::env::var("PATH").unwrap_or_default()
@@ -97,7 +97,7 @@ fn run(prog: &str, args: &[&str], secs: u64) -> String {
 
 // ---- processes -----------------------------------------------------------------------------------
 
-struct Procs {
+pub(crate) struct Procs {
     args: HashMap<u32, String>,
     children: HashMap<u32, Vec<u32>>,
 }
@@ -112,7 +112,7 @@ fn split3(line: &str) -> Option<(&str, &str, &str)> {
     (!rest.is_empty()).then_some((a, b, rest))
 }
 
-fn read_procs() -> Procs {
+pub(crate) fn read_procs() -> Procs {
     let mut procs = Procs {
         args: HashMap::new(),
         children: HashMap::new(),
@@ -130,13 +130,13 @@ fn read_procs() -> Procs {
     procs
 }
 
-struct Detector {
+pub(crate) struct Detector {
     agents: Vec<(&'static str, Regex)>,
     ollama: Regex,
 }
 
 impl Detector {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let agent = |n: &'static str| (n, Regex::new(&format!(r"(^|/){n}(\s|$)")).expect("regex"));
         Self {
             agents: vec![agent("claude"), agent("codex"), agent("agy"), agent("grok")],
@@ -145,7 +145,11 @@ impl Detector {
     }
 
     /// Same walk as the Python: a stack, children pushed in order, first match wins.
-    fn detect(&self, procs: &Procs, root: u32) -> Option<(&'static str, Option<String>)> {
+    pub(crate) fn detect(
+        &self,
+        procs: &Procs,
+        root: u32,
+    ) -> Option<(&'static str, Option<String>)> {
         let mut stack = vec![root];
         let mut seen = HashSet::new();
         while let Some(p) = stack.pop() {
@@ -171,11 +175,11 @@ impl Detector {
 
 // ---- file helpers -------------------------------------------------------------------------------
 
-fn regular(path: &Path) -> Option<std::fs::Metadata> {
+pub(crate) fn regular(path: &Path) -> Option<std::fs::Metadata> {
     std::fs::metadata(path).ok().filter(|m| m.is_file())
 }
 
-fn mtime(m: &std::fs::Metadata) -> f64 {
+pub(crate) fn mtime(m: &std::fs::Metadata) -> f64 {
     m.modified()
         .ok()
         .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
@@ -209,7 +213,7 @@ fn tail_lines(path: &Path, limit: u64) -> Vec<String> {
 
 /// `*.jsonl` files under `root`, at most `max_depth` levels down (symlinked folders are followed,
 /// the depth bound stops loops).
-fn jsonl_files(root: &Path, max_depth: usize, deadline: Instant) -> Vec<PathBuf> {
+pub(crate) fn jsonl_files(root: &Path, max_depth: usize, deadline: Instant) -> Vec<PathBuf> {
     let mut out = vec![];
     let mut stack = vec![(root.to_path_buf(), 0usize)];
     while let Some((dir, depth)) = stack.pop() {
@@ -494,7 +498,12 @@ impl Probe {
             }
         }
         let Some(file) = best else { return vec![] };
-        for line in tail_lines(&file, TAIL_LIMIT).iter().rev() {
+        self.codex_limits_in(&file)
+    }
+
+    /// The plan limits the rollout `file` last recorded (`token_count` events carry `rate_limits`).
+    fn codex_limits_in(&self, file: &Path) -> Vec<Value> {
+        for line in tail_lines(file, TAIL_LIMIT).iter().rev() {
             if !line.contains("rate_limits") {
                 continue;
             }
@@ -538,6 +547,166 @@ impl Probe {
             return out;
         }
         vec![]
+    }
+
+    /// Codex's own state for the tab: the model, the context in use and the plan limits, read from the
+    /// rollout of this session (the id the hooks noted, else the newest rollout of the folder). The
+    /// limits fall back to the newest rollout anywhere: they belong to the account.
+    pub fn codex_state(&self, cwd: &str, sid: Option<&str>) -> Map<String, Value> {
+        let root =
+            std::env::var_os("CODEX_HOME").map_or_else(|| home().join(".codex"), PathBuf::from);
+        self.codex_state_in(&root, cwd, sid)
+    }
+
+    fn codex_state_in(&self, root: &Path, cwd: &str, sid: Option<&str>) -> Map<String, Value> {
+        let mut out = Map::new();
+        let mut files: Vec<(f64, PathBuf)> = jsonl_files(
+            &root.join("sessions"),
+            4,
+            Instant::now() + Duration::from_secs(3),
+        )
+        .into_iter()
+        .filter(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("rollout-"))
+        })
+        .filter_map(|p| regular(&p).map(|m| (mtime(&m), p)))
+        .collect();
+        files.sort_by(|a, b| b.0.total_cmp(&a.0));
+        let mine = match sid {
+            Some(id) => files.iter().find(|(_, p)| {
+                p.file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|n| n.ends_with(&format!("-{id}.jsonl")))
+            }),
+            None => files
+                .iter()
+                .take(20)
+                .find(|(_, p)| first_line_names_cwd(p, cwd)),
+        };
+        let mut limits = vec![];
+        if let Some((_, file)) = mine {
+            let (mut model, mut ctx) = (None, None);
+            for line in tail_lines(file, TAIL_LIMIT).iter().rev() {
+                let Ok(e) = serde_json::from_str::<Value>(line) else {
+                    continue;
+                };
+                let p = e.get("payload");
+                if model.is_none() && e.get("type").and_then(Value::as_str) == Some("turn_context")
+                {
+                    model = p
+                        .and_then(|p| p.get("model"))
+                        .and_then(Value::as_str)
+                        .map(|m| m.chars().take(80).collect::<String>());
+                }
+                if ctx.is_none() {
+                    let info = p.and_then(|p| p.get("info")).filter(|i| i.is_object());
+                    if let Some(info) = info {
+                        let used = as_u64(
+                            info.get("last_token_usage")
+                                .and_then(|u| u.get("total_tokens")),
+                        );
+                        let limit = as_u64(info.get("model_context_window"));
+                        if used > 0 && limit > 0 {
+                            ctx = Some((used, limit));
+                        }
+                    }
+                }
+                if model.is_some() && ctx.is_some() {
+                    break;
+                }
+            }
+            if let Some(m) = model {
+                out.insert("model".into(), json!(m));
+            }
+            if let Some((used, limit)) = ctx {
+                out.insert("context_used".into(), json!(used));
+                out.insert("context_limit".into(), json!(limit));
+            }
+            limits = self.codex_limits_in(file);
+        }
+        if limits.is_empty() {
+            limits = self.codex_limits();
+        }
+        out.insert("limits".into(), Value::Array(limits));
+        out
+    }
+
+    // ---- Grok -----------------------------------------------------------------------------------
+
+    /// Grok keeps `summary.json` (the model) and `signals.json` (context tokens used and the window) in
+    /// `sessions/<folder with / as %2F>/<session id>/`.
+    pub fn grok_state(&self, cwd: &str, sid: Option<&str>) -> Map<String, Value> {
+        let root =
+            std::env::var_os("GROK_HOME").map_or_else(|| home().join(".grok"), PathBuf::from);
+        let mut out = Self::grok_state_in(&root.join("sessions"), cwd, sid);
+        // The plan limit exists only in grok's `/usage` dialog: a cached reading, refreshed in the background.
+        crate::grokquota::refresh_if_stale(cwd);
+        let limits: Vec<Value> = crate::grokquota::cached(self.now)
+            .into_iter()
+            .map(|(minutes, used, reset)| {
+                limit_entry(&limit_label(Some(f64::from(minutes))), used, reset)
+            })
+            .collect();
+        if !limits.is_empty() {
+            out.insert("limits".into(), Value::Array(limits));
+        }
+        out
+    }
+
+    fn grok_state_in(root: &Path, cwd: &str, sid: Option<&str>) -> Map<String, Value> {
+        let mut out = Map::new();
+        let dir = match sid {
+            Some(id) => std::fs::read_dir(root).ok().and_then(|rd| {
+                rd.flatten()
+                    .map(|e| e.path().join(id))
+                    .find(|p| p.join("summary.json").is_file())
+            }),
+            None => {
+                let enc = cwd
+                    .replace('%', "%25")
+                    .replace('/', "%2F")
+                    .replace(' ', "%20");
+                std::fs::read_dir(root.join(enc)).ok().and_then(|rd| {
+                    rd.flatten()
+                        .map(|e| e.path())
+                        .filter_map(|p| regular(&p.join("summary.json")).map(|m| (mtime(&m), p)))
+                        .max_by(|a, b| a.0.total_cmp(&b.0))
+                        .map(|(_, p)| p)
+                })
+            }
+        };
+        let Some(dir) = dir else { return out };
+        let read = |name: &str| -> Option<Value> {
+            let meta = regular(&dir.join(name))?;
+            if meta.len() > 1 << 20 {
+                return None;
+            }
+            serde_json::from_str(&std::fs::read_to_string(dir.join(name)).ok()?).ok()
+        };
+        if let Some(m) = read("summary.json")
+            .and_then(|v| {
+                v.get("current_model_id")
+                    .and_then(Value::as_str)
+                    .map(String::from)
+            })
+            .filter(|m| !m.is_empty())
+        {
+            out.insert(
+                "model".into(),
+                json!(m.chars().take(80).collect::<String>()),
+            );
+        }
+        if let Some(sig) = read("signals.json") {
+            let used = as_u64(sig.get("contextTokensUsed"));
+            let limit = as_u64(sig.get("contextWindowTokens"));
+            if used > 0 && limit > 0 {
+                out.insert("context_used".into(), json!(used));
+                out.insert("context_limit".into(), json!(limit));
+            }
+        }
+        out
     }
 
     // ---- Antigravity ----------------------------------------------------------------------------
@@ -587,6 +756,21 @@ impl Probe {
             };
             out.insert("model".into(), json!(model));
             out.insert("context_limit".into(), json!(limit));
+        }
+        // The plan limits exist only on agy's `/usage` screen: a cached reading, refreshed in the background.
+        crate::agyquota::refresh_if_stale(cwd);
+        let limits: Vec<Value> = crate::agyquota::limits_for(
+            &crate::agyquota::cached(),
+            out.get("model").and_then(Value::as_str),
+            self.now,
+        )
+        .into_iter()
+        .map(|(minutes, used, reset)| {
+            limit_entry(&limit_label(Some(f64::from(minutes))), used, reset)
+        })
+        .collect();
+        if !limits.is_empty() {
+            out.insert("limits".into(), Value::Array(limits));
         }
         let (mut have_ctx, mut have_note) = (false, false);
         for line in tail_lines(&transcript, TAIL_LIMIT).iter().rev() {
@@ -827,6 +1011,27 @@ fn ollama_loaded() -> Vec<Value> {
 // ---- the report -------------------------------------------------------------------------------------
 
 /// The agent's own session id for a tmux session, as the hooks noted it (the newest record wins).
+/// The first line of a rollout (`session_meta`) names the folder the session was started in.
+fn first_line_names_cwd(path: &Path, cwd: &str) -> bool {
+    let Ok(f) = std::fs::File::open(path) else {
+        return false;
+    };
+    let mut line = String::new();
+    if std::io::BufRead::read_line(&mut std::io::BufReader::new(f.take(65_536)), &mut line).is_err()
+    {
+        return false;
+    }
+    serde_json::from_str::<Value>(&line)
+        .ok()
+        .and_then(|v| {
+            v.get("payload")
+                .and_then(|p| p.get("cwd"))
+                .and_then(Value::as_str)
+                .map(|c| c == cwd)
+        })
+        .unwrap_or(false)
+}
+
 fn registered_id(registry: &[Value], tmux: &str, agent: &str) -> Option<String> {
     registry
         .iter()
@@ -888,9 +1093,12 @@ pub fn report(config_dirs: &[String]) -> Value {
             "claude" => s.extend(
                 probe.claude_state(cwd, registered_id(&registry, parts[0], "claude").as_deref()),
             ),
-            "codex" => {
-                s.insert("limits".into(), Value::Array(probe.codex_limits()));
-            }
+            "codex" => s.extend(
+                probe.codex_state(cwd, registered_id(&registry, parts[0], "codex").as_deref()),
+            ),
+            "grok" => s.extend(
+                probe.grok_state(cwd, registered_id(&registry, parts[0], "grok").as_deref()),
+            ),
             "agy" => s.extend(probe.agy_state(
                 cwd,
                 registered_id(&registry, parts[0], "antigravity").as_deref(),
@@ -1038,5 +1246,59 @@ mod tests {
     #[test]
     fn slug_matches_claude_folder_names() {
         assert_eq!(slug("/Users/ivs/rust/ssh-app"), "-Users-ivs-rust-ssh-app");
+    }
+
+    #[test]
+    fn codex_state_reads_the_model_context_and_limits_of_its_own_rollout() {
+        let dir = tempfile::tempdir().unwrap();
+        let day = dir.path().join("sessions/2026/10/26");
+        std::fs::create_dir_all(&day).unwrap();
+        let mine = day.join("rollout-2026-10-26T10-00-00-aaa111.jsonl");
+        let other = day.join("rollout-2026-10-26T11-00-00-bbb222.jsonl");
+        let body = |cwd: &str, model: &str, used: u64| {
+            format!(
+                "{{\"type\":\"session_meta\",\"payload\":{{\"cwd\":\"{cwd}\"}}}}\n\
+                 {{\"type\":\"turn_context\",\"payload\":{{\"model\":\"{model}\"}}}}\n\
+                 {{\"type\":\"event_msg\",\"timestamp\":\"2026-10-26T10:00:00Z\",\"payload\":{{\"type\":\"token_count\",\"info\":{{\"model_context_window\":258400,\"last_token_usage\":{{\"total_tokens\":{used}}}}},\"rate_limits\":{{\"primary\":{{\"used_percent\":12.0,\"window_minutes\":300,\"resets_at\":4102444800}}}}}}}}\n"
+            )
+        };
+        std::fs::write(&mine, body("/w/mine", "gpt-6-luna", 17770)).unwrap();
+        std::fs::write(&other, body("/w/other", "other-model", 5)).unwrap();
+        let probe = Probe::new(vec![], 1_800_000_000.0);
+        let st = probe.codex_state_in(dir.path(), "/w/mine", None);
+        assert_eq!(st["model"], "gpt-6-luna");
+        assert_eq!(st["context_used"], 17770);
+        assert_eq!(st["context_limit"], 258400);
+        assert_eq!(st["limits"][0]["label"], "5h");
+        // a noted id beats the folder
+        let st = probe.codex_state_in(dir.path(), "/w/mine", Some("bbb222"));
+        assert_eq!(st["model"], "other-model");
+        // a folder with no rollout: nothing of its own
+        let st = probe.codex_state_in(dir.path(), "/w/none", None);
+        assert!(st.get("model").is_none() && st.get("context_used").is_none());
+    }
+
+    #[test]
+    fn grok_state_reads_the_model_and_context_of_its_session() {
+        let dir = tempfile::tempdir().unwrap();
+        let s = dir.path().join("%2Fw%2Fmy%20dir/sess-1");
+        std::fs::create_dir_all(&s).unwrap();
+        std::fs::write(s.join("summary.json"), r#"{"current_model_id":"grok-4.7"}"#).unwrap();
+        std::fs::write(
+            s.join("signals.json"),
+            r#"{"contextTokensUsed":36366,"contextWindowTokens":256000}"#,
+        )
+        .unwrap();
+        let st = Probe::grok_state_in(dir.path(), "/w/my dir", None);
+        assert_eq!(st["model"], "grok-4.7");
+        assert_eq!(st["context_used"], 36366);
+        assert_eq!(st["context_limit"], 256000);
+        assert_eq!(
+            Probe::grok_state_in(dir.path(), "/x", Some("sess-1"))["model"],
+            "grok-4.7"
+        );
+        assert!(Probe::grok_state_in(dir.path(), "/w/none", None).is_empty());
+        // a path-like id finds nothing
+        assert!(Probe::grok_state_in(dir.path(), "/x", Some("../x")).is_empty());
     }
 }

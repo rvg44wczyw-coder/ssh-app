@@ -1,0 +1,131 @@
+[
+    TranscriptTurn {
+        id: "turn_grok_1",
+        step_index: 1,
+        turn_type: User,
+        timestamp: None,
+        content: Some(
+            "list the project folder",
+        ),
+        thinking: None,
+        tool_calls: [],
+        status: Done,
+        label: None,
+    },
+    TranscriptTurn {
+        id: "turn_grok_2",
+        step_index: 2,
+        turn_type: Assistant,
+        timestamp: None,
+        content: None,
+        thinking: Some(
+            "The user wants a listing of the folder.",
+        ),
+        tool_calls: [],
+        status: Done,
+        label: None,
+    },
+    TranscriptTurn {
+        id: "turn_grok_3",
+        step_index: 3,
+        turn_type: Assistant,
+        timestamp: None,
+        content: Some(
+            "I will list the folder and look for a README.",
+        ),
+        thinking: None,
+        tool_calls: [
+            TranscriptToolCall {
+                call_id: "call-1-0",
+                tool_name: "LS",
+                arguments_summary: "/tmp/project",
+                full_arguments_json: Some(
+                    "{\n  \"target_directory\": \"/tmp/project\",\n  \"path\": \"/tmp/project\"\n}",
+                ),
+                result: Some(
+                    "- /tmp/project/\n  - Cargo.toml\n  - README.md\n  - src/\n",
+                ),
+                is_error: false,
+                status: Done,
+            },
+            TranscriptToolCall {
+                call_id: "call-1-1",
+                tool_name: "Grep",
+                arguments_summary: "^fn ",
+                full_arguments_json: Some(
+                    "{\n  \"pattern\": \"^fn \",\n  \"glob\": \"src/*.rs\",\n  \"head_limit\": 5,\n  \"query\": \"^fn \"\n}",
+                ),
+                result: Some(
+                    "src/main.rs:1:fn main() {}\n",
+                ),
+                is_error: false,
+                status: Done,
+            },
+        ],
+        status: Done,
+        label: None,
+    },
+    TranscriptTurn {
+        id: "turn_grok_4",
+        step_index: 4,
+        turn_type: Assistant,
+        timestamp: None,
+        content: None,
+        thinking: None,
+        tool_calls: [
+            TranscriptToolCall {
+                call_id: "call-2-0",
+                tool_name: "Bash",
+                arguments_summary: "sleep 120",
+                full_arguments_json: Some(
+                    "{\n  \"command\": \"sleep 120\",\n  \"description\": \"Sleep for 120 seconds\",\n  \"block_until_ms\": 0\n}",
+                ),
+                result: Some(
+                    "exit: 2\nsleep: bad operand\n",
+                ),
+                is_error: true,
+                status: Error,
+            },
+        ],
+        status: Done,
+        label: None,
+    },
+    TranscriptTurn {
+        id: "turn_grok_5",
+        step_index: 5,
+        turn_type: Assistant,
+        timestamp: None,
+        content: Some(
+            "The folder holds Cargo.toml, README.md and src.",
+        ),
+        thinking: None,
+        tool_calls: [],
+        status: Done,
+        label: None,
+    },
+    TranscriptTurn {
+        id: "turn_grok_6",
+        step_index: 6,
+        turn_type: Assistant,
+        timestamp: None,
+        content: Some(
+            "unfinished call",
+        ),
+        thinking: None,
+        tool_calls: [
+            TranscriptToolCall {
+                call_id: "call-3-0",
+                tool_name: "Read",
+                arguments_summary: "/tmp/project/README.md",
+                full_arguments_json: Some(
+                    "{\n  \"target_file\": \"/tmp/project/README.md\",\n  \"path\": \"/tmp/project/README.md\"\n}",
+                ),
+                result: None,
+                is_error: false,
+                status: Running,
+            },
+        ],
+        status: Done,
+        label: None,
+    },
+]

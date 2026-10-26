@@ -1,0 +1,68 @@
+ScreenFeed {
+    dialect: Codex,
+    turns: [
+        TranscriptTurn {
+            id: "scr0",
+            step_index: 0,
+            turn_type: System,
+            timestamp: None,
+            content: Some(
+                ">_ OpenAI Codex (v0.164.0)\n~/project",
+            ),
+            thinking: None,
+            tool_calls: [],
+            status: Done,
+            label: Some(
+                "OpenAI Codex",
+            ),
+        },
+        TranscriptTurn {
+            id: "scr1",
+            step_index: 1,
+            turn_type: System,
+            timestamp: None,
+            content: Some(
+                "Hooks\n  Lifecycle hooks from config and enabled plugins.\n  ⚠ 2 hooks need review before they can run.\n  Event                 Installed   Active      Review      Description\n  PreToolUse            0           0           0           Before a tool executes",
+            ),
+            thinking: None,
+            tool_calls: [],
+            status: Done,
+            label: Some(
+                "Terminal output",
+            ),
+        },
+        TranscriptTurn {
+            id: "scr2",
+            step_index: 2,
+            turn_type: User,
+            timestamp: None,
+            content: Some(
+                "PermissionRequest     1           0           1           When permission is requested PostToolUse           0           0           0           After a tool executes PreCompact            0           0           0           Before context compaction PostCompact           0           0           0           After context compaction SessionStart          0           0           0           When a new session starts SessionEnd            0           0           0           Right before a session ends UserPromptSubmit      0           0           0           When the user submits a prompt",
+            ),
+            thinking: None,
+            tool_calls: [],
+            status: Done,
+            label: None,
+        },
+        TranscriptTurn {
+            id: "scr3",
+            step_index: 3,
+            turn_type: System,
+            timestamp: None,
+            content: Some(
+                "↓\n  t trust all · enter review · esc close",
+            ),
+            thinking: None,
+            tool_calls: [],
+            status: Done,
+            label: Some(
+                "Terminal output",
+            ),
+        },
+    ],
+    status: None,
+    draft: None,
+    prompt: None,
+    aside: None,
+    dialog: None,
+}

@@ -94,3 +94,19 @@ final class AppLockTests: XCTestCase {
         XCTAssertTrue(AppLock.shouldLock(enabled: true, backgroundedAt: now, now: now, after: 0))
     }
 }
+
+final class BackupSandboxHostsTests: XCTestCase {
+    func testSandboxHostsTravelInPlainGroupAndHostileRecordsAreDropped() throws {
+        let d = UserDefaults(suiteName: "backup-sbx-\(UUID().uuidString)")!
+        SandboxAllowStore.set(["registry.npmjs.org"], for: "codex", defaults: d)
+        let items = SyncedSandboxHost.outgoing(defaults: d)
+        let groups = BackupService.buildGroups(servers: [], profiles: [], snippets: [], configJSON: "", keys: [],
+                                               selection: BackupService.Selection(), sandboxHosts: items)
+        let g = try XCTUnwrap(groups.first { $0.id == BackupService.GroupID.sandboxHosts })
+        XCTAssertFalse(g.secret)
+        XCTAssertEqual(BackupService.sandboxHosts(in: g).map(\.host), ["registry.npmjs.org"])
+        let forged = BackupGroup(id: g.id, secret: false,
+                                 json: #"[{"id":"s_codex_evil.com; id","payload":"{\"agent\":\"codex\",\"host\":\"evil.com; id\"}"}]"#)
+        XCTAssertTrue(BackupService.sandboxHosts(in: forged).isEmpty)
+    }
+}

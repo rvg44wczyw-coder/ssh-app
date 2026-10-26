@@ -15,6 +15,8 @@ use crate::screen::ScreenDialect;
 pub struct AgentKeys {
     /// Pushes a queued message now, interrupting the turn. `None`: the agent has no such key.
     pub send_now_keys: Option<Vec<u8>>,
+    /// Queues the typed message while a turn runs. `None`: Enter queues it.
+    pub queue_keys: Option<Vec<u8>>,
     /// Brings the queued messages back into the input box.
     pub pull_queue_keys: Vec<u8>,
     /// Empties the line the cursor is on.
@@ -64,6 +66,9 @@ pub struct AgentDescriptor {
 }
 
 const UP: [u8; 3] = [0x1b, 0x5b, 0x41];
+const SHIFT_LEFT: [u8; 6] = [0x1b, 0x5b, 0x31, 0x3b, 0x32, 0x44];
+const CTRL_ENTER: [u8; 7] = [0x1b, 0x5b, 0x31, 0x33, 0x3b, 0x35, 0x75];
+const TAB: u8 = 0x09;
 const CTRL_U: u8 = 0x15;
 
 fn cmd(name: &str, label: &str, icon: &str) -> AgentCommand {
@@ -95,6 +100,7 @@ fn claude() -> AgentDescriptor {
         dialect: ScreenDialect::Claude,
         session_store: SessionStore::File,
         keys: AgentKeys {
+            queue_keys: None,
             send_now_keys: Some(vec![0x18, 0x13]),
             pull_queue_keys: UP.to_vec(),
             clear_line_keys: vec![CTRL_U],
@@ -131,6 +137,7 @@ fn agy() -> AgentDescriptor {
         dialect: ScreenDialect::Agy,
         session_store: SessionStore::Database,
         keys: AgentKeys {
+            queue_keys: None,
             send_now_keys: Some(vec![0x1b, 0x6d]),
             pull_queue_keys: UP.to_vec(),
             clear_line_keys: vec![CTRL_U],
@@ -161,6 +168,96 @@ fn agy() -> AgentDescriptor {
     }
 }
 
+/// Codex: its session is read (rollout files); its screen is not parsed yet, so the dialect is `Unknown`
+/// and nothing of its keys or commands is assumed until they are captured live (spec 60, phase 5).
+fn codex() -> AgentDescriptor {
+    AgentDescriptor {
+        id: "codex".into(),
+        kind: Some(AgentKind::Codex),
+        display_name: "Codex".into(),
+        process_names: vec!["codex".into()],
+        dialect: ScreenDialect::Codex,
+        session_store: SessionStore::File,
+        // Verified live (Codex 0.164.0, private tmux, 2026-10-26): Enter during a turn sends the message
+        // at once (it steers the turn) and Tab queues it, so there is no "send now" for a queued entry;
+        // Shift+Left (ESC [ 1 ; 2 D) brings the last queued message back into the box; Up recalls history.
+        keys: AgentKeys {
+            queue_keys: Some(vec![TAB]),
+            send_now_keys: None,
+            pull_queue_keys: SHIFT_LEFT.to_vec(),
+            clear_line_keys: vec![CTRL_U],
+            accept_suggestion_keys: None,
+            image_reference_prefix: String::new(),
+        },
+        commands: vec![
+            destructive(cmd("/new", "New chat", "plus.bubble")),
+            cmd("/compact", "Compact", "arrow.down.right.and.arrow.up.left"),
+            cmd("/resume", "Resume", "clock.arrow.circlepath"),
+            cmd("/fork", "Fork", "arrow.triangle.branch"),
+            cmd("/diff", "Git diff", "plus.forwardslash.minus"),
+            cmd("/review", "Review changes", "checkmark.seal"),
+            cmd("/plan", "Plan mode", "list.bullet.clipboard"),
+            cmd("/goal", "Goal", "target"),
+            after_divider(cmd("/model", "Model", "cpu")),
+            cmd("/permissions", "Permissions", "lock.shield"),
+            cmd("/config", "Config", "gearshape"),
+            cmd("/hooks", "Hooks", "link"),
+            cmd("/skills", "Skills", "sparkles"),
+            cmd("/agents", "Agents", "person.2"),
+            after_divider(cmd("/status", "Status", "info.circle")),
+            cmd("/ps", "Background terminals", "terminal"),
+            cmd("/stop", "Stop background terminals", "stop.circle"),
+            cmd("/init", "Create AGENTS.md", "doc.badge.plus"),
+        ],
+    }
+}
+
+fn grok() -> AgentDescriptor {
+    AgentDescriptor {
+        id: "grok".into(),
+        kind: Some(AgentKind::Grok),
+        display_name: "Grok".into(),
+        process_names: vec!["grok".into()],
+        dialect: ScreenDialect::Grok,
+        session_store: SessionStore::File,
+        // Verified live (Grok Build 1.0.70, private tmux, 2026-10-26): Enter during a turn queues the message
+        // (`#1 text` under the spinner); Ctrl+Enter (CSI u, ESC [ 13 ; 5 u) sends the queue now; Up focuses the
+        // queue and `e` brings the entry back into the box ("editing queued #1").
+        keys: AgentKeys {
+            queue_keys: None,
+            send_now_keys: Some(CTRL_ENTER.to_vec()),
+            pull_queue_keys: vec![0x1b, 0x5b, 0x41, b'e'],
+            clear_line_keys: vec![CTRL_U],
+            accept_suggestion_keys: None,
+            image_reference_prefix: String::new(),
+        },
+        commands: vec![
+            destructive(cmd("/new", "New session", "plus.bubble")),
+            cmd("/compact", "Compact", "arrow.down.right.and.arrow.up.left"),
+            cmd("/context", "Context", "chart.pie"),
+            cmd("/resume", "Resume", "clock.arrow.circlepath"),
+            cmd("/rewind", "Rewind", "arrow.uturn.backward"),
+            cmd("/fork", "Fork", "arrow.triangle.branch"),
+            cmd("/plan", "Plan mode", "list.bullet.clipboard"),
+            cmd("/goal", "Goal", "target"),
+            cmd("/recap", "Recap", "text.append"),
+            after_divider(cmd("/model", "Model", "cpu")),
+            cmd("/effort", "Effort", "gauge.with.dots.needle.67percent"),
+            cmd("/auto", "Auto-review", "checkmark.shield"),
+            cmd("/always-approve", "Always approve", "lock.open"),
+            cmd("/settings", "Settings", "gearshape"),
+            cmd("/hooks", "Hooks", "link"),
+            cmd("/mcps", "MCP servers", "server.rack"),
+            cmd("/skills", "Skills", "sparkles"),
+            after_divider(cmd("/tasks", "Background tasks", "terminal")),
+            cmd("/queue", "Queued prompts", "list.number"),
+            cmd("/usage", "Usage", "chart.bar"),
+            cmd("/doctor", "Doctor", "stethoscope"),
+            cmd("/help", "Help", "questionmark.circle"),
+        ],
+    }
+}
+
 /// An agent not checked: nothing is assumed beyond the keys every terminal editor has.
 fn generic() -> AgentDescriptor {
     AgentDescriptor {
@@ -171,6 +268,7 @@ fn generic() -> AgentDescriptor {
         dialect: ScreenDialect::Unknown,
         session_store: SessionStore::File,
         keys: AgentKeys {
+            queue_keys: None,
             send_now_keys: None,
             pull_queue_keys: UP.to_vec(),
             clear_line_keys: vec![CTRL_U],
@@ -184,7 +282,7 @@ fn generic() -> AgentDescriptor {
 /// Every agent the feed knows, the generic entry last.
 #[uniffi::export]
 pub fn agent_descriptors() -> Vec<AgentDescriptor> {
-    vec![claude(), agy(), generic()]
+    vec![claude(), agy(), codex(), grok(), generic()]
 }
 
 /// The descriptor with this id (`claude`, `agy`, `generic`, ...).

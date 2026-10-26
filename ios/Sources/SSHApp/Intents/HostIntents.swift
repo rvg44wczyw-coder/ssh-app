@@ -45,7 +45,7 @@ enum IntentFailure: Error, CustomLocalizedStringResourceConvertible {
 /// Everything an intent needs to reach a host, or the reason it cannot.
 struct IntentTarget {
     let server: ServerProfile
-    let privateKey: String
+    let key: KeyRef
 
     @MainActor
     static func resolve(serverId: String) throws -> IntentTarget {
@@ -55,15 +55,15 @@ struct IntentTarget {
         guard server.hostKeyFingerprint != nil else {
             throw IntentFailure.notStarted("open the app and connect to this server once, to pin its host key")
         }
-        guard let key = KeychainManager.shared.getPrivateKey(id: server.keyId), !key.isEmpty else {
+        guard KeychainManager.shared.hasPrivateKey(id: server.keyId) else {
             throw IntentFailure.notStarted("the SSH key is not available (unlock the phone and try again)")
         }
-        return IntentTarget(server: server, privateKey: key)
+        return IntentTarget(server: server, key: KeychainManager.shared.keyRef(server.keyId))
     }
 
     var config: RemoteServerConfig {
         RemoteServerConfig(host: server.host, port: server.port, username: server.username,
-                           privateKeyPem: privateKey, pinnedHostKey: server.hostKeyFingerprint)
+                           key: key, pinnedHostKey: server.hostKeyFingerprint)
     }
 }
 

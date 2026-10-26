@@ -1,0 +1,59 @@
+ScreenFeed {
+    dialect: Codex,
+    turns: [
+        TranscriptTurn {
+            id: "scr0",
+            step_index: 0,
+            turn_type: System,
+            timestamp: None,
+            content: Some(
+                ">_ OpenAI Codex (v0.164.0)\n~/project",
+            ),
+            thinking: None,
+            tool_calls: [],
+            status: Done,
+            label: Some(
+                "OpenAI Codex",
+            ),
+        },
+    ],
+    status: None,
+    draft: None,
+    prompt: Some(
+        ScreenPrompt {
+            title: None,
+            detail: "",
+            question: "Select a review preset",
+            options: [
+                PromptOption {
+                    number: 1,
+                    label: "Review against a base branch",
+                    description: "(PR Style)",
+                    checked: false,
+                },
+                PromptOption {
+                    number: 2,
+                    label: "Review uncommitted changes",
+                    description: "",
+                    checked: false,
+                },
+                PromptOption {
+                    number: 3,
+                    label: "Review a commit",
+                    description: "",
+                    checked: false,
+                },
+                PromptOption {
+                    number: 4,
+                    label: "Custom review instructions",
+                    description: "",
+                    checked: false,
+                },
+            ],
+            selected: 0,
+            multi: false,
+        },
+    ),
+    aside: None,
+    dialog: None,
+}

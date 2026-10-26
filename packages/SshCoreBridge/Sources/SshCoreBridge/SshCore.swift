@@ -1951,9 +1951,20 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func uninstallClaudeStatusline(configDir: String?) async throws 
     
     /**
+     * The Hooks screen of this server (spec 61): the agents the pinned host helper finds, their
+     * user-level hook state and the projects (running panes, agent histories, `folders`).
+     */
+    func agentHooksOverview(helperSha256: String, folders: [String], claudeConfigDir: String?) async throws  -> [AgentHooksOverview]
+    
+    /**
      * Reports whether the ssh-app hooks are present in the agent's config and the script is installed.
      */
     func agentHooksStatus(agent: AgentKind, configDir: String?, hookDir: String?) async throws  -> AgentHooksStatus
+    
+    /**
+     * `agent_hooks_status` for a scope (spec 61).
+     */
+    func agentHooksStatusIn(agent: AgentKind, scope: HookScope, hookDir: String?) async throws  -> AgentHooksStatus
     
     /**
      * Replaces the four permission fields in the profile's `settings.json` (backup once, atomic,
@@ -1981,15 +1992,32 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func installAgentHooksWithPreset(agent: AgentKind, configDir: String?, hookDir: String?, preset: HookPreset) async throws 
     
     /**
+     * `install_agent_hooks_with_preset` for a scope. A project install is refused while the
+     * user-level hooks of the agent are present, unless `disable_user_level` is set: then those
+     * are removed first (the caller asked the user to confirm that), and only ours.
+     */
+    func installAgentHooksWithPresetIn(agent: AgentKind, scope: HookScope, hookDir: String?, preset: HookPreset, disableUserLevel: Bool) async throws 
+    
+    /**
      * The ssh-app hook entries currently installed in the agent's config.
      */
     func installedAgentHooks(agent: AgentKind, configDir: String?) async throws  -> [PlannedHook]
+    
+    /**
+     * `installed_agent_hooks` for a scope.
+     */
+    func installedAgentHooksIn(agent: AgentKind, scope: HookScope) async throws  -> [PlannedHook]
     
     /**
      * Dry run: the hooks section a preset would produce (never other settings), without touching
      * the host. Lets the user review exactly what will be installed.
      */
     func previewAgentHooks(agent: AgentKind, configDir: String?, hookDir: String?, preset: HookPreset) async throws  -> String
+    
+    /**
+     * `preview_agent_hooks` for a scope.
+     */
+    func previewAgentHooksIn(agent: AgentKind, scope: HookScope, hookDir: String?, preset: HookPreset) async throws  -> String
     
     /**
      * Dry run: only the resulting `permissions` object, never other settings (they may hold keys).
@@ -2007,6 +2035,11 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
      * inside a rule) are returned separately instead of failing the read.
      */
     func readAgentPermissionsChecked(agent: AgentKind, configDir: String?) async throws  -> CheckedPermissions
+    
+    /**
+     * `uninstall_agent_hooks` for a scope.
+     */
+    func uninstallAgentHooksIn(agent: AgentKind, scope: HookScope) async throws 
     
     /**
      * Resolves `binary` in a login shell and in an interactive shell (rc files loaded), so the
@@ -2058,6 +2091,51 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
      * through the active SSH session and returns the generated command suggestion.
      */
     func queryHostOllama(model: String, systemPrompt: String, userPrompt: String) async throws  -> AiCommandSuggestion
+    
+    /**
+     * Lets one more host through (the owner's tap) and reloads the running proxy.
+     */
+    func allowSandboxHost(profile: SandboxProfile, host: String) async throws 
+    
+    /**
+     * The sandbox engines installed on the server (Docker, Podman), in detection order. The
+     * app asks when both exist, uses the one that does, and offers install or an unprotected
+     * start when none does (spec 62 §7.1).
+     */
+    func detectSandboxEngines() async throws  -> [SandboxEngine]
+    
+    /**
+     * Takes a host out of the sandbox's allow-list.
+     */
+    func disallowSandboxHost(profile: SandboxProfile, host: String) async throws 
+    
+    /**
+     * Brings the sandbox's branches home under the `sandbox/<id>/` prefix (bundle fetch, nothing else crosses).
+     */
+    func fetchSandboxBranches(profile: SandboxProfile) async throws  -> [String]
+    
+    /**
+     * Builds the images, creates the volume, networks and proxy, writes the hooks into the
+     * sandbox home and clones the project's committed content. Returns the command that runs
+     * the agent in the tab. Idempotent: safe to repeat after a failure.
+     */
+    func prepareSandbox(profile: SandboxProfile, hookPreset: HookPreset) async throws  -> String
+    
+    /**
+     * Stops and removes the containers, networks and work volume (the sandbox home with the
+     * agent's logins is kept).
+     */
+    func removeSandbox(profile: SandboxProfile) async throws 
+    
+    /**
+     * The hosts the sandbox's proxy lets through right now.
+     */
+    func sandboxAllowedHosts(profile: SandboxProfile) async throws  -> [String]
+    
+    /**
+     * The hosts the sandbox's proxy has refused lately, for the owner to allow or ignore.
+     */
+    func sandboxBlockedHosts(profile: SandboxProfile) async throws  -> [String]
     
     /**
      * Stops the upload started with this id (also one that has not begun yet).
@@ -3416,6 +3494,26 @@ open func uninstallClaudeStatusline(configDir: String?)async throws   {
 }
     
     /**
+     * The Hooks screen of this server (spec 61): the agents the pinned host helper finds, their
+     * user-level hook state and the projects (running panes, agent histories, `folders`).
+     */
+open func agentHooksOverview(helperSha256: String, folders: [String], claudeConfigDir: String?)async throws  -> [AgentHooksOverview]  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_agent_hooks_overview(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(helperSha256),FfiConverterSequenceString.lower(folders),FfiConverterOptionString.lower(claudeConfigDir)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceTypeAgentHooksOverview.lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
      * Reports whether the ssh-app hooks are present in the agent's config and the script is installed.
      */
 open func agentHooksStatus(agent: AgentKind, configDir: String?, hookDir: String?)async throws  -> AgentHooksStatus  {
@@ -3424,6 +3522,25 @@ open func agentHooksStatus(agent: AgentKind, configDir: String?, hookDir: String
             rustFutureFunc: {
                 uniffi_ssh_core_fn_method_sshsessionhandle_agent_hooks_status(
                         self.uniffiCloneHandle(),FfiConverterTypeAgentKind_lower(agent),FfiConverterOptionString.lower(configDir),FfiConverterOptionString.lower(hookDir)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeAgentHooksStatus_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * `agent_hooks_status` for a scope (spec 61).
+     */
+open func agentHooksStatusIn(agent: AgentKind, scope: HookScope, hookDir: String?)async throws  -> AgentHooksStatus  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_agent_hooks_status_in(
+                        self.uniffiCloneHandle(),FfiConverterTypeAgentKind_lower(agent),FfiConverterTypeHookScope_lower(scope),FfiConverterOptionString.lower(hookDir)
                 )
             },
             pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
@@ -3516,6 +3633,27 @@ open func installAgentHooksWithPreset(agent: AgentKind, configDir: String?, hook
 }
     
     /**
+     * `install_agent_hooks_with_preset` for a scope. A project install is refused while the
+     * user-level hooks of the agent are present, unless `disable_user_level` is set: then those
+     * are removed first (the caller asked the user to confirm that), and only ours.
+     */
+open func installAgentHooksWithPresetIn(agent: AgentKind, scope: HookScope, hookDir: String?, preset: HookPreset, disableUserLevel: Bool)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_install_agent_hooks_with_preset_in(
+                        self.uniffiCloneHandle(),FfiConverterTypeAgentKind_lower(agent),FfiConverterTypeHookScope_lower(scope),FfiConverterOptionString.lower(hookDir),FfiConverterTypeHookPreset_lower(preset),FfiConverterBool.lower(disableUserLevel)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_void,
+            completeFunc: ffi_ssh_core_rust_future_complete_void,
+            freeFunc: ffi_ssh_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
      * The ssh-app hook entries currently installed in the agent's config.
      */
 open func installedAgentHooks(agent: AgentKind, configDir: String?)async throws  -> [PlannedHook]  {
@@ -3524,6 +3662,25 @@ open func installedAgentHooks(agent: AgentKind, configDir: String?)async throws 
             rustFutureFunc: {
                 uniffi_ssh_core_fn_method_sshsessionhandle_installed_agent_hooks(
                         self.uniffiCloneHandle(),FfiConverterTypeAgentKind_lower(agent),FfiConverterOptionString.lower(configDir)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceTypePlannedHook.lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * `installed_agent_hooks` for a scope.
+     */
+open func installedAgentHooksIn(agent: AgentKind, scope: HookScope)async throws  -> [PlannedHook]  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_installed_agent_hooks_in(
+                        self.uniffiCloneHandle(),FfiConverterTypeAgentKind_lower(agent),FfiConverterTypeHookScope_lower(scope)
                 )
             },
             pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
@@ -3544,6 +3701,25 @@ open func previewAgentHooks(agent: AgentKind, configDir: String?, hookDir: Strin
             rustFutureFunc: {
                 uniffi_ssh_core_fn_method_sshsessionhandle_preview_agent_hooks(
                         self.uniffiCloneHandle(),FfiConverterTypeAgentKind_lower(agent),FfiConverterOptionString.lower(configDir),FfiConverterOptionString.lower(hookDir),FfiConverterTypeHookPreset_lower(preset)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterString.lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * `preview_agent_hooks` for a scope.
+     */
+open func previewAgentHooksIn(agent: AgentKind, scope: HookScope, hookDir: String?, preset: HookPreset)async throws  -> String  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_preview_agent_hooks_in(
+                        self.uniffiCloneHandle(),FfiConverterTypeAgentKind_lower(agent),FfiConverterTypeHookScope_lower(scope),FfiConverterOptionString.lower(hookDir),FfiConverterTypeHookPreset_lower(preset)
                 )
             },
             pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
@@ -3609,6 +3785,25 @@ open func readAgentPermissionsChecked(agent: AgentKind, configDir: String?)async
             completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
             freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
             liftFunc: FfiConverterTypeCheckedPermissions_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * `uninstall_agent_hooks` for a scope.
+     */
+open func uninstallAgentHooksIn(agent: AgentKind, scope: HookScope)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_uninstall_agent_hooks_in(
+                        self.uniffiCloneHandle(),FfiConverterTypeAgentKind_lower(agent),FfiConverterTypeHookScope_lower(scope)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_void,
+            completeFunc: ffi_ssh_core_rust_future_complete_void,
+            freeFunc: ffi_ssh_core_rust_future_free_void,
+            liftFunc: { $0 },
             errorHandler: FfiConverterTypeSshCoreError_lift
         )
 }
@@ -3772,6 +3967,163 @@ open func queryHostOllama(model: String, systemPrompt: String, userPrompt: Strin
             completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
             freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
             liftFunc: FfiConverterTypeAiCommandSuggestion_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Lets one more host through (the owner's tap) and reloads the running proxy.
+     */
+open func allowSandboxHost(profile: SandboxProfile, host: String)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_allow_sandbox_host(
+                        self.uniffiCloneHandle(),FfiConverterTypeSandboxProfile_lower(profile),FfiConverterString.lower(host)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_void,
+            completeFunc: ffi_ssh_core_rust_future_complete_void,
+            freeFunc: ffi_ssh_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * The sandbox engines installed on the server (Docker, Podman), in detection order. The
+     * app asks when both exist, uses the one that does, and offers install or an unprotected
+     * start when none does (spec 62 §7.1).
+     */
+open func detectSandboxEngines()async throws  -> [SandboxEngine]  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_detect_sandbox_engines(
+                        self.uniffiCloneHandle()
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceTypeSandboxEngine.lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Takes a host out of the sandbox's allow-list.
+     */
+open func disallowSandboxHost(profile: SandboxProfile, host: String)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_disallow_sandbox_host(
+                        self.uniffiCloneHandle(),FfiConverterTypeSandboxProfile_lower(profile),FfiConverterString.lower(host)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_void,
+            completeFunc: ffi_ssh_core_rust_future_complete_void,
+            freeFunc: ffi_ssh_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Brings the sandbox's branches home under the `sandbox/<id>/` prefix (bundle fetch, nothing else crosses).
+     */
+open func fetchSandboxBranches(profile: SandboxProfile)async throws  -> [String]  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_fetch_sandbox_branches(
+                        self.uniffiCloneHandle(),FfiConverterTypeSandboxProfile_lower(profile)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceString.lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Builds the images, creates the volume, networks and proxy, writes the hooks into the
+     * sandbox home and clones the project's committed content. Returns the command that runs
+     * the agent in the tab. Idempotent: safe to repeat after a failure.
+     */
+open func prepareSandbox(profile: SandboxProfile, hookPreset: HookPreset)async throws  -> String  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_prepare_sandbox(
+                        self.uniffiCloneHandle(),FfiConverterTypeSandboxProfile_lower(profile),FfiConverterTypeHookPreset_lower(hookPreset)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterString.lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * Stops and removes the containers, networks and work volume (the sandbox home with the
+     * agent's logins is kept).
+     */
+open func removeSandbox(profile: SandboxProfile)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_remove_sandbox(
+                        self.uniffiCloneHandle(),FfiConverterTypeSandboxProfile_lower(profile)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_void,
+            completeFunc: ffi_ssh_core_rust_future_complete_void,
+            freeFunc: ffi_ssh_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * The hosts the sandbox's proxy lets through right now.
+     */
+open func sandboxAllowedHosts(profile: SandboxProfile)async throws  -> [String]  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_sandbox_allowed_hosts(
+                        self.uniffiCloneHandle(),FfiConverterTypeSandboxProfile_lower(profile)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceString.lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * The hosts the sandbox's proxy has refused lately, for the owner to allow or ignore.
+     */
+open func sandboxBlockedHosts(profile: SandboxProfile)async throws  -> [String]  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_sandbox_blocked_hosts(
+                        self.uniffiCloneHandle(),FfiConverterTypeSandboxProfile_lower(profile)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceString.lift,
             errorHandler: FfiConverterTypeSshCoreError_lift
         )
 }
@@ -4951,6 +5303,80 @@ public func FfiConverterTypeAgentEnvCheck_lower(_ value: AgentEnvCheck) -> RustB
 }
 
 
+public struct AgentHooksOverview: Equatable, Hashable {
+    /**
+     * `claude`, `agy`, `codex`, `grok`, `qwen`, `crush` or `opencode` (the agents with hooks).
+     */
+    public var agent: String
+    /**
+     * The binary is on the host, or the agent was seen there.
+     */
+    public var found: Bool
+    public var user: HookTarget
+    public var projects: [HookTarget]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * `claude`, `agy`, `codex`, `grok`, `qwen`, `crush` or `opencode` (the agents with hooks).
+         */agent: String, 
+        /**
+         * The binary is on the host, or the agent was seen there.
+         */found: Bool, user: HookTarget, projects: [HookTarget]) {
+        self.agent = agent
+        self.found = found
+        self.user = user
+        self.projects = projects
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension AgentHooksOverview: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAgentHooksOverview: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AgentHooksOverview {
+        return
+            try AgentHooksOverview(
+                agent: FfiConverterString.read(from: &buf), 
+                found: FfiConverterBool.read(from: &buf), 
+                user: FfiConverterTypeHookTarget.read(from: &buf), 
+                projects: FfiConverterSequenceTypeHookTarget.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AgentHooksOverview, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.agent, into: &buf)
+        FfiConverterBool.write(value.found, into: &buf)
+        FfiConverterTypeHookTarget.write(value.user, into: &buf)
+        FfiConverterSequenceTypeHookTarget.write(value.projects, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAgentHooksOverview_lift(_ buf: RustBuffer) throws -> AgentHooksOverview {
+    return try FfiConverterTypeAgentHooksOverview.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAgentHooksOverview_lower(_ value: AgentHooksOverview) -> RustBuffer {
+    return FfiConverterTypeAgentHooksOverview.lower(value)
+}
+
+
 public struct AgentHooksStatus: Equatable, Hashable {
     public var configPath: String
     public var hooksInstalled: Bool
@@ -5028,6 +5454,10 @@ public struct AgentKeys: Equatable, Hashable {
      */
     public var sendNowKeys: Data?
     /**
+     * Queues the typed message while a turn runs. `None`: Enter queues it.
+     */
+    public var queueKeys: Data?
+    /**
      * Brings the queued messages back into the input box.
      */
     public var pullQueueKeys: Data
@@ -5051,6 +5481,9 @@ public struct AgentKeys: Equatable, Hashable {
          * Pushes a queued message now, interrupting the turn. `None`: the agent has no such key.
          */sendNowKeys: Data?, 
         /**
+         * Queues the typed message while a turn runs. `None`: Enter queues it.
+         */queueKeys: Data?, 
+        /**
          * Brings the queued messages back into the input box.
          */pullQueueKeys: Data, 
         /**
@@ -5063,6 +5496,7 @@ public struct AgentKeys: Equatable, Hashable {
          * Put before the path of a picture in a message ("@" makes Claude Code read it).
          */imageReferencePrefix: String) {
         self.sendNowKeys = sendNowKeys
+        self.queueKeys = queueKeys
         self.pullQueueKeys = pullQueueKeys
         self.clearLineKeys = clearLineKeys
         self.acceptSuggestionKeys = acceptSuggestionKeys
@@ -5086,6 +5520,7 @@ public struct FfiConverterTypeAgentKeys: FfiConverterRustBuffer {
         return
             try AgentKeys(
                 sendNowKeys: FfiConverterOptionData.read(from: &buf), 
+                queueKeys: FfiConverterOptionData.read(from: &buf), 
                 pullQueueKeys: FfiConverterData.read(from: &buf), 
                 clearLineKeys: FfiConverterData.read(from: &buf), 
                 acceptSuggestionKeys: FfiConverterOptionData.read(from: &buf), 
@@ -5095,6 +5530,7 @@ public struct FfiConverterTypeAgentKeys: FfiConverterRustBuffer {
 
     public static func write(_ value: AgentKeys, into buf: inout [UInt8]) {
         FfiConverterOptionData.write(value.sendNowKeys, into: &buf)
+        FfiConverterOptionData.write(value.queueKeys, into: &buf)
         FfiConverterData.write(value.pullQueueKeys, into: &buf)
         FfiConverterData.write(value.clearLineKeys, into: &buf)
         FfiConverterOptionData.write(value.acceptSuggestionKeys, into: &buf)
@@ -7874,6 +8310,85 @@ public func FfiConverterTypeEnvVar_lower(_ value: EnvVar) -> RustBuffer {
 }
 
 
+/**
+ * The three acknowledgements an export in the clear needs; the app asks for each separately.
+ */
+public struct ExportAcks: Equatable, Hashable {
+    /**
+     * "Whoever has this key can log in to every server that trusts it."
+     */
+    public var understandsAccess: Bool
+    /**
+     * "Text on screen, in the clipboard or in a file can be copied by other apps and backups."
+     */
+    public var understandsExposure: Bool
+    /**
+     * The word [`EXPORT_CONFIRMATION`] typed by the owner.
+     */
+    public var typedConfirmation: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * "Whoever has this key can log in to every server that trusts it."
+         */understandsAccess: Bool, 
+        /**
+         * "Text on screen, in the clipboard or in a file can be copied by other apps and backups."
+         */understandsExposure: Bool, 
+        /**
+         * The word [`EXPORT_CONFIRMATION`] typed by the owner.
+         */typedConfirmation: String) {
+        self.understandsAccess = understandsAccess
+        self.understandsExposure = understandsExposure
+        self.typedConfirmation = typedConfirmation
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ExportAcks: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeExportAcks: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ExportAcks {
+        return
+            try ExportAcks(
+                understandsAccess: FfiConverterBool.read(from: &buf), 
+                understandsExposure: FfiConverterBool.read(from: &buf), 
+                typedConfirmation: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ExportAcks, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.understandsAccess, into: &buf)
+        FfiConverterBool.write(value.understandsExposure, into: &buf)
+        FfiConverterString.write(value.typedConfirmation, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeExportAcks_lift(_ buf: RustBuffer) throws -> ExportAcks {
+    return try FfiConverterTypeExportAcks.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeExportAcks_lower(_ value: ExportAcks) -> RustBuffer {
+    return FfiConverterTypeExportAcks.lower(value)
+}
+
+
 public struct ExtractedArtifact: Equatable, Hashable {
     /**
      * First 16 hex digits of the SHA-256 of the kind and the content: the same block gives the
@@ -9803,6 +10318,99 @@ public func FfiConverterTypeHookPreset_lower(_ value: HookPreset) -> RustBuffer 
 }
 
 
+/**
+ * One place hooks can live: a project folder (`folder` set) with its file, or the user level.
+ */
+public struct HookTarget: Equatable, Hashable {
+    public var folder: String?
+    /**
+     * The file the hooks go to; `None` when the agent has no project-level file yet.
+     */
+    public var file: String?
+    /**
+     * `none`, `ours`, `foreign` or `unavailable`.
+     */
+    public var state: String
+    /**
+     * An agent of this kind runs in a tmux pane there right now.
+     */
+    public var running: Bool
+    /**
+     * Epoch seconds of the agent's last activity there (0 = unknown).
+     */
+    public var lastUsed: Int64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(folder: String?, 
+        /**
+         * The file the hooks go to; `None` when the agent has no project-level file yet.
+         */file: String?, 
+        /**
+         * `none`, `ours`, `foreign` or `unavailable`.
+         */state: String, 
+        /**
+         * An agent of this kind runs in a tmux pane there right now.
+         */running: Bool, 
+        /**
+         * Epoch seconds of the agent's last activity there (0 = unknown).
+         */lastUsed: Int64) {
+        self.folder = folder
+        self.file = file
+        self.state = state
+        self.running = running
+        self.lastUsed = lastUsed
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension HookTarget: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHookTarget: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HookTarget {
+        return
+            try HookTarget(
+                folder: FfiConverterOptionString.read(from: &buf), 
+                file: FfiConverterOptionString.read(from: &buf), 
+                state: FfiConverterString.read(from: &buf), 
+                running: FfiConverterBool.read(from: &buf), 
+                lastUsed: FfiConverterInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: HookTarget, into buf: inout [UInt8]) {
+        FfiConverterOptionString.write(value.folder, into: &buf)
+        FfiConverterOptionString.write(value.file, into: &buf)
+        FfiConverterString.write(value.state, into: &buf)
+        FfiConverterBool.write(value.running, into: &buf)
+        FfiConverterInt64.write(value.lastUsed, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHookTarget_lift(_ buf: RustBuffer) throws -> HookTarget {
+    return try FfiConverterTypeHookTarget.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHookTarget_lower(_ value: HookTarget) -> RustBuffer {
+    return FfiConverterTypeHookTarget.lower(value)
+}
+
+
 public struct HookTemplate: Equatable, Hashable {
     public var id: String
     public var title: String
@@ -10783,72 +11391,6 @@ public func FfiConverterTypeHostUsageReport_lower(_ value: HostUsageReport) -> R
 
 
 /**
- * What `import_private_key` hands back: the key in the unencrypted form the Keychain stores (the
- * Keychain item is the protection) and what the UI shows.
- */
-public struct ImportedKey: Equatable, Hashable {
-    public var privateKeyOpenssh: String
-    public var publicKeyOpenssh: String
-    public var fingerprintSha256: String
-    public var wasEncrypted: Bool
-
-    // Default memberwise initializers are never public by default, so we
-    // declare one manually.
-    public init(privateKeyOpenssh: String, publicKeyOpenssh: String, fingerprintSha256: String, wasEncrypted: Bool) {
-        self.privateKeyOpenssh = privateKeyOpenssh
-        self.publicKeyOpenssh = publicKeyOpenssh
-        self.fingerprintSha256 = fingerprintSha256
-        self.wasEncrypted = wasEncrypted
-    }
-
-    
-
-    
-}
-
-#if compiler(>=6)
-extension ImportedKey: Sendable {}
-#endif
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeImportedKey: FfiConverterRustBuffer {
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ImportedKey {
-        return
-            try ImportedKey(
-                privateKeyOpenssh: FfiConverterString.read(from: &buf), 
-                publicKeyOpenssh: FfiConverterString.read(from: &buf), 
-                fingerprintSha256: FfiConverterString.read(from: &buf), 
-                wasEncrypted: FfiConverterBool.read(from: &buf)
-        )
-    }
-
-    public static func write(_ value: ImportedKey, into buf: inout [UInt8]) {
-        FfiConverterString.write(value.privateKeyOpenssh, into: &buf)
-        FfiConverterString.write(value.publicKeyOpenssh, into: &buf)
-        FfiConverterString.write(value.fingerprintSha256, into: &buf)
-        FfiConverterBool.write(value.wasEncrypted, into: &buf)
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeImportedKey_lift(_ buf: RustBuffer) throws -> ImportedKey {
-    return try FfiConverterTypeImportedKey.lift(buf)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeImportedKey_lower(_ value: ImportedKey) -> RustBuffer {
-    return FfiConverterTypeImportedKey.lower(value)
-}
-
-
-/**
  * A rule found in the file that cannot be written back (shown escaped so a newline is visible).
  */
 public struct InvalidPermissionRule: Equatable, Hashable {
@@ -10909,15 +11451,18 @@ public func FfiConverterTypeInvalidPermissionRule_lower(_ value: InvalidPermissi
 }
 
 
-public struct KeypairResult: Equatable, Hashable {
+/**
+ * The public side of a key: not secret.
+ */
+public struct KeyInfo: Equatable, Hashable {
     public var publicKeyOpenssh: String
-    public var privateKeyOpenssh: String
+    public var fingerprintSha256: String
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(publicKeyOpenssh: String, privateKeyOpenssh: String) {
+    public init(publicKeyOpenssh: String, fingerprintSha256: String) {
         self.publicKeyOpenssh = publicKeyOpenssh
-        self.privateKeyOpenssh = privateKeyOpenssh
+        self.fingerprintSha256 = fingerprintSha256
     }
 
     
@@ -10926,24 +11471,24 @@ public struct KeypairResult: Equatable, Hashable {
 }
 
 #if compiler(>=6)
-extension KeypairResult: Sendable {}
+extension KeyInfo: Sendable {}
 #endif
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public struct FfiConverterTypeKeypairResult: FfiConverterRustBuffer {
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> KeypairResult {
+public struct FfiConverterTypeKeyInfo: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> KeyInfo {
         return
-            try KeypairResult(
+            try KeyInfo(
                 publicKeyOpenssh: FfiConverterString.read(from: &buf), 
-                privateKeyOpenssh: FfiConverterString.read(from: &buf)
+                fingerprintSha256: FfiConverterString.read(from: &buf)
         )
     }
 
-    public static func write(_ value: KeypairResult, into buf: inout [UInt8]) {
+    public static func write(_ value: KeyInfo, into buf: inout [UInt8]) {
         FfiConverterString.write(value.publicKeyOpenssh, into: &buf)
-        FfiConverterString.write(value.privateKeyOpenssh, into: &buf)
+        FfiConverterString.write(value.fingerprintSha256, into: &buf)
     }
 }
 
@@ -10951,15 +11496,73 @@ public struct FfiConverterTypeKeypairResult: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeKeypairResult_lift(_ buf: RustBuffer) throws -> KeypairResult {
-    return try FfiConverterTypeKeypairResult.lift(buf)
+public func FfiConverterTypeKeyInfo_lift(_ buf: RustBuffer) throws -> KeyInfo {
+    return try FfiConverterTypeKeyInfo.lift(buf)
 }
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeKeypairResult_lower(_ value: KeypairResult) -> RustBuffer {
-    return FfiConverterTypeKeypairResult.lower(value)
+public func FfiConverterTypeKeyInfo_lower(_ value: KeyInfo) -> RustBuffer {
+    return FfiConverterTypeKeyInfo.lower(value)
+}
+
+
+/**
+ * Which key: `id == None` is the original default key. `guarded` reads the copy that needs Face ID
+ * or the passcode (Files extension).
+ */
+public struct KeyRef: Equatable, Hashable {
+    public var id: String?
+    public var guarded: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String?, guarded: Bool) {
+        self.id = id
+        self.guarded = guarded
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension KeyRef: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeKeyRef: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> KeyRef {
+        return
+            try KeyRef(
+                id: FfiConverterOptionString.read(from: &buf), 
+                guarded: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: KeyRef, into buf: inout [UInt8]) {
+        FfiConverterOptionString.write(value.id, into: &buf)
+        FfiConverterBool.write(value.guarded, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeKeyRef_lift(_ buf: RustBuffer) throws -> KeyRef {
+    return try FfiConverterTypeKeyRef.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeKeyRef_lower(_ value: KeyRef) -> RustBuffer {
+    return FfiConverterTypeKeyRef.lower(value)
 }
 
 
@@ -12462,16 +13065,22 @@ public struct RemoteServerConfig: Equatable, Hashable {
     public var host: String
     public var port: UInt16
     public var username: String
-    public var privateKeyPem: String
+    /**
+     * Which stored key to log in with; the key itself never leaves the core (`key_store`).
+     */
+    public var key: KeyRef
     public var pinnedHostKey: String?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(host: String, port: UInt16, username: String, privateKeyPem: String, pinnedHostKey: String?) {
+    public init(host: String, port: UInt16, username: String, 
+        /**
+         * Which stored key to log in with; the key itself never leaves the core (`key_store`).
+         */key: KeyRef, pinnedHostKey: String?) {
         self.host = host
         self.port = port
         self.username = username
-        self.privateKeyPem = privateKeyPem
+        self.key = key
         self.pinnedHostKey = pinnedHostKey
     }
 
@@ -12494,7 +13103,7 @@ public struct FfiConverterTypeRemoteServerConfig: FfiConverterRustBuffer {
                 host: FfiConverterString.read(from: &buf), 
                 port: FfiConverterUInt16.read(from: &buf), 
                 username: FfiConverterString.read(from: &buf), 
-                privateKeyPem: FfiConverterString.read(from: &buf), 
+                key: FfiConverterTypeKeyRef.read(from: &buf), 
                 pinnedHostKey: FfiConverterOptionString.read(from: &buf)
         )
     }
@@ -12503,7 +13112,7 @@ public struct FfiConverterTypeRemoteServerConfig: FfiConverterRustBuffer {
         FfiConverterString.write(value.host, into: &buf)
         FfiConverterUInt16.write(value.port, into: &buf)
         FfiConverterString.write(value.username, into: &buf)
-        FfiConverterString.write(value.privateKeyPem, into: &buf)
+        FfiConverterTypeKeyRef.write(value.key, into: &buf)
         FfiConverterOptionString.write(value.pinnedHostKey, into: &buf)
     }
 }
@@ -12594,6 +13203,290 @@ public func FfiConverterTypeRuntimeCaps_lift(_ buf: RustBuffer) throws -> Runtim
 #endif
 public func FfiConverterTypeRuntimeCaps_lower(_ value: RuntimeCaps) -> RustBuffer {
     return FfiConverterTypeRuntimeCaps.lower(value)
+}
+
+
+public struct SandboxPlan: Equatable, Hashable {
+    public var imageTag: String
+    public var dockerfile: String
+    /**
+     * Builds the agent image (writes the context to a temporary folder first).
+     */
+    public var buildCommand: String
+    /**
+     * Builds the proxy image (empty when the sandbox is offline).
+     */
+    public var proxyBuildCommand: String
+    /**
+     * Creates volume, networks, proxy and the sandbox folders; idempotent.
+     */
+    public var setupCommands: [String]
+    /**
+     * Copies the committed content of the project into the work volume.
+     */
+    public var cloneCommand: String
+    /**
+     * Copies the agent's login file into the sandbox home when it is not there yet (empty when off).
+     */
+    public var loginCommand: String
+    /**
+     * The pane process: the agent in its container.
+     */
+    public var runCommand: String
+    /**
+     * Brings the sandbox's commits back under the `sandbox/<id>/` branch prefix (a bundle fetch).
+     */
+    public var fetchCommand: String
+    /**
+     * Removes containers, networks and the work volume (never the sandbox home).
+     */
+    public var cleanupCommands: [String]
+    /**
+     * The proxy's host filter, one regex per line.
+     */
+    public var proxyFilter: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(imageTag: String, dockerfile: String, 
+        /**
+         * Builds the agent image (writes the context to a temporary folder first).
+         */buildCommand: String, 
+        /**
+         * Builds the proxy image (empty when the sandbox is offline).
+         */proxyBuildCommand: String, 
+        /**
+         * Creates volume, networks, proxy and the sandbox folders; idempotent.
+         */setupCommands: [String], 
+        /**
+         * Copies the committed content of the project into the work volume.
+         */cloneCommand: String, 
+        /**
+         * Copies the agent's login file into the sandbox home when it is not there yet (empty when off).
+         */loginCommand: String, 
+        /**
+         * The pane process: the agent in its container.
+         */runCommand: String, 
+        /**
+         * Brings the sandbox's commits back under the `sandbox/<id>/` branch prefix (a bundle fetch).
+         */fetchCommand: String, 
+        /**
+         * Removes containers, networks and the work volume (never the sandbox home).
+         */cleanupCommands: [String], 
+        /**
+         * The proxy's host filter, one regex per line.
+         */proxyFilter: String) {
+        self.imageTag = imageTag
+        self.dockerfile = dockerfile
+        self.buildCommand = buildCommand
+        self.proxyBuildCommand = proxyBuildCommand
+        self.setupCommands = setupCommands
+        self.cloneCommand = cloneCommand
+        self.loginCommand = loginCommand
+        self.runCommand = runCommand
+        self.fetchCommand = fetchCommand
+        self.cleanupCommands = cleanupCommands
+        self.proxyFilter = proxyFilter
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension SandboxPlan: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSandboxPlan: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SandboxPlan {
+        return
+            try SandboxPlan(
+                imageTag: FfiConverterString.read(from: &buf), 
+                dockerfile: FfiConverterString.read(from: &buf), 
+                buildCommand: FfiConverterString.read(from: &buf), 
+                proxyBuildCommand: FfiConverterString.read(from: &buf), 
+                setupCommands: FfiConverterSequenceString.read(from: &buf), 
+                cloneCommand: FfiConverterString.read(from: &buf), 
+                loginCommand: FfiConverterString.read(from: &buf), 
+                runCommand: FfiConverterString.read(from: &buf), 
+                fetchCommand: FfiConverterString.read(from: &buf), 
+                cleanupCommands: FfiConverterSequenceString.read(from: &buf), 
+                proxyFilter: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SandboxPlan, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.imageTag, into: &buf)
+        FfiConverterString.write(value.dockerfile, into: &buf)
+        FfiConverterString.write(value.buildCommand, into: &buf)
+        FfiConverterString.write(value.proxyBuildCommand, into: &buf)
+        FfiConverterSequenceString.write(value.setupCommands, into: &buf)
+        FfiConverterString.write(value.cloneCommand, into: &buf)
+        FfiConverterString.write(value.loginCommand, into: &buf)
+        FfiConverterString.write(value.runCommand, into: &buf)
+        FfiConverterString.write(value.fetchCommand, into: &buf)
+        FfiConverterSequenceString.write(value.cleanupCommands, into: &buf)
+        FfiConverterString.write(value.proxyFilter, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSandboxPlan_lift(_ buf: RustBuffer) throws -> SandboxPlan {
+    return try FfiConverterTypeSandboxPlan.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSandboxPlan_lower(_ value: SandboxPlan) -> RustBuffer {
+    return FfiConverterTypeSandboxPlan.lower(value)
+}
+
+
+public struct SandboxProfile: Equatable, Hashable {
+    public var engine: SandboxEngine
+    public var agent: SandboxAgent
+    /**
+     * `[a-z0-9-]{3,32}`; names every resource of the sandbox.
+     */
+    public var sandboxId: String
+    /**
+     * The project on the host (absolute or `~/…`); only its committed content is copied.
+     */
+    public var projectFolder: String
+    public var network: SandboxNetwork
+    /**
+     * Extra hosts the proxy lets through, on top of the agent's own API hosts.
+     */
+    public var allowHosts: [String]
+    public var cpus: UInt32
+    public var memoryMb: UInt32
+    public var pids: UInt32
+    /**
+     * `true`: the agent's own auto-approve flag. `false`: every approval goes to the phone.
+     */
+    public var autoApprove: Bool
+    /**
+     * The pinned base image, `name@sha256:<64 hex>`.
+     */
+    public var baseImage: String
+    /**
+     * Copy the agent's login file from the host into the sandbox home (owner's default: on).
+     */
+    public var copyLogin: Bool
+    /**
+     * Claude Code's config folder on the host when it is not `~/.claude` (empty = the default).
+     */
+    public var claudeConfigDir: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(engine: SandboxEngine, agent: SandboxAgent, 
+        /**
+         * `[a-z0-9-]{3,32}`; names every resource of the sandbox.
+         */sandboxId: String, 
+        /**
+         * The project on the host (absolute or `~/…`); only its committed content is copied.
+         */projectFolder: String, network: SandboxNetwork, 
+        /**
+         * Extra hosts the proxy lets through, on top of the agent's own API hosts.
+         */allowHosts: [String], cpus: UInt32, memoryMb: UInt32, pids: UInt32, 
+        /**
+         * `true`: the agent's own auto-approve flag. `false`: every approval goes to the phone.
+         */autoApprove: Bool, 
+        /**
+         * The pinned base image, `name@sha256:<64 hex>`.
+         */baseImage: String, 
+        /**
+         * Copy the agent's login file from the host into the sandbox home (owner's default: on).
+         */copyLogin: Bool, 
+        /**
+         * Claude Code's config folder on the host when it is not `~/.claude` (empty = the default).
+         */claudeConfigDir: String) {
+        self.engine = engine
+        self.agent = agent
+        self.sandboxId = sandboxId
+        self.projectFolder = projectFolder
+        self.network = network
+        self.allowHosts = allowHosts
+        self.cpus = cpus
+        self.memoryMb = memoryMb
+        self.pids = pids
+        self.autoApprove = autoApprove
+        self.baseImage = baseImage
+        self.copyLogin = copyLogin
+        self.claudeConfigDir = claudeConfigDir
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension SandboxProfile: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSandboxProfile: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SandboxProfile {
+        return
+            try SandboxProfile(
+                engine: FfiConverterTypeSandboxEngine.read(from: &buf), 
+                agent: FfiConverterTypeSandboxAgent.read(from: &buf), 
+                sandboxId: FfiConverterString.read(from: &buf), 
+                projectFolder: FfiConverterString.read(from: &buf), 
+                network: FfiConverterTypeSandboxNetwork.read(from: &buf), 
+                allowHosts: FfiConverterSequenceString.read(from: &buf), 
+                cpus: FfiConverterUInt32.read(from: &buf), 
+                memoryMb: FfiConverterUInt32.read(from: &buf), 
+                pids: FfiConverterUInt32.read(from: &buf), 
+                autoApprove: FfiConverterBool.read(from: &buf), 
+                baseImage: FfiConverterString.read(from: &buf), 
+                copyLogin: FfiConverterBool.read(from: &buf), 
+                claudeConfigDir: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SandboxProfile, into buf: inout [UInt8]) {
+        FfiConverterTypeSandboxEngine.write(value.engine, into: &buf)
+        FfiConverterTypeSandboxAgent.write(value.agent, into: &buf)
+        FfiConverterString.write(value.sandboxId, into: &buf)
+        FfiConverterString.write(value.projectFolder, into: &buf)
+        FfiConverterTypeSandboxNetwork.write(value.network, into: &buf)
+        FfiConverterSequenceString.write(value.allowHosts, into: &buf)
+        FfiConverterUInt32.write(value.cpus, into: &buf)
+        FfiConverterUInt32.write(value.memoryMb, into: &buf)
+        FfiConverterUInt32.write(value.pids, into: &buf)
+        FfiConverterBool.write(value.autoApprove, into: &buf)
+        FfiConverterString.write(value.baseImage, into: &buf)
+        FfiConverterBool.write(value.copyLogin, into: &buf)
+        FfiConverterString.write(value.claudeConfigDir, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSandboxProfile_lift(_ buf: RustBuffer) throws -> SandboxProfile {
+    return try FfiConverterTypeSandboxProfile.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSandboxProfile_lower(_ value: SandboxProfile) -> RustBuffer {
+    return FfiConverterTypeSandboxProfile.lower(value)
 }
 
 
@@ -13057,7 +13950,10 @@ public struct SessionConfig: Equatable, Hashable {
     public var host: String
     public var port: UInt16
     public var username: String
-    public var privateKeyPem: String
+    /**
+     * Which stored key to log in with; the key itself never leaves the core (`key_store`).
+     */
+    public var key: KeyRef
     public var sessionName: String
     public var initialCols: UInt16
     public var initialRows: UInt16
@@ -13079,7 +13975,10 @@ public struct SessionConfig: Equatable, Hashable {
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(host: String, port: UInt16, username: String, privateKeyPem: String, sessionName: String, initialCols: UInt16, initialRows: UInt16, command: String?, 
+    public init(host: String, port: UInt16, username: String, 
+        /**
+         * Which stored key to log in with; the key itself never leaves the core (`key_store`).
+         */key: KeyRef, sessionName: String, initialCols: UInt16, initialRows: UInt16, command: String?, 
         /**
          * Folder a **new** tmux session starts in (created if missing; `~/` is the home folder).
          * Ignored when the session already exists. `None` = the login shell's default (home).
@@ -13094,7 +13993,7 @@ public struct SessionConfig: Equatable, Hashable {
         self.host = host
         self.port = port
         self.username = username
-        self.privateKeyPem = privateKeyPem
+        self.key = key
         self.sessionName = sessionName
         self.initialCols = initialCols
         self.initialRows = initialRows
@@ -13123,7 +14022,7 @@ public struct FfiConverterTypeSessionConfig: FfiConverterRustBuffer {
                 host: FfiConverterString.read(from: &buf), 
                 port: FfiConverterUInt16.read(from: &buf), 
                 username: FfiConverterString.read(from: &buf), 
-                privateKeyPem: FfiConverterString.read(from: &buf), 
+                key: FfiConverterTypeKeyRef.read(from: &buf), 
                 sessionName: FfiConverterString.read(from: &buf), 
                 initialCols: FfiConverterUInt16.read(from: &buf), 
                 initialRows: FfiConverterUInt16.read(from: &buf), 
@@ -13138,7 +14037,7 @@ public struct FfiConverterTypeSessionConfig: FfiConverterRustBuffer {
         FfiConverterString.write(value.host, into: &buf)
         FfiConverterUInt16.write(value.port, into: &buf)
         FfiConverterString.write(value.username, into: &buf)
-        FfiConverterString.write(value.privateKeyPem, into: &buf)
+        FfiConverterTypeKeyRef.write(value.key, into: &buf)
         FfiConverterString.write(value.sessionName, into: &buf)
         FfiConverterUInt16.write(value.initialCols, into: &buf)
         FfiConverterUInt16.write(value.initialRows, into: &buf)
@@ -16854,6 +17753,90 @@ public func FfiConverterTypeHookPresetKind_lower(_ value: HookPresetKind) -> Rus
 
 
 /**
+ * Where the hooks go: the agent's user-level file (every session of the agent) or one project's
+ * own file (only sessions started in that folder). Spec 61.
+ */
+
+public enum HookScope: Equatable, Hashable {
+    
+    /**
+     * The agent's config directory (`None` = its default one).
+     */
+    case user(configDir: String?
+    )
+    /**
+     * A project folder on the host; `user_config_dir` is where the agent's user-level hooks would
+     * be, to refuse a project install that would double an all-sessions one.
+     */
+    case project(folder: String, userConfigDir: String?
+    )
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension HookScope: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHookScope: FfiConverterRustBuffer {
+    typealias SwiftType = HookScope
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HookScope {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .user(configDir: try FfiConverterOptionString.read(from: &buf)
+        )
+        
+        case 2: return .project(folder: try FfiConverterString.read(from: &buf), userConfigDir: try FfiConverterOptionString.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: HookScope, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case let .user(configDir):
+            writeInt(&buf, Int32(1))
+            FfiConverterOptionString.write(configDir, into: &buf)
+            
+        
+        case let .project(folder,userConfigDir):
+            writeInt(&buf, Int32(2))
+            FfiConverterString.write(folder, into: &buf)
+            FfiConverterOptionString.write(userConfigDir, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHookScope_lift(_ buf: RustBuffer) throws -> HookScope {
+    return try FfiConverterTypeHookScope.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHookScope_lower(_ value: HookScope) -> RustBuffer {
+    return FfiConverterTypeHookScope.lower(value)
+}
+
+
+
+/**
  * What to do with the hook script already on a host after the helper changed (its pin is inside
  * the script, so a stale pin silently sends every hook to the Python code).
  */
@@ -17938,6 +18921,224 @@ public func FfiConverterTypeRowState_lower(_ value: RowState) -> RustBuffer {
 
 
 
+
+public enum SandboxAgent: Equatable, Hashable {
+    
+    case claudeCode
+    case antigravity
+    case codex
+    case grok
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension SandboxAgent: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSandboxAgent: FfiConverterRustBuffer {
+    typealias SwiftType = SandboxAgent
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SandboxAgent {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .claudeCode
+        
+        case 2: return .antigravity
+        
+        case 3: return .codex
+        
+        case 4: return .grok
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: SandboxAgent, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .claudeCode:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .antigravity:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .codex:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .grok:
+            writeInt(&buf, Int32(4))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSandboxAgent_lift(_ buf: RustBuffer) throws -> SandboxAgent {
+    return try FfiConverterTypeSandboxAgent.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSandboxAgent_lower(_ value: SandboxAgent) -> RustBuffer {
+    return FfiConverterTypeSandboxAgent.lower(value)
+}
+
+
+
+
+public enum SandboxEngine: Equatable, Hashable {
+    
+    case docker
+    case podman
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension SandboxEngine: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSandboxEngine: FfiConverterRustBuffer {
+    typealias SwiftType = SandboxEngine
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SandboxEngine {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .docker
+        
+        case 2: return .podman
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: SandboxEngine, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .docker:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .podman:
+            writeInt(&buf, Int32(2))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSandboxEngine_lift(_ buf: RustBuffer) throws -> SandboxEngine {
+    return try FfiConverterTypeSandboxEngine.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSandboxEngine_lower(_ value: SandboxEngine) -> RustBuffer {
+    return FfiConverterTypeSandboxEngine.lower(value)
+}
+
+
+
+
+public enum SandboxNetwork: Equatable, Hashable {
+    
+    /**
+     * Only the allow-listing proxy is reachable; unknown hosts are refused (and asked about).
+     */
+    case online
+    /**
+     * No network at all.
+     */
+    case offline
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension SandboxNetwork: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSandboxNetwork: FfiConverterRustBuffer {
+    typealias SwiftType = SandboxNetwork
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SandboxNetwork {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .online
+        
+        case 2: return .offline
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: SandboxNetwork, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .online:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .offline:
+            writeInt(&buf, Int32(2))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSandboxNetwork_lift(_ buf: RustBuffer) throws -> SandboxNetwork {
+    return try FfiConverterTypeSandboxNetwork.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSandboxNetwork_lower(_ value: SandboxNetwork) -> RustBuffer {
+    return FfiConverterTypeSandboxNetwork.lower(value)
+}
+
+
+
 /**
  * Which agent's terminal UI the screen was recognised as.
  */
@@ -17946,6 +19147,8 @@ public enum ScreenDialect: Equatable, Hashable {
     
     case claude
     case agy
+    case codex
+    case grok
     case unknown
 
 
@@ -17972,7 +19175,11 @@ public struct FfiConverterTypeScreenDialect: FfiConverterRustBuffer {
         
         case 2: return .agy
         
-        case 3: return .unknown
+        case 3: return .codex
+        
+        case 4: return .grok
+        
+        case 5: return .unknown
         
         default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -17990,8 +19197,16 @@ public struct FfiConverterTypeScreenDialect: FfiConverterRustBuffer {
             writeInt(&buf, Int32(2))
         
         
-        case .unknown:
+        case .codex:
             writeInt(&buf, Int32(3))
+        
+        
+        case .grok:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .unknown:
+            writeInt(&buf, Int32(5))
         
         }
     }
@@ -19997,6 +21212,30 @@ fileprivate struct FfiConverterOptionTypeHostPushStatus: FfiConverterRustBuffer 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeKeyInfo: FfiConverterRustBuffer {
+    typealias SwiftType = KeyInfo?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeKeyInfo.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeKeyInfo.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeOllamaLoad: FfiConverterRustBuffer {
     typealias SwiftType = OllamaLoad?
 
@@ -20281,6 +21520,31 @@ fileprivate struct FfiConverterSequenceTypeAgentDescriptor: FfiConverterRustBuff
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeAgentDescriptor.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeAgentHooksOverview: FfiConverterRustBuffer {
+    typealias SwiftType = [AgentHooksOverview]
+
+    public static func write(_ value: [AgentHooksOverview], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeAgentHooksOverview.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [AgentHooksOverview] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [AgentHooksOverview]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeAgentHooksOverview.read(from: &buf))
         }
         return seq
     }
@@ -21064,6 +22328,31 @@ fileprivate struct FfiConverterSequenceTypeHookOwn: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeHookTarget: FfiConverterRustBuffer {
+    typealias SwiftType = [HookTarget]
+
+    public static func write(_ value: [HookTarget], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeHookTarget.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [HookTarget] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [HookTarget]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeHookTarget.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeHookTemplate: FfiConverterRustBuffer {
     typealias SwiftType = [HookTemplate]
 
@@ -21760,6 +23049,56 @@ fileprivate struct FfiConverterSequenceTypeContainerRuntime: FfiConverterRustBuf
         return seq
     }
 }
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeSandboxEngine: FfiConverterRustBuffer {
+    typealias SwiftType = [SandboxEngine]
+
+    public static func write(_ value: [SandboxEngine], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeSandboxEngine.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [SandboxEngine] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [SandboxEngine]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeSandboxEngine.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceOptionString: FfiConverterRustBuffer {
+    typealias SwiftType = [String?]
+
+    public static func write(_ value: [String?], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterOptionString.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [String?] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [String?]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterOptionString.read(from: &buf))
+        }
+        return seq
+    }
+}
 private let UNIFFI_RUST_FUTURE_POLL_READY: Int8 = 0
 private let UNIFFI_RUST_FUTURE_POLL_WAKE: Int8 = 1
 
@@ -21815,13 +23154,6 @@ public func coreVersion() -> String  {
     )
 })
 }
-public func generateSshKeypair()throws  -> KeypairResult  {
-    return try  FfiConverterTypeKeypairResult_lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
-        uniffiCallStatus in
-    uniffi_ssh_core_fn_func_generate_ssh_keypair(uniffiCallStatus
-    )
-})
-}
 /**
  * Remote path (with a leading `~/`) of the config file the hooks live in.
  */
@@ -21831,6 +23163,35 @@ public func agentHooksConfigPath(agent: AgentKind, configDir: String?)throws  ->
     uniffi_ssh_core_fn_func_agent_hooks_config_path(
         FfiConverterTypeAgentKind_lower(agent),
         FfiConverterOptionString.lower(configDir),uniffiCallStatus
+    )
+})
+}
+/**
+ * The config file of `scope` for `agent`.
+ */
+public func agentHooksTargetPath(agent: AgentKind, scope: HookScope)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_agent_hooks_target_path(
+        FfiConverterTypeAgentKind_lower(agent),
+        FfiConverterTypeHookScope_lower(scope),uniffiCallStatus
+    )
+})
+}
+/**
+ * Remote path of the project-level file the hooks live in, from each agent's docs: Claude Code
+ * `settings.local.json` (personal, not committed by convention), Antigravity `.agents/hooks.json`,
+ * Codex `<repo>/.codex/hooks.json` (loaded only when the project layer is trusted, then reviewed
+ * with `/hooks`), Grok `<project>/.grok/hooks/` (any `.json` file) (needs `/hooks-trust`; the installer owns
+ * `ssh-app.json`), Qwen Code `.qwen/settings.json`, OpenCode `.opencode/plugins/`. Crush's project
+ * file is not confirmed, so it stays user-level.
+ */
+public func agentProjectHooksPath(agent: AgentKind, folder: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_agent_project_hooks_path(
+        FfiConverterTypeAgentKind_lower(agent),
+        FfiConverterString.lower(folder),uniffiCallStatus
     )
 })
 }
@@ -22336,18 +23697,6 @@ public func hashCommandSha256(command: String) -> String  {
 })
 }
 /**
- * Helper for signing canonical approval bytes on client with private key.
- */
-public func signApprovalPayload(privateKeyOpenssh: String, canonicalBytes: Data)throws  -> String  {
-    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
-        uniffiCallStatus in
-    uniffi_ssh_core_fn_func_sign_approval_payload(
-        FfiConverterString.lower(privateKeyOpenssh),
-        FfiConverterData.lower(canonicalBytes),uniffiCallStatus
-    )
-})
-}
-/**
  * Verifies whether an approval decision's timestamp falls within the allowed tolerance window.
  */
 public func verifyApprovalFreshness(timestampSec: UInt64, currentTimeSec: UInt64, maxDriftSec: UInt64) -> Bool  {
@@ -22370,19 +23719,6 @@ public func verifyApprovalSignature(publicKeyOpenssh: String, canonicalBytes: Da
         FfiConverterString.lower(publicKeyOpenssh),
         FfiConverterData.lower(canonicalBytes),
         FfiConverterString.lower(signatureHex),uniffiCallStatus
-    )
-})
-}
-/**
- * Signs `message` with the session key as an OpenSSH SSHSIG (namespace `ssh-app-approval`), the
- * format `ssh-keygen -Y verify` on the host checks.
- */
-public func signApprovalSshsig(privateKeyOpenssh: String, message: Data)throws  -> String  {
-    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
-        uniffiCallStatus in
-    uniffi_ssh_core_fn_func_sign_approval_sshsig(
-        FfiConverterString.lower(privateKeyOpenssh),
-        FfiConverterData.lower(message),uniffiCallStatus
     )
 })
 }
@@ -23087,36 +24423,162 @@ public func parseHostTarget(probeOutput: String) -> HostTarget  {
     )
 })
 }
-public func derivePublicKey(privateKeyOpenssh: String)throws  -> String  {
-    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+/**
+ * Removes a key (and, for the default or any id, the guarded copy too).
+ */
+public func keyDelete(key: KeyRef)throws   {try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
         uniffiCallStatus in
-    uniffi_ssh_core_fn_func_derive_public_key(
-        FfiConverterString.lower(privateKeyOpenssh),uniffiCallStatus
+    uniffi_ssh_core_fn_func_key_delete(
+        FfiConverterTypeKeyRef_lower(key),uniffiCallStatus
+    )
+}
+}
+/**
+ * Whether a key is stored.
+ */
+public func keyExists(key: KeyRef) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_key_exists(
+        FfiConverterTypeKeyRef_lower(key),uniffiCallStatus
     )
 })
 }
 /**
- * Imports an OpenSSH private key, decrypting it with `passphrase` when it is protected. Only
- * Ed25519 is accepted: that is what the connection path signs with. The passphrase is wiped when
- * this returns.
+ * Exports the key as bytes in the clear. Refused unless all three acknowledgements are given.
  */
-public func importPrivateKey(armoredKey: String, passphrase: Data?)throws  -> ImportedKey  {
-    return try  FfiConverterTypeImportedKey_lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+public func keyExportPlain(key: KeyRef, acks: ExportAcks)throws  -> Data  {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
         uniffiCallStatus in
-    uniffi_ssh_core_fn_func_import_private_key(
-        FfiConverterString.lower(armoredKey),
-        FfiConverterOptionData.lower(passphrase),uniffiCallStatus
+    uniffi_ssh_core_fn_func_key_export_plain(
+        FfiConverterTypeKeyRef_lower(key),
+        FfiConverterTypeExportAcks_lower(acks),uniffiCallStatus
     )
 })
 }
 /**
- * Whether the armored key needs a passphrase, without trying to decrypt it.
+ * Whether an OpenSSH key file (bytes) needs a passphrase.
  */
-public func privateKeyNeedsPassphrase(armoredKey: String)throws  -> Bool  {
+public func keyFileNeedsPassphrase(armored: Data)throws  -> Bool  {
     return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
         uniffiCallStatus in
-    uniffi_ssh_core_fn_func_private_key_needs_passphrase(
-        FfiConverterString.lower(armoredKey),uniffiCallStatus
+    uniffi_ssh_core_fn_func_key_file_needs_passphrase(
+        FfiConverterData.lower(armored),uniffiCallStatus
+    )
+})
+}
+/**
+ * Makes a new Ed25519 key inside the core and stores it.
+ */
+public func keyGenerate(key: KeyRef, overwrite: Bool)throws  -> KeyInfo  {
+    return try  FfiConverterTypeKeyInfo_lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_key_generate(
+        FfiConverterTypeKeyRef_lower(key),
+        FfiConverterBool.lower(overwrite),uniffiCallStatus
+    )
+})
+}
+/**
+ * Imports an OpenSSH Ed25519 key file given as bytes, decrypting it with `passphrase` when it has
+ * one; the key is stored without the passphrase and neither is kept. Both inputs are wiped here.
+ */
+public func keyImport(key: KeyRef, armored: Data, passphrase: Data?, overwrite: Bool)throws  -> KeyInfo  {
+    return try  FfiConverterTypeKeyInfo_lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_key_import(
+        FfiConverterTypeKeyRef_lower(key),
+        FfiConverterData.lower(armored),
+        FfiConverterOptionData.lower(passphrase),
+        FfiConverterBool.lower(overwrite),uniffiCallStatus
+    )
+})
+}
+/**
+ * The public half of a stored key, derived on demand (nothing public is stored separately).
+ */
+public func keyInfo(key: KeyRef)throws  -> KeyInfo?  {
+    return try  FfiConverterOptionTypeKeyInfo.lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_key_info(
+        FfiConverterTypeKeyRef_lower(key),uniffiCallStatus
+    )
+})
+}
+/**
+ * Rebuilds the guarded copies the Files extension reads (always from none, so a key no longer in
+ * use leaves nothing behind). With `enabled == false` it only removes them.
+ */
+public func keyPublishGuarded(ids: [String?], enabled: Bool)throws   {try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_key_publish_guarded(
+        FfiConverterSequenceOptionString.lower(ids),
+        FfiConverterBool.lower(enabled),uniffiCallStatus
+    )
+}
+}
+/**
+ * The key encrypted with the owner's password (Argon2id + ChaCha20-Poly1305), for backup and
+ * sync. The result is safe to store anywhere; the password is wiped.
+ */
+public func keySeal(key: KeyRef, password: Data)throws  -> Data  {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_key_seal(
+        FfiConverterTypeKeyRef_lower(key),
+        FfiConverterData.lower(password),uniffiCallStatus
+    )
+})
+}
+/**
+ * Like [`key_seal`] for a high-entropy 32-byte `secret` (the sync vault key) instead of a typed
+ * password: HKDF instead of Argon2, and the output is stable for an unchanged key.
+ */
+public func keySealStable(key: KeyRef, secret: Data)throws  -> Data  {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_key_seal_stable(
+        FfiConverterTypeKeyRef_lower(key),
+        FfiConverterData.lower(secret),uniffiCallStatus
+    )
+})
+}
+/**
+ * Sets the Keychain access group shared with the Files extension (`None` = the app's own).
+ */
+public func keyStoreConfigure(accessGroup: String?)  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_key_store_configure(
+        FfiConverterOptionString.lower(accessGroup),uniffiCallStatus
+    )
+}
+}
+/**
+ * Decrypts what [`key_seal`] made and stores the key.
+ */
+public func keyUnseal(key: KeyRef, sealed: Data, password: Data, overwrite: Bool)throws  -> KeyInfo  {
+    return try  FfiConverterTypeKeyInfo_lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_key_unseal(
+        FfiConverterTypeKeyRef_lower(key),
+        FfiConverterData.lower(sealed),
+        FfiConverterData.lower(password),
+        FfiConverterBool.lower(overwrite),uniffiCallStatus
+    )
+})
+}
+/**
+ * Decrypts what [`key_seal_stable`] made and stores the key. The stored key's fingerprint must
+ * equal the one the blob names.
+ */
+public func keyUnsealStable(key: KeyRef, sealed: Data, secret: Data, overwrite: Bool)throws  -> KeyInfo  {
+    return try  FfiConverterTypeKeyInfo_lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_key_unseal_stable(
+        FfiConverterTypeKeyRef_lower(key),
+        FfiConverterData.lower(sealed),
+        FfiConverterData.lower(secret),
+        FfiConverterBool.lower(overwrite),uniffiCallStatus
     )
 })
 }
@@ -23316,6 +24778,38 @@ public func validateAgentPermissions(agent: AgentKind, permissions: AgentPermiss
     uniffi_ssh_core_fn_func_validate_agent_permissions(
         FfiConverterTypeAgentKind_lower(agent),
         FfiConverterTypeAgentPermissions_lower(permissions),uniffiCallStatus
+    )
+})
+}
+/**
+ * The plan for `profile`, or why it is refused.
+ */
+public func planSandboxProfile(profile: SandboxProfile)throws  -> SandboxPlan  {
+    return try  FfiConverterTypeSandboxPlan_lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_plan_sandbox_profile(
+        FfiConverterTypeSandboxProfile_lower(profile),uniffiCallStatus
+    )
+})
+}
+/**
+ * The `debian:12-slim` base the app pins by default.
+ */
+public func sandboxDefaultBaseImage() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_sandbox_default_base_image(uniffiCallStatus
+    )
+})
+}
+/**
+ * Changed paths of a sandbox branch that the host would run later (for the review screen).
+ */
+public func sandboxReviewFlags(changed: [String]) -> [String]  {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_sandbox_review_flags(
+        FfiConverterSequenceString.lower(changed),uniffiCallStatus
     )
 })
 }
@@ -23874,10 +25368,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_func_core_version() != 64561) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_ssh_core_checksum_func_generate_ssh_keypair() != 25495) {
+    if (uniffi_ssh_core_checksum_func_agent_hooks_config_path() != 48113) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_ssh_core_checksum_func_agent_hooks_config_path() != 48113) {
+    if (uniffi_ssh_core_checksum_func_agent_hooks_target_path() != 59099) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_agent_project_hooks_path() != 54557) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_hook_command_summary() != 43362) {
@@ -24012,16 +25509,10 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_func_hash_command_sha256() != 26218) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_ssh_core_checksum_func_sign_approval_payload() != 38696) {
-        return InitializationResult.apiChecksumMismatch
-    }
     if (uniffi_ssh_core_checksum_func_verify_approval_freshness() != 26260) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_verify_approval_signature() != 51597) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_ssh_core_checksum_func_sign_approval_sshsig() != 39274) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_extract_artifacts() != 7334) {
@@ -24210,13 +25701,43 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_func_parse_host_target() != 43015) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_ssh_core_checksum_func_derive_public_key() != 26782) {
+    if (uniffi_ssh_core_checksum_func_key_delete() != 46008) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_ssh_core_checksum_func_import_private_key() != 1183) {
+    if (uniffi_ssh_core_checksum_func_key_exists() != 21931) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_ssh_core_checksum_func_private_key_needs_passphrase() != 80) {
+    if (uniffi_ssh_core_checksum_func_key_export_plain() != 42102) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_key_file_needs_passphrase() != 45617) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_key_generate() != 45127) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_key_import() != 4949) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_key_info() != 18110) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_key_publish_guarded() != 27407) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_key_seal() != 1632) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_key_seal_stable() != 10792) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_key_store_configure() != 62814) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_key_unseal() != 3681) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_key_unseal_stable() != 30205) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_choose_multiplexer() != 40078) {
@@ -24265,6 +25786,15 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_validate_agent_permissions() != 25961) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_plan_sandbox_profile() != 13546) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_sandbox_default_base_image() != 22835) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_sandbox_review_flags() != 61185) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_parse_screen_feed() != 18858) {
@@ -24609,7 +26139,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_uninstall_claude_statusline() != 61349) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_agent_hooks_overview() != 32041) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_agent_hooks_status() != 35997) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_agent_hooks_status_in() != 16137) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_apply_agent_permissions() != 22211) {
@@ -24624,10 +26160,19 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_install_agent_hooks_with_preset() != 11717) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_install_agent_hooks_with_preset_in() != 40957) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_installed_agent_hooks() != 20727) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_installed_agent_hooks_in() != 8065) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_preview_agent_hooks() != 44251) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_preview_agent_hooks_in() != 12250) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_preview_agent_permissions() != 55137) {
@@ -24637,6 +26182,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_read_agent_permissions_checked() != 52132) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_uninstall_agent_hooks_in() != 42849) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_check_agent_environment() != 54998) {
@@ -24661,6 +26209,30 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_query_host_ollama() != 49127) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_allow_sandbox_host() != 23725) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_detect_sandbox_engines() != 31116) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_disallow_sandbox_host() != 34666) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_fetch_sandbox_branches() != 32102) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_prepare_sandbox() != 64177) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_remove_sandbox() != 34287) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_sandbox_allowed_hosts() != 11436) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_sandbox_blocked_hosts() != 20340) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_cancel_upload() != 38808) {

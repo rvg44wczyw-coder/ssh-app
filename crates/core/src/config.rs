@@ -3,7 +3,8 @@ pub struct SessionConfig {
     pub host: String,
     pub port: u16,
     pub username: String,
-    pub private_key_pem: String,
+    /// Which stored key to log in with; the key itself never leaves the core (`key_store`).
+    pub key: crate::key_store::KeyRef,
     pub session_name: String,
     pub initial_cols: u16,
     pub initial_rows: u16,
@@ -23,7 +24,8 @@ pub struct RemoteServerConfig {
     pub host: String,
     pub port: u16,
     pub username: String,
-    pub private_key_pem: String,
+    /// Which stored key to log in with; the key itself never leaves the core (`key_store`).
+    pub key: crate::key_store::KeyRef,
     pub pinned_host_key: Option<String>,
 }
 

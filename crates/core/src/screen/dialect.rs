@@ -26,6 +26,15 @@ pub(super) trait DialectParser: Sync {
     fn overlay(&self, _lines: &[String]) -> Overlay {
         Overlay::None
     }
+    /// Where the footer (input box and status lines) starts and the draft typed in it, for an agent whose
+    /// footer is not the pair of rules the shared `split_footer` looks for.
+    fn footer(&self, _lines: &[String]) -> Option<(usize, Option<String>)> {
+        None
+    }
+    /// A question the agent waits on, when its dialog is not the numbered list the shared `parse_prompt` reads.
+    fn prompt(&self, _lines: &[String]) -> Option<(usize, ScreenPrompt)> {
+        None
+    }
     /// The conversation above the footer as turns, in screen order.
     fn turns(&self, lines: &[String], b: &mut Builder);
     /// The foreground colour parameters this agent draws inline code with.
@@ -40,6 +49,8 @@ pub(super) trait DialectParser: Sync {
 
 struct ClaudeDialect;
 struct AgyDialect;
+struct CodexDialect;
+struct GrokDialect;
 struct UnknownDialect;
 
 impl DialectParser for ClaudeDialect {
@@ -129,6 +140,78 @@ impl DialectParser for AgyDialect {
     }
 }
 
+impl DialectParser for CodexDialect {
+    fn dialect(&self) -> ScreenDialect {
+        ScreenDialect::Codex
+    }
+
+    fn line_score(&self, l: &str) -> u32 {
+        if l.starts_with("← for agents") || l.trim_start().starts_with(">_ OpenAI Codex") {
+            3
+        } else if l.contains("enter resume   ⌃a archive") || l.trim() == "enter select · esc back"
+        {
+            // the footers of Codex's own pickers
+            3
+        } else if super::codex::is_working_line(l) || l.contains("/ps to view · /stop to close") {
+            2
+        } else {
+            (l.starts_with("› Ask Codex") || l.trim_start().starts_with("Worked for ")) as u32
+        }
+    }
+
+    fn footer(&self, lines: &[String]) -> Option<(usize, Option<String>)> {
+        super::codex::split_footer(lines)
+    }
+
+    /// Codex prints an option's note on the same line after two spaces (`1. Ask for approval (current)  Read …`).
+    fn prompt(&self, lines: &[String]) -> Option<(usize, ScreenPrompt)> {
+        let (start, mut p) = parse_prompt(lines)?;
+        for o in &mut p.options {
+            if let Some((label, note)) = o.label.split_once("  ") {
+                o.description = format!("{} {}", note.trim(), o.description)
+                    .trim()
+                    .to_string();
+                o.label = label.trim().to_string();
+            }
+        }
+        Some((start, p))
+    }
+
+    fn turns(&self, lines: &[String], b: &mut Builder) {
+        super::codex::codex(lines, b)
+    }
+}
+
+impl DialectParser for GrokDialect {
+    fn dialect(&self) -> ScreenDialect {
+        ScreenDialect::Grok
+    }
+
+    fn line_score(&self, l: &str) -> u32 {
+        let t = l.trim_start();
+        if l.contains("Ctrl+x:shortcuts") || t.starts_with("Help improve Grok") {
+            3
+        } else if t.starts_with('╰') && l.contains(" Grok ") {
+            2
+        } else {
+            (t.starts_with("◈ ") || t.starts_with("◆ Thought for") || t.starts_with("◆ Thinking"))
+                as u32
+        }
+    }
+
+    fn footer(&self, lines: &[String]) -> Option<(usize, Option<String>)> {
+        super::grok::split_footer(lines)
+    }
+
+    fn prompt(&self, lines: &[String]) -> Option<(usize, ScreenPrompt)> {
+        super::grok::prompt(lines)
+    }
+
+    fn turns(&self, lines: &[String], b: &mut Builder) {
+        super::grok::grok(lines, b)
+    }
+}
+
 impl DialectParser for UnknownDialect {
     fn dialect(&self) -> ScreenDialect {
         ScreenDialect::Unknown
@@ -147,7 +230,8 @@ impl DialectParser for UnknownDialect {
 }
 
 /// The recognised dialects, in tie-break order. `Unknown` is not listed: it is what nothing scores for.
-static DIALECTS: [&dyn DialectParser; 2] = [&ClaudeDialect, &AgyDialect];
+static DIALECTS: [&dyn DialectParser; 4] =
+    [&ClaudeDialect, &AgyDialect, &CodexDialect, &GrokDialect];
 
 /// The parser of a dialect (the fallback one for `Unknown`).
 pub(super) fn parser_for(dialect: ScreenDialect) -> &'static dyn DialectParser {

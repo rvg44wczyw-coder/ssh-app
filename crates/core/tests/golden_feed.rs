@@ -73,7 +73,7 @@ fn every_transcript_fixture_parses_to_its_snapshot() {
         );
         n += 1;
     }
-    assert_eq!(n, 2);
+    assert_eq!(n, 4);
 }
 
 #[test]

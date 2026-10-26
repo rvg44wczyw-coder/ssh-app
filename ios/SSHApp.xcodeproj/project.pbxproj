@@ -98,6 +98,9 @@
 		AA000034 /* ActionPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000034 /* ActionPanelView.swift */; };
 		AA000035 /* ServerPickerPopup.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000035 /* ServerPickerPopup.swift */; };
 		AA000031 /* AgentProfilesSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000031 /* AgentProfilesSheetView.swift */; };
+		AA000078 /* HooksOverviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000077 /* HooksOverviewView.swift */; };
+		AA000079 /* SandboxView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000078 /* SandboxView.swift */; };
+		AA000080 /* LegacyKeyMigration.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000079 /* LegacyKeyMigration.swift */; };
 		AA000020 /* SshCoreBridge in Frameworks */ = {isa = PBXBuildFile; productRef = CC000001 /* SshCoreBridge */; };
 		AA000021 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = CC000002 /* SwiftTerm */; };
 		AA0F0022 /* Highlightr in Frameworks */ = {isa = PBXBuildFile; productRef = CC000004 /* Highlightr */; };
@@ -231,6 +234,9 @@
 		BB000034 /* ActionPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/ActionPanelView.swift; sourceTree = "<group>"; };
 		BB000035 /* ServerPickerPopup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/ServerPickerPopup.swift; sourceTree = "<group>"; };
 		BB000031 /* AgentProfilesSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/AgentProfilesSheetView.swift; sourceTree = "<group>"; };
+		BB000077 /* HooksOverviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/HooksOverviewView.swift; sourceTree = "<group>"; };
+		BB000078 /* SandboxView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/SandboxView.swift; sourceTree = "<group>"; };
+		BB000079 /* LegacyKeyMigration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/LegacyKeyMigration.swift; sourceTree = "<group>"; };
 		BB000030 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		BB000050 /* SubscriptionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/SubscriptionManager.swift; sourceTree = "<group>"; };
 		BB000051 /* PaywallView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/PaywallView.swift; sourceTree = "<group>"; };
@@ -483,6 +489,9 @@
 				BB000027 /* HostTelemetrySheetView.swift */,
 				BB000028 /* FileBrowserSheetView.swift */,
 				BB000031 /* AgentProfilesSheetView.swift */,
+				BB000077 /* HooksOverviewView.swift */,
+				BB000078 /* SandboxView.swift */,
+				BB000079 /* LegacyKeyMigration.swift */,
 				BB000035 /* ServerPickerPopup.swift */,
 				BB000034 /* ActionPanelView.swift */,
 				BB000033 /* AppAction.swift */,
@@ -751,6 +760,9 @@
 				AA000027 /* HostTelemetrySheetView.swift in Sources */,
 				AA000028 /* FileBrowserSheetView.swift in Sources */,
 				AA000031 /* AgentProfilesSheetView.swift in Sources */,
+				AA000078 /* HooksOverviewView.swift in Sources */,
+				AA000079 /* SandboxView.swift in Sources */,
+				AA000080 /* LegacyKeyMigration.swift in Sources */,
 				AA000035 /* ServerPickerPopup.swift in Sources */,
 				AA000034 /* ActionPanelView.swift in Sources */,
 				AA000033 /* AppAction.swift in Sources */,

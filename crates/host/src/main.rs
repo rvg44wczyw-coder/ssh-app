@@ -7,8 +7,8 @@
 use serde_json::json;
 use ssh_app_host::queue::{install_signal_handlers, Paths};
 use ssh_app_host::{
-    agent, agyfeed, ctl, doctor, files, hook, models, pair, procs, push, rpc, skills, statusline,
-    telemetry, usage,
+    agent, agyfeed, agyquota, ctl, doctor, files, grokquota, hook, hooksview, models, pair, procs,
+    push, rpc, skills, statusline, telemetry, usage,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -24,6 +24,29 @@ fn main() {
                 "{}",
                 json!({"v": 1, "name": "ssh-app-host", "version": VERSION, "caps": ["usage", "hook", "agent", "push", "models", "telemetry", "fs", "read", "kill", "pair", "doctor", "skills", "agy-events"]})
             );
+            0
+        }
+        Some("agy-quota-refresh") => i32::from(
+            !args
+                .get(1)
+                .is_some_and(|cwd| agyquota::refresh(cwd)),
+        ),
+        Some("grok-quota-refresh") => i32::from(
+            !args
+                .get(1)
+                .is_some_and(|cwd| grokquota::refresh(cwd)),
+        ),
+        Some("hooks-overview") => {
+            let folders: Vec<String> = args[1..]
+                .windows(2)
+                .filter(|w| w[0] == "--folder")
+                .map(|w| w[1].clone())
+                .collect();
+            let claude_dir = args[1..]
+                .windows(2)
+                .find(|w| w[0] == "--claude-dir")
+                .map(|w| w[1].as_str());
+            println!("{}", hooksview::overview(&folders, claude_dir));
             0
         }
         Some("agy-jsonl") if args.last().map(String::as_str) == Some("--raw") => {

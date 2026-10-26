@@ -35,6 +35,7 @@ pub(crate) mod host_api;
 pub mod host_guard;
 pub(crate) mod hostprobe;
 pub mod hosttarget;
+pub mod key_store;
 pub mod keys;
 pub mod multiplexer;
 pub mod onboarding;
@@ -44,6 +45,7 @@ pub mod port_forward;
 pub mod ports;
 pub mod push;
 pub mod remote_fs;
+pub mod sandbox;
 pub mod screen;
 pub mod screen_capture;
 pub mod session;
@@ -64,13 +66,14 @@ pub mod zellij_feed;
 
 pub use agents::{
     agent_config_dir_env, agent_hook_script, agent_hooks_config_path, agent_hooks_installed,
-    build_agent_launch_command, build_binary_probe_command, claude_statusline_installed,
+    agent_hooks_target_path, agent_project_hooks_path, build_agent_launch_command,
+    build_binary_probe_command, check_project_install, claude_statusline_installed,
     default_hook_preset, default_launch_profiles, hook_events_for, hook_preset_uses_script,
     hooks_drift, hooks_section_of, installed_hook_entries, merge_agent_hooks,
     merge_claude_statusline, merge_planned_hooks, parse_resolved_binary, plan_agent_hooks,
     profile_config_dir, remove_agent_hooks, remove_claude_statusline, validate_launch_profile,
-    AgentEnvCheck, AgentHooksStatus, AgentKind, AgentLaunchProfile, EnvVar, HookPreset,
-    HookPresetKind, PlannedHook,
+    AgentEnvCheck, AgentHooksOverview, AgentHooksStatus, AgentKind, AgentLaunchProfile, EnvVar,
+    HookPreset, HookPresetKind, HookScope, HookTarget, PlannedHook,
 };
 pub use ai::{
     assemble_ai_system_prompt, assemble_ai_user_prompt, build_ollama_probe_command,
@@ -151,7 +154,6 @@ pub fn core_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
 
-#[uniffi::export]
 pub fn generate_ssh_keypair() -> Result<KeypairResult, SshCoreError> {
     keys::generate_keypair()
 }

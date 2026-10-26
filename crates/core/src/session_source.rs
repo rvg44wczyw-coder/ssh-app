@@ -23,6 +23,8 @@ pub(crate) trait SessionSource: Sync {
 
 struct ClaudeSource;
 struct AgySource;
+struct CodexSource;
+struct GrokSource;
 
 impl SessionSource for ClaudeSource {
     fn id(&self) -> &'static str {
@@ -54,9 +56,39 @@ impl SessionSource for AgySource {
     }
 }
 
+impl SessionSource for CodexSource {
+    fn id(&self) -> &'static str {
+        "codex"
+    }
+    fn hook_agent(&self) -> &'static str {
+        "codex"
+    }
+    fn arg_markers(&self) -> &'static [&'static str] {
+        &[r"@openai\/codex"]
+    }
+    fn locate_arm(&self) -> &'static str {
+        CODEX_ARM
+    }
+}
+
+impl SessionSource for GrokSource {
+    fn id(&self) -> &'static str {
+        "grok"
+    }
+    fn hook_agent(&self) -> &'static str {
+        "grok"
+    }
+    fn arg_markers(&self) -> &'static [&'static str] {
+        &[]
+    }
+    fn locate_arm(&self) -> &'static str {
+        GROK_ARM
+    }
+}
+
 /// Every agent whose session the host can locate, in the order the detection tries them.
-fn sources() -> [&'static dyn SessionSource; 2] {
-    [&ClaudeSource, &AgySource]
+fn sources() -> [&'static dyn SessionSource; 4] {
+    [&ClaudeSource, &AgySource, &CodexSource, &GrokSource]
 }
 
 /// A program name that may be put between quotes in the awk part of the script: letters, digits, `.`, `_`
@@ -187,6 +219,51 @@ const AGY_ARM: &str = r#"    # Only a folder of the agent's own brain/ counts: a
     [ -n "$d" ] || d=$(ls -td "$B"/* 2>/dev/null | head -n 1)
     f="$d/.system_generated/logs/transcript.jsonl"
     [ -n "$d" ] && [ -f "$f" ] && echo "$f";;
+"#;
+
+const CODEX_ARM: &str = r#"    # Codex keeps one rollout file per session under $CODEX_HOME (the agent's own, read from its environment)
+    # or ~/.codex: sessions/YYYY/MM/DD/rollout-<time>-<session id>.jsonl, whose first line names the folder.
+    cdir=$(ps eww -p "$apid" 2>/dev/null | tr ' ' '\n' | sed -n 's/^CODEX_HOME=//p' | head -n 1)
+    f=""
+    for d in "$cdir" "$HOME/.codex"; do
+      [ -n "$d" ] || continue
+      if [ -n "$sid" ]; then
+        c=$(ls "$d"/sessions/*/*/*/rollout-*-"$sid".jsonl 2>/dev/null | head -n 1)
+        [ -f "$c" ] && f=$c && break
+      fi
+    done
+    if [ ! -f "$f" ] && [ -n "$cwd" ]; then
+      for d in "$cdir" "$HOME/.codex"; do
+        [ -n "$d" ] || continue
+        c=$(ls -t "$d"/sessions/*/*/*/rollout-*.jsonl 2>/dev/null | head -n 20 | while IFS= read -r c; do
+          head -n 1 "$c" | grep -qF "\"cwd\":\"$cwd\"" && { echo "$c"; break; }
+        done)
+        [ -f "$c" ] && f=$c && break
+      done
+    fi
+    [ -f "$f" ] && echo "$f";;
+"#;
+
+const GROK_ARM: &str = r#"    # Grok keeps one folder per session under $GROK_HOME (the agent's own, read from its environment) or ~/.grok:
+    # sessions/<folder with / as %2F>/<session id>/chat_history.jsonl.
+    gdir=$(ps eww -p "$apid" 2>/dev/null | tr ' ' '\n' | sed -n 's/^GROK_HOME=//p' | head -n 1)
+    f=""
+    enc=$(printf %s "$cwd" | sed 's#/#%2F#g; s# #%20#g')
+    for d in "$gdir" "$HOME/.grok"; do
+      [ -n "$d" ] || continue
+      if [ -n "$sid" ]; then
+        c=$(ls "$d"/sessions/*/"$sid"/chat_history.jsonl 2>/dev/null | head -n 1)
+        [ -f "$c" ] && f=$c && break
+      fi
+    done
+    if [ ! -f "$f" ] && [ -n "$cwd" ]; then
+      for d in "$gdir" "$HOME/.grok"; do
+        [ -n "$d" ] || continue
+        c=$(ls -t "$d"/sessions/"$enc"/*/chat_history.jsonl 2>/dev/null | head -n 1)
+        [ -f "$c" ] && f=$c && break
+      done
+    fi
+    [ -f "$f" ] && echo "$f";;
 "#;
 
 const TAIL: &str = r#"esac

@@ -20,7 +20,7 @@ impl RemoteFsClient {
                         host: &c.host,
                         port: c.port,
                         username: &c.username,
-                        private_key_pem: &c.private_key_pem,
+                        key: &c.key,
                         pinned_host_key: c.pinned_host_key.as_deref(),
                     },
                     Duration::from_secs(10),

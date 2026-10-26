@@ -1,0 +1,37 @@
+› tabbed message two
+  >_ OpenAI Codex (v0.164.0)
+
+  Visit https://chatgpt.com/settings/usage for up-to-date
+  information on rate limits and credits
+
+  Server:              Local background server
+
+  Model:               GPT-6-Luna (reasoning medium)
+  Model provider:      openai
+  Directory:           ~/project
+  Permissions:         Workspace (Ask for approval)
+  Agents.md:           AGENTS.md
+  Collaboration mode:  Default
+
+  Context window:      98% left (15.7K used / 258K)
+  Monthly limit:       [████████████████████] 99% left (resets 11:51 on 24 Nov)
+
+
+› Run the shell command: sleep 30 . Then reply with the single word fine.
+
+
+• I’ll run sleep 30, then reply with the requested word.
+
+/ps
+
+Background terminals
+
+  • sleep 30
+
+• Working (9s • esc to interrupt) · 1 background terminal running · /ps to view · /stop to close
+
+
+› Ask Codex to do anything
+
+  GPT-6-Luna default · ~/project · Run sleep 20 command
+  ← for agents · ? for shortcuts

@@ -1,0 +1,47 @@
+ScreenFeed {
+    dialect: Codex,
+    turns: [
+        TranscriptTurn {
+            id: "scr0",
+            step_index: 0,
+            turn_type: System,
+            timestamp: None,
+            content: Some(
+                ">_ OpenAI Codex (v0.164.0)\n~/project",
+            ),
+            thinking: None,
+            tool_calls: [],
+            status: Done,
+            label: Some(
+                "OpenAI Codex",
+            ),
+        },
+    ],
+    status: None,
+    draft: None,
+    prompt: Some(
+        ScreenPrompt {
+            title: None,
+            detail: "Skills",
+            question: "Choose an action",
+            options: [
+                PromptOption {
+                    number: 1,
+                    label: "List skills",
+                    description: "Tip: press $ to open this list directly",
+                    checked: false,
+                },
+                PromptOption {
+                    number: 2,
+                    label: "Enable/Disable Skills",
+                    description: "Enable or disable skills",
+                    checked: false,
+                },
+            ],
+            selected: 0,
+            multi: false,
+        },
+    ),
+    aside: None,
+    dialog: None,
+}

@@ -1,0 +1,40 @@
+
+  main ~/project [Click here to Upgrade]                             20K / 256K │ [Dashboard]
+
+
+     ❯ Use the write tool to create the file /tmp/work/probe.txt  11:08 AM
+       containing the word x. Nothing else.
+
+
+     ◆ Thought for 1.4s
+
+     I'll create that file with only the word x.                                        11:08 AM
+
+     ◆ Creating probe.txt
+
+     Turn cancelled because a permission was denied in 28s.
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ──────────────────────────────────────────────────────────────────────────────────────────────4─
+    ❯ Extra High    Maximum reasoning for the hardest tasks.
+      High (active) Thorough reasoning and quality. Recommended.
+      Medium        Strong quality with a faster turnaround.
+      Low           Fastest responses. Best for simple tasks.
+  ────────────────────────────────────────────────────────────────────────────────────────────────
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────╮
+  │ ❯ /effort <level>                                                                            │
+  ╰──────────────────────────────────────────────────────────────────────────── Grok 4.7 (high) ─╯
+
+  Enter:send  │  Opt+Enter:newline  │  Shift+Tab:mode  │  Ctrl+x:shortcuts
+
