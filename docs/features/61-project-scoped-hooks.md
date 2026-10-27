@@ -131,5 +131,5 @@ Golden snapshot of every project preview; merge/remove round trip on a file with
 | Bridge regenerated, Swift `HooksOverviewView` (Settings → Agents → Hooks), simulator build green, 192 Swift tests green | done; **not seen on a device** |
 | Security pass | `docs/security-findings/project-hooks-and-quota-probes-2026-10-26.md`: Low only |
 | Update 2026-10-26 | project paths for Codex, Grok, Qwen Code and OpenCode added from the docs; the helper lists all seven hook-capable agents; installing for a project asks to switch "All sessions" off (`disable_user_level`) |
-| Not done | per-server profile binding (`serverIds`) and categories (§5.0, §5.0.1); in-feed offer; `.git/info/exclude` offer for agy; Live check of the Codex/Grok/Qwen/OpenCode project files (later, with the phone); Crush project file; the "no phone attached, return at once" hook change |
+| Not done | Built 2026-10-27, device check pending: per-server profile binding (`serverIds`, §5.0), categories (§5.0.1, folders only, phone-side), in-feed offer (`ProjectHooksOfferBar`), `.git/info/exclude` offer for agy (`exclude_project_hooks_from_git`). Not done: Live check of the Codex/Grok/Qwen/OpenCode project files (later, with the phone); Crush project file; the "no phone attached, return at once" hook change |
 

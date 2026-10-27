@@ -35,8 +35,7 @@ The app starts remote commands with `$SHELL -l -c` (login, **non-interactive**):
 | Timeout | default 600 s | default 30 s |
 
 Researched, **not implemented** (launch profiles only; hooks → error `unsupported`):
-- **OpenAI Codex CLI** (`codex`): `~/.codex/hooks.json` or `[hooks]` in `config.toml`; `PreToolUse`, `PermissionRequest`; `ask` unsupported; hooks must be trusted via `/hooks` (hash-bound), so an installer cannot activate them silently.
-- **Grok** (`grok`, binary name unverified): `~/.grok/hooks/*.json`; only `PreToolUse` blocks, **fails open**; also reads `.claude/settings.json`.
+- (superseded: Codex and Grok hooks are implemented, see the addendum above.) Codex: hooks must be trusted in its own TUI, so an installer cannot activate them silently. Grok: several events block (see the table), all failures fail open, and a folder trust gate applies.
 - Gemini CLI: not researched.
 
 ---
@@ -192,14 +191,14 @@ Antigravity adds a top-level `"ssh-app": { "PreToolUse": [{ "matcher": "run_comm
 | | Codex | Grok |
 |---|---|---|
 | Config file | `$CODEX_HOME` (profile config dir) or `~/.codex/hooks.json`, `hooks` key | `~/.grok/hooks/ssh-app.json` (the installer owns this file), `hooks` key |
-| Approval event | `PermissionRequest`, matcher `*` (same reply as Claude, no output = normal prompt) | `PreToolUse`, matcher `Bash` by default (only blocking event) |
+| Approval event | `PermissionRequest`, matcher `*` (same reply as Claude, no output = normal prompt) | `PreToolUse`, matcher `Bash` by default. Blocking events: `UserPromptSubmit` (can block a prompt), `PreToolUse` (can deny), `Stop` and `SubagentStop` (can block the end of a turn); any hook failure is fail-open |
 | stdin | `tool_name`, `tool_input`, `cwd`, `session_id` | `toolName`, `toolInput`, `cwd`, `sessionId` |
 | Reply | Claude shape | deny: `{"decision":"deny","reason":...}`; otherwise print nothing, exit 0 |
 | Passive | `Stop` | `Notification`, `Stop` |
-| Trust | hooks are skipped until reviewed with `/hooks` (hash-bound) | project hooks need `/hooks-trust`; personal hooks: not documented |
+| Trust | at start Codex shows "Hooks need review: N hooks are new or changed" (review, trust all, continue without trusting = hooks do not run); nothing runs until the owner trusts them in Codex's own TUI (`/hooks`, `t trust all`), so after the installer writes `hooks.json` the app says so | folder trust gate: in a folder not trusted (`/hooks-trust`, `--trust`, `~/.grok/trusted_folders.toml`) the user's own hooks are held back silently |
 | Timeout | default 600 s | default 5 s (we write 130) |
 
-Named tradeoffs: Grok cannot be approved from the phone, only denied; neither agent has been run live (sources: developers.openai.com/codex/hooks, docs.x.ai/build/features/hooks).
+Named tradeoffs: Grok cannot be approved from the phone, only denied. Both agents were run live on 2026-10-26 (`docs/architecture/codex-grok-study-2026-10-25.md`): our Grok `PreToolUse` file held a turn at "Running 2 pre_tool_use hooks…" while it waited for the phone (by design; see the open question about a hook with no phone attached, `docs/todo.md`). Sources: developers.openai.com/codex/hooks, docs.x.ai/build/features/hooks.
 
 ## Addendum: presets, folders and several SSH keys
 
