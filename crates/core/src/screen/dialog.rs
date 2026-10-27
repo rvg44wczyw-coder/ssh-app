@@ -27,6 +27,8 @@ pub enum DialogKind {
     Config,
     Mcp,
     Status,
+    /// A background task screen (feature 59): the list, or one task's details in `note` and `rows`.
+    Tasks,
     /// Any other dialog of Antigravity: a title, blocks of text and one list with a `>` cursor.
     Generic,
 }
@@ -239,7 +241,7 @@ pub(super) fn parse_dialog(lines: &[String]) -> Option<(usize, ScreenDialog)> {
         }
         match kind {
             // Antigravity's dialogs have their own reader (`parse_agy_dialog`).
-            DialogKind::Generic => continue,
+            DialogKind::Generic | DialogKind::Tasks => continue,
             DialogKind::Model | DialogKind::Permissions => {
                 if let Some((cursor, up, down, number, rest)) = numbered(line) {
                     above |= up;
@@ -364,7 +366,7 @@ pub(super) fn parse_dialog(lines: &[String]) -> Option<(usize, ScreenDialog)> {
         DialogKind::Config => "Settings",
         DialogKind::Mcp => "MCP servers",
         DialogKind::Status => "Status",
-        DialogKind::Generic => "",
+        DialogKind::Generic | DialogKind::Tasks => "",
     };
     Some((
         start,
@@ -438,6 +440,7 @@ pub(super) fn parse_agy_dialog(lines: &[String]) -> Option<(usize, ScreenDialog)
         "Settings" => DialogKind::Config,
         "MCP Servers" => DialogKind::Mcp,
         "Permission Config Editor" => DialogKind::Permissions,
+        "Tasks" => DialogKind::Tasks,
         _ => DialogKind::Generic,
     };
 

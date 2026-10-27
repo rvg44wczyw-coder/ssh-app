@@ -70,6 +70,8 @@ impl DialectParser for ClaudeDialect {
     fn overlay(&self, lines: &[String]) -> Overlay {
         if let Some((start, a)) = parse_aside(lines) {
             Overlay::Aside(start, a)
+        } else if let Some((start, d)) = background::claude_shell_details(lines) {
+            Overlay::Dialog(start, d)
         } else if let Some((start, d)) = parse_dialog(lines) {
             Overlay::Dialog(start.saturating_sub(1), d)
         } else {
@@ -124,7 +126,7 @@ impl DialectParser for AgyDialect {
     }
 
     fn overlay(&self, lines: &[String]) -> Overlay {
-        match parse_agy_dialog(lines) {
+        match background::agy_task_detail(lines).or_else(|| parse_agy_dialog(lines)) {
             Some((start, d)) => Overlay::Dialog(start, d),
             None => Overlay::None,
         }

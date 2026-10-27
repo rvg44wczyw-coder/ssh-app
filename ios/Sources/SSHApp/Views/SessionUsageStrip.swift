@@ -192,6 +192,25 @@ struct SessionStatusLine: View {
         }
     }
 
+    @ViewBuilder private var tasksButton: some View {
+        if let tasks = viewModel.backgroundTasks, tasks.count > 0 {
+            Button { viewModel.openBackgroundTasks() } label: {
+                HStack(spacing: 3) {
+                    Image(systemName: "gearshape.2.fill")
+                    Text(tasks.count == 1 ? "1 task" : "\(tasks.count) tasks")
+                }
+                .frame(minHeight: 22)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundColor(viewModel.canOpenBackgroundTasks ? .accentColor : .secondary)
+            .disabled(!viewModel.canOpenBackgroundTasks)
+            .fixedSize()
+            .layoutPriority(2)
+            .accessibilityHint("Opens the agent's background tasks")
+        }
+    }
+
     @ViewBuilder private var switchControl: some View {
         if let sw = switchButton {
             Button { viewModel.toggleChatMode() } label: {
@@ -234,6 +253,8 @@ struct SessionStatusLine: View {
                             gitBlock(git)
                             modeBadge
                             subagentsButton
+                        tasksButton
+                            tasksButton
                             timingBadge
                             Spacer(minLength: 0)
                             switchControl

@@ -24,6 +24,7 @@ Install with `make iphone-full` only on the owner's word. Check on the device:
 - [ ] M24 watch: the app already shows "iPhone not reachable", never approves without the phone and plays haptics; open is only the run on a paired watch.
 - [ ] Files extension: does the Face ID sheet appear inside the extension (`docs/security-findings/2026-10-24-files-face-id.md`, item 5; if not, fall back to the in-app unlock window), favourites, Linux `stat` run.
 - [ ] M44 phase 4b: splice only the new screen lines into the feed. Not implemented on purpose: `profile_parser` measured the parser at 5.3 ms plain / 12.9 ms styled for 2000 turns, 19.8 / 50.4 ms for 1500 turns / 64k lines (2.2 MB). Do it only if the in-app timing label on the phone shows a real stall.
+- [ ] M48 background tasks built (2026-10-27), never seen on a device: the "N tasks" chip, the task list and detail screens, Stop with confirmation (Claude and agy). Open: the feed note for Claude's `<task-notification>` turn (needs a recorded transcript line), Codex `/ps`, the live captures listed under "Not captured yet".
 - [ ] M49 tail built (2026-10-27), not seen on device: model menu, resume flag, 5h estimate and tab guess come from the registry; `FeedHasNoAgentLiteralsTests` guards the feed files.
 - [ ] M50 in-feed offers built (2026-10-27), not seen on device: install project hooks from the feed, add the hooks file to `.git/info/exclude` (agy).
 

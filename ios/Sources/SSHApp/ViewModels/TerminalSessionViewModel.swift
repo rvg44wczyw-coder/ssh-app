@@ -84,6 +84,10 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     /// The `/btw` overlay and the dialog of a slash command, as the pane shows them right now.
     @Published public var screenAside: ScreenAside? = nil
     @Published public var screenDialog: ScreenDialog? = nil
+    /// Background tasks the agent says it runs (feature 59), read from the last capture.
+    @Published public var backgroundTasks: BackgroundSummary? = nil
+    /// The last recognised capture: the rules for opening and stopping a task read it.
+    private var lastFeed: ScreenFeed?
     /// What is typed in the agent's input box and not sent (read from the screen).
     @Published public var screenDraft: String? = nil
     /// Repository, branch and worktree of the tab's folder, for the feed header.
@@ -1041,6 +1045,43 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         }
     }
 
+    /// The keys of the agent in this tab for its task screens (`AgentKeys`), `nil` without a descriptor.
+    private var taskKeys: AgentKeys? {
+        let d = detectedDescriptor ?? AgentResolver.descriptor(agentType: session.agentType, dialect: .unknown)
+        return d.id == "generic" ? nil : d.keys
+    }
+
+    /// Whether the "N tasks" chip may open the list: the screen was recognised as this agent's, shows
+    /// running tasks, no question or dialog is up and the input box is empty.
+    public var canOpenBackgroundTasks: Bool {
+        guard let feed = lastFeed, let keys = taskKeys, !keys.openTasksKeys.isEmpty else { return false }
+        return backgroundOpenAllowed(feed: feed, expected: feed.dialect)
+    }
+
+    /// Opens the agent's own task screen with its fixed keys; the sheet then shows what the pane shows.
+    public func openBackgroundTasks() {
+        guard canOpenBackgroundTasks, let keys = taskKeys else { return }
+        Task {
+            for step in keys.openTasksKeys {
+                sendInput(Data(step))
+                try? await Task.sleep(for: .milliseconds(250))
+            }
+            _ = await reloadTranscriptQuietly()
+        }
+    }
+
+    /// Stop is offered only while a task's detail is on screen (the rule lives in the core).
+    public var canStopBackgroundTask: Bool {
+        guard let feed = lastFeed, let keys = taskKeys, keys.stopTaskKeys != nil else { return false }
+        return backgroundStopAllowed(feed: feed)
+    }
+
+    /// Sends the stop key for the task whose detail is open, after the rule above holds.
+    public func stopBackgroundTask() {
+        guard canStopBackgroundTask, let key = taskKeys?.stopTaskKeys else { return }
+        sendDialogKeys([Array(key)])
+    }
+
     /// Leaves a dialog or the `/btw` overlay (Esc) and forgets it here at once.
     public func closeOverlay() {
         sendInput(Data([0x1b]))
@@ -1096,6 +1137,8 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         if screenPrompt != feed.prompt { screenPrompt = feed.prompt }
         if screenAside != feed.aside { screenAside = feed.aside }
         if screenDialog != feed.dialog { screenDialog = feed.dialog }
+        if backgroundTasks != feed.background { backgroundTasks = feed.background }
+        lastFeed = feed
         var turns = feed.turns
         // Claude's screen has no thinking: it comes from the session file, in its place. Both
         // agents fold groups of calls ("Ran 5 commands (ctrl+o to expand)") and cut results; the

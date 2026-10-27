@@ -25,6 +25,13 @@ pub struct AgentKeys {
     pub accept_suggestion_keys: Option<Vec<u8>>,
     /// Put before the path of a picture in a message ("@" makes Claude Code read it).
     pub image_reference_prefix: String,
+    /// Steps (sent one after the other) that open the agent's list of background tasks. Empty: the
+    /// agent has no such screen the app can open.
+    pub open_tasks_keys: Vec<Vec<u8>>,
+    /// Stops the task whose detail screen is open. `None`: it cannot be stopped from there.
+    pub stop_task_keys: Option<Vec<u8>>,
+    /// Closes the task screens. `None`: nothing to close.
+    pub close_tasks_keys: Option<Vec<u8>>,
 }
 
 /// One slash command offered in the app's menu (it opens a screen of the agent).
@@ -117,6 +124,9 @@ fn claude() -> AgentDescriptor {
             clear_line_keys: vec![CTRL_U],
             accept_suggestion_keys: Some(vec![0x09]),
             image_reference_prefix: "@".into(),
+            open_tasks_keys: vec![vec![0x1b, 0x5b, 0x42], vec![0x0d]],
+            stop_task_keys: Some(b"x".to_vec()),
+            close_tasks_keys: Some(vec![0x1b]),
         },
         commands: vec![
             destructive(cmd("/clear", "Clear", "trash")),
@@ -158,6 +168,9 @@ fn agy() -> AgentDescriptor {
             clear_line_keys: vec![CTRL_U],
             accept_suggestion_keys: None,
             image_reference_prefix: String::new(),
+            open_tasks_keys: vec![b"/tasks".to_vec(), vec![0x0d]],
+            stop_task_keys: Some(b"k".to_vec()),
+            close_tasks_keys: Some(vec![0x1b]),
         },
         commands: vec![
             destructive(cmd("/clear", "Clear", "trash")),
@@ -207,6 +220,9 @@ fn codex() -> AgentDescriptor {
             clear_line_keys: vec![CTRL_U],
             accept_suggestion_keys: None,
             image_reference_prefix: String::new(),
+            open_tasks_keys: Vec::new(),
+            stop_task_keys: None,
+            close_tasks_keys: None,
         },
         commands: vec![
             destructive(cmd("/new", "New chat", "plus.bubble")),
@@ -253,6 +269,9 @@ fn grok() -> AgentDescriptor {
             clear_line_keys: vec![CTRL_U],
             accept_suggestion_keys: None,
             image_reference_prefix: String::new(),
+            open_tasks_keys: Vec::new(),
+            stop_task_keys: None,
+            close_tasks_keys: None,
         },
         commands: vec![
             destructive(cmd("/new", "New session", "plus.bubble")),
@@ -301,6 +320,9 @@ fn generic() -> AgentDescriptor {
             clear_line_keys: vec![CTRL_U],
             accept_suggestion_keys: None,
             image_reference_prefix: String::new(),
+            open_tasks_keys: Vec::new(),
+            stop_task_keys: None,
+            close_tasks_keys: None,
         },
         commands: vec![],
         hook_name: "".into(),
@@ -488,5 +510,12 @@ mod descriptor_fields_tests {
             );
         }
         assert!(generic_agent_descriptor().hook_name.is_empty());
+        // only the two agents with a task screen the app can drive have open and stop keys
+        for d in &all {
+            let drives = d.id == "claude" || d.id == "agy";
+            assert_eq!(!d.keys.open_tasks_keys.is_empty(), drives, "{}", d.id);
+            assert_eq!(d.keys.stop_task_keys.is_some(), drives, "{}", d.id);
+            assert_eq!(d.keys.close_tasks_keys.is_some(), drives, "{}", d.id);
+        }
     }
 }

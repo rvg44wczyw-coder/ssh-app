@@ -5571,6 +5571,19 @@ public struct AgentKeys: Equatable, Hashable {
      * Put before the path of a picture in a message ("@" makes Claude Code read it).
      */
     public var imageReferencePrefix: String
+    /**
+     * Steps (sent one after the other) that open the agent's list of background tasks. Empty: the
+     * agent has no such screen the app can open.
+     */
+    public var openTasksKeys: [Data]
+    /**
+     * Stops the task whose detail screen is open. `None`: it cannot be stopped from there.
+     */
+    public var stopTaskKeys: Data?
+    /**
+     * Closes the task screens. `None`: nothing to close.
+     */
+    public var closeTasksKeys: Data?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -5592,13 +5605,26 @@ public struct AgentKeys: Equatable, Hashable {
          */acceptSuggestionKeys: Data?, 
         /**
          * Put before the path of a picture in a message ("@" makes Claude Code read it).
-         */imageReferencePrefix: String) {
+         */imageReferencePrefix: String, 
+        /**
+         * Steps (sent one after the other) that open the agent's list of background tasks. Empty: the
+         * agent has no such screen the app can open.
+         */openTasksKeys: [Data], 
+        /**
+         * Stops the task whose detail screen is open. `None`: it cannot be stopped from there.
+         */stopTaskKeys: Data?, 
+        /**
+         * Closes the task screens. `None`: nothing to close.
+         */closeTasksKeys: Data?) {
         self.sendNowKeys = sendNowKeys
         self.queueKeys = queueKeys
         self.pullQueueKeys = pullQueueKeys
         self.clearLineKeys = clearLineKeys
         self.acceptSuggestionKeys = acceptSuggestionKeys
         self.imageReferencePrefix = imageReferencePrefix
+        self.openTasksKeys = openTasksKeys
+        self.stopTaskKeys = stopTaskKeys
+        self.closeTasksKeys = closeTasksKeys
     }
 
     
@@ -5622,7 +5648,10 @@ public struct FfiConverterTypeAgentKeys: FfiConverterRustBuffer {
                 pullQueueKeys: FfiConverterData.read(from: &buf), 
                 clearLineKeys: FfiConverterData.read(from: &buf), 
                 acceptSuggestionKeys: FfiConverterOptionData.read(from: &buf), 
-                imageReferencePrefix: FfiConverterString.read(from: &buf)
+                imageReferencePrefix: FfiConverterString.read(from: &buf), 
+                openTasksKeys: FfiConverterSequenceData.read(from: &buf), 
+                stopTaskKeys: FfiConverterOptionData.read(from: &buf), 
+                closeTasksKeys: FfiConverterOptionData.read(from: &buf)
         )
     }
 
@@ -5633,6 +5662,9 @@ public struct FfiConverterTypeAgentKeys: FfiConverterRustBuffer {
         FfiConverterData.write(value.clearLineKeys, into: &buf)
         FfiConverterOptionData.write(value.acceptSuggestionKeys, into: &buf)
         FfiConverterString.write(value.imageReferencePrefix, into: &buf)
+        FfiConverterSequenceData.write(value.openTasksKeys, into: &buf)
+        FfiConverterOptionData.write(value.stopTaskKeys, into: &buf)
+        FfiConverterOptionData.write(value.closeTasksKeys, into: &buf)
     }
 }
 
@@ -7157,6 +7189,63 @@ public func FfiConverterTypeAutoTrustRules_lift(_ buf: RustBuffer) throws -> Aut
 #endif
 public func FfiConverterTypeAutoTrustRules_lower(_ value: AutoTrustRules) -> RustBuffer {
     return FfiConverterTypeAutoTrustRules.lower(value)
+}
+
+
+/**
+ * How many background tasks the agent says it runs, and (where the screen names them) their commands.
+ */
+public struct BackgroundSummary: Equatable, Hashable {
+    public var count: UInt32
+    public var commands: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(count: UInt32, commands: [String]) {
+        self.count = count
+        self.commands = commands
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension BackgroundSummary: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeBackgroundSummary: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> BackgroundSummary {
+        return
+            try BackgroundSummary(
+                count: FfiConverterUInt32.read(from: &buf), 
+                commands: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: BackgroundSummary, into buf: inout [UInt8]) {
+        FfiConverterUInt32.write(value.count, into: &buf)
+        FfiConverterSequenceString.write(value.commands, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeBackgroundSummary_lift(_ buf: RustBuffer) throws -> BackgroundSummary {
+    return try FfiConverterTypeBackgroundSummary.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeBackgroundSummary_lower(_ value: BackgroundSummary) -> RustBuffer {
+    return FfiConverterTypeBackgroundSummary.lower(value)
 }
 
 
@@ -13940,6 +14029,10 @@ public struct ScreenFeed: Equatable, Hashable {
      * A full-screen dialog of a slash command (`/model`, `/permissions`, `/config`, `/mcp`, `/status`).
      */
     public var dialog: ScreenDialog?
+    /**
+     * Background tasks the agent says it runs (feature 59); `None` when it shows none.
+     */
+    public var background: BackgroundSummary?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -13961,7 +14054,10 @@ public struct ScreenFeed: Equatable, Hashable {
          */aside: ScreenAside?, 
         /**
          * A full-screen dialog of a slash command (`/model`, `/permissions`, `/config`, `/mcp`, `/status`).
-         */dialog: ScreenDialog?) {
+         */dialog: ScreenDialog?, 
+        /**
+         * Background tasks the agent says it runs (feature 59); `None` when it shows none.
+         */background: BackgroundSummary?) {
         self.dialect = dialect
         self.turns = turns
         self.status = status
@@ -13969,6 +14065,7 @@ public struct ScreenFeed: Equatable, Hashable {
         self.prompt = prompt
         self.aside = aside
         self.dialog = dialog
+        self.background = background
     }
 
     
@@ -13993,7 +14090,8 @@ public struct FfiConverterTypeScreenFeed: FfiConverterRustBuffer {
                 draft: FfiConverterOptionString.read(from: &buf), 
                 prompt: FfiConverterOptionTypeScreenPrompt.read(from: &buf), 
                 aside: FfiConverterOptionTypeScreenAside.read(from: &buf), 
-                dialog: FfiConverterOptionTypeScreenDialog.read(from: &buf)
+                dialog: FfiConverterOptionTypeScreenDialog.read(from: &buf), 
+                background: FfiConverterOptionTypeBackgroundSummary.read(from: &buf)
         )
     }
 
@@ -14005,6 +14103,7 @@ public struct FfiConverterTypeScreenFeed: FfiConverterRustBuffer {
         FfiConverterOptionTypeScreenPrompt.write(value.prompt, into: &buf)
         FfiConverterOptionTypeScreenAside.write(value.aside, into: &buf)
         FfiConverterOptionTypeScreenDialog.write(value.dialog, into: &buf)
+        FfiConverterOptionTypeBackgroundSummary.write(value.background, into: &buf)
     }
 }
 
@@ -16562,6 +16661,10 @@ public enum DialogKind: Equatable, Hashable {
     case mcp
     case status
     /**
+     * A background task screen (feature 59): the list, or one task's details in `note` and `rows`.
+     */
+    case tasks
+    /**
      * Any other dialog of Antigravity: a title, blocks of text and one list with a `>` cursor.
      */
     case generic
@@ -16596,7 +16699,9 @@ public struct FfiConverterTypeDialogKind: FfiConverterRustBuffer {
         
         case 5: return .status
         
-        case 6: return .generic
+        case 6: return .tasks
+        
+        case 7: return .generic
         
         default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -16626,8 +16731,12 @@ public struct FfiConverterTypeDialogKind: FfiConverterRustBuffer {
             writeInt(&buf, Int32(5))
         
         
-        case .generic:
+        case .tasks:
             writeInt(&buf, Int32(6))
+        
+        
+        case .generic:
+            writeInt(&buf, Int32(7))
         
         }
     }
@@ -21315,6 +21424,30 @@ fileprivate struct FfiConverterOptionTypeAutoTrustOffer: FfiConverterRustBuffer 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeBackgroundSummary: FfiConverterRustBuffer {
+    typealias SwiftType = BackgroundSummary?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeBackgroundSummary.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeBackgroundSummary.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeContextUsage: FfiConverterRustBuffer {
     typealias SwiftType = ContextUsage?
 
@@ -21717,6 +21850,31 @@ fileprivate struct FfiConverterSequenceString: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterString.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceData: FfiConverterRustBuffer {
+    typealias SwiftType = [Data]
+
+    public static func write(_ value: [Data], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterData.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [Data] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [Data]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterData.read(from: &buf))
         }
         return seq
     }
@@ -24871,8 +25029,8 @@ public func keyUnseal(key: KeyRef, sealed: Data, password: Data, overwrite: Bool
 })
 }
 /**
- * Decrypts what [`key_seal_stable`] made and stores the key. The stored key's fingerprint must
- * equal the one the blob names.
+ * Decrypts what [`key_seal_stable`] made (either form) and stores the key. The stored key's
+ * fingerprint must equal the one the blob names.
  */
 public func keyUnsealStable(key: KeyRef, sealed: Data, secret: Data, overwrite: Bool)throws  -> KeyInfo  {
     return try  FfiConverterTypeKeyInfo_lift(try rustCallWithError(FfiConverterTypeSshCoreError_lift) {
@@ -25124,6 +25282,32 @@ public func parseScreenFeed(text: String) -> ScreenFeed  {
         uniffiCallStatus in
     uniffi_ssh_core_fn_func_parse_screen_feed(
         FfiConverterString.lower(text),uniffiCallStatus
+    )
+})
+}
+/**
+ * Whether the open keys may be sent now: the screen was recognised as `expected`, it shows running
+ * tasks, no dialog or question is up and the input box is empty (the first Claude key is an arrow
+ * that would move the cursor in a draft).
+ */
+public func backgroundOpenAllowed(feed: ScreenFeed, expected: ScreenDialect) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_background_open_allowed(
+        FfiConverterTypeScreenFeed_lower(feed),
+        FfiConverterTypeScreenDialect_lower(expected),uniffiCallStatus
+    )
+})
+}
+/**
+ * Whether the Stop key may be sent now: only while a task's detail is on screen (the list has no
+ * note, and any other dialog or question is not ours). Pure, so the rule can be tested.
+ */
+public func backgroundStopAllowed(feed: ScreenFeed) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_background_stop_allowed(
+        FfiConverterTypeScreenFeed_lower(feed),uniffiCallStatus
     )
 })
 }
@@ -26046,7 +26230,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_func_key_unseal() != 3681) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_ssh_core_checksum_func_key_unseal_stable() != 30205) {
+    if (uniffi_ssh_core_checksum_func_key_unseal_stable() != 19690) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_choose_multiplexer() != 40078) {
@@ -26107,6 +26291,12 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_parse_screen_feed() != 18858) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_background_open_allowed() != 56290) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_background_stop_allowed() != 36247) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_parse_context_usage() != 17212) {

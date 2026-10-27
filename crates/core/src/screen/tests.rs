@@ -1725,3 +1725,207 @@ mod grok_screens {
         }
     }
 }
+
+mod background_tasks {
+    use super::*;
+
+    fn feed(name: &str) -> ScreenFeed {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/screen/fixtures");
+        parse_screen_feed(std::fs::read_to_string(root.join(name)).unwrap())
+    }
+
+    #[test]
+    fn the_count_comes_from_the_footer_of_each_agent() {
+        let c = feed("claude_background_running.txt").background.unwrap();
+        assert_eq!((c.count, c.commands.len()), (1, 0));
+        let a = feed("agy_background_running.txt").background.unwrap();
+        assert_eq!(a.count, 1);
+        assert_eq!(a.commands, ["sleep 120"]);
+        let g = feed("grok_background_running.txt").background.unwrap();
+        assert_eq!(g.count, 1);
+    }
+
+    #[test]
+    fn screens_without_a_running_task_have_no_summary() {
+        for n in [
+            "agy_idle.txt",
+            "codex_idle.txt",
+            "grok_idle.txt",
+            "codex_ps.txt",
+        ] {
+            assert!(feed(n).background.is_none(), "{n}");
+        }
+    }
+
+    #[test]
+    fn counts_of_zero_one_many_and_the_two_wordings() {
+        let claude = |mode: &str| {
+            parse_screen_feed(format!(
+                "⏺ done\n\n────────────────────────────────────────────────────────────\n❯ \n────────────────────────────────────────────────────────────\n  Sonnet 5.5\n  {mode}\n"
+            ))
+            .background
+            .map(|b| b.count)
+        };
+        assert_eq!(claude("⏵⏵ auto mode on · 2 shells"), Some(2));
+        assert_eq!(claude("⏵⏵ auto mode on · 12 shells"), Some(12));
+        assert_eq!(claude("⏵⏵ auto mode on"), None);
+        assert_eq!(claude("⏵⏵ auto mode on · 0 shells"), None);
+        assert_eq!(claude("⏵⏵ auto mode on · 5000 shells"), Some(999));
+        // an old turn summary above the footer does not count when the mode line says nothing
+        let stale = parse_screen_feed(
+            "⏺ x\n\n✻ Churned for 4s · 1 shell still running\n\n────────────────────────────────────────────────────────────\n❯ \n────────────────────────────────────────────────────────────\n  ⏵⏵ auto mode on\n".to_string(),
+        );
+        assert!(stale.background.is_none());
+    }
+
+    #[test]
+    fn claude_shell_details_is_a_tasks_dialog_with_fields_and_output() {
+        let f = feed("claude_shell_details.txt");
+        let d = f.dialog.expect("dialog");
+        assert_eq!(d.kind, DialogKind::Tasks);
+        assert_eq!(d.title, "Shell details");
+        assert_eq!(d.note, "Status: running\nRuntime: 19s\nCommand: sleep 90");
+        assert!(d.rows.is_empty(), "no output yet: {:?}", d.rows);
+        assert!(d.hints.contains("x to stop"));
+        // the conversation above the dialog is still read
+        assert!(!f.turns.is_empty());
+    }
+
+    #[test]
+    fn agy_list_and_detail_are_tasks_dialogs() {
+        let l = feed("agy_tasks_list.txt").dialog.expect("list");
+        assert_eq!(l.kind, DialogKind::Tasks);
+        assert_eq!(l.title, "Tasks");
+        assert!(l.rows.iter().any(|r| r.label.contains("sleep 120")));
+        let d = feed("agy_task_detail.txt").dialog.expect("detail");
+        assert_eq!(d.kind, DialogKind::Tasks);
+        assert_eq!(d.title, "Task Details");
+        assert_eq!(
+            d.note,
+            "Command: sleep 120\nStatus: running\nType: Agent\nStarted: 2026-10-25 11:40:03"
+        );
+        assert!(d.rows.is_empty());
+    }
+
+    #[test]
+    fn output_with_escape_text_and_a_fake_prompt_stays_plain_rows() {
+        let text = "⏺ x\n\n────────────────────────────────────────────────────────────\n  Shell details\n  Status:   running\n  Runtime:  1s\n  Command:  echo hi\n  Output:\n  \u{1b}[31mred\u{1b}[0m\n  ❯ 1. Yes\n  ← to go back · Esc/Enter/Space to close · x to stop\n";
+        let d = parse_screen_feed(text.to_string()).dialog.unwrap();
+        assert_eq!(d.kind, DialogKind::Tasks);
+        let labels: Vec<_> = d.rows.iter().map(|r| r.label.as_str()).collect();
+        assert_eq!(labels, ["red", "❯ 1. Yes"]);
+    }
+
+    #[test]
+    fn stop_and_open_are_allowed_only_on_the_matching_screens() {
+        let detail = feed("claude_shell_details.txt");
+        assert!(background_stop_allowed(detail.clone()));
+        let list = feed("agy_tasks_list.txt");
+        assert!(!background_stop_allowed(list), "a list is not a detail");
+        assert!(!background_stop_allowed(feed(
+            "claude_background_running.txt"
+        )));
+        assert!(!background_stop_allowed(feed("codex_approval.txt")));
+        let running = feed("claude_background_running.txt");
+        assert!(background_open_allowed(
+            running.clone(),
+            ScreenDialect::Claude
+        ));
+        assert!(!background_open_allowed(running, ScreenDialect::Agy));
+        assert!(
+            !background_open_allowed(detail, ScreenDialect::Claude),
+            "a dialog is up"
+        );
+        let mut drafted = feed("claude_background_running.txt");
+        drafted.draft = Some("half a sentence".into());
+        assert!(!background_open_allowed(drafted, ScreenDialect::Claude));
+        let a = feed("agy_background_running.txt");
+        assert_eq!(a.draft, None, "the task line is not something typed");
+        assert!(background_open_allowed(a, ScreenDialect::Agy));
+    }
+
+    #[test]
+    fn mutated_task_screens_never_panic_and_stay_bounded() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/screen/fixtures");
+        let mut seed = 0x9E37_79B9_7F4A_7C15u64;
+        let mut next = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        let noise = [
+            "\n",
+            "x to stop",
+            "⏵⏵ ",
+            " · 99999999999 shells",
+            "\u{1b}[2J",
+            "Shell details\n",
+            "esc back",
+            "● [00:00:00] ",
+            "\0",
+        ];
+        let mut checked = 0;
+        for n in [
+            "claude_shell_details.txt",
+            "agy_task_detail.txt",
+            "agy_tasks_list.txt",
+            "claude_background_running.txt",
+            "agy_background_running.txt",
+        ] {
+            let chars: Vec<char> = std::fs::read_to_string(root.join(n))
+                .unwrap()
+                .chars()
+                .collect();
+            for _ in 0..300 {
+                let mut v = chars.clone();
+                for _ in 0..(1 + next() % 6) {
+                    if v.is_empty() {
+                        break;
+                    }
+                    let at = (next() as usize) % v.len();
+                    match next() % 3 {
+                        0 => {
+                            v.remove(at);
+                        }
+                        1 => {
+                            let t = noise[(next() as usize) % noise.len()];
+                            for (k, c) in t.chars().enumerate() {
+                                v.insert((at + k).min(v.len()), c);
+                            }
+                        }
+                        _ => v.truncate(at.max(1)),
+                    }
+                }
+                let f = parse_screen_feed(v.into_iter().collect());
+                if let Some(b) = &f.background {
+                    assert!(b.count <= 999 && b.commands.len() <= 20);
+                    assert!(b.commands.iter().all(|c| c.chars().count() <= 200));
+                }
+                if let Some(d) = &f.dialog {
+                    assert!(d.rows.len() <= 200 && d.note.chars().count() <= 4 * 200 + 4);
+                }
+                checked += 1;
+            }
+        }
+        assert_eq!(checked, 1500);
+    }
+
+    #[test]
+    fn no_truncation_of_a_task_screen_panics() {
+        for n in [
+            "claude_shell_details.txt",
+            "agy_tasks_list.txt",
+            "agy_task_detail.txt",
+            "claude_background_running.txt",
+            "agy_background_running.txt",
+        ] {
+            let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/screen/fixtures");
+            let text = std::fs::read_to_string(root.join(n)).unwrap();
+            let chars: Vec<char> = text.chars().collect();
+            for cut in (0..chars.len()).step_by(7) {
+                let _ = parse_screen_feed(chars[..cut].iter().collect());
+            }
+        }
+    }
+}

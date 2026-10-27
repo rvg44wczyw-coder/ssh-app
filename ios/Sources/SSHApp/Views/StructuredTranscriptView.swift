@@ -384,7 +384,8 @@ public struct StructuredTranscriptView: View {
         .sheet(isPresented: Binding(get: { viewModel.screenDialog != nil },
                                     set: { if !$0 { viewModel.closeOverlay() } })) {
             if let dialog = viewModel.screenDialog {
-                CommandScreenView(dialog: dialog, send: { viewModel.sendDialogKeys($0) }, close: { viewModel.closeOverlay() })
+                CommandScreenView(dialog: dialog, send: { viewModel.sendDialogKeys($0) }, close: { viewModel.closeOverlay() },
+                                  stopTask: viewModel.canStopBackgroundTask ? { viewModel.stopBackgroundTask() } : nil)
                     .presentationDetents([.medium, .large])
             }
         }

@@ -83,6 +83,9 @@ struct CommandScreenView: View {
     let dialog: ScreenDialog
     let send: ([[UInt8]]) -> Void
     let close: () -> Void
+    /// Set for a background task's detail: stops that task (after the confirmation below).
+    var stopTask: (() -> Void)?
+    @State private var confirmStop = false
 
     var body: some View {
         NavigationStack {
@@ -155,6 +158,11 @@ struct CommandScreenView: View {
             }
             .navigationTitle(dialog.title)
             .navigationBarTitleDisplayMode(.inline)
+            .confirmationDialog(stopDialogTitle, isPresented: $confirmStop, titleVisibility: .visible) {
+                Button("Stop task", role: .destructive) { stopTask?() }
+            } message: {
+                Text("The agent is told to stop the background command; it may leave work unfinished.")
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { Button("Close", action: close) }
                 if dialog.kind == .model {
@@ -162,13 +170,20 @@ struct CommandScreenView: View {
                         Button("This session") { send([Array("s".utf8)]) }
                     }
                 }
+                if dialog.kind == .tasks, stopTask != nil {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Stop task", role: .destructive) { confirmStop = true }
+                    }
+                }
             }
         }
     }
 
+    private var stopDialogTitle: String { "Stop this task?" }
+
     private var activeTab: Int { dialog.tabs.firstIndex(where: \.active) ?? 0 }
 
-    private var selectable: Bool { dialog.kind == .model || dialog.kind == .permissions || dialog.kind == .config || dialog.kind == .generic }
+    private var selectable: Bool { dialog.kind == .model || dialog.kind == .permissions || dialog.kind == .config || dialog.kind == .generic || (dialog.kind == .tasks && dialog.note.isEmpty) }
 
     @ViewBuilder
     private func rowView(_ index: Int, _ row: DialogRow) -> some View {

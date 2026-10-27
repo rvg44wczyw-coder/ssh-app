@@ -4,7 +4,7 @@
 - **Target Release**: Milestone 48
 - **Roles**: `doc-dev`, `rev`, `rust-core-dev`, `swift-bridge-dev`, `ios-ui-dev`, `hacker`
 - **Hacker Gate**: Yes (pane text is untrusted display data; the app sends a stop key on the user's tap)
-- **Status**: Spec (2026-10-25). Not reviewed. Builds on `docs/architecture/screen-parser.md` and the dialog parser of `52` (slash-command screens).
+- **Status**: Built 2026-10-27 (phases 1-3 for Claude Code and Antigravity); device run and the live checks of §10 open; `rev` and `hacker` passed 2026-10-27 (`docs/security-findings/background-tasks-m48-2026-10-27.md`). Builds on `docs/architecture/screen-parser.md` and the dialog parser of `52` (slash-command screens).
 
 ## 1. Purpose
 
@@ -123,6 +123,19 @@ header chip is shown as a counter only.
 - Whether Claude's `/tasks` slash command exists in this version; the footer pill is the observed path.
 - Antigravity's transcript source for tasks (database feed) is not checked; the count is read from the screen only.
 
+## 11. As built (2026-10-27)
+
+- Core: `screen/background.rs` (`BackgroundSummary`, `ScreenFeed.background`, `DialogKind::Tasks`, the Claude `Shell details` and
+  agy `Task Details` parsers; agy's list is the generic dialog with the title `Tasks`), the rules `background_open_allowed` and
+  `background_stop_allowed`, and the per-agent keys in the registry (`AgentKeys.open_tasks_keys`, `stop_task_keys`,
+  `close_tasks_keys`; only Claude and agy have them). Grok shows `◎ N command(s) still running` and is counted but has no screen to drive.
+- A side fix: agy's task status line (`● [11:40:03] sleep 120 running`) sits between two rules and was read as a typed draft.
+- iOS: the "N tasks" chip in the status line next to the subagents button (enabled only when the core allows opening), the task
+  screens in the existing `CommandScreenView` (list rows are tappable, a detail is read-only with a **Stop task** button that asks first).
+- Not built: the feed note for the `<task-notification>` turn of Claude (needs a recorded transcript line), Codex (`/ps`), the stop of a
+  single task from the list.
+
 ## Revision notes
 
 - 2026-10-25: first version from the live captures of Claude Code 2.1.308 and Antigravity CLI 1.4.7; review applied (§9).
+- 2026-10-27: built (§11); rev and hacker passed.

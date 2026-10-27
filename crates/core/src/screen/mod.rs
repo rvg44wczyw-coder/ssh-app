@@ -59,6 +59,8 @@ pub struct ScreenFeed {
     pub aside: Option<ScreenAside>,
     /// A full-screen dialog of a slash command (`/model`, `/permissions`, `/config`, `/mcp`, `/status`).
     pub dialog: Option<ScreenDialog>,
+    /// Background tasks the agent says it runs (feature 59); `None` when it shows none.
+    pub background: Option<BackgroundSummary>,
 }
 
 /// Which agent's terminal UI the screen was recognised as.
@@ -83,6 +85,7 @@ pub fn parse_screen_feed(text: String) -> ScreenFeed {
         lines.pop();
     }
     let dialect = detect(&lines);
+    let background = background::summary(dialect, &lines);
 
     // A command's overlay or dialog is drawn over the bottom of the pane: it is its own thing, not
     // a turn and not a question of the agent, so it is cut off first. The known dialogs are
@@ -136,6 +139,7 @@ pub fn parse_screen_feed(text: String) -> ScreenFeed {
         prompt,
         aside,
         dialog,
+        background,
     }
 }
 
@@ -179,7 +183,9 @@ fn split_footer(lines: &[String]) -> (usize, Option<String>) {
                         .trim()
                         .to_string()
                 })
-                .filter(|l| !l.is_empty() && !is_box_hint(l))
+                .filter(|l| {
+                    !l.is_empty() && !is_box_hint(l) && background::agy_task_line(l).is_none()
+                })
                 .collect();
             let draft = (!draft.is_empty()).then(|| draft.join("\n"));
             return (s1, draft);
@@ -361,6 +367,8 @@ impl Builder {
 
 mod context;
 pub use context::{parse_context_usage, ContextCategory, ContextSkill, ContextUsage};
+mod background;
+pub use background::{background_open_allowed, background_stop_allowed, BackgroundSummary};
 mod dialog;
 use dialog::*;
 pub use dialog::{DialogKind, DialogRow, DialogTab, RowState, ScreenAside, ScreenDialog};
