@@ -6,6 +6,7 @@ pub mod agyquota;
 pub mod auto;
 pub mod ctl;
 pub mod doctor;
+pub mod egress;
 pub mod files;
 pub mod grokquota;
 pub mod guard;

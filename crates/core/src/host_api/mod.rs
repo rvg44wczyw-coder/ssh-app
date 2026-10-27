@@ -242,6 +242,7 @@ mod docker_ops;
 mod feed_watch;
 mod sandbox;
 pub use feed_watch::{FeedListener, FeedWatch};
+pub use sandbox::sandbox_blocked_hosts_for;
 mod git;
 mod helper_install;
 mod hooks;

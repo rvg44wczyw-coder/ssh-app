@@ -33,7 +33,7 @@ const MAX_SANDBOX_ENTRIES: usize = 200;
 /// The queues of the live sandboxes (`<home>/sandboxes/<id>/run`): `(id, paths)`, only folders that
 /// are private and belong to us. The agent inside a container writes requests there; it can read
 /// `pending`, but `decisions` is mounted read-only into the container.
-fn sandboxes(p: &Paths) -> Vec<(String, Paths)> {
+pub(crate) fn sandboxes(p: &Paths) -> Vec<(String, Paths)> {
     let Ok(rd) = std::fs::read_dir(p.home.join("sandboxes")) else {
         return vec![];
     };

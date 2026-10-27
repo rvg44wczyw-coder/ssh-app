@@ -649,3 +649,81 @@ fn claude_login_comes_from_the_configured_folder_and_hostile_folders_are_refused
     let cmd = plan_sandbox(&p).unwrap().login_command;
     assert!(sh_parses(&cmd));
 }
+
+#[test]
+fn review_lists_changed_files_for_this_sandboxs_branches_only() {
+    let mut p = profile(SandboxAgent::ClaudeCode);
+    p.sandbox_id = "sbx-abc12345".into();
+    let cmd = review_files_command(&p, "sandbox/sbx-abc12345/sandbox-work").unwrap();
+    assert!(cmd.contains("merge-base HEAD 'refs/heads/sandbox/sbx-abc12345/sandbox-work'"));
+    assert!(cmd.contains("--no-ext-diff --no-textconv --name-only"));
+    for bad in [
+        "main",
+        "sandbox/other-id/x",
+        "sandbox/sbx-abc12345/",
+        "sandbox/sbx-abc12345/../main",
+        "sandbox/sbx-abc12345/a b",
+        "sandbox/sbx-abc12345/x;id",
+        "sandbox/sbx-abc12345/$(id)",
+        "sandbox/sbx-abc12345/-x/",
+    ] {
+        assert!(review_files_command(&p, bad).is_err(), "{bad}");
+    }
+}
+
+#[test]
+fn review_counts_files_and_flags_what_the_host_would_run() {
+    let out = "src/main.rs\n.github/workflows/ci.yml\n\nscripts/run.sh\nREADME.md\n";
+    let r = parse_review_files("sandbox/x/y", out);
+    assert_eq!(r.changed, 4);
+    assert_eq!(r.flagged, [".github/workflows/ci.yml", "scripts/run.sh"]);
+    let many: String = (0..80).map(|i| format!(".husky/h{i}\n")).collect();
+    assert_eq!(parse_review_files("b", &many).flagged.len(), 50);
+}
+
+#[test]
+fn the_review_command_lists_a_branchs_files_in_a_real_repo() {
+    use std::process::Command;
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().join("proj");
+    std::fs::create_dir(&repo).unwrap();
+    let git = |args: &[&str]| {
+        let out = Command::new("git")
+            .args(["-c", "user.name=t", "-c", "user.email=t@example.com"])
+            .args(args)
+            .current_dir(&repo)
+            .env_remove("GIT_DIR")
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    };
+    git(&["init", "-q", "-b", "main"]);
+    std::fs::write(repo.join("a.txt"), "a").unwrap();
+    git(&["add", "."]);
+    git(&["commit", "-q", "-m", "one"]);
+    git(&["checkout", "-q", "-b", "sandbox/demo-1/sandbox-work"]);
+    std::fs::create_dir_all(repo.join(".github/workflows")).unwrap();
+    std::fs::write(repo.join(".github/workflows/ci.yml"), "x").unwrap();
+    std::fs::write(repo.join("a.txt"), "changed").unwrap();
+    git(&["add", "."]);
+    git(&["commit", "-q", "-m", "two"]);
+    git(&["checkout", "-q", "main"]);
+
+    let mut p = profile(SandboxAgent::ClaudeCode);
+    p.project_folder = repo.to_str().unwrap().to_string();
+    let cmd = review_files_command(&p, "sandbox/demo-1/sandbox-work").unwrap();
+    let out = Command::new("sh").args(["-c", &cmd]).output().unwrap();
+    let text = String::from_utf8_lossy(&out.stdout).to_string();
+    assert!(
+        out.status.success(),
+        "{text} {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let r = parse_review_files("sandbox/demo-1/sandbox-work", &text);
+    assert_eq!(r.changed, 2, "{text}");
+    assert_eq!(r.flagged, [".github/workflows/ci.yml"]);
+}

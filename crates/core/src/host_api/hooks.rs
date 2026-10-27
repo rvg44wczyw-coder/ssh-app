@@ -191,6 +191,18 @@ impl SshSessionHandle {
         crate::agents::parse_hooks_overview(&out)
     }
 
+    /// Keeps the agent's project hook file out of git by appending it to `.git/info/exclude`
+    /// (never `.gitignore`). Only for files the installer owns alone; see `excludable_hooks_file`.
+    pub async fn exclude_project_hooks_from_git(
+        &self,
+        agent: crate::agents::AgentKind,
+        folder: String,
+    ) -> Result<crate::agent_hooks::GitExcludeResult, SshCoreError> {
+        let cmd = crate::agent_hooks::exclude_hooks_command(agent, &folder)?;
+        let out = self.execute_command_on_active_session(cmd).await?;
+        Ok(crate::agent_hooks::parse_exclude_output(&out))
+    }
+
     /// `agent_hooks_status` for a scope (spec 61).
     pub async fn agent_hooks_status_in(
         &self,

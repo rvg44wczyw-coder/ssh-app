@@ -21,6 +21,9 @@ const KEY_SERVICE: &str = "com.sshapp.keys";
 /// Copies that need the owner's presence to be read (the Files extension).
 const GUARDED_SERVICE: &str = "com.sshapp.filekeys";
 const SEAL_MAGIC: &[u8; 5] = b"SSHK1";
+/// Shortest password that may seal an exported key (the app asks for 12 characters too): the file
+/// can be attacked offline for as long as it exists.
+const MIN_SEAL_PASSWORD: usize = 12;
 /// What the owner has to type to export a key in the clear.
 pub const EXPORT_CONFIRMATION: &str = "EXPORT";
 
@@ -403,9 +406,9 @@ fn seal_key(password: &[u8], salt: &[u8]) -> Result<Zeroizing<[u8; 32]>, SshCore
 #[uniffi::export]
 pub fn key_seal(key: KeyRef, password: Vec<u8>) -> Result<Vec<u8>, SshCoreError> {
     let password = Zeroizing::new(password);
-    if password.len() < 8 {
+    if password.len() < MIN_SEAL_PASSWORD {
         return Err(invalid(
-            "The password for an exported key must be at least 8 bytes",
+            "The password for an exported key must be at least 12 bytes",
         ));
     }
     let pem = load_pem(&key)?;
@@ -458,14 +461,19 @@ pub fn key_unseal(
     info_of(&parsed)
 }
 
+/// The first stable form: the nonce came from the fingerprint alone. Still read, never written.
 const STABLE_MAGIC: &[u8; 5] = b"SSHK2";
+/// The stable form written now: the nonce also depends on the key text, so two different texts of
+/// the same key (a re-import with another comment or check value) can never share a nonce.
+const STABLE_MAGIC_V3: &[u8; 5] = b"SSHK3";
 
-/// Derives the cipher key and nonce for the stable form from a 32-byte secret and the key's own
-/// fingerprint. The same key under the same secret always seals to the same bytes, so sync does not
-/// see a change on every pass; different keys never share a nonce because the fingerprint differs.
+/// Derives the cipher key and nonce for the stable form from a 32-byte secret, the key's own
+/// fingerprint and, for the current form, a digest of the key text. The same key text under the
+/// same secret always seals to the same bytes, so sync does not see a change on every pass.
 fn stable_material(
     secret: &[u8],
     fingerprint: &str,
+    text_digest: Option<&[u8]>,
 ) -> Result<(Zeroizing<[u8; 32]>, [u8; 12]), SshCoreError> {
     use hkdf::Hkdf;
     use sha2::Sha256;
@@ -475,10 +483,22 @@ fn stable_material(
     let hk = Hkdf::<Sha256>::new(Some(fingerprint.as_bytes()), secret);
     let mut key = Zeroizing::new([0u8; 32]);
     let mut nonce = [0u8; 12];
-    hk.expand(b"ssh-app key seal v2 key", key.as_mut())
-        .map_err(|_| invalid("Key derivation failed"))?;
-    hk.expand(b"ssh-app key seal v2 nonce", &mut nonce)
-        .map_err(|_| invalid("Key derivation failed"))?;
+    match text_digest {
+        None => {
+            hk.expand(b"ssh-app key seal v2 key", key.as_mut())
+                .map_err(|_| invalid("Key derivation failed"))?;
+            hk.expand(b"ssh-app key seal v2 nonce", &mut nonce)
+                .map_err(|_| invalid("Key derivation failed"))?;
+        }
+        Some(d) => {
+            hk.expand(b"ssh-app key seal v3 key", key.as_mut())
+                .map_err(|_| invalid("Key derivation failed"))?;
+            let mut info = b"ssh-app key seal v3 nonce".to_vec();
+            info.extend_from_slice(d);
+            hk.expand(&info, &mut nonce)
+                .map_err(|_| invalid("Key derivation failed"))?;
+        }
+    }
     Ok((key, nonce))
 }
 
@@ -486,23 +506,26 @@ fn stable_material(
 /// password: HKDF instead of Argon2, and the output is stable for an unchanged key.
 #[uniffi::export]
 pub fn key_seal_stable(key: KeyRef, secret: Vec<u8>) -> Result<Vec<u8>, SshCoreError> {
+    use sha2::{Digest, Sha256};
     let secret = Zeroizing::new(secret);
     let pem = load_pem(&key)?;
     let fp = info_of(&parse_private_key(&pem)?)?.fingerprint_sha256;
-    let (k, nonce) = stable_material(&secret, &fp)?;
+    let digest = Sha256::digest(pem.as_bytes());
+    let (k, nonce) = stable_material(&secret, &fp, Some(&digest))?;
     let ct = ChaCha20Poly1305::new(Key::from_slice(k.as_ref()))
         .encrypt(Nonce::from_slice(&nonce), pem.as_bytes())
         .map_err(|_| invalid("Encryption failed"))?;
-    let mut out = Vec::with_capacity(STABLE_MAGIC.len() + 1 + fp.len() + ct.len());
-    out.extend_from_slice(STABLE_MAGIC);
+    let mut out = Vec::with_capacity(STABLE_MAGIC_V3.len() + 1 + fp.len() + 12 + ct.len());
+    out.extend_from_slice(STABLE_MAGIC_V3);
     out.push(u8::try_from(fp.len()).map_err(|_| invalid("Bad fingerprint"))?);
     out.extend_from_slice(fp.as_bytes());
+    out.extend_from_slice(&nonce);
     out.extend_from_slice(&ct);
     Ok(out)
 }
 
-/// Decrypts what [`key_seal_stable`] made and stores the key. The stored key's fingerprint must
-/// equal the one the blob names.
+/// Decrypts what [`key_seal_stable`] made (either form) and stores the key. The stored key's
+/// fingerprint must equal the one the blob names.
 #[uniffi::export]
 pub fn key_unseal_stable(
     key: KeyRef,
@@ -512,19 +535,32 @@ pub fn key_unseal_stable(
 ) -> Result<KeyInfo, SshCoreError> {
     let secret = Zeroizing::new(secret);
     let head = STABLE_MAGIC.len();
-    if sealed.len() < head + 1 + 16 || &sealed[..head] != STABLE_MAGIC {
+    if sealed.len() < head + 1 + 16 {
+        return Err(invalid("Not an exported key"));
+    }
+    let v3 = &sealed[..head] == STABLE_MAGIC_V3;
+    if !v3 && &sealed[..head] != STABLE_MAGIC {
         return Err(invalid("Not an exported key"));
     }
     let fl = usize::from(sealed[head]);
-    if sealed.len() < head + 1 + fl + 16 {
+    let nonce_len = if v3 { 12 } else { 0 };
+    if sealed.len() < head + 1 + fl + nonce_len + 16 {
         return Err(invalid("Not an exported key"));
     }
     let fp = std::str::from_utf8(&sealed[head + 1..head + 1 + fl])
         .map_err(|_| invalid("Not an exported key"))?;
-    let (k, nonce) = stable_material(&secret, fp)?;
+    let body = head + 1 + fl;
+    let (k, derived) = stable_material(&secret, fp, v3.then_some(&[][..]))?;
+    let nonce = if v3 {
+        let mut n = [0u8; 12];
+        n.copy_from_slice(&sealed[body..body + 12]);
+        n
+    } else {
+        derived
+    };
     let plain = Zeroizing::new(
         ChaCha20Poly1305::new(Key::from_slice(k.as_ref()))
-            .decrypt(Nonce::from_slice(&nonce), &sealed[head + 1 + fl..])
+            .decrypt(Nonce::from_slice(&nonce), &sealed[body + nonce_len..])
             .map_err(|_| SshCoreError::KeyPassphraseWrong)?,
     );
     let pem = utf8(&plain)?;
@@ -706,6 +742,38 @@ mod tests {
         let got = key_unseal(dst, sealed, b"correct horse".to_vec(), false).unwrap();
         assert_eq!(got, info);
         assert!(key_seal(new_ref(), b"short".to_vec()).is_err());
+        assert!(key_seal(new_ref(), b"elevenbytes".to_vec()).is_err());
+    }
+
+    #[test]
+    fn two_texts_of_one_key_never_share_a_nonce_and_old_blobs_still_open() {
+        use chacha20poly1305::aead::{Aead, KeyInit};
+        let src = new_ref();
+        let info = key_generate(src.clone(), false).unwrap();
+        let secret = vec![9u8; 32];
+        let blob = key_seal_stable(src.clone(), secret.clone()).unwrap();
+        // the same key with another text (a comment added) seals under another nonce
+        let pem = load_pem(&src).unwrap();
+        let other_text = test_put(&format!("{}\n\n", pem.trim_end()));
+        let blob2 = key_seal_stable(other_text, secret.clone()).unwrap();
+        let nonce_at = |b: &[u8]| {
+            let fl = usize::from(b[5]);
+            b[6 + fl..6 + fl + 12].to_vec()
+        };
+        assert_ne!(nonce_at(&blob), nonce_at(&blob2));
+        // a blob in the first form (nonce from the fingerprint alone) is still read
+        let (k, nonce) = stable_material(&secret, &info.fingerprint_sha256, None).unwrap();
+        let ct = ChaCha20Poly1305::new(Key::from_slice(k.as_ref()))
+            .encrypt(Nonce::from_slice(&nonce), pem.as_bytes())
+            .unwrap();
+        let mut old = STABLE_MAGIC.to_vec();
+        old.push(u8::try_from(info.fingerprint_sha256.len()).unwrap());
+        old.extend_from_slice(info.fingerprint_sha256.as_bytes());
+        old.extend_from_slice(&ct);
+        assert_eq!(
+            key_unseal_stable(new_ref(), old, secret, false).unwrap(),
+            info
+        );
     }
 
     #[test]

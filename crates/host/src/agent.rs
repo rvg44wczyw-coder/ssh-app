@@ -345,6 +345,8 @@ fn merge_detected(map: &mut StateMap, shared: &Arc<Mutex<Shared>>) {
 
 /// Agents whose questions are read from the tmux screen (no hook reports them).
 const SCREEN_WATCHED: &str = "antigravity";
+/// How often a sandbox's proxy log is read for newly refused hosts.
+const EGRESS_POLL: Duration = Duration::from_secs(15);
 const SCREEN_POLL: Duration = Duration::from_secs(5);
 
 /// A running agent that shows a menu on its screen is `waiting` (the push for a question).
@@ -572,6 +574,8 @@ pub fn run(p: Paths, lease_secs: i64, sink: &dyn EventSink) -> i32 {
         (map, pending)
     };
     let (mut last, _) = observed(&shared);
+    let egress = crate::egress::EgressWatch::default();
+    let mut egress_at = 0;
     loop {
         let remaining = shared.lock().map_or(0, |s| s.lease_until) - now();
         if remaining <= 0 {
@@ -583,6 +587,10 @@ pub fn run(p: Paths, lease_secs: i64, sink: &dyn EventSink) -> i32 {
         if last.keys().any(|k| k.0 == SCREEN_WATCHED) {
             tick = tick.min(SCREEN_POLL);
         }
+        // refused hosts of a sandbox are looked for often, but only while one exists
+        if paths.home.join("sandboxes").is_dir() {
+            tick = tick.min(EGRESS_POLL);
+        }
         let timeout = Duration::from_secs(remaining as u64).min(tick);
         match &watcher {
             Some(w) => w.wait(timeout),
@@ -591,6 +599,15 @@ pub fn run(p: Paths, lease_secs: i64, sink: &dyn EventSink) -> i32 {
         // The state folder was removed (uninstall, or a test's temp home): nothing left to serve.
         if !paths.home.is_dir() {
             break;
+        }
+        if paths.home.join("sandboxes").is_dir()
+            && now() - egress_at >= EGRESS_POLL.as_secs() as i64
+        {
+            egress_at = now();
+            egress.poll(&paths, Arc::new(crate::egress::EngineLogs));
+        }
+        for ev in egress.take() {
+            sink.on_event(&ev);
         }
         let (current, _) = observed(&shared);
         for ev in diff(&last, &current) {

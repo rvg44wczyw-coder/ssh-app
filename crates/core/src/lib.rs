@@ -113,7 +113,9 @@ pub use gitstatus::{GitFileChange, GitFileState, GitStatusResult};
 pub use gitworktree::{GitWorktree, GitWorktreeOp, GitWorktreesResult};
 pub use hook_safety::{analyze_command, lint_custom_hook_command, CommandAnalysis};
 pub use hook_templates::{hook_templates, hook_templates_for, HookTemplate};
-pub use host_api::{FeedListener, FeedWatch, HostAgentListener, HostAgentWatch};
+pub use host_api::{
+    sandbox_blocked_hosts_for, FeedListener, FeedWatch, HostAgentListener, HostAgentWatch,
+};
 pub use host_guard::{
     host_guard_agent_support, host_guard_from_json, host_guard_presets, host_guard_to_json,
     host_guard_warnings, parse_agent_sessions, validate_host_guard, AgentSessionInfo, HostGuard,

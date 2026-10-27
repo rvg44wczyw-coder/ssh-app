@@ -3,7 +3,8 @@ use crate::agents::{AgentKind, HookPreset};
 use crate::container_runtime::{parse_runtime_probe, runtime_probe_command, ContainerRuntime};
 use crate::sandbox::{
     egress_allow_command, egress_allowed_command, egress_log_command, egress_remove_command,
-    parse_allowed_hosts, parse_denied_hosts, plan_sandbox, sandbox_hook_config_dir, SandboxAgent,
+    parse_allowed_hosts, parse_denied_hosts, parse_review_files, plan_sandbox,
+    review_files_command, sandbox_hook_config_dir, SandboxAgent, SandboxBranchReview,
     SandboxEngine, SandboxProfile, SANDBOX_HOOK_DIR,
 };
 
@@ -144,6 +145,24 @@ impl SshSessionHandle {
             .collect())
     }
 
+    /// For each branch brought back: how many files it changed and which of them the host would
+    /// run later (git hooks, build files, CI, agent configs). The branches are only read.
+    pub async fn review_sandbox_branches(
+        &self,
+        profile: SandboxProfile,
+        branches: Vec<String>,
+    ) -> Result<Vec<SandboxBranchReview>, SshCoreError> {
+        let mut out = Vec::new();
+        for b in branches.into_iter().take(20) {
+            let cmd = review_files_command(&profile, &b)?;
+            let text = self
+                .exec_with_timeout(&format!("({cmd}) 2>&1"), Duration::from_secs(STEP_SECS))
+                .await?;
+            out.push(parse_review_files(&b, &text));
+        }
+        Ok(out)
+    }
+
     /// The hosts the sandbox's proxy has refused lately, for the owner to allow or ignore.
     pub async fn sandbox_blocked_hosts(
         &self,
@@ -239,5 +258,70 @@ impl SshSessionHandle {
         let existing = self.read_remote_config(&path).await?;
         let merged = crate::agents::merge_planned_hooks(agent, existing.clone(), planned)?;
         self.write_remote_config(&path, &existing, &merged).await
+    }
+}
+
+/// The minimal profile the egress commands need (they only use the engine and the sandbox id).
+fn egress_profile(engine: SandboxEngine, sandbox_id: String) -> SandboxProfile {
+    SandboxProfile {
+        engine,
+        agent: SandboxAgent::ClaudeCode,
+        sandbox_id,
+        project_folder: "~/p".to_string(),
+        network: crate::sandbox::SandboxNetwork::Online,
+        allow_hosts: Vec::new(),
+        cpus: 1,
+        memory_mb: 1024,
+        pids: 64,
+        auto_approve: false,
+        base_image: crate::sandbox::sandbox_default_base_image(),
+        copy_login: false,
+        claude_config_dir: String::new(),
+    }
+}
+
+/// The hosts a sandbox's proxy refused lately, from one short SSH exec and no session: for the
+/// push notification extension, which has a few seconds and little memory. The allow-list and the
+/// proxy log come back in the same call. Nothing is written on the host.
+#[uniffi::export(async_runtime = "tokio")]
+pub async fn sandbox_blocked_hosts_for(
+    config: crate::config::RemoteServerConfig,
+    engine: SandboxEngine,
+    sandbox_id: String,
+) -> Result<Vec<String>, SshCoreError> {
+    let profile = egress_profile(engine, sandbox_id);
+    let command = format!(
+        "({}); echo {SEPARATOR}; ({})",
+        egress_allowed_command(&profile)?,
+        egress_log_command(&profile)?
+    );
+    let task = crate::session::RUNTIME.spawn(async move {
+        crate::session::execute_remote_command_internal(&config, &command).await
+    });
+    let out = task.await.map_err(|e| SshCoreError::ConnectionError {
+        reason: format!("Task join error: {e}"),
+    })??;
+    let (filter, log) = out.split_once(SEPARATOR).unwrap_or(("", &out));
+    Ok(parse_denied_hosts(log, &parse_allowed_hosts(filter)))
+}
+
+const SEPARATOR: &str = "SBX_SEP_7f3a";
+
+#[cfg(test)]
+mod egress_tests {
+    use super::*;
+
+    #[test]
+    fn the_light_profile_passes_validation_and_names_the_proxy() {
+        let p = egress_profile(SandboxEngine::Podman, "sbx-ab12cd34".into());
+        let cmd = egress_log_command(&p).unwrap();
+        assert!(
+            cmd.contains("podman logs") && cmd.contains("ssh-app-sbx-sbx-ab12cd34"),
+            "{cmd}"
+        );
+        assert!(egress_allowed_command(&p).is_ok());
+        assert!(
+            egress_log_command(&egress_profile(SandboxEngine::Docker, "bad id;x".into())).is_err()
+        );
     }
 }

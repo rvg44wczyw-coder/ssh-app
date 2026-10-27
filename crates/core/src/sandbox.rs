@@ -591,6 +591,7 @@ pub fn plan_sandbox(p: &SandboxProfile) -> Result<SandboxPlan, SshCoreError> {
              {e} network create --internal --label ssh-app.sandbox={id} {int_net} >/dev/null; \
              {e} network create --label ssh-app.sandbox={id} {out_net} >/dev/null; \
              printf '%s\\n' {filter} > {state}/proxy-filter; chmod 0644 {state}/proxy-filter; \
+             printf '%s' {engine} > {state}/engine; chmod 0644 {state}/engine; \
              {e} run -d --rm --name {proxy} --label ssh-app.sandbox={id} --network {out_net} \
                --user 65534 --cap-drop=ALL --security-opt=no-new-privileges --read-only --tmpfs /tmp \
                --pids-limit 128 --memory 128m \
@@ -598,6 +599,7 @@ pub fn plan_sandbox(p: &SandboxProfile) -> Result<SandboxPlan, SshCoreError> {
                {ptag} tinyproxy -d -c /etc/tinyproxy/tinyproxy.conf >/dev/null; \
              {e} network connect {int_net} {proxy}",
             filter = shell_quote(&filter),
+            engine = shell_quote(e),
             ptag = shell_quote(&proxy_tag),
         ));
     }
@@ -741,6 +743,66 @@ pub fn implicit_execution_paths(changed: &[String]) -> Vec<String> {
         })
         .cloned()
         .collect()
+}
+
+/// What the review screen shows for one branch brought back from a sandbox.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct SandboxBranchReview {
+    pub branch: String,
+    /// Files the branch changed against where it left the project's history.
+    pub changed: u32,
+    /// The changed paths the host would run later (at most 50), see `implicit_execution_paths`.
+    pub flagged: Vec<String>,
+}
+
+/// The branch must be one this sandbox brought back: `sandbox/<id>/<name>` in a plain alphabet.
+fn validate_review_branch(p: &SandboxProfile, branch: &str) -> Result<(), SshCoreError> {
+    let prefix = format!("sandbox/{}/", p.sandbox_id);
+    let rest = branch.strip_prefix(&prefix).unwrap_or("");
+    let ok = !rest.is_empty()
+        && branch.len() <= 200
+        && !rest.contains("..")
+        && !rest.starts_with('/')
+        && !rest.ends_with('/')
+        && rest
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-' | b'/'));
+    if ok {
+        Ok(())
+    } else {
+        Err(invalid("Not a branch of this sandbox"))
+    }
+}
+
+/// Lists the files `branch` changed since it split from the project's current history. Reads
+/// only; git runs no hook, external diff or text conversion for `--name-only`.
+pub fn review_files_command(p: &SandboxProfile, branch: &str) -> Result<String, SshCoreError> {
+    validate_sandbox_profile(p)?;
+    validate_review_branch(p, branch)?;
+    let folder = host_path(&p.project_folder);
+    let b = shell_quote(&format!("refs/heads/{branch}"));
+    Ok(format!(
+        "{DOCKER_PATH}; g() {{ git -C {folder} -c core.quotepath=off \"$@\"; }}; \
+         base=$(g merge-base HEAD {b}) || exit 1; \
+         g diff --no-ext-diff --no-textconv --name-only \"$base\" {b}"
+    ))
+}
+
+/// Counts and flags from the output of `review_files_command`.
+pub fn parse_review_files(branch: &str, out: &str) -> SandboxBranchReview {
+    let files: Vec<String> = out
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(str::to_string)
+        .collect();
+    let mut flagged = implicit_execution_paths(&files);
+    flagged.truncate(50);
+    SandboxBranchReview {
+        branch: branch.to_string(),
+        changed: u32::try_from(files.len()).unwrap_or(u32::MAX),
+        flagged,
+    }
 }
 
 #[cfg(test)]

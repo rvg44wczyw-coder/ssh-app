@@ -63,6 +63,17 @@ pub struct AgentDescriptor {
     pub session_store: SessionStore,
     pub keys: AgentKeys,
     pub commands: Vec<AgentCommand>,
+    /// The name hooks, the usage report and the host's session registry use for this agent
+    /// (`claude`, `antigravity`, `codex`, `grok`); empty for the generic row.
+    pub hook_name: String,
+    /// Arguments that continue the last conversation when the agent is started again; empty when it
+    /// has no such flag.
+    pub resume_args: Vec<String>,
+    /// The id the quick-command model menus list models for; empty when there is no model list.
+    pub models_id: String,
+    /// Whether the usage strip may show a 5-hour message estimate for this agent (read from its
+    /// local transcripts).
+    pub five_hour_estimate: bool,
 }
 
 const UP: [u8; 3] = [0x1b, 0x5b, 0x41];
@@ -124,6 +135,10 @@ fn claude() -> AgentDescriptor {
             cmd("/doctor", "Doctor", "stethoscope"),
             cmd("/help", "Help", "questionmark.circle"),
         ],
+        hook_name: "claude".into(),
+        resume_args: vec!["--continue".into()],
+        models_id: "claude".into(),
+        five_hour_estimate: true,
     }
 }
 
@@ -165,6 +180,10 @@ fn agy() -> AgentDescriptor {
             cmd("/changelog", "Changelog", "doc.text"),
             cmd("/help", "Help", "questionmark.circle"),
         ],
+        hook_name: "antigravity".into(),
+        resume_args: vec!["--continue".into()],
+        models_id: "antigravity".into(),
+        five_hour_estimate: false,
     }
 }
 
@@ -209,6 +228,10 @@ fn codex() -> AgentDescriptor {
             cmd("/stop", "Stop background terminals", "stop.circle"),
             cmd("/init", "Create AGENTS.md", "doc.badge.plus"),
         ],
+        hook_name: "codex".into(),
+        resume_args: Vec::new(),
+        models_id: "".into(),
+        five_hour_estimate: false,
     }
 }
 
@@ -255,6 +278,10 @@ fn grok() -> AgentDescriptor {
             cmd("/doctor", "Doctor", "stethoscope"),
             cmd("/help", "Help", "questionmark.circle"),
         ],
+        hook_name: "grok".into(),
+        resume_args: Vec::new(),
+        models_id: "".into(),
+        five_hour_estimate: false,
     }
 }
 
@@ -276,6 +303,10 @@ fn generic() -> AgentDescriptor {
             image_reference_prefix: String::new(),
         },
         commands: vec![],
+        hook_name: "".into(),
+        resume_args: Vec::new(),
+        models_id: "".into(),
+        five_hour_estimate: false,
     }
 }
 
@@ -425,5 +456,37 @@ mod tests {
             agent_descriptor("generic".into()).unwrap().dialect,
             ScreenDialect::Unknown
         );
+    }
+}
+
+#[cfg(test)]
+mod descriptor_fields_tests {
+    use super::*;
+
+    #[test]
+    fn hook_names_are_unique_and_only_claude_and_agy_resume_and_list_models() {
+        let all = agent_descriptors();
+        let names: Vec<&str> = all
+            .iter()
+            .map(|d| d.hook_name.as_str())
+            .filter(|n| !n.is_empty())
+            .collect();
+        let mut sorted = names.clone();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(names.len(), sorted.len(), "{names:?}");
+        let by = |id: &str| all.iter().find(|d| d.id == id).unwrap();
+        assert_eq!(by("claude").resume_args, ["--continue"]);
+        assert_eq!(by("agy").resume_args, ["--continue"]);
+        assert_eq!(by("agy").hook_name, "antigravity");
+        assert_eq!(by("agy").models_id, "antigravity");
+        assert!(by("claude").five_hour_estimate && !by("agy").five_hour_estimate);
+        for id in ["codex", "grok"] {
+            assert!(
+                by(id).resume_args.is_empty() && by(id).models_id.is_empty(),
+                "{id}"
+            );
+        }
+        assert!(generic_agent_descriptor().hook_name.is_empty());
     }
 }

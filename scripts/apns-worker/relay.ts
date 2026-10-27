@@ -1,6 +1,6 @@
 // Pure parts of the relay (no Cloudflare APIs), so they can be tested with `node --test`.
 
-export type Category = "approval" | "finished" | "waiting" | "alert";
+export type Category = "approval" | "finished" | "waiting" | "blocked" | "alert";
 export type ApnsEnv = "production" | "sandbox";
 
 export interface PushRequest {
@@ -14,13 +14,14 @@ export interface PushRequest {
 export const MAX_BODY_BYTES = 512;
 export const HOURLY_LIMIT = 20;
 
-const CATEGORIES: readonly Category[] = ["approval", "finished", "waiting", "alert"];
+const CATEGORIES: readonly Category[] = ["approval", "finished", "waiting", "blocked", "alert"];
 
 /** Constant strings only: nothing about the work on the Mac may reach Apple. */
 const TEXT: Record<Category, string> = {
   approval: "An agent is waiting for your approval",
   finished: "An agent has finished",
   waiting: "An agent is waiting for you",
+  blocked: "A sandbox blocked a host",
   alert: "Test notification",
 };
 
@@ -56,6 +57,8 @@ export function payloadFor(category: Category, sid?: string): object {
     "thread-id": category,
   };
   if (category === "approval") aps["interruption-level"] = "time-sensitive";
+  // With a `sid` the phone's notification extension may put the tab's name into the text.
+  if (sid) aps["mutable-content"] = 1;
   return sid ? { aps, category, sid } : { aps, category };
 }
 

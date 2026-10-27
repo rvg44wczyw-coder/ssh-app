@@ -870,3 +870,105 @@ mod plan_tests {
         }
     }
 }
+
+#[test]
+fn the_exclude_entry_is_added_once_to_info_exclude_and_never_to_gitignore() {
+    use std::process::Command;
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().join("proj");
+    std::fs::create_dir(&repo).unwrap();
+    let ok = Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(&repo)
+        .env_remove("GIT_DIR")
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if !ok {
+        eprintln!("SKIP: git unavailable");
+        return;
+    }
+    let folder = repo.to_str().unwrap().to_string();
+    let run = |agent| {
+        let cmd = exclude_hooks_command(agent, &folder).unwrap();
+        let out = Command::new("sh").args(["-c", &cmd]).output().unwrap();
+        parse_exclude_output(&String::from_utf8_lossy(&out.stdout))
+    };
+    assert_eq!(run(AgentKind::Antigravity), GitExcludeResult::Added);
+    assert_eq!(run(AgentKind::Antigravity), GitExcludeResult::AlreadyThere);
+    assert_eq!(run(AgentKind::Codex), GitExcludeResult::Added);
+    let text = std::fs::read_to_string(repo.join(".git/info/exclude")).unwrap();
+    assert_eq!(
+        text.lines().filter(|l| *l == "/.agents/hooks.json").count(),
+        1,
+        "{text}"
+    );
+    assert!(text.lines().any(|l| l == "/.codex/hooks.json"), "{text}");
+    assert!(!repo.join(".gitignore").exists());
+    // A folder that is not a repository is reported, and nothing is created in it.
+    let plain = dir.path().join("plain");
+    std::fs::create_dir(&plain).unwrap();
+    let cmd = exclude_hooks_command(AgentKind::Antigravity, plain.to_str().unwrap()).unwrap();
+    let out = Command::new("sh").args(["-c", &cmd]).output().unwrap();
+    assert_eq!(
+        parse_exclude_output(&String::from_utf8_lossy(&out.stdout)),
+        GitExcludeResult::NotAGitRepo
+    );
+    assert!(!plain.join(".git").exists());
+}
+
+#[test]
+fn only_files_the_installer_owns_alone_can_be_excluded() {
+    assert!(excludable_hooks_file(AgentKind::ClaudeCode).is_none());
+    assert!(excludable_hooks_file(AgentKind::QwenCode).is_none());
+    assert!(exclude_hooks_command(AgentKind::ClaudeCode, "/tmp/p").is_err());
+    assert!(exclude_hooks_command(AgentKind::Antigravity, "../x").is_err());
+    assert!(
+        exclude_hooks_command(AgentKind::Antigravity, "/tmp/a b; id").is_err() || {
+            let c = exclude_hooks_command(AgentKind::Antigravity, "/tmp/a b; id").unwrap();
+            c.contains("'/tmp/a b; id'")
+        }
+    );
+}
+
+#[test]
+fn a_symlinked_exclude_file_or_info_folder_is_refused_and_nothing_is_written_through_it() {
+    use std::process::Command;
+    let dir = tempfile::tempdir().unwrap();
+    let victim = dir.path().join("victim.txt");
+    std::fs::write(&victim, "victim\n").unwrap();
+    let elsewhere = dir.path().join("elsewhere");
+    std::fs::create_dir(&elsewhere).unwrap();
+    for shape in ["file", "folder"] {
+        let repo = dir.path().join(format!("proj-{shape}"));
+        std::fs::create_dir(&repo).unwrap();
+        let ok = Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(&repo)
+            .env_remove("GIT_DIR")
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if !ok {
+            eprintln!("SKIP: git unavailable");
+            return;
+        }
+        let info = repo.join(".git/info");
+        if shape == "file" {
+            let _ = std::fs::remove_file(info.join("exclude"));
+            std::os::unix::fs::symlink(&victim, info.join("exclude")).unwrap();
+        } else {
+            std::fs::remove_dir_all(&info).unwrap();
+            std::os::unix::fs::symlink(&elsewhere, &info).unwrap();
+        }
+        let cmd = exclude_hooks_command(AgentKind::Antigravity, repo.to_str().unwrap()).unwrap();
+        let out = Command::new("sh").args(["-c", &cmd]).output().unwrap();
+        assert_eq!(
+            parse_exclude_output(&String::from_utf8_lossy(&out.stdout)),
+            GitExcludeResult::NotAGitRepo,
+            "{shape}"
+        );
+    }
+    assert_eq!(std::fs::read_to_string(&victim).unwrap(), "victim\n");
+    assert_eq!(std::fs::read_dir(&elsewhere).unwrap().count(), 0);
+}

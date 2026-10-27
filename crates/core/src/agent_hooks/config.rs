@@ -370,3 +370,68 @@ pub(super) fn strip_container(map: &mut Map<String, Value>, key: &str) {
         map.shift_remove(key);
     }
 }
+
+/// What adding a project hook file to `.git/info/exclude` did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum GitExcludeResult {
+    Added,
+    AlreadyThere,
+    NotAGitRepo,
+}
+
+/// The path of the agent's project hook file relative to the project, when that file is one the
+/// installer owns alone and that is not meant to be committed. Claude's `settings.local.json` is
+/// ignored by Claude Code itself, and Qwen's `settings.json` is a shared settings file: both are
+/// left alone.
+pub fn excludable_hooks_file(agent: AgentKind) -> Option<&'static str> {
+    match agent {
+        AgentKind::Antigravity => Some(".agents/hooks.json"),
+        AgentKind::Codex => Some(".codex/hooks.json"),
+        AgentKind::Grok => Some(".grok/hooks/ssh-app.json"),
+        AgentKind::OpenCode => Some(".opencode/plugins/ssh-app.js"),
+        _ => None,
+    }
+}
+
+/// The relative file `exclude_hooks_command` would hide, for the offer's text; `None` when the
+/// agent has nothing to hide.
+#[uniffi::export]
+pub fn project_hooks_file_to_exclude(agent: AgentKind) -> Option<String> {
+    excludable_hooks_file(agent).map(str::to_string)
+}
+
+/// Appends the agent's project hook file to the repository's `info/exclude` (never `.gitignore`),
+/// once. Prints `exclude-added`, `exclude-present` or `exclude-no-git`.
+pub fn exclude_hooks_command(agent: AgentKind, folder: &str) -> Result<String, SshCoreError> {
+    let Some(rel) = excludable_hooks_file(agent) else {
+        return Err(invalid("This agent's project file needs no exclude entry"));
+    };
+    let path = agent_project_hooks_path(agent, folder.to_string())?;
+    let root = path
+        .strip_suffix(&format!("/{rel}"))
+        .ok_or_else(|| invalid("Unexpected project hook path"))?;
+    let dir = match root.strip_prefix("~/") {
+        Some(rest) => format!("\"$HOME\"/{}", crate::tmux::shell_quote(rest)),
+        None if root == "~" => "\"$HOME\"".to_string(),
+        None => crate::tmux::shell_quote(root),
+    };
+    let line = crate::tmux::shell_quote(&format!("/{rel}"));
+    Ok(format!(
+        "d={dir}; p=$(git -C \"$d\" rev-parse --git-path info/exclude 2>/dev/null) || {{ echo exclude-no-git; exit 0; }}; \
+         case \"$p\" in /*) ;; *) p=\"$d/$p\";; esac; mkdir -p \"$(dirname \"$p\")\"; \
+         if [ -L \"$p\" ] || [ -L \"$(dirname \"$p\")\" ]; then echo exclude-no-git; exit 0; fi; \
+         if grep -qxF -- {line} \"$p\" 2>/dev/null; then echo exclude-present; \
+         else {{ [ -z \"$(tail -c1 \"$p\" 2>/dev/null)\" ] || echo >> \"$p\"; }}; \
+         printf '%s\\n' {line} >> \"$p\" && echo exclude-added; fi"
+    ))
+}
+
+pub fn parse_exclude_output(out: &str) -> GitExcludeResult {
+    if out.contains("exclude-added") {
+        GitExcludeResult::Added
+    } else if out.contains("exclude-present") {
+        GitExcludeResult::AlreadyThere
+    } else {
+        GitExcludeResult::NotAGitRepo
+    }
+}

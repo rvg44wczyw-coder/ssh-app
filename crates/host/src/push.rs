@@ -295,6 +295,7 @@ fn category(to: &str) -> Option<&'static str> {
         "approval" => Some("approval"),
         "finished" => Some("finished"),
         "waiting" => Some("waiting"),
+        "blocked" => Some("blocked"),
         _ => None,
     }
 }
@@ -504,10 +505,11 @@ mod tests {
         );
         assert_eq!(sink.dispatch(&ev("approval", "s2")), Some("approval"));
         assert_eq!(sink.dispatch(&ev("finished", "s1")), Some("finished"));
+        assert_eq!(sink.dispatch(&ev("blocked", "sbx")), Some("blocked"));
         assert_eq!(sink.dispatch(&ev("running", "s1")), None);
         assert_eq!(sink.dispatch(&ev("gone", "s1")), None);
         assert_eq!(sink.dispatch(&ev("rm -rf /", "s1")), None);
-        assert_eq!(rec.sent.lock().unwrap().len(), 3);
+        assert_eq!(rec.sent.lock().unwrap().len(), 4);
     }
 
     #[test]

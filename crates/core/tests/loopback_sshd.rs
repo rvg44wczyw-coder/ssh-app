@@ -160,11 +160,13 @@ fn start_sshd() -> Option<Sshd> {
     std::fs::write(
         &cfg,
         format!(
-            "Port {port}\nListenAddress 127.0.0.1\nHostKey {}\nAuthorizedKeysFile {}\n\
+            "Port {port}\nListenAddress 127.0.0.1\nHostKey {}\nAuthorizedKeysFile {} {}\n\
              PidFile {}\nUsePAM no\nStrictModes no\nPubkeyAuthentication yes\n\
              PasswordAuthentication no\nKbdInteractiveAuthentication no\nSetEnv HOME={} TMUX_TMPDIR={} ZELLIJ_SOCKET_DIR={} XDG_RUNTIME_DIR={}\n",
             host_key.display(),
             authorized.display(),
+            // What a pairing writes into the session's private HOME counts as well.
+            home.join(".ssh/authorized_keys").display(),
             dir.path().join("sshd.pid").display(),
             home.display(),
             tmux_tmp.display(),
@@ -4992,4 +4994,282 @@ fn a_server_handle_runs_commands_without_a_session_and_refuses_an_unpinned_key()
             .contains("back"));
         h.disconnect();
     });
+}
+
+/// The whole first contact with a computer, from a phone key the host has never seen: the host
+/// key is read and compared, the unknown key is refused, the pasted pairing command adds it (once,
+/// with private modes), the new key connects with the pin, the helper is installed and checked,
+/// the approval key and the hooks are set up, and the tab's tmux session exists on the host.
+#[test]
+fn first_contact_with_a_new_phone_key_end_to_end() {
+    use ssh_core::{
+        execute_remote_command, onboarding::probe_server_host_key, AgentKind, RemoteServerConfig,
+        SshCoreError,
+    };
+    use std::os::unix::fs::PermissionsExt;
+    let Some(server) = start_sshd() else {
+        eprintln!("SKIP: sshd/ssh-keygen/tmux unavailable");
+        return;
+    };
+    let user = std::env::var("USER").unwrap_or_else(|_| "root".into());
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let real = {
+        let out = Command::new("ssh-keygen")
+            .arg("-lf")
+            .arg(server._dir.path().join("host_key.pub"))
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout)
+            .split_whitespace()
+            .nth(1)
+            .unwrap()
+            .to_string()
+    };
+    let phone = generate_keypair().unwrap();
+    let phone_cfg = |pin: Option<&str>| RemoteServerConfig {
+        host: "127.0.0.1".into(),
+        port: server.port,
+        username: user.clone(),
+        key: ssh_core::key_store::test_put(&phone.private_key_openssh),
+        pinned_host_key: pin.map(str::to_string),
+    };
+
+    // 1. The app shows the fingerprint before anything secret is sent.
+    let seen = rt
+        .block_on(probe_server_host_key("127.0.0.1".into(), server.port))
+        .unwrap();
+    assert_eq!(seen, real);
+
+    // 2. The host does not know this phone yet: refused as an authentication failure, not as a
+    //    host key problem.
+    match rt.block_on(execute_remote_command(
+        phone_cfg(Some(&real)),
+        "echo hi".into(),
+    )) {
+        Err(SshCoreError::AuthenticationError { .. }) => {}
+        other => panic!("an unknown key must be refused, got {other:?}"),
+    }
+
+    // 3. Pairing by the pasted command (run here by an already trusted way, as a person would in
+    //    a terminal): the key is added once, with a comment and private modes.
+    let boot = connect(&server);
+    let paste = ssh_core::onboarding::pairing_paste_command(
+        phone.public_key_openssh.clone(),
+        "Phone B".into(),
+    )
+    .unwrap();
+    let first = rt
+        .block_on(boot.execute_command_on_active_session(paste.clone()))
+        .unwrap();
+    assert!(first.contains("key added"), "{first}");
+    let again = rt
+        .block_on(boot.execute_command_on_active_session(paste))
+        .unwrap();
+    assert!(again.contains("already present"), "{again}");
+    let ssh_dir = server.home.join(".ssh");
+    let auth = std::fs::read_to_string(ssh_dir.join("authorized_keys")).unwrap();
+    assert_eq!(auth.lines().count(), 1, "{auth}");
+    assert!(auth.trim_end().ends_with("ssh-app: Phone B"), "{auth}");
+    let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode(&ssh_dir), 0o700);
+    assert_eq!(mode(&ssh_dir.join("authorized_keys")), 0o600);
+    boot.disconnect();
+
+    // 4. The new key connects, still pinned to the host key it confirmed.
+    let out = rt
+        .block_on(execute_remote_command(
+            phone_cfg(Some(&real)),
+            "echo paired-ok".into(),
+        ))
+        .unwrap();
+    assert!(out.contains("paired-ok"), "{out}");
+
+    // 5. A tab with that key reaches Connected and its tmux session exists on the host.
+    let tab = format!("first-{}", server.port);
+    let handle = SshSessionHandle::new(SessionConfig {
+        host: "127.0.0.1".into(),
+        port: server.port,
+        username: user.clone(),
+        key: ssh_core::key_store::test_put(&phone.private_key_openssh),
+        session_name: tab.clone(),
+        initial_cols: 80,
+        initial_rows: 24,
+        command: None,
+        start_dir: None,
+        pinned_host_key: Some(real.clone()),
+        multiplexer: Default::default(),
+    });
+    handle.connect(Box::new(Noop)).expect("connect");
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while handle.state() != SessionState::Connected {
+        assert!(
+            Instant::now() < deadline,
+            "not connected: {:?}",
+            handle.state()
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    assert_eq!(
+        handle.host_key_fingerprint().as_deref(),
+        Some(real.as_str())
+    );
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let has = server
+            .tmux()
+            .args(["has-session", "-t", &tab])
+            .stderr(Stdio::null())
+            .status()
+            .unwrap()
+            .success();
+        if has {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "no tmux session {tab} on the host"
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+
+    // 6. The helper is installed (digest checked on the host) and the doctor reads the host.
+    let helper_bytes = std::fs::read(build_host_helper()).unwrap();
+    let pin = {
+        use sha2::{Digest, Sha256};
+        hex::encode(Sha256::digest(&helper_bytes))
+    };
+    rt.block_on(async {
+        handle
+            .install_host_helper(helper_bytes, pin.clone())
+            .await
+            .unwrap();
+        let before = handle
+            .host_doctor(pin.clone())
+            .await
+            .unwrap()
+            .expect("doctor");
+        assert!(before.tmux.installed && !before.os.is_empty(), "{before:?}");
+        assert!(
+            !before.approval_key_trusted && !before.hook_script_installed,
+            "{before:?}"
+        );
+
+        // 7. The approval key and the hooks, the last two steps of the wizard.
+        handle.install_approval_key().await.unwrap();
+        handle
+            .install_agent_hooks(AgentKind::ClaudeCode, None, None)
+            .await
+            .unwrap();
+        let after = handle
+            .host_doctor(pin.clone())
+            .await
+            .unwrap()
+            .expect("doctor");
+        assert!(after.approval_key_trusted, "{after:?}");
+        assert!(after.hook_script_installed, "{after:?}");
+        let st = handle.approval_status().await.unwrap();
+        assert!(st.allowed_signers && st.pending == 0, "{st:?}");
+        assert!(handle
+            .list_pending_approvals()
+            .await
+            .unwrap()
+            .items
+            .is_empty());
+    });
+    handle.disconnect();
+}
+
+/// The notification extension's one-shot lookup: refused hosts of a sandbox in a single SSH exec,
+/// the allow-list applied, with a fake `podman` standing in for the engine (never `docker`: the
+/// command puts the system folders first, where the owner's real Docker Desktop lives). The probe binary also
+/// reports its peak memory (iOS gives a notification extension about 24 MB); set
+/// `NSE_PROBE_RELEASE=1` to measure the release build, which is what the app links.
+#[test]
+fn the_extension_lookup_returns_refused_hosts_in_one_exec() {
+    use std::os::unix::fs::PermissionsExt;
+    let Some(server) = start_sshd() else {
+        eprintln!("SKIP: sshd/ssh-keygen/tmux unavailable");
+        return;
+    };
+    for real in ["/usr/local/bin/podman", "/opt/homebrew/bin/podman"] {
+        if Path::new(real).exists() {
+            eprintln!("SKIP: a real podman at {real} would run instead of the fake");
+            return;
+        }
+    }
+    let id = "sbx-abc12345";
+    let state = server.home.join(".ssh-app/sandboxes").join(id);
+    std::fs::create_dir_all(&state).unwrap();
+    std::fs::write(
+        state.join("proxy-filter"),
+        "^api\\.anthropic\\.com$\n(^|\\.)pypi\\.org$\n",
+    )
+    .unwrap();
+    let bin = server.home.join(".docker/bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let log = "Proxying refused on filtered domain \"registry.npmjs.org\"\n\
+               Proxying refused on filtered domain \"api.anthropic.com\"\n\
+               Proxying refused on filtered domain \"files.pypi.org\"\n\
+               Proxying refused on filtered domain \"evil.example\"\n";
+    std::fs::write(
+        bin.join("podman"),
+        format!("#!/bin/sh\ncat <<'LOG'\n{log}LOG\n"),
+    )
+    .unwrap();
+    std::fs::set_permissions(bin.join("podman"), std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let key_file = server._dir.path().join("probe_key");
+    std::fs::write(&key_file, &server.private_key).unwrap();
+    let release = std::env::var_os("NSE_PROBE_RELEASE").is_some();
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut build = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()));
+    build.args(["build", "-q", "-p", "ssh-core", "--example", "nse_probe"]);
+    if release {
+        build.arg("--release");
+    }
+    assert!(build.current_dir(&root).status().unwrap().success());
+    let target = std::env::var_os("CARGO_TARGET_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| root.join("target"));
+    let exe = target
+        .join(if release { "release" } else { "debug" })
+        .join("examples/nse_probe");
+    let out = Command::new(exe)
+        .args([
+            "127.0.0.1",
+            &server.port.to_string(),
+            &std::env::var("USER").unwrap_or_else(|_| "root".into()),
+            key_file.to_str().unwrap(),
+            "podman",
+            id,
+        ])
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&out.stdout).to_string();
+    assert!(
+        out.status.success(),
+        "{text} {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    // Newest first; the allowed ones (exact and wildcard) are gone.
+    assert!(
+        text.contains("hosts=evil.example,registry.npmjs.org\n"),
+        "{text}"
+    );
+    let field = |k: &str| -> u64 {
+        text.lines()
+            .find_map(|l| l.strip_prefix(&format!("{k}=")))
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0)
+    };
+    eprintln!(
+        "NSE probe ({}): {} ms, peak RSS {:.1} MB (before the call {:.1} MB)",
+        if release { "release" } else { "debug" },
+        field("ms"),
+        field("peak_rss_after") as f64 / 1_048_576.0,
+        field("peak_rss_before") as f64 / 1_048_576.0
+    );
 }

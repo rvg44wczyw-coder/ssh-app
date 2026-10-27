@@ -15,6 +15,8 @@ test("bad input is refused", () => {
   assert.ok(bad("[]"));
   assert.ok(bad({ token: "short", category: "approval", env: "sandbox" }));
   assert.ok(bad({ token: T, category: "rm -rf", env: "sandbox" }));
+  assert.deepEqual(parseRequest(JSON.stringify({ token: T, category: "blocked", env: "sandbox" })), { token: T, category: "blocked", env: "sandbox" });
+  assert.equal((payloadFor("blocked") as any).aps.alert.body, "A sandbox blocked a host");
   assert.ok(bad({ token: T, category: "approval", env: "prod" }));
   assert.ok(bad({ token: T, category: "approval", env: "sandbox", pad: "x".repeat(600) }));
   assert.ok(bad({ token: T + "g", category: "finished", env: "production" }));
@@ -62,6 +64,8 @@ test("sid is optional, eight hex digits, and only that reaches the payload", () 
   assert.equal(ok.sid, "0a1b2c3d");
   assert.deepEqual((payloadFor("finished", ok.sid) as any).sid, "0a1b2c3d");
   assert.equal((payloadFor("finished") as any).sid, undefined);
+  assert.equal((payloadFor("finished", ok.sid) as any).aps["mutable-content"], 1);
+  assert.equal((payloadFor("finished") as any).aps["mutable-content"], undefined);
   for (const sid of ["0A1B2C3D", "short", "0a1b2c3d0", 5, "../../x"]) {
     assert.equal(typeof parseRequest(JSON.stringify({ token: T, category: "finished", env: "sandbox", sid })), "string");
   }
