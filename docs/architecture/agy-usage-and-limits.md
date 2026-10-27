@@ -48,8 +48,8 @@
 * **Формат:**
   ```json
   {
-    "/Users/ivs/rust/ssh-app": "9fcd4e98-4e17-453c-99a1-4600828e6d64",
-    "/Users/ivs/rust/ide": "be84188f-482f-46b7-a699-05c2b9025ae5"
+    "/Users/dev/rust/ssh-app": "9fcd4e98-4e17-453c-99a1-4600828e6d64",
+    "/Users/dev/rust/ide": "be84188f-482f-46b7-a699-05c2b9025ae5"
   }
   ```
 

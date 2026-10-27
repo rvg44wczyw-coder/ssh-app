@@ -80,7 +80,7 @@ fn parse_ss(line: &str) -> Option<(String, String, Option<u32>)> {
     Some((f[3].to_string(), process, pid))
 }
 
-/// `node 4242 ivs 23u IPv4 0x1 0t0 TCP 127.0.0.1:3000 (LISTEN)`
+/// `node 4242 dev 23u IPv4 0x1 0t0 TCP 127.0.0.1:3000 (LISTEN)`
 fn parse_lsof(line: &str) -> Option<(String, String, Option<u32>)> {
     let f: Vec<&str> = line.split_whitespace().collect();
     if f.len() < 9 || f.first() == Some(&"COMMAND") || f.last() != Some(&"(LISTEN)") {
@@ -123,10 +123,10 @@ mod tests {
     #[test]
     fn macos_lsof_output_is_read() {
         let t = "COMMAND PID USER FD TYPE DEVICE SIZE/OFF NODE NAME\n\
-                 rapportd 512 ivs 8u IPv4 0xabc 0t0 TCP *:49152 (LISTEN)\n\
-                 node 4242 ivs 23u IPv6 0xdef 0t0 TCP [::1]:5173 (LISTEN)\n\
-                 Google\\x20Chrome 90 ivs 5u IPv4 0x1 0t0 TCP 127.0.0.1:9222 (LISTEN)\n\
-                 ssh 7 ivs 3u IPv4 0x2 0t0 TCP 1.2.3.4:5555->5.6.7.8:22 (ESTABLISHED)\n";
+                 rapportd 512 dev 8u IPv4 0xabc 0t0 TCP *:49152 (LISTEN)\n\
+                 node 4242 dev 23u IPv6 0xdef 0t0 TCP [::1]:5173 (LISTEN)\n\
+                 Google\\x20Chrome 90 dev 5u IPv4 0x1 0t0 TCP 127.0.0.1:9222 (LISTEN)\n\
+                 ssh 7 dev 3u IPv4 0x2 0t0 TCP 1.2.3.4:5555->5.6.7.8:22 (ESTABLISHED)\n";
         let p = parse_listening_ports(t);
         assert_eq!(
             p.iter().map(|x| x.port).collect::<Vec<_>>(),

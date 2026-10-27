@@ -108,11 +108,11 @@ use super::*;
 #[test]
 fn test_classify_process_category() {
     assert_eq!(
-        classify_process_category("/Users/ivs/.local/bin/claude".to_string()),
+        classify_process_category("/Users/dev/.local/bin/claude".to_string()),
         ProcessCategory::AiAgent
     );
     assert_eq!(
-        classify_process_category("/Users/ivs/.gemini/antigravity-cli/bin/agy".to_string()),
+        classify_process_category("/Users/dev/.gemini/antigravity-cli/bin/agy".to_string()),
         ProcessCategory::AiAgent
     );
     assert_eq!(
@@ -120,7 +120,7 @@ fn test_classify_process_category() {
         ProcessCategory::LocalLlm
     );
     assert_eq!(
-        classify_process_category("/Users/ivs/.cargo/bin/cargo".to_string()),
+        classify_process_category("/Users/dev/.cargo/bin/cargo".to_string()),
         ProcessCategory::BuildTool
     );
     assert_eq!(
@@ -167,12 +167,12 @@ Pages occupied by compressor:             148576.
 Now drawing from 'Battery Power'
  -InternalBattery-0 (id=1234567)\t84%; discharging; 4:12 remaining present: true
 ===ME===
-ivs
+dev
 501
 ===PROC===
- 8412  501 ivs     85.4  4.2    12:04 /opt/homebrew/bin/ollama
- 9102  501 ivs     42.0  1.8    03:15 /Users/ivs/.cargo/bin/cargo
- 7310  501 ivs     14.5  2.1  1:05:22 /Users/ivs/.local/bin/claude
+ 8412  501 dev     85.4  4.2    12:04 /opt/homebrew/bin/ollama
+ 9102  501 dev     42.0  1.8    03:15 /Users/dev/.cargo/bin/cargo
+ 7310  501 dev     14.5  2.1  1:05:22 /Users/dev/.local/bin/claude
     1    0 root     0.1  0.1 12:00:00 /sbin/launchd
 ";
 
@@ -197,7 +197,7 @@ ivs
     assert_eq!(snap.processes[1].category, ProcessCategory::LocalLlm);
     assert_eq!(snap.processes[2].name, "cargo");
     assert_eq!(snap.processes[2].category, ProcessCategory::BuildTool);
-    assert_eq!(snap.processes[0].owner, "ivs");
+    assert_eq!(snap.processes[0].owner, "dev");
     assert_eq!(snap.processes[0].group, ProcessGroup::User);
     assert_eq!(snap.processes[3].group, ProcessGroup::System);
 }
@@ -208,10 +208,10 @@ fn process_groups_split_system_user_and_other() {
         |uid, owner: &str, cmd: &str, me| classify_process_group(uid, owner.into(), cmd.into(), me);
     // The login account's own tools.
     assert_eq!(
-        g(501, "ivs", "/Users/ivs/.local/bin/claude", Some(501)),
+        g(501, "dev", "/Users/dev/.local/bin/claude", Some(501)),
         ProcessGroup::User
     );
-    assert_eq!(g(501, "ivs", "/bin/zsh", Some(501)), ProcessGroup::User);
+    assert_eq!(g(501, "dev", "/bin/zsh", Some(501)), ProcessGroup::User);
     // Root, service accounts and OS locations are system, even when the login user runs them.
     assert_eq!(
         g(0, "root", "/sbin/launchd", Some(501)),
@@ -222,7 +222,7 @@ fn process_groups_split_system_user_and_other() {
         ProcessGroup::System
     );
     assert_eq!(
-        g(501, "ivs", "/usr/libexec/cfprefsd", Some(501)),
+        g(501, "dev", "/usr/libexec/cfprefsd", Some(501)),
         ProcessGroup::System
     );
     assert_eq!(

@@ -443,8 +443,8 @@ fn parse_ls_line(current_path: &str, line: &str) -> Option<RemoteFileEntry> {
     // Standard `LC_ALL=C ls -la` format:
     // permissions links owner group size month day time_or_year name...
     // Example:
-    // drwxr-xr-x  12 ivs  staff   384 Oct 16 13:20 src
-    // lrwxr-xr-x   1 ivs  staff    14 Oct 16 13:20 link -> target
+    // drwxr-xr-x  12 dev  staff   384 Oct 16 13:20 src
+    // lrwxr-xr-x   1 dev  staff    14 Oct 16 13:20 link -> target
     let mut iter = trimmed.split_whitespace();
     let perms_raw = iter.next()?;
     let first_char = perms_raw.chars().next()?;
@@ -710,43 +710,43 @@ mod tests {
 
     #[test]
     fn test_validate_remote_dir_path_blocks_sensitive_dirs() {
-        assert!(validate_remote_dir_path("/Users/ivs/rust/ssh-app").is_ok());
-        assert!(validate_remote_dir_path("/Users/ivs/.ssh").is_err());
-        assert!(validate_remote_dir_path("/Users/ivs/.ssh/keys").is_err());
-        assert!(validate_remote_dir_path("/Users/ivs/.aws").is_err());
+        assert!(validate_remote_dir_path("/Users/dev/rust/ssh-app").is_ok());
+        assert!(validate_remote_dir_path("/Users/dev/.ssh").is_err());
+        assert!(validate_remote_dir_path("/Users/dev/.ssh/keys").is_err());
+        assert!(validate_remote_dir_path("/Users/dev/.aws").is_err());
         assert!(validate_remote_dir_path("/etc/shadow").is_err());
         assert!(validate_remote_dir_path("/tmp/bad\npath").is_err());
     }
 
     #[test]
     fn test_validate_remote_file_read_path_blocks_keys_and_env() {
-        assert!(validate_remote_file_read_path("/Users/ivs/rust/ssh-app/Cargo.toml").is_ok());
-        assert!(validate_remote_file_read_path("/Users/ivs/rust/ssh-app/.env").is_err());
-        assert!(validate_remote_file_read_path("/Users/ivs/keys/server.pem").is_err());
-        assert!(validate_remote_file_read_path("/Users/ivs/id_ed25519").is_err());
+        assert!(validate_remote_file_read_path("/Users/dev/rust/ssh-app/Cargo.toml").is_ok());
+        assert!(validate_remote_file_read_path("/Users/dev/rust/ssh-app/.env").is_err());
+        assert!(validate_remote_file_read_path("/Users/dev/keys/server.pem").is_err());
+        assert!(validate_remote_file_read_path("/Users/dev/id_ed25519").is_err());
     }
 
     #[test]
     fn test_parse_remote_directory_listing_sorts_and_filters_hidden() {
         let raw = "\
 ===CWD===
-/Users/ivs/rust/ssh-app
+/Users/dev/rust/ssh-app
 ===LS===
 total 48
-drwxr-xr-x  14 ivs  staff    448 Oct 16 13:50 .
-drwxr-xr-x   8 ivs  staff    256 Oct 16 10:00 ..
--rw-r--r--   1 ivs  staff    412 Oct 16 12:00 .gitignore
--rw-r--r--   1 ivs  staff   2340 Oct 16 13:10 Cargo.toml
-drwxr-xr-x   5 ivs  staff    160 Oct 16 13:20 crates
-lrwxr-xr-x   1 ivs  staff     12 Oct 16 13:25 latest -> crates/core
--rw-r--r--   1 ivs  staff   1024 Oct 16 13:30 README with spaces.md
+drwxr-xr-x  14 dev  staff    448 Oct 16 13:50 .
+drwxr-xr-x   8 dev  staff    256 Oct 16 10:00 ..
+-rw-r--r--   1 dev  staff    412 Oct 16 12:00 .gitignore
+-rw-r--r--   1 dev  staff   2340 Oct 16 13:10 Cargo.toml
+drwxr-xr-x   5 dev  staff    160 Oct 16 13:20 crates
+lrwxr-xr-x   1 dev  staff     12 Oct 16 13:25 latest -> crates/core
+-rw-r--r--   1 dev  staff   1024 Oct 16 13:30 README with spaces.md
 ";
 
         let listing_no_hidden = parse_remote_directory_listing(raw.to_string(), false);
-        assert_eq!(listing_no_hidden.current_path, "/Users/ivs/rust/ssh-app");
+        assert_eq!(listing_no_hidden.current_path, "/Users/dev/rust/ssh-app");
         assert_eq!(
             listing_no_hidden.parent_path.as_deref(),
-            Some("/Users/ivs/rust")
+            Some("/Users/dev/rust")
         );
         assert_eq!(listing_no_hidden.entries.len(), 4);
         assert_eq!(listing_no_hidden.entries[0].name, "crates");

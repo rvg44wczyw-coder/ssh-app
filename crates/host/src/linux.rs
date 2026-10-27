@@ -444,11 +444,11 @@ mod tests {
         assert_eq!(parse_uptime("1234.56 5678.9\n"), Some(1234.56));
         assert_eq!(
             passwd_name(
-                "root:x:0:0::/root:/bin/sh\nivs:x:1000:1000::/home/ivs:/bin/zsh\n",
+                "root:x:0:0::/root:/bin/sh\ndev:x:1000:1000::/home/dev:/bin/zsh\n",
                 1000
             )
             .as_deref(),
-            Some("ivs")
+            Some("dev")
         );
         assert_eq!(passwd_name("root:x:0:0\n", 5), None);
         assert_eq!(
@@ -468,7 +468,7 @@ mod tests {
         let row = process_row(
             1234,
             1000,
-            "ivs",
+            "dev",
             &stat,
             Some(("/usr/bin/node".into(), "node x".into())),
             2560,

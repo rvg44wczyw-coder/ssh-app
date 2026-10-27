@@ -9,7 +9,7 @@ Applies: text from a repository (untrusted) that becomes a patch applied by git,
 quoting of a large argument. Ruled out: crypto, replay, timing, network input.
 
 Live tests (temporary repository on the loopback sshd harness, private HOME, private tmux socket;
-tmux pid 35350 and `HOME=/Users/ivs` unchanged afterwards): stage one of two hunks of a file with a
+tmux pid 35350 and `HOME=/Users/dev` unchanged afterwards): stage one of two hunks of a file with a
 space in its name (index changes, working tree byte-identical), stage the other, unstage one, a stale
 hunk (context edited) refused by git with the index unchanged, a hunk with an extra `diff --git` line,
 a path `../x`. Unit tests: bidi in a hunk, header with a newline, wrong prefixes, hostile paths

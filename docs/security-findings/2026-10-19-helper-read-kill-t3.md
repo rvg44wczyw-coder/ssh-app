@@ -17,7 +17,7 @@ script (only `u32` / `u64` numbers and the shell-quoted path in `$1` reach it).
 
 Live tests (own local subprocesses, helper binary from the tree, temp trees in the scratchpad;
 tmux only on a private socket with `env -u TMUX -u TMUX_PANE`; before and after, the developer's
-tmux was pid 35350, `HOME=/Users/ivs`):
+tmux was pid 35350, `HOME=/Users/dev`):
 
 - `read`: hard link to a key file; link chain to a key; link to `/dev/zero` and `/dev/null`;
   FIFO; 10 GB sparse file; NUL at byte 9000; ESC / OSC sequences and invalid UTF-8 in the text;

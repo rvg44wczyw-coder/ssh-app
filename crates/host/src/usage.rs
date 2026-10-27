@@ -1245,7 +1245,7 @@ mod tests {
 
     #[test]
     fn slug_matches_claude_folder_names() {
-        assert_eq!(slug("/Users/ivs/rust/ssh-app"), "-Users-ivs-rust-ssh-app");
+        assert_eq!(slug("/Users/dev/rust/ssh-app"), "-Users-dev-rust-ssh-app");
     }
 
     #[test]

@@ -12,7 +12,7 @@ Applies: parsing of kernel/host text, subprocess-free process inspection, proces
 
 Live tests (own containers: `debian:stable-slim`, linux/arm64, helper from `cargo zigbuild`, no
 volume except the read-only helper directory; the developer's tmux was never involved, pid 35350 and
-`HOME=/Users/ivs` before and after): telemetry on a real `/proc`; process named with ESC and U+202E via
+`HOME=/Users/dev` before and after): telemetry on a real `/proc`; process named with ESC and U+202E via
 `prctl(PR_SET_NAME)`; a 100 KB argument; 600 extra processes; `ls --pane` through a container tmux;
 `read`; `kill` of pid 1, of the tmux server (daemonised and foreground `-D` under a supervisor, parent
 not 1), of the helper's parent/grandparent, of a root process as an unprivileged user, of a missing pid,

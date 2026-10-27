@@ -88,7 +88,7 @@ const CLAUDE: &str = "\
 ⏺ Bash(ls -la ~/.claude/projects 2>&1 | head; env |
       grep -i CLAUDE_CONFIG)
   ⎿  total 0
-     drwxr-xr-x@ 19 ivs  staff  608
+     drwxr-xr-x@ 19 dev  staff  608
      … +13 lines (ctrl+o to expand)
 
 ⏺ Нашёл причину: лента читала не тот файл. Проверяю
@@ -170,7 +170,7 @@ const AGY: &str = "\
   1. Реализуемость:
       • Задача выполнима.
 
-○ Thought for 6m 29s (Integration tests for `ivs-term...)
+○ Thought for 6m 29s (Integration tests for `dev-term...)
 ● Explored 1 file (lib.rs)
 … 95 more actions (23 reads, 25 edits, 47 commands: 7
 fai...

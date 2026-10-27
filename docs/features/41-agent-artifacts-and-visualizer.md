@@ -31,7 +31,7 @@ Viewing raw Mermaid code or long unformatted markdown on an iPhone terminal is u
 - Diffs reuse the **existing Git hunk viewer**; this feature adds no second diff viewer.
 
 ### 1.3 Out of Scope
-- Rendering untrusted remote iframes or external web URLs (handled separately by the Web Preview feature [05-web-preview-and-port-forwarding.md](file:///Users/ivs/rust/ssh-app/docs/features/05-web-preview-and-port-forwarding.md)).
+- Rendering untrusted remote iframes or external web URLs (handled separately by the Web Preview feature [05-web-preview-and-port-forwarding.md](file:///Users/dev/rust/ssh-app/docs/features/05-web-preview-and-port-forwarding.md)).
 
 ---
 

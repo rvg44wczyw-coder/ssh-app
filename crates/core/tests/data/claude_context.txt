@@ -54,7 +54,7 @@
      └ mcp__plugin_engineering_slack__complete_authentication
 
      Memory files · /memory
-     ├ ~/.claude-personal/projects/-Users-ivs-rust-ssh-app/memory/MEMORY.md: 361 tokens
+     ├ ~/.claude-personal/projects/-Users-dev-rust-ssh-app/memory/MEMORY.md: 361 tokens
      └ AGENTS.md: 2k tokens
 
      Skills · /skills

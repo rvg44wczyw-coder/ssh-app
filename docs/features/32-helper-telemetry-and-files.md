@@ -45,8 +45,8 @@ stdout, `{"ok":true,...}` or `{"ok":false,"error":"..."}`; exit 0 on a handled r
  "mem":{"total":38654705664,"used":24100000000},
  "disk":{"total":994662584320,"used":410000000000},
  "battery":{"percent":87,"charging":true,"source":"AC Power"},   // absent on a desktop
- "me":{"user":"ivs","uid":501},
- "procs":[{"pid":1234,"ppid":1,"uid":501,"user":"ivs","cpu":3.2,"mem":1.1,
+ "me":{"user":"dev","uid":501},
+ "procs":[{"pid":1234,"ppid":1,"uid":501,"user":"dev","cpu":3.2,"mem":1.1,
            "etime":"1-02:03:04","comm":"claude","args":"claude --resume"}]}
 ```
 
@@ -67,7 +67,7 @@ stdout, `{"ok":true,...}` or `{"ok":false,"error":"..."}`; exit 0 on a handled r
 ### 3.2 `ssh-app-host ls (--path ABS | --home | --pane SESSION) [--hidden] [--max N]`
 
 ```
-{"ok":true,"path":"/Users/ivs/work","parent":"/Users/ivs","truncated":false,
+{"ok":true,"path":"/Users/dev/work","parent":"/Users/dev","truncated":false,
  "entries":[{"name":"src","kind":"dir","size":0,"mtime":1760000000,"mode":493,"hidden":false,
              "link":null,"restricted":false},
             {"name":"notes -> x","kind":"file","size":120,"mtime":..,"mode":420,"hidden":false}]}
@@ -214,7 +214,7 @@ a loopback run that compares helper and shell answers on a folder with ordinary 
   3 core tests (reply → snapshot, fallback replies, pinned command), loopback test compares
   helper and shell answers (hostname, OS, cores, memory total, disk total) and checks that a wrong
   pin still answers via the shell. fmt, clippy `-D warnings` and the whole workspace pass; the
-  real tmux server (pid 35350, `HOME=/Users/ivs`) was unchanged by the run.
+  real tmux server (pid 35350, `HOME=/Users/dev`) was unchanged by the run.
 - Security view: read-only, no user text reaches the helper or any command; output is bounded
   (400 processes, 240-character names, control characters removed). No hacker pass needed for T1
   beyond this; T2 and T3 get one.

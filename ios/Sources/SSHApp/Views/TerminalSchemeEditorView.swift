@@ -48,7 +48,7 @@ struct TerminalSchemeEditorView: View {
                 Section("Preview") {
                     VStack(alignment: .leading, spacing: 3) {
                         Group {
-                            Text("ivs@mac ~/rust/ssh-app % claude").foregroundColor(Color(hex: scheme.foreground))
+                            Text("dev@mac ~/rust/ssh-app % claude").foregroundColor(Color(hex: scheme.foreground))
                             HStack(spacing: 0) {
                                 ForEach(0..<8, id: \.self) { Text("██").foregroundColor(Color(hex: scheme.ansi[$0])) }
                             }

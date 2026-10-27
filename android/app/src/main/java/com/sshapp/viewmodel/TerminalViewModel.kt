@@ -34,7 +34,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
             name = "MacBook Pro",
             host = "macbook.tailnet",
             port = 22u,
-            username = "ivs"
+            username = "dev"
         )
     )
     val serverProfile: StateFlow<ServerProfile> = _serverProfile.asStateFlow()

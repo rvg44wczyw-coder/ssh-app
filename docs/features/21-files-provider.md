@@ -62,10 +62,10 @@ Files app ──► File Provider extension (SSHAppFiles, own process, ~50 MB li
 10. **Errors.** `SshCoreError` gets `FileNotFound`, `NotARegularFile`, `TooLarge`, `Cancelled` variants (typed, mapped in §5).
 
 ## 2b. Examples
-- Listing: `list_remote_entries("/Users/ivs/Terminals", false)` → `[RemoteEntry{name:"notes.md", kind:File, size:812, modified_unix:1760650000, ...}]`.
-- Download: `download_remote_file("/Users/ivs/Terminals/notes.md", "<extension tmp>/notes.md", 2 GiB, progress)` → `TransferResult{bytes:812}`;
+- Listing: `list_remote_entries("/Users/dev/Terminals", false)` → `[RemoteEntry{name:"notes.md", kind:File, size:812, modified_unix:1760650000, ...}]`.
+- Download: `download_remote_file("/Users/dev/Terminals/notes.md", "<extension tmp>/notes.md", 2 GiB, progress)` → `TransferResult{bytes:812}`;
   a path under `/.ssh/` → `InvalidInput`; a 3 GiB file → `TooLarge` before any byte is written when `stat` size is known.
-- Item id: `server-7:L1VzZXJzL2l2cy9UZXJtaW5hbHM` ↔ `/Users/ivs/Terminals`.
+- Item id: `server-7:L1VzZXJzL2Rldi9UZXJtaW5hbHM` ↔ `/Users/dev/Terminals`.
 
 ## 3. Rust core contracts (new module `crates/core/src/remote_fs.rs`)
 ```rust
