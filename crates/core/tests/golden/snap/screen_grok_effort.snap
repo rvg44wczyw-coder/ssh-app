@@ -114,4 +114,5 @@ ScreenFeed {
     ),
     aside: None,
     dialog: None,
+    background: None,
 }

@@ -55,7 +55,7 @@ ScreenFeed {
     aside: None,
     dialog: Some(
         ScreenDialog {
-            kind: Generic,
+            kind: Tasks,
             title: "Tasks",
             tabs: [],
             search: None,
@@ -82,6 +82,12 @@ ScreenFeed {
             hints: "↑/↓ Navigate  ←/→ Page  enter View output  k Kill Task  x Remove Task From List",
             more_above: false,
             more_below: false,
+        },
+    ),
+    background: Some(
+        BackgroundSummary {
+            count: 1,
+            commands: [],
         },
     ),
 }

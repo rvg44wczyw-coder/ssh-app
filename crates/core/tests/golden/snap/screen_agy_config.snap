@@ -272,4 +272,5 @@ ScreenFeed {
             more_below: false,
         },
     ),
+    background: None,
 }

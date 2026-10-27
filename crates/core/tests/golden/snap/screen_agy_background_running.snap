@@ -18,10 +18,16 @@ ScreenFeed {
         },
     ],
     status: None,
-    draft: Some(
-        "● [11:40:03] sleep 120 running",
-    ),
+    draft: None,
     prompt: None,
     aside: None,
     dialog: None,
+    background: Some(
+        BackgroundSummary {
+            count: 1,
+            commands: [
+                "sleep 120",
+            ],
+        },
+    ),
 }

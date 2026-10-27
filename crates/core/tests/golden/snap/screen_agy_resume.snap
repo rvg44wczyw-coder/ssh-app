@@ -211,4 +211,5 @@ ScreenFeed {
             more_below: true,
         },
     ),
+    background: None,
 }

@@ -69,4 +69,5 @@ ScreenFeed {
     prompt: None,
     aside: None,
     dialog: None,
+    background: None,
 }
