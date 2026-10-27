@@ -90,6 +90,11 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     @Published public var gitContext: GitSessionContext = .none
     /// Files with uncommitted changes in that repository (0 when clean or not a repository).
     @Published public var gitDirtyCount = 0
+    /// A quiet offer above the feed: phone approval for this project (spec 61 §5).
+    @Published public var projectHooksOffer: ProjectHooksOffer? = nil
+    /// After enabling: keep the project's hook file out of git (`.git/info/exclude`), when it should be.
+    @Published public var excludeOffer: ExcludeOffer? = nil
+    private var offerChecked: Set<String> = []
     /// What we believe the agent's box holds after our own typing (see `DraftSync`).
     private var draftInBox = ""
     /// Set while a send runs (fill, Enter, read-back): the mirroring of the field stays out of its way.
@@ -487,8 +492,7 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
     /// Name of the agent in this tab for the feed header.
     public var feedAgentName: String {
         switch session.agentType {
-        case .claudeCode: return "Claude Code"
-        case .antigravity: return "Antigravity"
+        case .claudeCode, .antigravity: return AgentResolver.descriptor(agentType: session.agentType, dialect: .unknown).displayName
         default: return session.title
         }
     }
@@ -507,6 +511,83 @@ public final class TerminalSessionViewModel: ObservableObject, SshSessionCallbac
         } else if gitDirtyCount != 0 {
             gitDirtyCount = 0
         }
+        await checkProjectHooksOffer()
+    }
+
+    public struct ProjectHooksOffer: Equatable {
+        public let agentId: String
+        public let agentName: String
+        public let folder: String
+        var key: String { "\(agentId)|\(folder)" }
+    }
+
+    public struct ExcludeOffer: Equatable {
+        public let agentId: String
+        public let folder: String
+        public let file: String
+    }
+
+    private static let offerDismissedKey = "hooks.offer.dismissed"
+
+    private func offerServerKey() -> String { hostKey }
+
+    /// Looks, once per agent and folder, whether the project the tab is in has phone approval; when it
+    /// has none and "All sessions" is off, an offer shows above the feed. Never a modal, never
+    /// repeated after "Not now".
+    public func checkProjectHooksOffer() async {
+        guard let handle, state == .connected, let d = detectedDescriptor, d.kind != nil,
+              let folder = gitRepoRoot else {
+            if projectHooksOffer != nil { projectHooksOffer = nil }
+            return
+        }
+        let offer = ProjectHooksOffer(agentId: d.id, agentName: d.displayName, folder: folder)
+        let dismissed = UserDefaults.standard.stringArray(forKey: Self.offerDismissedKey) ?? []
+        let key = offerServerKey() + "|" + offer.key
+        guard !dismissed.contains(key), !offerChecked.contains(offer.key) else { return }
+        offerChecked.insert(offer.key)
+        guard let pin = await helperPin(),
+              let all = try? await handle.agentHooksOverview(helperSha256: pin, folders: [folder], claudeConfigDir: nil),
+              let item = all.first(where: { $0.agent == d.id }), item.found, item.user.state != "ours",
+              let project = item.projects.first(where: { $0.folder == folder }),
+              project.file != nil, project.state != "ours", project.state != "unavailable" else { return }
+        projectHooksOffer = offer
+    }
+
+    /// "Enable": phone approval for this project only.
+    public func acceptProjectHooksOffer() async -> String? {
+        guard let handle, let offer = projectHooksOffer, let kind = AgentResolver.all.first(where: { $0.id == offer.agentId })?.kind else { return nil }
+        do {
+            try await handle.installAgentHooksWithPresetIn(
+                agent: kind, scope: .project(folder: offer.folder, userConfigDir: nil), hookDir: nil,
+                preset: defaultHookPreset(), disableUserLevel: false)
+            projectHooksOffer = nil
+            if let file = projectHooksFileToExclude(agent: kind) {
+                excludeOffer = ExcludeOffer(agentId: offer.agentId, folder: offer.folder, file: file)
+            }
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    /// "Add to .git/info/exclude" for the file just installed. Returns a message when it did not work.
+    public func acceptExcludeOffer() async -> String? {
+        guard let handle, let offer = excludeOffer, let kind = AgentResolver.all.first(where: { $0.id == offer.agentId })?.kind else { return nil }
+        do {
+            let result = try await handle.excludeProjectHooksFromGit(agent: kind, folder: offer.folder)
+            excludeOffer = nil
+            return result == .notAGitRepo ? "This folder is not a git repository." : nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    public func dismissProjectHooksOffer() {
+        guard let offer = projectHooksOffer else { return }
+        var list = UserDefaults.standard.stringArray(forKey: Self.offerDismissedKey) ?? []
+        list.append(offerServerKey() + "|" + offer.key)
+        UserDefaults.standard.set(Array(list.suffix(200)), forKey: Self.offerDismissedKey)
+        projectHooksOffer = nil
     }
 
     /// Interrupts the agent (one Esc, which both Claude Code and Antigravity take as "stop what you

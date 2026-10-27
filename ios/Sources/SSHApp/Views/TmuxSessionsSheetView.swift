@@ -282,7 +282,7 @@ public struct TmuxSessionsSheetView: View {
                     .font(.caption2).foregroundColor(.secondary)
             } else if u.agent == "ollama" {
                 Text("Model is not loaded in memory right now").font(.caption2).foregroundColor(.secondary)
-            } else if u.agent != "claude" {
+            } else if !AgentResolver.entry(hookName: u.agent).fiveHourEstimate {
                 Text("No usage data for this agent").font(.caption2).foregroundColor(.secondary)
             }
             if let note = u.limitNote {

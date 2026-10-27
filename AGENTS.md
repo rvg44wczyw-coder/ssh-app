@@ -51,6 +51,10 @@ ssh-app/
    - Host key verification to prevent MITM.
    - **Permanent rule (owner, 2026-10-26): secrets never travel as strings.** Every secret, password, passphrase, token, private key and piece of personal data crosses UniFFI, IPC and any process boundary only as bytes (`Vec<u8>` / `Data`), zeroized on both sides, and ideally already encrypted. Never `String`, never argv, never logs. The private SSH key stays inside the Rust core (Swift holds only an opaque id); exporting it needs three separate explicit confirmations, and exported/backed-up/synced keys are encrypted in Rust. A new FFI item that carries a secret as a string is a review blocker.
 
+## UI rules
+
+- **Lists that can hold more than one item are collapsible** (owner, 2026-10-27): a `DisclosureGroup`, folded by default, with the count in its label; the one primary row stays visible. Prefer system components.
+
 ## Deployment target
 
 iOS 27 (owner's decision, 2026-10-22; the phone runs 27): `IPHONEOS_DEPLOYMENT_TARGET = 27.0` in the Xcode project, `.iOS("27.0")` in both `Package.swift` files, and the same value for the Rust builds (`scripts/build-xcframework.sh` exports it; Rust and the app must agree). Newer APIs may be used without `@available` guards.

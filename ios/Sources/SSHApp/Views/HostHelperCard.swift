@@ -286,7 +286,7 @@ private struct PushSection: View {
     var body: some View {
         Divider()
         Text("Push").font(.subheadline.bold())
-        Text("A notification when an agent needs approval, finishes or waits while the app is closed. It never contains commands, paths or names: only a fixed sentence. Sent through your relay (scripts/apns-worker) and only while the host agent runs.")
+        Text("A notification when an agent needs approval, finishes, waits or a sandbox blocks a host, while the app is closed. What travels through your relay (scripts/apns-worker) and Apple is a fixed sentence: no commands, paths or names. The tab name and, for a blocked host, the host name are added on this phone only, so they show on the lock screen. To hide them there set Settings → Notifications → Show Previews to When Unlocked or Never. Works only while the host agent runs.")
             .font(.caption2).foregroundColor(.secondary)
         if push.token == nil {
             Button("Allow notifications") { Task { await push.enable() } }.buttonStyle(.glass)

@@ -16,6 +16,9 @@ public struct ServerProfile: Identifiable, Codable, Equatable, Hashable, Sendabl
     public var showInFiles: Bool?
     /// Folder that is the root of the server in Files (`nil` / empty = the home folder).
     public var filesFolder: String?
+    /// The notification extension may look up a blocked sandbox host on this server over SSH
+    /// (`nil` = yes). Off: the banner does not name the host.
+    public var bannerLookup: Bool?
     /// When the synced fields (name, address, port, user) last changed on this device; the iCloud
     /// vault keeps the later write per server.
     public var updatedAt: Date?
@@ -31,7 +34,8 @@ public struct ServerProfile: Identifiable, Codable, Equatable, Hashable, Sendabl
         keyId: String? = nil,
         showInFiles: Bool? = nil,
         filesFolder: String? = nil,
-        updatedAt: Date? = nil
+        updatedAt: Date? = nil,
+        bannerLookup: Bool? = nil
     ) {
         self.id = id
         self.name = name
@@ -44,5 +48,6 @@ public struct ServerProfile: Identifiable, Codable, Equatable, Hashable, Sendabl
         self.showInFiles = showInFiles
         self.filesFolder = filesFolder
         self.updatedAt = updatedAt
+        self.bannerLookup = bannerLookup
     }
 }

@@ -16,8 +16,8 @@ struct ActiveTerminalSessionView: View {
 
     private var modelMenuAgent: String? {
         switch viewModel.session.agentType {
-        case .claudeCode: return "claude"
-        case .antigravity: return "antigravity"
+        case .claudeCode, .antigravity:
+            return AgentResolver.modelsId(AgentResolver.descriptor(agentType: viewModel.session.agentType, dialect: .unknown))
         case .localLlm: return "ollama"
         case .customShell, .dockerContainer: return detectedMenuAgent
         }
@@ -30,12 +30,8 @@ struct ActiveTerminalSessionView: View {
         while !Task.isCancelled {
             if viewModel.state == .connected {
                 let name = await viewModel.currentPaneContext().agent
-                let mapped: String? = switch name {
-                case "claude": "claude"
-                case "agy", "antigravity": "antigravity"
-                case "ollama": "ollama"
-                default: nil
-                }
+                let mapped: String? = name == "ollama" ? "ollama"
+                    : AgentResolver.entry(program: name).flatMap(AgentResolver.modelsId)
                 if mapped != detectedMenuAgent { detectedMenuAgent = mapped }
             }
             try? await Task.sleep(for: .seconds(15))

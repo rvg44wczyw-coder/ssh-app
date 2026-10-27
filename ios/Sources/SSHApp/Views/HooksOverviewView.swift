@@ -12,11 +12,31 @@ struct HooksOverviewView: View {
     @State private var loading = false
     @State private var error: String? = nil
     @State private var showAll = false
+    /// Agents whose project list is open; the lists start folded, only "All sessions" shows.
+    @State private var openProjects: Set<String> = []
     @State private var busyKey: String? = nil
     @State private var confirmAll: AgentHooksOverview? = nil
     @State private var confirmReplace: PendingProject? = nil
     @State private var extraFolder = ""
     @State private var extraFolders: [String] = []
+    @State private var categories: [String: String] = HookCategories.all()
+    @State private var editingCategory: CategoryEdit? = nil
+    @State private var categoryText = ""
+    @State private var confirmBulk: BulkChange? = nil
+
+    private struct CategoryEdit: Identifiable {
+        let folder: String
+        var id: String { folder }
+    }
+
+    /// "Enable / Remove for all in this category", shown before it runs.
+    private struct BulkChange: Identifiable {
+        let item: AgentHooksOverview
+        let category: String
+        let enable: Bool
+        let targets: [HookTarget]
+        var id: String { "\(item.agent)|\(category)|\(enable)" }
+    }
 
     /// A project install waiting for the user to agree to switch "All sessions" off.
     private struct PendingProject: Identifiable {
@@ -27,6 +47,11 @@ struct HooksOverviewView: View {
     }
 
     private var connected: Bool { viewModel.state == .connected }
+
+    private func expanded(_ agent: String) -> Binding<Bool> {
+        Binding(get: { openProjects.contains(agent) },
+                set: { if $0 { openProjects.insert(agent) } else { openProjects.remove(agent) } })
+    }
 
     var body: some View {
         List {
@@ -39,8 +64,24 @@ struct HooksOverviewView: View {
             ForEach(shown, id: \.agent) { item in
                 Section {
                     row(item, target: item.user, title: "All sessions", scope: userScope(item), isUser: true)
-                    ForEach(item.projects, id: \.folder) { p in
-                        row(item, target: p, title: folderTitle(p.folder), scope: projectScope(item, p), isUser: false)
+                    if !item.projects.isEmpty {
+                        DisclosureGroup(isExpanded: expanded(item.agent)) {
+                            ForEach(groups(of: item), id: \.category) { group in
+                                if showsCategoryHeaders(item) { categoryHeader(item, group.category, group.targets) }
+                                ForEach(group.targets, id: \.folder) { p in
+                                    row(item, target: p, title: folderTitle(p.folder), scope: projectScope(item, p), isUser: false)
+                                        .contextMenu {
+                                            if let f = p.folder {
+                                                Button { categoryText = categories[categoryKey(f)] ?? ""; editingCategory = CategoryEdit(folder: f) } label: {
+                                                    Label("Category…", systemImage: "tag")
+                                                }
+                                            }
+                                        }
+                                }
+                            }
+                        } label: {
+                            Text("Projects (\(item.projects.count))")
+                        }
                     }
                 } header: {
                     Text(name(item.agent) + (item.found ? "" : " (not found)"))
@@ -64,6 +105,28 @@ struct HooksOverviewView: View {
         .overlay { if loading && overview.isEmpty { ProgressView() } }
         .refreshable { await load() }
         .task { await load() }
+        .alert("Category", isPresented: Binding(get: { editingCategory != nil }, set: { if !$0 { editingCategory = nil } })) {
+            TextField("e.g. work", text: $categoryText)
+            Button("Save") {
+                if let e = editingCategory {
+                    HookCategories.set(categoryText, server: serverId, folder: e.folder)
+                    categories = HookCategories.all()
+                }
+                editingCategory = nil
+            }
+            Button("Cancel", role: .cancel) { editingCategory = nil }
+        } message: {
+            Text("A label for this folder. It only groups this list; it does not change where hooks are written. Leave it empty to remove it.")
+        }
+        .confirmationDialog(confirmBulk.map { ($0.enable ? "Enable" : "Remove") + " phone approval for \($0.targets.count) in “\($0.category)”?" } ?? "", isPresented: Binding(get: { confirmBulk != nil }, set: { if !$0 { confirmBulk = nil } }), titleVisibility: .visible, presenting: confirmBulk) { change in
+            Button(change.enable ? "Enable" : "Remove", role: change.enable ? nil : .destructive) {
+                confirmBulk = nil
+                Task { await runBulk(change) }
+            }
+            Button("Cancel", role: .cancel) { confirmBulk = nil }
+        } message: { change in
+            Text(change.targets.compactMap(\.folder).map(folderTitle).joined(separator: "\n"))
+        }
         .confirmationDialog("Turn off “All sessions”?", isPresented: Binding(get: { confirmReplace != nil }, set: { if !$0 { confirmReplace = nil } }), titleVisibility: .visible, presenting: confirmReplace) { pending in
             Button("Turn off All sessions and enable here", role: .destructive) {
                 Task { await install(pending.item, scope: pending.scope, key: pending.key, disableUserLevel: true) }
@@ -81,6 +144,55 @@ struct HooksOverviewView: View {
             Button("Cancel", role: .cancel) { confirmAll = nil }
         } message: {
             Text("Terminals that are not tied to the phone will then wait up to two minutes before the agent asks in its own terminal. Prefer enabling single projects.")
+        }
+    }
+
+    private var serverId: UUID? { viewModel.session.serverId }
+
+    private func categoryKey(_ folder: String) -> String { "\(serverId?.uuidString ?? "default")|\(folder)" }
+
+    private func groups(of item: AgentHooksOverview) -> [(category: String, targets: [HookTarget])] {
+        let byFolder = Dictionary(item.projects.compactMap { p in p.folder.map { ($0, p) } }, uniquingKeysWith: { a, _ in a })
+        let order = item.projects.compactMap(\.folder)
+        return HookCategories.grouped(order, server: serverId, in: categories).map { g in
+            (g.category, g.folders.compactMap { byFolder[$0] })
+        }
+    }
+
+    /// With no category set anywhere the list stays flat, as before.
+    private func showsCategoryHeaders(_ item: AgentHooksOverview) -> Bool {
+        item.projects.contains { p in p.folder.map { categories[categoryKey($0)] != nil } ?? false }
+    }
+
+    @ViewBuilder
+    private func categoryHeader(_ item: AgentHooksOverview, _ category: String, _ targets: [HookTarget]) -> some View {
+        let todo = targets.filter { $0.state != "ours" && $0.state != "unavailable" && $0.file != nil }
+        let done = targets.filter { $0.state == "ours" }
+        HStack {
+            Label(category, systemImage: "tag").font(.caption.bold()).foregroundColor(.secondary)
+            Spacer()
+            if connected && (!todo.isEmpty || !done.isEmpty) {
+                Menu {
+                    if !todo.isEmpty {
+                        Button("Enable for all in \(category)") { confirmBulk = BulkChange(item: item, category: category, enable: true, targets: todo) }
+                    }
+                    if !done.isEmpty {
+                        Button("Remove for all in \(category)", role: .destructive) { confirmBulk = BulkChange(item: item, category: category, enable: false, targets: done) }
+                    }
+                } label: { Image(systemName: "ellipsis.circle") }
+            }
+        }
+    }
+
+    private func runBulk(_ change: BulkChange) async {
+        if change.enable && change.item.user.state == "ours" {
+            error = "“All sessions” is on for \(name(change.item.agent)). Turn it off first, then enable the projects."
+            return
+        }
+        for t in change.targets {
+            guard let scope = projectScope(change.item, t) else { continue }
+            let key = "\(change.item.agent)|\(t.folder ?? "")"
+            if change.enable { await install(change.item, scope: scope, key: key) } else { await remove(change.item, scope: scope, key: key) }
         }
     }
 
@@ -121,6 +233,7 @@ struct HooksOverviewView: View {
     }
 
     private func kind(_ agent: String) -> AgentKind? {
+        if let k = AgentResolver.all.first(where: { $0.id == agent })?.kind { return k }
         switch agent {
         case "claude": return .claudeCode
         case "agy": return .antigravity
@@ -134,6 +247,7 @@ struct HooksOverviewView: View {
     }
 
     private func name(_ agent: String) -> String {
+        if let d = AgentResolver.all.first(where: { $0.id == agent }) { return d.displayName }
         switch agent {
         case "claude": return "Claude Code"
         case "agy": return "Antigravity"
@@ -197,7 +311,7 @@ struct HooksOverviewView: View {
     }
 
     private func knownFolders() -> [String] {
-        var folders = profiles.profiles.map(\.workingDir).compactMap { TerminalFolder.normalized($0) }
+        var folders = profiles.profiles.filter { $0.isAvailable(on: serverId) }.map(\.workingDir).compactMap { TerminalFolder.normalized($0) }
         folders.append(contentsOf: extraFolders)
         return Array(NSOrderedSet(array: folders).array.prefix(64)) as? [String] ?? []
     }

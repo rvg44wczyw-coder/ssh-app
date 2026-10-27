@@ -88,6 +88,7 @@ public struct StructuredTranscriptView: View {
     private var layout: some View {
         VStack(spacing: 0) {
             feedStrip
+            ProjectHooksOfferBar(viewModel: viewModel)
             Divider()
 
             // Main Content Area
@@ -1242,5 +1243,42 @@ struct WorkingLightBar: View {
         }
         .frame(height: 3)
         .padding(.horizontal, 4)
+    }
+}
+
+
+/// "Approve from the phone in this project": one quiet line under the status line (spec 61 §5).
+private struct ProjectHooksOfferBar: View {
+    @ObservedObject var viewModel: TerminalSessionViewModel
+    @State private var failure: String?
+
+    var body: some View {
+        if viewModel.projectHooksOffer == nil, let ex = viewModel.excludeOffer {
+            HStack(spacing: 8) {
+                Image(systemName: "eye.slash").foregroundStyle(.secondary)
+                Text(failure ?? "Keep \(ex.file) out of git (adds it to .git/info/exclude)")
+                    .font(.caption).foregroundStyle(failure == nil ? Color.secondary : Color.red)
+                    .lineLimit(2)
+                Spacer(minLength: 4)
+                Button("Add") { Task { failure = await viewModel.acceptExcludeOffer() } }
+                    .font(.caption.bold()).buttonStyle(.bordered).controlSize(.mini)
+                Button("No") { viewModel.excludeOffer = nil }
+                    .font(.caption).buttonStyle(.plain).foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 12).padding(.vertical, 4)
+        } else if let offer = viewModel.projectHooksOffer {
+            HStack(spacing: 8) {
+                Image(systemName: "iphone.badge.checkmark").foregroundStyle(.secondary)
+                Text(failure ?? "Approve \(offer.agentName) from the phone in this project")
+                    .font(.caption).foregroundStyle(failure == nil ? Color.secondary : Color.red)
+                    .lineLimit(2)
+                Spacer(minLength: 4)
+                Button("Enable") { Task { failure = await viewModel.acceptProjectHooksOffer() } }
+                    .font(.caption.bold()).buttonStyle(.bordered).controlSize(.mini)
+                Button("Not now") { viewModel.dismissProjectHooksOffer() }
+                    .font(.caption).buttonStyle(.plain).foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 12).padding(.vertical, 4)
+        }
     }
 }

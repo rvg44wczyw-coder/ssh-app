@@ -1973,6 +1973,12 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
     func applyAgentPermissions(agent: AgentKind, configDir: String?, permissions: AgentPermissions) async throws 
     
     /**
+     * Keeps the agent's project hook file out of git by appending it to `.git/info/exclude`
+     * (never `.gitignore`). Only for files the installer owns alone; see `excludable_hooks_file`.
+     */
+    func excludeProjectHooksFromGit(agent: AgentKind, folder: String) async throws  -> GitExcludeResult
+    
+    /**
      * Reads what is in effect for this session: its folder (tmux pane), the profile's rules and the
      * folder's `.claude/settings.json` / `settings.local.json` (read-only), plus suggestions.
      * Only Claude Code has readable rule files; other agents get an empty report.
@@ -2126,6 +2132,12 @@ public protocol SshSessionHandleProtocol: AnyObject, Sendable {
      * agent's logins is kept).
      */
     func removeSandbox(profile: SandboxProfile) async throws 
+    
+    /**
+     * For each branch brought back: how many files it changed and which of them the host would
+     * run later (git hooks, build files, CI, agent configs). The branches are only read.
+     */
+    func reviewSandboxBranches(profile: SandboxProfile, branches: [String]) async throws  -> [SandboxBranchReview]
     
     /**
      * The hosts the sandbox's proxy lets through right now.
@@ -3572,6 +3584,26 @@ open func applyAgentPermissions(agent: AgentKind, configDir: String?, permission
 }
     
     /**
+     * Keeps the agent's project hook file out of git by appending it to `.git/info/exclude`
+     * (never `.gitignore`). Only for files the installer owns alone; see `excludable_hooks_file`.
+     */
+open func excludeProjectHooksFromGit(agent: AgentKind, folder: String)async throws  -> GitExcludeResult  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_exclude_project_hooks_from_git(
+                        self.uniffiCloneHandle(),FfiConverterTypeAgentKind_lower(agent),FfiConverterString.lower(folder)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeGitExcludeResult_lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
      * Reads what is in effect for this session: its folder (tmux pane), the profile's rules and the
      * folder's `.claude/settings.json` / `settings.local.json` (read-only), plus suggestions.
      * Only Claude Code has readable rule files; other agents get an empty report.
@@ -4086,6 +4118,26 @@ open func removeSandbox(profile: SandboxProfile)async throws   {
             completeFunc: ffi_ssh_core_rust_future_complete_void,
             freeFunc: ffi_ssh_core_rust_future_free_void,
             liftFunc: { $0 },
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+    
+    /**
+     * For each branch brought back: how many files it changed and which of them the host would
+     * run later (git hooks, build files, CI, agent configs). The branches are only read.
+     */
+open func reviewSandboxBranches(profile: SandboxProfile, branches: [String])async throws  -> [SandboxBranchReview]  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_method_sshsessionhandle_review_sandbox_branches(
+                        self.uniffiCloneHandle(),FfiConverterTypeSandboxProfile_lower(profile),FfiConverterSequenceString.lower(branches)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceTypeSandboxBranchReview.lift,
             errorHandler: FfiConverterTypeSshCoreError_lift
         )
 }
@@ -5158,6 +5210,25 @@ public struct AgentDescriptor: Equatable, Hashable {
     public var sessionStore: SessionStore
     public var keys: AgentKeys
     public var commands: [AgentCommand]
+    /**
+     * The name hooks, the usage report and the host's session registry use for this agent
+     * (`claude`, `antigravity`, `codex`, `grok`); empty for the generic row.
+     */
+    public var hookName: String
+    /**
+     * Arguments that continue the last conversation when the agent is started again; empty when it
+     * has no such flag.
+     */
+    public var resumeArgs: [String]
+    /**
+     * The id the quick-command model menus list models for; empty when there is no model list.
+     */
+    public var modelsId: String
+    /**
+     * Whether the usage strip may show a 5-hour message estimate for this agent (read from its
+     * local transcripts).
+     */
+    public var fiveHourEstimate: Bool
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -5170,7 +5241,22 @@ public struct AgentDescriptor: Equatable, Hashable {
          */kind: AgentKind?, displayName: String, 
         /**
          * Program names (the last path component, lower case) that mean this agent in a process list.
-         */processNames: [String], dialect: ScreenDialect, sessionStore: SessionStore, keys: AgentKeys, commands: [AgentCommand]) {
+         */processNames: [String], dialect: ScreenDialect, sessionStore: SessionStore, keys: AgentKeys, commands: [AgentCommand], 
+        /**
+         * The name hooks, the usage report and the host's session registry use for this agent
+         * (`claude`, `antigravity`, `codex`, `grok`); empty for the generic row.
+         */hookName: String, 
+        /**
+         * Arguments that continue the last conversation when the agent is started again; empty when it
+         * has no such flag.
+         */resumeArgs: [String], 
+        /**
+         * The id the quick-command model menus list models for; empty when there is no model list.
+         */modelsId: String, 
+        /**
+         * Whether the usage strip may show a 5-hour message estimate for this agent (read from its
+         * local transcripts).
+         */fiveHourEstimate: Bool) {
         self.id = id
         self.kind = kind
         self.displayName = displayName
@@ -5179,6 +5265,10 @@ public struct AgentDescriptor: Equatable, Hashable {
         self.sessionStore = sessionStore
         self.keys = keys
         self.commands = commands
+        self.hookName = hookName
+        self.resumeArgs = resumeArgs
+        self.modelsId = modelsId
+        self.fiveHourEstimate = fiveHourEstimate
     }
 
     
@@ -5204,7 +5294,11 @@ public struct FfiConverterTypeAgentDescriptor: FfiConverterRustBuffer {
                 dialect: FfiConverterTypeScreenDialect.read(from: &buf), 
                 sessionStore: FfiConverterTypeSessionStore.read(from: &buf), 
                 keys: FfiConverterTypeAgentKeys.read(from: &buf), 
-                commands: FfiConverterSequenceTypeAgentCommand.read(from: &buf)
+                commands: FfiConverterSequenceTypeAgentCommand.read(from: &buf), 
+                hookName: FfiConverterString.read(from: &buf), 
+                resumeArgs: FfiConverterSequenceString.read(from: &buf), 
+                modelsId: FfiConverterString.read(from: &buf), 
+                fiveHourEstimate: FfiConverterBool.read(from: &buf)
         )
     }
 
@@ -5217,6 +5311,10 @@ public struct FfiConverterTypeAgentDescriptor: FfiConverterRustBuffer {
         FfiConverterTypeSessionStore.write(value.sessionStore, into: &buf)
         FfiConverterTypeAgentKeys.write(value.keys, into: &buf)
         FfiConverterSequenceTypeAgentCommand.write(value.commands, into: &buf)
+        FfiConverterString.write(value.hookName, into: &buf)
+        FfiConverterSequenceString.write(value.resumeArgs, into: &buf)
+        FfiConverterString.write(value.modelsId, into: &buf)
+        FfiConverterBool.write(value.fiveHourEstimate, into: &buf)
     }
 }
 
@@ -13206,6 +13304,79 @@ public func FfiConverterTypeRuntimeCaps_lower(_ value: RuntimeCaps) -> RustBuffe
 }
 
 
+/**
+ * What the review screen shows for one branch brought back from a sandbox.
+ */
+public struct SandboxBranchReview: Equatable, Hashable {
+    public var branch: String
+    /**
+     * Files the branch changed against where it left the project's history.
+     */
+    public var changed: UInt32
+    /**
+     * The changed paths the host would run later (at most 50), see `implicit_execution_paths`.
+     */
+    public var flagged: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(branch: String, 
+        /**
+         * Files the branch changed against where it left the project's history.
+         */changed: UInt32, 
+        /**
+         * The changed paths the host would run later (at most 50), see `implicit_execution_paths`.
+         */flagged: [String]) {
+        self.branch = branch
+        self.changed = changed
+        self.flagged = flagged
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension SandboxBranchReview: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSandboxBranchReview: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SandboxBranchReview {
+        return
+            try SandboxBranchReview(
+                branch: FfiConverterString.read(from: &buf), 
+                changed: FfiConverterUInt32.read(from: &buf), 
+                flagged: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SandboxBranchReview, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.branch, into: &buf)
+        FfiConverterUInt32.write(value.changed, into: &buf)
+        FfiConverterSequenceString.write(value.flagged, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSandboxBranchReview_lift(_ buf: RustBuffer) throws -> SandboxBranchReview {
+    return try FfiConverterTypeSandboxBranchReview.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSandboxBranchReview_lower(_ value: SandboxBranchReview) -> RustBuffer {
+    return FfiConverterTypeSandboxBranchReview.lower(value)
+}
+
+
 public struct SandboxPlan: Equatable, Hashable {
     public var imageTag: String
     public var dockerfile: String
@@ -17028,6 +17199,82 @@ public func FfiConverterTypeGitDiffStatus_lift(_ buf: RustBuffer) throws -> GitD
 #endif
 public func FfiConverterTypeGitDiffStatus_lower(_ value: GitDiffStatus) -> RustBuffer {
     return FfiConverterTypeGitDiffStatus.lower(value)
+}
+
+
+
+/**
+ * What adding a project hook file to `.git/info/exclude` did.
+ */
+
+public enum GitExcludeResult: Equatable, Hashable {
+    
+    case added
+    case alreadyThere
+    case notAGitRepo
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension GitExcludeResult: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeGitExcludeResult: FfiConverterRustBuffer {
+    typealias SwiftType = GitExcludeResult
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> GitExcludeResult {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .added
+        
+        case 2: return .alreadyThere
+        
+        case 3: return .notAGitRepo
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: GitExcludeResult, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .added:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .alreadyThere:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .notAGitRepo:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGitExcludeResult_lift(_ buf: RustBuffer) throws -> GitExcludeResult {
+    return try FfiConverterTypeGitExcludeResult.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGitExcludeResult_lower(_ value: GitExcludeResult) -> RustBuffer {
+    return FfiConverterTypeGitExcludeResult.lower(value)
 }
 
 
@@ -22778,6 +23025,31 @@ fileprivate struct FfiConverterSequenceTypeRemoteProcessInfo: FfiConverterRustBu
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeSandboxBranchReview: FfiConverterRustBuffer {
+    typealias SwiftType = [SandboxBranchReview]
+
+    public static func write(_ value: [SandboxBranchReview], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeSandboxBranchReview.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [SandboxBranchReview] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [SandboxBranchReview]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeSandboxBranchReview.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeSessionUsage: FfiConverterRustBuffer {
     typealias SwiftType = [SessionUsage]
 
@@ -23204,6 +23476,18 @@ public func hookCommandSummary(command: String) -> String  {
         uniffiCallStatus in
     uniffi_ssh_core_fn_func_hook_command_summary(
         FfiConverterString.lower(command),uniffiCallStatus
+    )
+})
+}
+/**
+ * The relative file `exclude_hooks_command` would hide, for the offer's text; `None` when the
+ * agent has nothing to hide.
+ */
+public func projectHooksFileToExclude(agent: AgentKind) -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ssh_core_fn_func_project_hooks_file_to_exclude(
+        FfiConverterTypeAgentKind_lower(agent),uniffiCallStatus
     )
 })
 }
@@ -24303,6 +24587,25 @@ public func hookTemplatesFor(agent: AgentKind) -> [HookTemplate]  {
 })
 }
 /**
+ * The hosts a sandbox's proxy refused lately, from one short SSH exec and no session: for the
+ * push notification extension, which has a few seconds and little memory. The allow-list and the
+ * proxy log come back in the same call. Nothing is written on the host.
+ */
+public func sandboxBlockedHostsFor(config: RemoteServerConfig, engine: SandboxEngine, sandboxId: String)async throws  -> [String]  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ssh_core_fn_func_sandbox_blocked_hosts_for(FfiConverterTypeRemoteServerConfig_lower(config),FfiConverterTypeSandboxEngine_lower(engine),FfiConverterString.lower(sandboxId)
+                )
+            },
+            pollFunc: ffi_ssh_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ssh_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ssh_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceString.lift,
+            errorHandler: FfiConverterTypeSshCoreError_lift
+        )
+}
+/**
  * Which parts of the guard each agent acts on.
  */
 public func hostGuardAgentSupport(agent: AgentKind) -> [String]  {
@@ -25380,6 +25683,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_func_hook_command_summary() != 43362) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_func_project_hooks_file_to_exclude() != 16467) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_func_agent_hooks_installed() != 35783) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -25666,6 +25972,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_hook_templates_for() != 16627) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_func_sandbox_blocked_hosts_for() != 56709) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_func_host_guard_agent_support() != 27416) {
@@ -26151,6 +26460,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_apply_agent_permissions() != 22211) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_exclude_project_hooks_from_git() != 35151) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_inspect_session_permissions() != 34128) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -26227,6 +26539,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_remove_sandbox() != 34287) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ssh_core_checksum_method_sshsessionhandle_review_sandbox_branches() != 44600) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ssh_core_checksum_method_sshsessionhandle_sandbox_allowed_hosts() != 11436) {

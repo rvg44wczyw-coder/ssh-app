@@ -20,7 +20,7 @@ public enum FilesIntegration {
             return SharedServer(
                 id: p.id.uuidString, name: p.name, host: p.host, port: p.port, username: p.username,
                 keyId: p.keyId, hostKey: key, startFolder: (folder?.isEmpty ?? true) ? nil : folder,
-                guarded: requireAuth
+                guarded: requireAuth, bannerLookup: p.bannerLookup != false
             )
         }
     }

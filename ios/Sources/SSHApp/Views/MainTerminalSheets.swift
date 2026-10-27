@@ -28,6 +28,7 @@ extension MainTerminalView {
                                 activeSheet = nil
                                 startProfile(profile, command: command)
                             },
+                            servers: serversManager.profiles.map { (id: $0.id, name: $0.name) },
                             embedded: true
                         )
                     )
@@ -36,9 +37,9 @@ extension MainTerminalView {
                     AnyView(HooksOverviewView(viewModel: vm, profiles: agentProfiles))
                 },
                 sandboxPage: tabsManager.activeViewModel.map { vm in
-                    AnyView(SandboxView(viewModel: vm, profiles: agentProfiles, onLaunch: { profile, command in
+                    AnyView(SandboxView(viewModel: vm, profiles: agentProfiles, onLaunch: { profile, command, isolation, sandboxId in
                         activeSheet = nil
-                        startProfile(profile, command: command)
+                        startProfile(profile, command: command, isolation: isolation, sandboxId: sandboxId)
                     }))
                 }
             )
@@ -116,6 +117,7 @@ extension MainTerminalView {
                         activeSheet = nil
                         startProfile(profile, command: command)
                     },
+                    servers: serversManager.profiles.map { (id: $0.id, name: $0.name) },
                     onClose: { activeSheet = nil }
                 )
             }

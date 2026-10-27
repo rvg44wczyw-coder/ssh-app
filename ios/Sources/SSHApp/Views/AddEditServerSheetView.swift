@@ -19,6 +19,7 @@ public struct AddEditServerSheetView: View {
     @State private var forgetHostKey = false
     @State private var keyId: String? = nil
     @State private var showInFiles: Bool = true
+    @State private var bannerLookup: Bool = true
     @State private var filesFolder: String = ""
     @State private var muxPreference: MultiplexerPreference = .auto
     @ObservedObject private var keys = SSHKeyStore.shared
@@ -39,6 +40,7 @@ public struct AddEditServerSheetView: View {
         _isDefault = State(initialValue: existingProfile?.isDefault ?? false)
         _keyId = State(initialValue: existingProfile?.keyId)
         _showInFiles = State(initialValue: existingProfile?.showInFiles ?? true)
+        _bannerLookup = State(initialValue: existingProfile?.bannerLookup ?? true)
         _filesFolder = State(initialValue: existingProfile?.filesFolder ?? "")
         if let p = existingProfile {
             _muxPreference = State(initialValue: HostTargetCache.multiplexerPreference(
@@ -133,6 +135,13 @@ public struct AddEditServerSheetView: View {
                     }
                 }
 
+                Section(
+                    header: Text("Notifications"),
+                    footer: Text("When a sandbox on this server blocks a host, the notification extension can connect here for a moment, with this server's key, to put the host name into the banner. Off: the banner only says a sandbox blocked a host; the name is on the Sandbox screen. Servers whose key needs Face ID are never looked up.")
+                ) {
+                    Toggle("Name blocked hosts in banners", isOn: $bannerLookup)
+                }
+
                 Section {
                     Toggle("Default Server", isOn: $isDefault)
                 }
@@ -215,7 +224,8 @@ public struct AddEditServerSheetView: View {
             hostKeyFingerprint: keptHostKey(host: trimmedHost),
             keyId: keyId,
             showInFiles: showInFiles ? nil : false,
-            filesFolder: filesFolder.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : filesFolder.trimmingCharacters(in: .whitespacesAndNewlines)
+            filesFolder: filesFolder.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : filesFolder.trimmingCharacters(in: .whitespacesAndNewlines),
+            bannerLookup: bannerLookup ? nil : false
         )
 
         HostTargetCache.setMultiplexerPreference(

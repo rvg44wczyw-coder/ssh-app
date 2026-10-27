@@ -199,6 +199,12 @@ public struct SessionTabsView: View {
                             ProfileIconView(ref: icon(for: session).symbol, size: 10)
                                 .foregroundColor(isSelected ? .white : (icon(for: session).color ?? .primary))
 
+                            if let iso = session.isolation {
+                                Image(systemName: iso == .sandbox ? "shield.lefthalf.filled" : "exclamationmark.shield.fill")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(isSelected ? .white : (iso == .sandbox ? .green : .orange))
+                                    .accessibilityLabel(iso == .sandbox ? "In a sandbox" : "Unprotected")
+                            }
                             Text(displayTitle)
                                 .font(.system(size: 11, weight: isSelected ? .bold : .medium))
 

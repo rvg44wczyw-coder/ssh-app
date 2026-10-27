@@ -16,9 +16,13 @@ public struct SharedServer: Codable, Equatable, Sendable {
     public var startFolder: String?
     /// The key is read from the guarded copy, which asks for Face ID (or the passcode) each time.
     public var guarded: Bool
+    /// The push notification extension may open an SSH connection to this server to name the host a
+    /// sandbox blocked. Off: the banner says only that a sandbox blocked a host.
+    public var bannerLookup: Bool
 
     public init(id: String, name: String, host: String, port: UInt16, username: String,
-                keyId: String?, hostKey: String, startFolder: String?, guarded: Bool = false) {
+                keyId: String?, hostKey: String, startFolder: String?, guarded: Bool = false,
+                bannerLookup: Bool = true) {
         self.id = id
         self.name = name
         self.host = host
@@ -28,6 +32,7 @@ public struct SharedServer: Codable, Equatable, Sendable {
         self.hostKey = hostKey
         self.startFolder = startFolder
         self.guarded = guarded
+        self.bannerLookup = bannerLookup
     }
 
     // A list published by an older app has no `guarded`: that means not guarded.
@@ -42,6 +47,7 @@ public struct SharedServer: Codable, Equatable, Sendable {
         hostKey = try c.decode(String.self, forKey: .hostKey)
         startFolder = try c.decodeIfPresent(String.self, forKey: .startFolder)
         guarded = try c.decodeIfPresent(Bool.self, forKey: .guarded) ?? false
+        bannerLookup = try c.decodeIfPresent(Bool.self, forKey: .bannerLookup) ?? true
     }
 }
 

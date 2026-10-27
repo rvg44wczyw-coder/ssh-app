@@ -8,9 +8,7 @@ import SshCoreBridge
 public struct SSHMobileApp: App {
     @UIApplicationDelegateAdaptor(PushAppDelegate.self) private var appDelegate
 
-    public init() {
-        LegacyKeyMigration.runOnce()
-    }
+    public init() {}
 
     public var body: some Scene {
         WindowGroup {
@@ -75,10 +73,14 @@ final class PushAppDelegate: NSObject, UIApplicationDelegate, UNUserNotification
 
     /// With the app in front the relay's push is not shown (the app makes its own banner for the
     /// same event, see `MainTerminalView.deliverNotices`, and the approval card does the rest);
-    /// the app's own local banners are.
+    /// the app's own local banners are. The test push (`alert`) and the blocked-host push are shown
+    /// too: they have no in-app twin.
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async
         -> UNNotificationPresentationOptions {
-        notification.request.trigger is UNPushNotificationTrigger ? [] : [.banner, .list, .sound]
+        let isPush = notification.request.trigger is UNPushNotificationTrigger
+        let category = notification.request.content.userInfo["category"] as? String
+        let isTest = category == "alert" || category == "blocked"
+        return isPush && !isTest ? [] : [.banner, .list, .sound]
     }
 
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
@@ -115,6 +117,31 @@ final class PushManager: ObservableObject {
         let mac = HMAC<SHA256>.authenticationCode(for: Data("sid:\(sessionName)".utf8),
                                                   using: SymmetricKey(data: Data(secret.utf8)))
         return mac.prefix(4).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Publishes `sid → tab name` for the notification extension, which puts the name into a push
+    /// on the phone. The sandbox with the last id answers to the host's `sandbox:<id>` events.
+    private var lastTabs: [TabSession] = []
+    /// The server a sandbox without its own server id belongs to (the default server), so the
+    /// extension can look it up; set by the main view whenever the default changes.
+    var defaultServerId: UUID?
+
+    /// After the sandbox list changed without a tab change.
+    func republishNames() { publishNames(tabs: lastTabs) }
+
+    func publishNames(tabs: [TabSession]) {
+        lastTabs = tabs
+        var names: [String: PushNames.Entry] = [:]
+        for t in tabs {
+            if let sid = sessionId(for: t.sessionName) { names[sid] = PushNames.Entry(name: t.title) }
+        }
+        // Every sandbox answers to its own `sandbox:<id>` events; a tab that runs one lends its name.
+        for r in SandboxRegistry.all() {
+            guard let sid = sessionId(for: "sandbox:\(r.id)") else { continue }
+            let title = tabs.first { $0.sandboxId == r.id }?.title ?? "Sandbox \(r.label) \(r.id.suffix(4))"
+            names[sid] = PushNames.Entry(name: title, server: r.serverId ?? defaultServerId?.uuidString, engine: r.engineName, sandbox: r.id)
+        }
+        PushNames.publish(names)
     }
 
     /// The owner's relay Worker. The address is not a secret.

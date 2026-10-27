@@ -92,7 +92,7 @@ struct SessionUsageItems: View {
                 .fixedSize()
                 .layoutPriority(2)
             }
-            if u.limits.isEmpty, u.agent == "claude", let w = monitor.report?.fiveHour, w.messages > 0 {
+            if u.limits.isEmpty, AgentResolver.entry(hookName: u.agent).fiveHourEstimate, let w = monitor.report?.fiveHour, w.messages > 0 {
                 Text("5h \(tokens(w.input + w.output + w.cacheWrite))").foregroundColor(.secondary)
                     .fixedSize()
                     .layoutPriority(2)

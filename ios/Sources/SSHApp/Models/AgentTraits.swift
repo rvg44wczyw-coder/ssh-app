@@ -67,6 +67,40 @@ enum AgentResolver {
 
     static let genericEntry: AgentDescriptor = genericAgentDescriptor()
 
+    /// The registry row of an agent kind (the generic row for a kind that has none).
+    static func entry(kind: AgentKind) -> AgentDescriptor {
+        all.first { $0.kind == kind } ?? genericEntry
+    }
+
+    /// The row for a name hooks and usage reports use (`claude`, `antigravity`, ...); the generic row
+    /// when the name is unknown or empty.
+    static func entry(hookName: String?) -> AgentDescriptor {
+        guard let hookName, !hookName.isEmpty else { return genericEntry }
+        return all.first { $0.hookName == hookName } ?? genericEntry
+    }
+
+    /// The row whose program name (as a process list shows it) is `program`, if any.
+    static func entry(program: String) -> AgentDescriptor? {
+        all.first { $0.processNames.contains(program) }
+    }
+
+    /// The tab type an agent has, when one exists (only some agents have their own tab type).
+    static func tabType(forHookName name: String) -> AgentType? {
+        switch entry(hookName: name).kind {
+        case .claudeCode: return .claudeCode
+        case .antigravity: return .antigravity
+        default: return nil
+        }
+    }
+
+    /// Arguments that continue the agent's last conversation; empty when it has none.
+    static func resumeArgs(for kind: AgentKind) -> [String] {
+        all.first { $0.kind == kind }?.resumeArgs ?? []
+    }
+
+    /// The id the model menus list models for, `nil` when the agent has no model list.
+    static func modelsId(_ d: AgentDescriptor) -> String? { d.modelsId.isEmpty ? nil : d.modelsId }
+
     /// The row of the agent the screen shows, `nil` when no known agent is recognised.
     static func detected(dialect: ScreenDialect) -> AgentDescriptor? {
         guard dialect != .unknown else { return nil }

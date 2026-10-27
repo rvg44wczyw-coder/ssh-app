@@ -42,9 +42,10 @@ extension MainTerminalView {
             Button { startNewSession(on: tabsManager.activeSession?.serverId ?? serversManager.activeProfileId) } label: {
                 Label("New terminal", systemImage: "plus")
             }
-            if !agentProfiles.profiles.isEmpty {
+            let launchable = agentProfiles.profiles.filter { $0.isAvailable(on: tabsManager.activeSession?.serverId ?? serversManager.activeProfileId) }
+            if !launchable.isEmpty {
                 Menu {
-                    ForEach(agentProfiles.profiles, id: \.id) { p in
+                    ForEach(launchable, id: \.id) { p in
                         Button { launchPreset(p.id) } label: {
                             Text(p.workingDir.isEmpty ? p.name : "\(p.name) — \(p.workingDir)")
                         }

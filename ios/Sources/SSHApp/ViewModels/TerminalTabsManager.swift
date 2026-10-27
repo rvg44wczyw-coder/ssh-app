@@ -221,7 +221,9 @@ public final class TerminalTabsManager: ObservableObject {
     public func addAgentSession(
         profile: SavedAgentProfile,
         command: String,
-        serverId: UUID?
+        serverId: UUID?,
+        isolation: TabIsolation? = nil,
+        sandboxId: String? = nil
     ) -> TabSession {
         let slug = String(
             profile.name.lowercased()
@@ -243,7 +245,9 @@ public final class TerminalTabsManager: ObservableObject {
             sessionName: "\(base)-\(n)",
             command: command,
             serverId: serverId,
-            profileId: profile.id
+            profileId: profile.id,
+            isolation: isolation,
+            sandboxId: sandboxId
         )
         sessions.append(newSession)
         registerSession(newSession)

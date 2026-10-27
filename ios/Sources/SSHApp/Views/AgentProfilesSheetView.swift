@@ -8,6 +8,8 @@ public struct AgentProfilesSheetView: View {
     @ObservedObject var viewModel: TerminalSessionViewModel
     public var onLaunch: (SavedAgentProfile, String) -> Void
     public var onClose: (() -> Void)?
+    /// Every server the app knows, handed to the profile editor.
+    public var servers: [(id: UUID, name: String)] = []
     /// Shown inside another navigation stack (Settings): no own stack, no Close button.
     private let embedded: Bool
 
@@ -26,6 +28,7 @@ public struct AgentProfilesSheetView: View {
         manager: AgentProfilesManager,
         viewModel: TerminalSessionViewModel,
         onLaunch: @escaping (SavedAgentProfile, String) -> Void,
+        servers: [(id: UUID, name: String)] = [],
         onClose: (() -> Void)? = nil,
         embedded: Bool = false
     ) {
@@ -33,6 +36,7 @@ public struct AgentProfilesSheetView: View {
         self.manager = manager
         self.viewModel = viewModel
         self.onLaunch = onLaunch
+        self.servers = servers
         self.onClose = onClose
     }
 
@@ -166,7 +170,7 @@ public struct AgentProfilesSheetView: View {
                     guard let handle = viewModel.sessionHandle,
                           let status = try? await handle.checkHostOllama() else { return [] }
                     return status.models
-                } : nil) { saved in
+                } : nil, servers: servers) { saved in
                     manager.upsert(saved)
                     editing = nil
                 } onCancel: {
@@ -368,6 +372,8 @@ struct AgentProfileEditorView: View {
     @State private var loadingModels = false
     @State private var pickingStart = false
     @State private var pickingConfig = false
+    /// Every server the app knows, for the "Servers" choice.
+    var servers: [(id: UUID, name: String)] = []
     var onSave: (SavedAgentProfile) -> Void
     var onCancel: () -> Void
 
@@ -376,15 +382,31 @@ struct AgentProfileEditorView: View {
         checkEnvironment: ((String) async -> AgentEnvCheck?)? = nil,
         listDirectory: ((String?, Bool) async throws -> RemoteDirectoryListing)? = nil,
         listModels: (() async -> [String])? = nil,
+        servers: [(id: UUID, name: String)] = [],
         onSave: @escaping (SavedAgentProfile) -> Void,
         onCancel: @escaping () -> Void
     ) {
         _profile = State(initialValue: profile)
+        self.servers = servers
         self.checkEnvironment = checkEnvironment
         self.listDirectory = listDirectory
         self.listModels = listModels
         self.onSave = onSave
         self.onCancel = onCancel
+    }
+
+    private var serversSection: some View {
+        Section(header: Text("Servers"), footer: Text("Which servers offer this profile in menus and on the Hooks screen. With none switched on it belongs to every server.")) {
+            ForEach(servers, id: \.id) { server in
+                Toggle(server.name, isOn: Binding(
+                    get: { profile.serverIds.contains(server.id.uuidString) },
+                    set: { on in
+                        profile.serverIds.removeAll { $0 == server.id.uuidString }
+                        if on { profile.serverIds.append(server.id.uuidString) }
+                    }
+                ))
+            }
+        }
     }
 
     private var configEnvName: String? { agentConfigDirEnv(agent: profile.agent) }
@@ -549,6 +571,7 @@ struct AgentProfileEditorView: View {
                             #endif
                     }
                 }
+                if servers.count > 1 { serversSection }
                 if profile.isLocal { localModelSection }
                 Section(
                     header: Text("Start directory"),

@@ -40,6 +40,12 @@ public enum AgentType: String, CaseIterable, Identifiable, Codable, Sendable {
     }
 }
 
+/// How an agent tab is isolated from the server (spec 62). Plain tabs have neither mark.
+public enum TabIsolation: String, Codable, Sendable {
+    case sandbox
+    case unprotected
+}
+
 public struct TabSession: Identifiable, Equatable, Sendable, Codable {
     public let id: UUID
     public var title: String
@@ -53,6 +59,10 @@ public struct TabSession: Identifiable, Equatable, Sendable, Codable {
     public var schemeId: String?
     /// Folder the tab's tmux session starts in (a git worktree); beats the global terminal folder.
     public var startDir: String?
+    /// Set for agent tabs started from the Sandbox screen; the tab strip shows it.
+    public var isolation: TabIsolation?
+    /// The sandbox this tab's agent runs in (`SandboxRecord.id`), for pushes and the Sandbox screen.
+    public var sandboxId: String?
 
     public init(
         id: UUID = UUID(),
@@ -63,7 +73,9 @@ public struct TabSession: Identifiable, Equatable, Sendable, Codable {
         serverId: UUID? = nil,
         profileId: String? = nil,
         schemeId: String? = nil,
-        startDir: String? = nil
+        startDir: String? = nil,
+        isolation: TabIsolation? = nil,
+        sandboxId: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -74,6 +86,8 @@ public struct TabSession: Identifiable, Equatable, Sendable, Codable {
         self.profileId = profileId
         self.schemeId = schemeId
         self.startDir = startDir
+        self.isolation = isolation
+        self.sandboxId = sandboxId
     }
 
     public static func defaultSessions() -> [TabSession] {

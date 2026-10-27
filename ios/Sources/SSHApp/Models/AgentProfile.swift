@@ -38,12 +38,20 @@ public struct SavedAgentProfile: Identifiable, Codable, Equatable, Sendable {
     /// binary/arguments/environment come from the core, so a model change is one edit.
     public var localTool: String
     public var localModel: String
+    /// Servers (`ServerProfile.id` as text) this profile belongs to; empty = every server (spec 61 §5.0).
+    public var serverIds: [String]
+
+    /// Whether the profile is offered on that server. A tab without a server (the default one)
+    /// sees every profile.
+    public func isAvailable(on server: UUID?) -> Bool {
+        serverIds.isEmpty || server.map { serverIds.contains($0.uuidString) } ?? true
+    }
 
     private enum CodingKeys: String, CodingKey {
         case id, name, agentRaw, binary, env, args, workingDir, gitBranch, permissionMode, terminalSchemeId, iconSymbol, iconColor, loadShellRc
         case hookKindRaw, customHookCommand, customHookEvents, customHookMatcher
         case approvalMatcher, approvalEvents, hookExtras, hookOwn
-        case localTool, localModel
+        case localTool, localModel, serverIds
     }
 
     public init(from decoder: Decoder) throws {
@@ -72,6 +80,7 @@ public struct SavedAgentProfile: Identifiable, Codable, Equatable, Sendable {
         hookOwn = try c.decodeIfPresent([SavedHookOwn].self, forKey: .hookOwn) ?? []
         localTool = try c.decodeIfPresent(String.self, forKey: .localTool) ?? ""
         localModel = try c.decodeIfPresent(String.self, forKey: .localModel) ?? ""
+        serverIds = try c.decodeIfPresent([String].self, forKey: .serverIds) ?? []
     }
 
     public init(
@@ -110,6 +119,7 @@ public struct SavedAgentProfile: Identifiable, Codable, Equatable, Sendable {
         self.hookOwn = []
         self.localTool = ""
         self.localModel = ""
+        self.serverIds = []
     }
 
     public var agent: AgentKind {

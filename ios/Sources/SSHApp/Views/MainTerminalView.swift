@@ -242,11 +242,7 @@ public struct MainTerminalView: View {
     }
 
     private static func continueFlag(_ agent: AgentKind) -> String? {
-        switch agent {
-        case .claudeCode: return "--continue"
-        case .antigravity: return "--continue"
-        default: return nil
-        }
+        AgentResolver.resumeArgs(for: agent).first
     }
 
     /// Zellij cannot respawn a pane, so only tmux tabs offer the restart.
@@ -322,11 +318,7 @@ public struct MainTerminalView: View {
     /// register the session): the only tab of that server that can run this agent, else the tab on
     /// screen when it can.
     private func guessedTab(for e: ApprovalEntry) -> TabSession? {
-        let kind: AgentType? = switch e.item.agent {
-        case "claude": .claudeCode
-        case "antigravity": .antigravity
-        default: nil
-        }
+        let kind: AgentType? = AgentResolver.tabType(forHookName: e.item.agent)
         let candidates = tabsManager.sessions.filter { t in
             let key = (serversManager.profile(for: t.serverId) ?? serversManager.activeProfile)?.id.uuidString ?? "default"
             return key == e.serverKey && (kind == nil || t.agentType == kind || t.agentType == .customShell)
@@ -438,9 +430,11 @@ public struct MainTerminalView: View {
     /// Taps on pushes and in-app notifications, and notices, routed to their sessions.
     private func routing<V: View>(_ content: V) -> some View {
         content
-            .onAppear { openPushTarget(); attachVault() }
+            .onAppear { openPushTarget(); attachVault(); push.defaultServerId = serversManager.activeProfile?.id; push.publishNames(tabs: tabsManager.sessions) }
+            .onChange(of: serversManager.activeProfileId) { _, _ in push.defaultServerId = serversManager.activeProfile?.id; push.republishNames() }
             .onChange(of: push.pendingSid) { _, _ in openPushTarget() }
             .onChange(of: tabsManager.sessions.count) { _, _ in openPushTarget() }
+            .onChange(of: tabsManager.sessions.map { $0.sessionName + $0.title }) { _, _ in push.publishNames(tabs: tabsManager.sessions) }
             .onChange(of: approvals.tmuxNames) { _, _ in deliverNotices(); announceApprovals() }
             .onChange(of: approvals.entries.map(\.id)) { _, _ in announceApprovals() }
             .onChange(of: push.pendingTab) { _, id in
@@ -470,7 +464,7 @@ public struct MainTerminalView: View {
                         let slot = profile.map { SchemeSlot.forAgent($0.agent) } ?? SchemeSlot.forTab(session.agentType)
                         return TerminalSchemes.resolve(tabSchemeId: session.schemeId, profileSchemeId: profile?.terminalSchemeId, slot: slot)
                     },
-                    presets: agentProfiles.profiles.map { p in
+                    presets: agentProfiles.profiles.filter { $0.isAvailable(on: tabsManager.activeSession?.serverId ?? serversManager.activeProfileId) }.map { p in
                         (id: p.id, title: p.name,
                          detail: [p.workingDir, p.gitBranch.isEmpty ? "" : "⎇ " + p.gitBranch]
                             .filter { !$0.isEmpty }.joined(separator: " "))
@@ -527,7 +521,7 @@ public struct MainTerminalView: View {
                     onAddSession: {
                         handleAddNewSession()
                     },
-                    presets: agentProfiles.profiles.map { p in
+                    presets: agentProfiles.profiles.filter { $0.isAvailable(on: tabsManager.activeSession?.serverId ?? serversManager.activeProfileId) }.map { p in
                         (id: p.id, title: p.name,
                          detail: [p.workingDir, p.gitBranch.isEmpty ? "" : "⎇ " + p.gitBranch]
                             .filter { !$0.isEmpty }.joined(separator: " "))
@@ -952,7 +946,7 @@ public struct MainTerminalView: View {
 
     /// Opens a tab running `profile`. A local-model agent asks for a one-time confirmation first
     /// (it may run without the phone gate, and `ollama launch` writes config on the host).
-    func startProfile(_ profile: SavedAgentProfile, command: String) {
+    func startProfile(_ profile: SavedAgentProfile, command: String, isolation: TabIsolation? = nil, sandboxId: String? = nil) {
         if profile.isLocal && !agentProfiles.isAcknowledged(profile.id) {
             // A sheet or menu may still be closing; an alert presented during that is dropped.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
@@ -964,7 +958,9 @@ public struct MainTerminalView: View {
         let s = tabsManager.addAgentSession(
             profile: profile,
             command: command,
-            serverId: tabsManager.activeSession?.serverId ?? serversManager.activeProfileId
+            serverId: tabsManager.activeSession?.serverId ?? serversManager.activeProfileId,
+            isolation: isolation,
+            sandboxId: sandboxId
         )
         ensureSessionStarted(for: s.id)
     }
