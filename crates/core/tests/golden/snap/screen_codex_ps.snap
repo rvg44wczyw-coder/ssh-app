@@ -78,5 +78,12 @@ ScreenFeed {
     prompt: None,
     aside: None,
     dialog: None,
-    background: None,
+    background: Some(
+        BackgroundSummary {
+            count: 1,
+            commands: [
+                "sleep 30",
+            ],
+        },
+    ),
 }

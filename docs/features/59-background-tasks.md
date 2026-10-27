@@ -132,8 +132,14 @@ header chip is shown as a counter only.
 - A side fix: agy's task status line (`● [11:40:03] sleep 120 running`) sits between two rules and was read as a typed draft.
 - iOS: the "N tasks" chip in the status line next to the subagents button (enabled only when the core allows opening), the task
   screens in the existing `CommandScreenView` (list rows are tappable, a detail is read-only with a **Stop task** button that asks first).
-- Not built: the feed note for the `<task-notification>` turn of Claude (needs a recorded transcript line), Codex (`/ps`), the stop of a
-  single task from the list.
+- Feed note (added 2026-10-27, from a real transcript record): `transcript/claude.rs` `task_notification` turns a `<task-notification>` user
+  turn or `queued_command` attachment into one system note, label "Background task finished" (other statuses: "Background task <status>",
+  the status cut to letters, digits, `_`, `-`), body the unescaped `<summary>` line (cut to 300 characters); task id, call id and output path are dropped.
+  Text that only mentions the tag stays a user message.
+- Codex (added 2026-10-27): the count comes from the working line (`N background terminal(s) running · /ps to view · /stop to close`), the
+  commands from the last `Background terminals` list that `/ps` printed. There are no open or stop keys in the registry: `/stop` ends all
+  terminals, so the chip is a counter only.
+- Not built: the stop of a single task from the list.
 
 ## Revision notes
 

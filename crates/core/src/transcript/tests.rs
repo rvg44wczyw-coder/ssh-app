@@ -231,6 +231,35 @@ fn a_message_typed_while_the_agent_works_is_a_user_turn() {
 }
 
 #[test]
+fn a_task_notification_becomes_one_short_note_in_both_record_shapes() {
+    let note = "<task-notification>\n<task-id>bj0rp9jkw</task-id>\n<tool-use-id>toolu_01</tool-use-id>\n<output-file>/tmp/x.output</output-file>\n<status>completed</status>\n<summary>Background command \"cargo test &amp;&amp; echo ok\" completed (exit code 0)</summary>\n</task-notification>";
+    let user = serde_json::json!({"type":"user","message":{"role":"user","content":note}});
+    let queued = serde_json::json!({"type":"attachment","attachment":{"type":"queued_command","prompt":note,"origin":{"kind":"task-notification"}}});
+    for rec in [user, queued] {
+        let raw = format!("{rec}\n");
+        let turns = parse_transcript_jsonl(raw).unwrap();
+        assert_eq!(turns.len(), 1);
+        assert_eq!(turns[0].turn_type, TranscriptTurnType::System);
+        assert_eq!(turns[0].label.as_deref(), Some("Background task finished"));
+        assert_eq!(
+            turns[0].content.as_deref(),
+            Some("Background command \"cargo test && echo ok\" completed (exit code 0)")
+        );
+    }
+}
+
+#[test]
+fn text_that_only_mentions_a_task_notification_stays_a_user_message() {
+    let rec = serde_json::json!({"type":"user","message":{"role":"user","content":"what is <task-notification> for?"}});
+    let turns = parse_transcript_jsonl(format!("{rec}\n")).unwrap();
+    assert_eq!(turns[0].turn_type, TranscriptTurnType::User);
+    let odd =
+        "<task-notification><status>../../x y</status><summary>s</summary></task-notification>";
+    let (label, _) = claude::task_notification(odd).unwrap();
+    assert_eq!(label, "Background task xy");
+}
+
+#[test]
 fn permission_mode_records_become_one_hidden_turn_per_change() {
     let mut turns = Vec::new();
     let (mut step, mut last) = (0u64, None);

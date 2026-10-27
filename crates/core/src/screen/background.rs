@@ -45,6 +45,7 @@ fn counted(segment: &str, units: &[&str]) -> Option<u32> {
     let rest = rest.trim();
     let rest = rest
         .strip_suffix("still running")
+        .or_else(|| rest.strip_suffix("running"))
         .map_or(rest, str::trim_end);
     units.contains(&rest).then_some(n.min(MAX_COUNT))
 }
@@ -94,6 +95,41 @@ fn grok_count(lines: &[&str]) -> Option<u32> {
         .and_then(|l| counted(l, &["command", "commands"]))
 }
 
+/// `• Working (9s • esc to interrupt) · 1 background terminal running · /ps to view · /stop to close`:
+/// the count, only while the line is Codex's working line. `/stop` ends all of them and `/ps` prints into
+/// the feed, so Codex has a counter and the commands of the last `/ps` list, but no screen to drive.
+fn codex_count(lines: &[&str]) -> Option<u32> {
+    lines
+        .iter()
+        .rev()
+        .find(|l| super::codex::is_working_line(l))
+        .and_then(|l| {
+            l.split(" · ")
+                .find_map(|s| counted(s, &["background terminal", "background terminals"]))
+        })
+}
+
+/// The commands under the last `Background terminals` heading (`• sleep 30`), up to the first blank line
+/// after them.
+fn codex_ps_commands(lines: &[String]) -> Vec<String> {
+    let Some(at) = lines
+        .iter()
+        .rposition(|l| l.trim() == "Background terminals")
+    else {
+        return Vec::new();
+    };
+    lines[at + 1..]
+        .iter()
+        .map(|l| l.trim())
+        .skip_while(|l| l.is_empty())
+        .take_while(|l| l.starts_with("• "))
+        .filter_map(|l| l.strip_prefix("• "))
+        .map(|c| clip(c.trim(), MAX_COMMAND))
+        .filter(|c| !c.is_empty())
+        .take(MAX_COMMANDS)
+        .collect()
+}
+
 /// The summary for the dialect of the screen; `None` when the agent shows no running task.
 pub(super) fn summary(dialect: ScreenDialect, lines: &[String]) -> Option<BackgroundSummary> {
     let last = tail(lines, FOOTER_LINES);
@@ -107,7 +143,8 @@ pub(super) fn summary(dialect: ScreenDialect, lines: &[String]) -> Option<Backgr
                 .collect(),
         ),
         ScreenDialect::Grok => (grok_count(&last)?, Vec::new()),
-        ScreenDialect::Codex | ScreenDialect::Unknown => return None,
+        ScreenDialect::Codex => (codex_count(&last)?, codex_ps_commands(lines)),
+        ScreenDialect::Unknown => return None,
     };
     (count > 0).then_some(BackgroundSummary { count, commands })
 }

@@ -1746,13 +1746,20 @@ mod background_tasks {
     }
 
     #[test]
+    fn codex_counts_its_background_terminals_and_reads_the_last_ps_list() {
+        let c = feed("codex_ps.txt").background.unwrap();
+        assert_eq!(c.count, 1);
+        assert_eq!(c.commands, ["sleep 30"]);
+        // A queued-message screen shows the count from the working line, with no /ps list on it.
+        let q = feed("codex_working_queued.txt").background.unwrap();
+        assert_eq!((q.count, q.commands.len()), (1, 0));
+        // Codex has no screen to drive (no open keys in the registry); nothing may stop.
+        assert!(!background_stop_allowed(feed("codex_ps.txt")));
+    }
+
+    #[test]
     fn screens_without_a_running_task_have_no_summary() {
-        for n in [
-            "agy_idle.txt",
-            "codex_idle.txt",
-            "grok_idle.txt",
-            "codex_ps.txt",
-        ] {
+        for n in ["agy_idle.txt", "codex_idle.txt", "grok_idle.txt"] {
             assert!(feed(n).background.is_none(), "{n}");
         }
     }

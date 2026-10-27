@@ -99,6 +99,47 @@ pub(super) fn duration_label(ms: u64) -> String {
     }
 }
 
+/// The text between `<tag>` and `</tag>`, when both are there.
+fn tag_text<'a>(s: &'a str, tag: &str) -> Option<&'a str> {
+    let open = format!("<{tag}>");
+    let from = s.find(&open)? + open.len();
+    let len = s[from..].find(&format!("</{tag}>"))?;
+    Some(&s[from..from + len])
+}
+
+fn unescape_xml(s: &str) -> String {
+    s.replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&amp;", "&")
+}
+
+/// Claude's own turn that reports a finished background command:
+/// `<task-notification><task-id>..</task-id><status>completed</status><summary>Background command "x"
+/// completed (exit code 0)</summary></task-notification>`. A short label and the summary line; the task id,
+/// call id and output path are noise on the phone. `None`: the text is anything else.
+pub(super) fn task_notification(text: &str) -> Option<(String, String)> {
+    let t = text.trim();
+    if !t.starts_with("<task-notification>") || !t.ends_with("</task-notification>") {
+        return None;
+    }
+    let status: String = tag_text(t, "status")
+        .unwrap_or("")
+        .trim()
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
+        .take(20)
+        .collect();
+    let label = match status.as_str() {
+        "" => "Background task".to_string(),
+        "completed" => "Background task finished".to_string(),
+        other => format!("Background task {other}"),
+    };
+    let summary = tag_text(t, "summary").map(|s| unescape_xml(s.trim()))?;
+    (!summary.is_empty()).then(|| (label, clip(&summary, 300)))
+}
+
 /// Names for Claude Code's `attachment` records (what it adds to the model's context) and the
 /// one line worth showing for each. `None`: nothing to show.
 pub(super) fn describe_attachment(att: &serde_json::Value) -> Option<(String, Option<String>)> {
@@ -313,6 +354,17 @@ pub(super) fn parse_claude_record(
             if kind == "user" {
                 let Some(text) = text else { return };
                 *last_msg_id = None;
+                if let Some((label, summary)) = task_notification(&text) {
+                    push(
+                        turns,
+                        TranscriptTurnType::System,
+                        Some(summary),
+                        None,
+                        vec![],
+                        Some(label),
+                    );
+                    return;
+                }
                 if val.get("isMeta").and_then(|v| v.as_bool()) == Some(true) {
                     push(
                         turns,
@@ -431,6 +483,15 @@ pub(super) fn parse_claude_record(
                     None,
                     vec![],
                     None,
+                );
+            } else if let Some((label, summary)) = task_notification(prompt) {
+                push(
+                    turns,
+                    TranscriptTurnType::System,
+                    Some(summary),
+                    None,
+                    vec![],
+                    Some(label),
                 );
             } else if let Some((label, body)) = describe_attachment(att) {
                 push(
